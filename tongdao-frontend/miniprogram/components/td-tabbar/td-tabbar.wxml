@@ -1,0 +1,6 @@
+<view class="tabbar">
+  <view wx:for="{{tabs}}" wx:key="key" class="tab {{active === item.key ? 'active' : ''}}" data-url="{{item.url}}" bindtap="onTap">
+    <view class="glyph {{item.key}}"></view>
+    <text>{{item.label}}</text>
+  </view>
+</view>

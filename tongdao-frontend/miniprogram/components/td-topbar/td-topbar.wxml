@@ -1,0 +1,5 @@
+<view class="topbar">
+  <view class="city">{{title}}</view>
+  <view class="search">{{placeholder}}</view>
+  <view wx:if="{{action}}" class="icon-btn">{{action}}</view>
+</view>

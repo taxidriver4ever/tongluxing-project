@@ -1,0 +1,34 @@
+<view class="publish-page">
+  <view class="map-backdrop">
+    <view class="road r1"></view>
+    <view class="road r2"></view>
+    <view class="road r3"></view>
+  </view>
+
+  <td-topbar title="发布行程" placeholder="广州 → 大理" action="关" />
+
+  <view class="sheet">
+    <view class="handle"></view>
+    <view class="step">Step 1 / 2 画路线</view>
+    <view class="input">起点：当前位置 · 广州天河</view>
+    <view class="input">终点：大理古城</view>
+    <view class="mini-map">
+      <view class="path"></view>
+      <view class="dot a"></view>
+      <view class="dot b"></view>
+    </view>
+    <view class="step">Step 2 / 2 行程详情</view>
+    <view class="input">出发时间：6.12 08:00</view>
+    <view class="option-grid">
+      <view class="option">浅同行</view>
+      <view class="option active">中同行</view>
+      <view class="option">深同行</view>
+    </view>
+    <view class="option-grid">
+      <view class="option active">2车</view>
+      <view class="option">4车</view>
+      <view class="option">不设限</view>
+    </view>
+    <view class="btn publish-btn" bindtap="goBack">发布行程并寻找同路车队</view>
+  </view>
+</view>

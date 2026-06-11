@@ -1,0 +1,64 @@
+<view class="login-page">
+  <view class="login-bg">
+    <view class="road r1"></view>
+    <view class="road r2"></view>
+    <view class="road r3"></view>
+  </view>
+
+  <view class="login-content">
+    <view class="brand">
+      <view class="logo">同</view>
+      <view>
+        <view class="brand-title">同道</view>
+        <view class="brand-sub">自驾路上，找到同路人</view>
+      </view>
+    </view>
+
+    <view class="slogan">
+      <text>以车为单位，</text>
+      <text>连接每一段同路。</text>
+    </view>
+    <view class="desc">手机号验证码登录。首次登录后自动创建账号，后续完成车辆认证即可使用组队能力。</view>
+
+    <view class="form-card">
+      <view class="field">
+        <view class="label">手机号</view>
+        <input class="input" type="number" maxlength="11" placeholder="请输入手机号" value="{{phone}}" bindinput="onPhoneInput" />
+      </view>
+
+      <view wx:if="{{codeSent}}" class="field">
+        <view class="label">验证码</view>
+        <view class="input-row">
+          <input class="input" type="number" maxlength="6" placeholder="请输入 6 位验证码" value="{{code}}" bindinput="onCodeInput" />
+          <view class="code-btn {{resendDisabled ? 'disabled' : ''}}" bindtap="onSendCode">{{countdownText}}</view>
+        </view>
+      </view>
+
+      <view wx:if="{{!codeSent}}" class="button {{sendDisabled ? 'disabled' : ''}}" bindtap="onSendCode">获取验证码</view>
+      <view wx:else class="button {{loginDisabled ? 'disabled' : ''}}" bindtap="onLogin">登录并进入同道</view>
+
+      <view class="agree" bindtap="toggleAgree">
+        <view class="check {{agreed ? '' : 'off'}}"></view>
+        <view>我已阅读并同意 <text class="link">用户协议</text> 和 <text class="link">隐私政策</text></view>
+      </view>
+    </view>
+
+    <view class="bottom-note">V1 只保留手机号验证码登录，不做复杂第三方登录。</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="loading">
+    <view class="spinner"></view>
+    <view>正在同步登录状态...</view>
+  </view>
+
+  <view wx:if="{{showAgreementModal}}" class="modal-mask">
+    <view class="modal">
+      <view class="modal-title">请先同意协议</view>
+      <view class="modal-text">登录代表你将使用同道的行程、组队、位置等能力。继续前请阅读并同意用户协议和隐私政策。</view>
+      <view class="modal-actions">
+        <view class="modal-btn" bindtap="closeAgreementModal">暂不登录</view>
+        <view class="modal-btn primary" bindtap="agreeAndContinue">同意并继续</view>
+      </view>
+    </view>
+  </view>
+</view>

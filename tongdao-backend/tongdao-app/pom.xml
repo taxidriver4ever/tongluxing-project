@@ -21,15 +21,43 @@
         </dependency>
         <dependency>
             <groupId>com.tongdao</groupId>
-            <artifactId>tongdao-auth</artifactId>
+            <artifactId>auth-module</artifactId>
         </dependency>
         <dependency>
             <groupId>com.tongdao</groupId>
-            <artifactId>tongdao-activity</artifactId>
+            <artifactId>user-module</artifactId>
         </dependency>
         <dependency>
             <groupId>com.tongdao</groupId>
-            <artifactId>tongdao-order</artifactId>
+            <artifactId>vehicle-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>trip-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>match-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>team-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>chat-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>map-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>notify-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>admin-module</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -42,6 +70,10 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

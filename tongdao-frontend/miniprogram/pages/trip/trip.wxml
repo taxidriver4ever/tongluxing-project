@@ -1,0 +1,48 @@
+<view class="page-shell">
+  <td-topbar title="行程" placeholder="搜索路线、车队、目的地" action="加" />
+
+  <scroll-view scroll-y class="page-content">
+    <view class="state-card card">
+      <view class="state-title">
+        <text>当前行程：广州 → 大理</text>
+        <text class="running">进行中</text>
+      </view>
+      <view class="sub">出发：6.12 08:00 ｜ 预计 3 天 ｜ 同路深度：中</view>
+      <view class="btn-row">
+        <view class="btn ghost">编辑行程</view>
+        <view class="btn gray">结束行程</view>
+      </view>
+    </view>
+
+    <view class="section-head">
+      <text>顺路推荐</text>
+      <text class="more">按顺路率排序</text>
+    </view>
+
+    <view wx:for="{{teams}}" wx:key="name" class="convoy-card card">
+      <view class="convoy-top">
+        <view class="convoy-name">
+          <td-avatar text="{{item.avatar}}" theme="{{item.theme}}" />
+          <view class="convoy-copy">
+            <text class="name">{{item.name}}</text>
+            <text class="desc">{{item.desc}}</text>
+          </view>
+        </view>
+        <view class="match">{{item.match}}</view>
+      </view>
+      <view class="route-line">
+        <text>{{item.route}}</text>
+        <text>{{item.note}}</text>
+      </view>
+      <view class="tags">
+        <td-tag wx:for="{{item.tags}}" wx:key="*this" wx:for-item="tag" text="{{tag}}" />
+      </view>
+      <view wx:if="{{index === 0}}" class="btn-row">
+        <view class="btn ghost">打招呼</view>
+        <view class="btn">申请入队</view>
+      </view>
+    </view>
+  </scroll-view>
+
+  <td-tabbar active="trip" />
+</view>

@@ -1,28 +1,36 @@
-<!--index.wxml-->
-<navigation-bar title="Weixin" back="{{false}}" color="black" background="#FFF"></navigation-bar>
-<scroll-view class="scrollarea" scroll-y type="list">
-  <view class="container">
-    <view class="userinfo">
-      <block wx:if="{{canIUseNicknameComp && !hasUserInfo}}">
-        <button class="avatar-wrapper" open-type="chooseAvatar" bind:chooseavatar="onChooseAvatar">
-          <image class="avatar" src="{{userInfo.avatarUrl}}"></image>
-        </button>
-        <view class="nickname-wrapper">
-          <text class="nickname-label">昵称</text>
-          <input type="nickname" class="nickname-input" placeholder="请输入昵称" bind:change="onInputChange" />
-        </view>
-      </block>
-      <block wx:elif="{{!hasUserInfo}}">
-        <button wx:if="{{canIUseGetUserProfile}}" bindtap="getUserProfile"> 获取头像昵称 </button>
-        <view wx:else> 请使用2.10.4及以上版本基础库 </view>
-      </block>
-      <block wx:else>
-        <image bindtap="bindViewTap" class="userinfo-avatar" src="{{userInfo.avatarUrl}}" mode="cover"></image>
-        <text class="userinfo-nickname">{{userInfo.nickName}}</text>
-      </block>
+<view class="map-page">
+  <view class="map-canvas">
+    <view class="road r1"></view>
+    <view class="road r2"></view>
+    <view class="road r3"></view>
+    <view class="road r4"></view>
+    <view class="marker mycar">车</view>
+    <view class="marker car c1">友</view>
+    <view class="marker car c2">友</view>
+    <view class="marker car c3">友</view>
+    <view class="team-range"></view>
+    <view class="marker team-car t1">队</view>
+    <view class="marker team-car t2">2</view>
+    <view class="marker poi p1">油</view>
+    <view class="marker poi p2">电</view>
+    <view class="marker poi p3">景</view>
+    <view class="hot-chat">热聊 3人</view>
+  </view>
+
+  <td-topbar title="北京·朝阳" placeholder="搜目的地、路线、车队、服务区" action="铃" />
+  <view class="floating-list">列表</view>
+
+  <view class="bottom-actions">
+    <view class="trip-mini">
+      <text><text class="strong">318经典车队</text> 距拉萨 182km</text>
+      <text>共享 ON</text>
     </view>
-    <view class="usermotto">
-      <text class="user-motto">{{motto}}</text>
+    <view class="action-grid">
+      <view class="action">发动态<text>沿途随手拍</text></view>
+      <view class="action" bindtap="goPublishTrip">设行程<text>开始组队</text></view>
+      <view class="action sos" bindtap="goSos">SOS<text>长按3秒</text></view>
     </view>
   </view>
-</scroll-view>
+
+  <td-tabbar active="map" />
+</view>

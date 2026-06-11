@@ -12,11 +12,18 @@
     <description>Tongdao backend parent project</description>
 
     <modules>
-        <module>tongdao-common</module>
-        <module>tongdao-auth</module>
-        <module>tongdao-activity</module>
-        <module>tongdao-order</module>
         <module>tongdao-app</module>
+        <module>tongdao-common</module>
+        <module>auth-module</module>
+        <module>user-module</module>
+        <module>vehicle-module</module>
+        <module>trip-module</module>
+        <module>match-module</module>
+        <module>team-module</module>
+        <module>chat-module</module>
+        <module>map-module</module>
+        <module>notify-module</module>
+        <module>admin-module</module>
     </modules>
 
     <properties>
@@ -50,17 +57,52 @@
             </dependency>
             <dependency>
                 <groupId>com.tongdao</groupId>
-                <artifactId>tongdao-auth</artifactId>
+                <artifactId>auth-module</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.tongdao</groupId>
-                <artifactId>tongdao-activity</artifactId>
+                <artifactId>user-module</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.tongdao</groupId>
-                <artifactId>tongdao-order</artifactId>
+                <artifactId>vehicle-module</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tongdao</groupId>
+                <artifactId>trip-module</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tongdao</groupId>
+                <artifactId>match-module</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tongdao</groupId>
+                <artifactId>team-module</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tongdao</groupId>
+                <artifactId>chat-module</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tongdao</groupId>
+                <artifactId>map-module</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tongdao</groupId>
+                <artifactId>notify-module</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tongdao</groupId>
+                <artifactId>admin-module</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

@@ -1,0 +1,5 @@
+<view class="sos-overlay">
+  <view class="sos-num">3</view>
+  <view class="title">正在触发 SOS</view>
+  <view class="copy">松手取消。继续长按将发送你的位置、车辆信息、车上人数给平台客服、当前车队和紧急联系人。</view>
+</view>

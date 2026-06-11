@@ -1,9 +1,16 @@
 {
   "pages": [
+    "pages/login/login",
     "pages/index/index",
-    "pages/logs/logs"
+    "pages/trip/trip",
+    "pages/feed/feed",
+    "pages/message/message",
+    "pages/profile/profile",
+    "pages/publish-trip/publish-trip",
+    "pages/sos/sos"
   ],
   "window": {
+    "backgroundColor": "#F5F7FB",
     "navigationBarTextStyle": "black",
     "navigationStyle": "custom"
   },

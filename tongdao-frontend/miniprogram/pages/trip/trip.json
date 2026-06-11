@@ -1,0 +1,8 @@
+{
+  "usingComponents": {
+    "td-topbar": "/components/td-topbar/td-topbar",
+    "td-tabbar": "/components/td-tabbar/td-tabbar",
+    "td-avatar": "/components/td-avatar/td-avatar",
+    "td-tag": "/components/td-tag/td-tag"
+  }
+}

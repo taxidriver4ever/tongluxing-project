@@ -1,0 +1,86 @@
+.profile-head {
+  min-height: 312rpx;
+  background: linear-gradient(135deg, #3A86FF, #65A6FF);
+  color: #FFFFFF;
+  padding: 48rpx 36rpx 32rpx;
+}
+
+.profile-row {
+  display: flex;
+  gap: 24rpx;
+  align-items: center;
+}
+
+.profile-avatar {
+  width: 124rpx;
+  height: 124rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .24);
+  border: 4rpx solid rgba(255, 255, 255, .85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48rpx;
+  font-weight: 900;
+}
+
+.profile-name {
+  font-size: 40rpx;
+  font-weight: 900;
+}
+
+.profile-sub {
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  opacity: .92;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16rpx;
+  margin-top: 36rpx;
+}
+
+.stat {
+  height: 96rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, .18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 22rpx;
+}
+
+.stat text:first-child {
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.menu {
+  margin: 24rpx 28rpx 148rpx;
+  overflow: hidden;
+}
+
+.menu-row {
+  min-height: 96rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28rpx;
+  background: #FFFFFF;
+  border-bottom: 1rpx solid var(--line);
+  color: var(--text);
+  font-size: 26rpx;
+  font-weight: 800;
+}
+
+.menu-row:last-child {
+  border-bottom: 0;
+}
+
+.menu-row text:last-child {
+  color: var(--muted);
+  font-weight: 700;
+}

@@ -1,0 +1,78 @@
+.feed-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12rpx;
+  margin-bottom: 24rpx;
+}
+
+.seg {
+  height: 68rpx;
+  border-radius: 34rpx;
+  background: #FFFFFF;
+  border: 1rpx solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 24rpx;
+  font-weight: 900;
+}
+
+.seg.active {
+  color: #FFFFFF;
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.masonry {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20rpx;
+}
+
+.moment {
+  overflow: hidden;
+  border-radius: 16rpx;
+  background: #FFFFFF;
+  border: 1rpx solid var(--line);
+  box-shadow: 0 16rpx 36rpx rgba(15, 23, 42, .06);
+}
+
+.moment-img {
+  height: 236rpx;
+  background: linear-gradient(135deg, #9AD4FF, #E6F6D7);
+}
+
+.img-1 {
+  height: 320rpx;
+  background: linear-gradient(135deg, #FFD49A, #FFEFD6);
+}
+
+.img-2 {
+  height: 276rpx;
+  background: linear-gradient(135deg, #C7D2FE, #DBEAFE);
+}
+
+.img-3 {
+  height: 212rpx;
+  background: linear-gradient(135deg, #FBCFE8, #FDE68A);
+}
+
+.moment-body {
+  padding: 16rpx;
+}
+
+.moment-title {
+  color: var(--text);
+  font-size: 24rpx;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.moment-meta {
+  margin-top: 14rpx;
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 20rpx;
+}

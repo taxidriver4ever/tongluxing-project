@@ -1,0 +1,19 @@
+<view class="page-shell">
+  <td-topbar title="消息" placeholder="搜索会话、车队、车友" action="点" />
+
+  <view class="chat-list">
+    <view wx:for="{{chats}}" wx:key="name" class="chat-item">
+      <td-avatar text="{{item.avatar}}" theme="{{item.theme}}" />
+      <view class="chat-main">
+        <view class="chat-name">
+          <text>{{item.name}}</text>
+          <text>{{item.time}}</text>
+        </view>
+        <view class="chat-preview">{{item.preview}}</view>
+      </view>
+      <view wx:if="{{item.badge}}" class="badge">{{item.badge}}</view>
+    </view>
+  </view>
+
+  <td-tabbar active="message" />
+</view>

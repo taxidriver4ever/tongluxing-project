@@ -1,0 +1,23 @@
+<view class="page-shell">
+  <td-topbar title="路途圈" placeholder="搜路线标签、地点、动态" action="发" />
+
+  <scroll-view scroll-y class="page-content">
+    <view class="feed-tabs">
+      <view wx:for="{{tabs}}" wx:key="*this" class="seg {{index === 0 ? 'active' : ''}}">{{item}}</view>
+    </view>
+    <view class="masonry">
+      <view wx:for="{{moments}}" wx:key="title" class="moment">
+        <view class="moment-img img-{{index}}"></view>
+        <view class="moment-body">
+          <view class="moment-title">{{item.title}}</view>
+          <view class="moment-meta">
+            <text>{{item.meta}}</text>
+            <text>{{item.stat}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </scroll-view>
+
+  <td-tabbar active="feed" />
+</view>

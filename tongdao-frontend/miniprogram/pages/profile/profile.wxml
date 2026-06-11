@@ -1,0 +1,26 @@
+<view class="page-shell">
+  <view class="profile-head">
+    <view class="profile-row">
+      <view class="profile-avatar">杰</view>
+      <view>
+        <view class="profile-name">越野阿杰</view>
+        <view class="profile-sub">信用 ★4.8 ｜ 已认证车主</view>
+      </view>
+    </view>
+    <view class="stats">
+      <view wx:for="{{stats}}" wx:key="label" class="stat">
+        <text>{{item.value}}</text>
+        <text>{{item.label}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="menu card">
+    <view wx:for="{{menus}}" wx:key="label" class="menu-row">
+      <text>{{item.label}}</text>
+      <text>{{item.value}}</text>
+    </view>
+  </view>
+
+  <td-tabbar active="profile" />
+</view>

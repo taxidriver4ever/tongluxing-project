@@ -10,9 +10,11 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import com.tongdao.auth.client.WxMiniProgramClient;
 import com.tongdao.auth.dto.LoginRequest;
 import com.tongdao.auth.dto.RefreshTokenRequest;
 import com.tongdao.auth.dto.SmsCodeRequest;
+import com.tongdao.auth.dto.WxPhoneLoginRequest;
 import com.tongdao.auth.entity.AuthAccount;
 import com.tongdao.auth.mapper.AuthAccountMapper;
 import com.tongdao.auth.mapper.AuthLoginLogMapper;
@@ -52,6 +54,7 @@ public class AuthServiceImpl implements AuthService {
     private final AuthAccountMapper accountMapper;
     private final AuthSmsLogMapper smsLogMapper;
     private final AuthLoginLogMapper loginLogMapper;
+    private final WxMiniProgramClient wxMiniProgramClient;
 
     @Override
     public SmsCodeResponse sendSmsCode(SmsCodeRequest request) {
@@ -86,6 +89,19 @@ public class AuthServiceImpl implements AuthService {
         validateLoginFailLimit(phone);
         validateSmsCode(phone, request.code());
 
+        LoginResponse response = doLoginByPhone(phone, request.deviceId(), "login");
+        redisTemplate.delete(key(SMS_CODE_KEY, DEFAULT_SCENE, phone));
+        return response;
+    }
+
+    @Override
+    @Transactional
+    public LoginResponse wxPhoneLogin(WxPhoneLoginRequest request) {
+        String phone = wxMiniProgramClient.getPhoneNumber(request.code());
+        return doLoginByPhone(phone, request.deviceId(), "wx_phone_login");
+    }
+
+    private LoginResponse doLoginByPhone(String phone, String deviceId, String actionType) {
         AuthAccount account = accountMapper.findByPhone(phone);
         boolean isNewUser = account == null;
         if (account == null) {
@@ -95,12 +111,12 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(ResultCode.FORBIDDEN, "账号已被禁用");
         }
 
-        updateLastLogin(account.getUserId(), currentIp());
+        String ip = currentIp();
+        updateLastLogin(account.getUserId(), ip);
         redisTemplate.delete(loginFailKey(phone));
-        redisTemplate.delete(key(SMS_CODE_KEY, DEFAULT_SCENE, phone));
 
-        TokenStore.TokenPair tokenPair = tokenStore.create(account.getUserId(), phone, request.deviceId());
-        insertLoginLog(account.getUserId(), phone, "login", request.deviceId(), currentIp(), true, "login success");
+        TokenStore.TokenPair tokenPair = tokenStore.create(account.getUserId(), phone, deviceId);
+        insertLoginLog(account.getUserId(), phone, actionType, deviceId, ip, true, actionType + " success");
         return new LoginResponse(
                 tokenPair.token(),
                 tokenPair.refreshToken(),

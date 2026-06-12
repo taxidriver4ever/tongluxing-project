@@ -1,42 +1,15 @@
-import { getCurrentUser, login, sendSmsCode } from "../../api/auth"
+import { wxPhoneLogin } from "../../api/auth"
 import { saveSession } from "../../utils/auth-storage"
-
-const PHONE_PATTERN = /^1[3-9]\d{9}$/
 
 Component({
   data: {
-    phone: "",
-    code: "",
     agreed: false,
-    codeSent: false,
-    countdown: 0,
-    countdownText: "重发",
-    sendDisabled: true,
-    loginDisabled: true,
-    resendDisabled: false,
     loading: false,
     showAgreementModal: false
   },
-  lifetimes: {
-    detached() {
-      const timer = (this as unknown as { countdownTimer?: number }).countdownTimer
-      if (timer) {
-        clearInterval(timer)
-      }
-    }
-  },
   methods: {
-    onPhoneInput(event: any) {
-      this.setData({ phone: event.detail.value })
-      this.updateButtonState()
-    },
-    onCodeInput(event: any) {
-      this.setData({ code: event.detail.value })
-      this.updateButtonState()
-    },
     toggleAgree() {
       this.setData({ agreed: !this.data.agreed })
-      this.updateButtonState()
     },
     closeAgreementModal() {
       this.setData({ showAgreementModal: false })
@@ -44,54 +17,33 @@ Component({
     agreeAndContinue() {
       this.setData({ agreed: true, showAgreementModal: false })
     },
-    async onSendCode() {
-      if (!this.validatePhone()) {
-        return
-      }
-      if (!this.data.agreed) {
-        this.setData({ showAgreementModal: true })
-        return
-      }
-      if (this.data.countdown > 0 || this.data.loading) {
-        return
-      }
-
-      this.setData({ loading: true })
-      this.updateButtonState()
-      try {
-        const result = await sendSmsCode({
-          phone: this.data.phone,
-          scene: "login"
-        })
-        wx.showToast({ title: "验证码已发送", icon: "none" })
-        this.startCountdown(result.expireSeconds || 60)
-        this.setData({ codeSent: true })
-      } catch (error) {
-        wx.showToast({ title: this.getErrorMessage(error), icon: "none" })
-      } finally {
-        this.setData({ loading: false })
-        this.updateButtonState()
-      }
+    onNeedAgree() {
+      this.setData({ showAgreementModal: true })
     },
-    async onLogin() {
-      if (!this.validatePhone()) {
-        return
-      }
+    async onWxPhoneLogin(event: any) {
+      console.log("getPhoneNumber detail", event.detail)
       if (!this.data.agreed) {
         this.setData({ showAgreementModal: true })
         return
       }
-      if (!/^\d{6}$/.test(this.data.code)) {
-        wx.showToast({ title: "请输入6位验证码", icon: "none" })
+
+      const detail = event.detail || {}
+      if (detail.errMsg !== "getPhoneNumber:ok") {
+        wx.showToast({ title: this.getPhoneAuthErrorMessage(detail.errMsg), icon: "none" })
+        return
+      }
+      if (!detail.code) {
+        wx.showToast({ title: "未获取到手机号授权码", icon: "none" })
+        return
+      }
+      if (this.data.loading) {
         return
       }
 
       this.setData({ loading: true })
-      this.updateButtonState()
       try {
-        const result = await login({
-          phone: this.data.phone,
-          code: this.data.code,
+        const result = await wxPhoneLogin({
+          code: detail.code,
           deviceId: "miniapp-device-id"
         })
         saveSession({
@@ -99,54 +51,28 @@ Component({
           refreshToken: result.refreshToken,
           userId: result.userId
         })
-        await getCurrentUser()
         wx.showToast({ title: "登录成功", icon: "success" })
-        wx.redirectTo({ url: result.isNewUser ? "/pages/profile/profile" : "/pages/index/index" })
+        wx.reLaunch({
+          url: result.isNewUser ? "/pages/profile/profile" : "/pages/index/index"
+        })
       } catch (error) {
         wx.showToast({ title: this.getErrorMessage(error), icon: "none" })
       } finally {
         this.setData({ loading: false })
-        this.updateButtonState()
       }
     },
-    validatePhone(): boolean {
-      if (!this.data.phone) {
-        wx.showToast({ title: "请输入手机号", icon: "none" })
-        return false
+    getPhoneAuthErrorMessage(errMsg: string): string {
+      if (!errMsg) {
+        return "手机号授权失败"
       }
-      if (!PHONE_PATTERN.test(this.data.phone)) {
-        wx.showToast({ title: "请输入正确的手机号", icon: "none" })
-        return false
+      if (errMsg.indexOf("cancel") >= 0 || errMsg.indexOf("deny") >= 0 || errMsg.indexOf("用户取消") >= 0) {
+        return "用户取消授权"
       }
-      return true
-    },
-    startCountdown(seconds: number) {
-      const host = this as unknown as { countdownTimer?: number }
-      if (host.countdownTimer) {
-        clearInterval(host.countdownTimer)
+      if (errMsg.indexOf("no permission") >= 0) {
+        return "当前小程序未开通手机号授权能力"
       }
-
-      this.setData({ countdown: seconds, countdownText: `${seconds}s`, resendDisabled: true })
-      this.updateButtonState()
-      host.countdownTimer = setInterval(() => {
-        const next = this.data.countdown - 1
-        if (next <= 0) {
-          clearInterval(host.countdownTimer)
-          host.countdownTimer = undefined
-          this.setData({ countdown: 0, countdownText: "重发", resendDisabled: false })
-          this.updateButtonState()
-          return
-        }
-        this.setData({ countdown: next, countdownText: `${next}s`, resendDisabled: true })
-        this.updateButtonState()
-      }, 1000)
-    },
-    updateButtonState() {
-      this.setData({
-        sendDisabled: !this.data.phone || !this.data.agreed || this.data.loading,
-        loginDisabled: !this.data.phone || this.data.code.length !== 6 || !this.data.agreed || this.data.loading,
-        resendDisabled: this.data.countdown > 0 || this.data.loading
-      })
+      console.error("getPhoneNumber failed", errMsg)
+      return "手机号授权失败，请检查小程序权限"
     },
     getErrorMessage(error: unknown): string {
       return error instanceof Error ? error.message : "网络异常，请稍后重试"

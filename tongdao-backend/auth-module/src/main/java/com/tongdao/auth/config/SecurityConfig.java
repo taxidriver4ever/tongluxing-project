@@ -35,6 +35,7 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/v1/auth/sms-code",
                                 "/v1/auth/login",
+                                "/v1/auth/wx-phone-login",
                                 "/v1/auth/refresh-token",
                                 "/actuator/health"
                         ).permitAll()

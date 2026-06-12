@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.*;
 import com.tongdao.auth.dto.LoginRequest;
 import com.tongdao.auth.dto.RefreshTokenRequest;
 import com.tongdao.auth.dto.SmsCodeRequest;
+import com.tongdao.auth.dto.WxPhoneLoginRequest;
 import com.tongdao.auth.service.AuthService;
 import com.tongdao.auth.vo.CurrentUserResponse;
 import com.tongdao.auth.vo.LoginResponse;
@@ -33,6 +34,11 @@ public class AuthController {
     @PostMapping("/login")
     public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return Result.success(authService.login(request));
+    }
+
+    @PostMapping("/wx-phone-login")
+    public Result<LoginResponse> wxPhoneLogin(@Valid @RequestBody WxPhoneLoginRequest request) {
+        return Result.success(authService.wxPhoneLogin(request));
     }
 
     @PostMapping("/logout")

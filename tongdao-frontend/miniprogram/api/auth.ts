@@ -15,6 +15,11 @@ export interface LoginRequest {
   deviceId: string
 }
 
+export interface WxPhoneLoginRequest {
+  code: string
+  deviceId?: string
+}
+
 export interface LoginResponse {
   token: string
   refreshToken: string
@@ -51,6 +56,13 @@ export function sendSmsCode(data: SendSmsCodeRequest): Promise<SendSmsCodeRespon
 
 export function login(data: LoginRequest): Promise<LoginResponse> {
   return request<LoginResponse>("/v1/auth/login", {
+    method: "POST",
+    data
+  })
+}
+
+export function wxPhoneLogin(data: WxPhoneLoginRequest): Promise<LoginResponse> {
+  return request<LoginResponse>("/v1/auth/wx-phone-login", {
     method: "POST",
     data
   })

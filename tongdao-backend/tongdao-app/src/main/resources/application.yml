@@ -47,6 +47,11 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
+wx:
+  miniapp:
+    app-id: ${WX_MINIAPP_APP_ID}
+    app-secret: ${WX_MINIAPP_APP_SECRET}
+
 management:
   endpoints:
     web:

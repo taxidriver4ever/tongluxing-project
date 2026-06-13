@@ -146,17 +146,16 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public RefreshTokenResponse refreshToken(RefreshTokenRequest request) {
-        Long userId = tokenStore.resolveRefreshToken(request.refreshToken())
+        TokenStore.RefreshPrincipal refreshPrincipal = tokenStore.resolveRefreshToken(request.refreshToken())
                 .orElseThrow(() -> new BusinessException(ResultCode.UNAUTHORIZED, "刷新令牌已失效，请重新登录"));
-        AuthAccount account = accountMapper.findByUserId(userId);
+        AuthAccount account = accountMapper.findByUserId(refreshPrincipal.userId());
         if (account == null) {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "登录状态已失效");
         }
 
-        tokenStore.deleteUserTokens(userId);
         tokenStore.deleteRefreshToken(request.refreshToken());
-        TokenStore.TokenPair tokenPair = tokenStore.create(userId, account.getPhone(), "");
-        insertLoginLog(userId, account.getPhone(), "refresh", null, currentIp(), true, "refresh token success");
+        TokenStore.TokenPair tokenPair = tokenStore.create(refreshPrincipal.userId(), account.getPhone(), "");
+        insertLoginLog(refreshPrincipal.userId(), account.getPhone(), "refresh", null, currentIp(), true, "refresh token success");
         return new RefreshTokenResponse(tokenPair.token(), tokenPair.expireSeconds());
     }
 

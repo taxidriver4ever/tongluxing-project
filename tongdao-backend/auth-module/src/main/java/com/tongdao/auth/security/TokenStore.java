@@ -3,9 +3,9 @@ package com.tongdao.auth.security;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -21,7 +21,11 @@ public class TokenStore {
 
     private static final String TOKEN_PREFIX = "auth:token:";
     private static final String REFRESH_PREFIX = "auth:refresh:";
-    private static final String USER_TOKENS_PREFIX = "auth:user:tokens:";
+    private static final String PHONE_LOGIN_PREFIX = "auth:login:phone:";
+    private static final DefaultRedisScript<Long> COMPARE_AND_DELETE_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            Long.class
+    );
 
     private final StringRedisTemplate redisTemplate;
 
@@ -36,10 +40,14 @@ public class TokenStore {
                 "deviceId", StringUtils.hasText(deviceId) ? deviceId : ""
         ));
         redisTemplate.expire(tokenKey, Duration.ofSeconds(TOKEN_EXPIRE_SECONDS));
+        redisTemplate.opsForValue().set(phoneLoginKey(phone), token, Duration.ofSeconds(TOKEN_EXPIRE_SECONDS));
 
-        redisTemplate.opsForValue().set(refreshKey(refreshToken), String.valueOf(userId), Duration.ofSeconds(REFRESH_TOKEN_EXPIRE_SECONDS));
-        redisTemplate.opsForSet().add(userTokensKey(userId), token);
-        redisTemplate.expire(userTokensKey(userId), Duration.ofSeconds(TOKEN_EXPIRE_SECONDS));
+        redisTemplate.opsForHash().putAll(refreshKey(refreshToken), Map.of(
+                "userId", String.valueOf(userId),
+                "phone", phone,
+                "token", token
+        ));
+        redisTemplate.expire(refreshKey(refreshToken), Duration.ofSeconds(REFRESH_TOKEN_EXPIRE_SECONDS));
 
         return new TokenPair(token, refreshToken, TOKEN_EXPIRE_SECONDS);
     }
@@ -60,6 +68,10 @@ public class TokenStore {
         if (userId == null || phone == null) {
             return Optional.empty();
         }
+        String currentToken = redisTemplate.opsForValue().get(phoneLoginKey(phone.toString()));
+        if (!token.equals(currentToken)) {
+            return Optional.empty();
+        }
 
         return Optional.of(new AuthPrincipal(
                 Long.valueOf(userId.toString()),
@@ -69,27 +81,31 @@ public class TokenStore {
         ));
     }
 
-    public Optional<Long> resolveRefreshToken(String refreshToken) {
-        String userId = redisTemplate.opsForValue().get(refreshKey(refreshToken));
-        return StringUtils.hasText(userId) ? Optional.of(Long.valueOf(userId)) : Optional.empty();
+    public Optional<RefreshPrincipal> resolveRefreshToken(String refreshToken) {
+        if (!StringUtils.hasText(refreshToken)) {
+            return Optional.empty();
+        }
+        String refreshKey = refreshKey(refreshToken);
+        Object userId = redisTemplate.opsForHash().get(refreshKey, "userId");
+        Object phone = redisTemplate.opsForHash().get(refreshKey, "phone");
+        Object token = redisTemplate.opsForHash().get(refreshKey, "token");
+        if (userId == null || phone == null || token == null) {
+            return Optional.empty();
+        }
+        String currentToken = redisTemplate.opsForValue().get(phoneLoginKey(phone.toString()));
+        if (!token.toString().equals(currentToken)) {
+            return Optional.empty();
+        }
+        return Optional.of(new RefreshPrincipal(Long.valueOf(userId.toString()), phone.toString(), token.toString()));
     }
 
     public void deleteToken(AuthPrincipal principal) {
         redisTemplate.delete(tokenKey(principal.token()));
-        redisTemplate.opsForSet().remove(userTokensKey(principal.userId()), principal.token());
+        redisTemplate.execute(COMPARE_AND_DELETE_SCRIPT, java.util.List.of(phoneLoginKey(principal.phone())), principal.token());
     }
 
     public void deleteRefreshToken(String refreshToken) {
         redisTemplate.delete(refreshKey(refreshToken));
-    }
-
-    public void deleteUserTokens(Long userId) {
-        String userTokensKey = userTokensKey(userId);
-        Set<String> tokens = redisTemplate.opsForSet().members(userTokensKey);
-        if (tokens != null && !tokens.isEmpty()) {
-            redisTemplate.delete(tokens.stream().map(this::tokenKey).toList());
-        }
-        redisTemplate.delete(userTokensKey);
     }
 
     private String tokenKey(String token) {
@@ -100,10 +116,13 @@ public class TokenStore {
         return REFRESH_PREFIX + refreshToken;
     }
 
-    private String userTokensKey(Long userId) {
-        return USER_TOKENS_PREFIX + userId;
+    private String phoneLoginKey(String phone) {
+        return PHONE_LOGIN_PREFIX + phone;
     }
 
     public record TokenPair(String token, String refreshToken, Integer expireSeconds) {
+    }
+
+    public record RefreshPrincipal(Long userId, String phone, String token) {
     }
 }

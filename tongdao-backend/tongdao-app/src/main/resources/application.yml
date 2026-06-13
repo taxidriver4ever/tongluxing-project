@@ -20,7 +20,9 @@ spring:
   sql:
     init:
       mode: always
-      schema-locations: classpath:db/auth-schema.sql
+      schema-locations:
+        - classpath:db/auth-schema.sql
+        - classpath:db/user-schema.sql
   data:
     redis:
       host: ${REDIS_HOST}

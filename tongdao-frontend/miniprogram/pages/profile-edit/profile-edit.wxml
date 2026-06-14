@@ -1,0 +1,41 @@
+<view class="page-shell edit-page">
+  <td-topbar title="编辑资料" placeholder="保存后刷新个人中心" action="编" />
+  <scroll-view scroll-y class="page-content">
+    <view class="form-card card">
+      <view class="field">
+        <view class="label">昵称</view>
+        <input class="input" value="{{form.nickname}}" data-field="nickname" bindinput="onInput" maxlength="32" placeholder="请输入昵称" />
+      </view>
+      <view class="field">
+        <view class="label">头像地址</view>
+        <input class="input" value="{{form.avatarUrl}}" data-field="avatarUrl" bindinput="onInput" placeholder="https://..." />
+      </view>
+      <view class="field">
+        <view class="label">性别</view>
+        <view class="seg-row">
+          <view class="seg {{form.gender === 0 ? 'active' : ''}}" data-gender="0" bindtap="onGenderChange">未知</view>
+          <view class="seg {{form.gender === 1 ? 'active' : ''}}" data-gender="1" bindtap="onGenderChange">男</view>
+          <view class="seg {{form.gender === 2 ? 'active' : ''}}" data-gender="2" bindtap="onGenderChange">女</view>
+        </view>
+      </view>
+      <view class="field">
+        <view class="label">生日</view>
+        <input class="input" value="{{form.birthday}}" data-field="birthday" bindinput="onInput" placeholder="1996-08-16" />
+      </view>
+      <view class="field">
+        <view class="label">城市</view>
+        <input class="input" value="{{form.cityName}}" data-field="cityName" bindinput="onInput" maxlength="64" placeholder="广州" />
+      </view>
+      <view class="field">
+        <view class="label">城市编码</view>
+        <input class="input" value="{{form.cityCode}}" data-field="cityCode" bindinput="onInput" maxlength="32" placeholder="440100" />
+      </view>
+      <view class="field">
+        <view class="label">个人简介</view>
+        <textarea class="textarea" value="{{form.bio}}" data-field="bio" bindinput="onInput" maxlength="160" placeholder="喜欢周末自驾和露营" />
+      </view>
+    </view>
+
+    <view class="btn save-btn {{loading ? 'gray' : ''}}" bindtap="onSave">{{loading ? '保存中...' : '保存资料'}}</view>
+  </scroll-view>
+</view>

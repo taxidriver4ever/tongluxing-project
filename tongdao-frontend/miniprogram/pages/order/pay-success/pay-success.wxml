@@ -1,0 +1,22 @@
+<view class="page-shell success-page">
+  <td-topbar title="支付结果" placeholder="订单已支付" action="完" />
+  <view class="page-content">
+    <view class="success-card card">
+      <view class="success-icon">✓</view>
+      <view class="success-title">支付成功</view>
+      <view class="success-sub">又砍了一刀！当前拼团价已降到 ￥39</view>
+    </view>
+
+    <view class="card progress-card">
+      <view class="section-title">拼团进度</view>
+      <view class="progress"><view class="bar"></view></view>
+      <view class="progress-text">6/8 人已参团，核销码已生成</view>
+      <view class="menu-row"><text>核销码</text><text>已生成</text></view>
+      <view class="menu-row"><text>商家通知</text><text>已发送</text></view>
+      <view class="menu-row"><text>客服保障</text><text>可随时联系</text></view>
+    </view>
+
+    <view class="btn orange main-btn" bindtap="goCode">查看核销码</view>
+    <view class="btn ghost main-btn" bindtap="goShare">分享给车队好友</view>
+  </view>
+</view>

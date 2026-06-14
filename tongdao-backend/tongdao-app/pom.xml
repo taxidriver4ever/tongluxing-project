@@ -53,6 +53,34 @@
         </dependency>
         <dependency>
             <groupId>com.tongdao</groupId>
+            <artifactId>merchant-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>groupbuy-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>order-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>payment-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>verification-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>assessment-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>customer-service-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
             <artifactId>notify-module</artifactId>
         </dependency>
         <dependency>

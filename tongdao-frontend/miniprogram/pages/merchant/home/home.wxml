@@ -1,0 +1,34 @@
+<view class="page-shell">
+  <td-topbar title="商家工作台" placeholder="318 服务区餐厅" action="店" />
+  <scroll-view scroll-y class="page-content">
+    <view class="merchant-card card">
+      <view>
+        <view class="merchant-title">318 服务区餐厅</view>
+        <view class="merchant-sub">川藏线补给站 · 拼团餐饮</view>
+      </view>
+      <view class="pill green">L4 金牌商家</view>
+    </view>
+
+    <view class="metric-grid">
+      <view wx:for="{{metrics}}" wx:key="label" class="metric card">
+        <view>{{item.value}}</view>
+        <text>{{item.label}}</text>
+      </view>
+    </view>
+
+    <view class="card todo-card">
+      <view class="section-title">今日待办</view>
+      <view class="menu-row"><text>待核销订单</text><text class="pill orange">6</text></view>
+      <view class="menu-row"><text>待退款审核</text><text class="pill red">1</text></view>
+      <view class="menu-row"><text>今日新订单</text><text class="pill green">18</text></view>
+    </view>
+
+    <view class="btn main-btn" bindtap="goVerify">扫码核销</view>
+
+    <view class="card level-card">
+      <view class="section-title">商家考核</view>
+      <view class="level-bar"><view></view></view>
+      <view class="level-copy">距离 L5 还差 4 分。本月再完成 12 笔核销，预计可升级战略商家。</view>
+    </view>
+  </scroll-view>
+</view>

@@ -13,6 +13,13 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         "com.tongdao.team.mapper",
         "com.tongdao.chat.mapper",
         "com.tongdao.map.mapper",
+        "com.tongdao.merchant.mapper",
+        "com.tongdao.groupbuy.mapper",
+        "com.tongdao.order.mapper",
+        "com.tongdao.payment.mapper",
+        "com.tongdao.verification.mapper",
+        "com.tongdao.assessment.mapper",
+        "com.tongdao.customerservice.mapper",
         "com.tongdao.notify.mapper",
         "com.tongdao.admin.mapper"
 })

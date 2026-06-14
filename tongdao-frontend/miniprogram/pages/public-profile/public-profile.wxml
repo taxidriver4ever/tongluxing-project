@@ -1,0 +1,30 @@
+<view class="page-shell public-page">
+  <td-topbar title="公开资料卡" placeholder="推荐列表展示预览" action="公" />
+  <view class="page-content">
+    <view class="public-card card">
+      <view class="avatar">{{avatarText}}</view>
+      <view class="nickname">{{profile.nickname || "同道车友"}}</view>
+      <view class="city">{{profile.cityName || "未设置城市"}}</view>
+      <view class="tag-row">
+        <view class="pill {{profile.realNameStatus === 'APPROVED' ? 'green' : ''}}">
+          {{profile.realNameStatus === 'APPROVED' ? '已实名' : '未实名'}}
+        </view>
+        <view class="pill {{profile.vehicleCertified ? 'green' : ''}}">
+          {{profile.vehicleCertified ? '车辆已认证' : '车辆待认证'}}
+        </view>
+      </view>
+    </view>
+
+    <view class="card info-card">
+      <view class="section-title">公开规则</view>
+      <view class="menu-row"><text>手机号</text><text>不展示</text></view>
+      <view class="menu-row"><text>资料可见性</text><text>遵守隐私设置</text></view>
+      <view class="menu-row"><text>车队/行程推荐</text><text>展示昵称和城市</text></view>
+    </view>
+
+    <view class="notice">
+      <view class="notice-title">403 空状态</view>
+      <view>如果隐私设置中关闭公开资料，后端会返回不可见，页面会通过 Toast 展示错误信息。</view>
+    </view>
+  </view>
+</view>

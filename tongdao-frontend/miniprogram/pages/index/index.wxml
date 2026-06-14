@@ -12,18 +12,26 @@
     <view class="marker team-car t1">队</view>
     <view class="marker team-car t2">2</view>
     <view class="marker poi p1">油</view>
-    <view class="marker poi p2">电</view>
-    <view class="marker poi p3">景</view>
-    <view class="hot-chat">热聊 3人</view>
+    <view class="marker poi p2">团</view>
+    <view class="marker poi p3">餐</view>
+    <view class="marker poi p4">住</view>
+    <view class="hot-chat">附近拼团 4</view>
   </view>
 
-  <td-topbar title="北京·朝阳" placeholder="搜目的地、路线、车队、服务区" action="铃" />
+  <td-topbar title="成都·锦江" placeholder="搜目的地、车队、拼团商家" action="铃" />
   <view class="floating-list">列表</view>
 
   <view class="bottom-actions">
     <view class="trip-mini">
-      <text><text class="strong">318经典车队</text> 距拉萨 182km</text>
-      <text>共享 ON</text>
+      <text><text class="strong">318 经典车队</text> · 附近有 4 个拼团</text>
+      <text>86%</text>
+    </view>
+    <view class="groupbuy-card" bindtap="goGroupbuyList">
+      <view>
+        <view class="groupbuy-title">沿途补给拼团</view>
+        <view class="groupbuy-desc">路线重合 86% · 已有 5 车同行 · 最近商家距你 2.1km</view>
+      </view>
+      <view class="groupbuy-action">看拼团</view>
     </view>
     <view class="action-grid">
       <view class="action">发动态<text>沿途随手拍</text></view>

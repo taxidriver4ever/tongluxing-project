@@ -1,8 +1,9 @@
 .feed-tabs {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12rpx;
-  margin-bottom: 24rpx;
+  gap: 16rpx;
+  width: 100%;
+  margin: 0 auto 24rpx;
 }
 
 .seg {
@@ -28,9 +29,14 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20rpx;
+  width: 100%;
+  margin: 0 auto;
+  align-items: start;
 }
 
 .moment {
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
   border-radius: 16rpx;
   background: #FFFFFF;
@@ -39,22 +45,22 @@
 }
 
 .moment-img {
-  height: 236rpx;
+  height: 184rpx;
   background: linear-gradient(135deg, #9AD4FF, #E6F6D7);
 }
 
 .img-1 {
-  height: 320rpx;
+  height: 250rpx;
   background: linear-gradient(135deg, #FFD49A, #FFEFD6);
 }
 
 .img-2 {
-  height: 276rpx;
+  height: 216rpx;
   background: linear-gradient(135deg, #C7D2FE, #DBEAFE);
 }
 
 .img-3 {
-  height: 212rpx;
+  height: 166rpx;
   background: linear-gradient(135deg, #FBCFE8, #FDE68A);
 }
 
@@ -67,6 +73,7 @@
   font-size: 24rpx;
   font-weight: 900;
   line-height: 1.35;
+  min-height: 66rpx;
 }
 
 .moment-meta {
@@ -75,4 +82,12 @@
   justify-content: space-between;
   color: var(--muted);
   font-size: 20rpx;
+  gap: 12rpx;
+}
+
+.moment-meta text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

@@ -1,13 +1,71 @@
-import { wxPhoneLogin } from "../../api/auth"
+import { login, sendSmsCode, wxPhoneLogin } from "../../api/auth"
 import { saveSession } from "../../utils/auth-storage"
 
 Component({
   data: {
     agreed: false,
     loading: false,
-    showAgreementModal: false
+    showAgreementModal: false,
+    homeStyle: "",
+    contentStyle: ""
+  },
+  lifetimes: {
+    attached() {
+      this.initHomeSafeArea()
+    }
   },
   methods: {
+    initHomeSafeArea() {
+      try {
+        const system = wx.getSystemInfoSync()
+        const menu = wx.getMenuButtonBoundingClientRect()
+        const top = menu.top || system.statusBarHeight || 24
+        const contentTop = (menu.bottom || (top + 32)) + 42
+        this.setData({
+          homeStyle: "top: " + top + "px;",
+          contentStyle: "padding-top: " + contentTop + "px;"
+        })
+      } catch (error) {
+        this.setData({
+          homeStyle: "top: 36px;",
+          contentStyle: "padding-top: 104px;"
+        })
+      }
+    },
+    goHome() {
+      wx.reLaunch({ url: "/pages/index/index" })
+    },
+    async onDevLogin() {
+      if (this.data.loading) {
+        return
+      }
+      this.setData({ loading: true })
+      try {
+        const phone = "13800138000"
+        await sendSmsCode({
+          phone,
+          scene: "login"
+        })
+        const result = await login({
+          phone,
+          code: "829416",
+          deviceId: "miniapp-dev-device"
+        })
+        saveSession({
+          token: result.token,
+          refreshToken: result.refreshToken,
+          userId: result.userId
+        })
+        wx.showToast({ title: "测试 token 已写入", icon: "success" })
+        setTimeout(() => {
+          wx.reLaunch({ url: "/pages/index/index" })
+        }, 500)
+      } catch (error) {
+        wx.showToast({ title: this.getErrorMessage(error), icon: "none" })
+      } finally {
+        this.setData({ loading: false })
+      }
+    },
     toggleAgree() {
       this.setData({ agreed: !this.data.agreed })
     },

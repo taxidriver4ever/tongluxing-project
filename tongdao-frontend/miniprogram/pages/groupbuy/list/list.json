@@ -1,0 +1,6 @@
+{
+  "usingComponents": {
+    "td-topbar": "../../../components/td-topbar/td-topbar",
+    "td-tabbar": "../../../components/td-tabbar/td-tabbar"
+  }
+}

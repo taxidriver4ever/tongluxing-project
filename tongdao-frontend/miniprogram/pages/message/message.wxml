@@ -1,5 +1,5 @@
 <view class="page-shell">
-  <td-topbar title="消息" placeholder="搜索会话、车队、车友" action="点" />
+  <td-topbar title="消息" placeholder="搜索会话、车队、客服" action="点" />
 
   <view class="chat-list">
     <view wx:for="{{chats}}" wx:key="name" class="chat-item">

@@ -1,15 +1,18 @@
 page {
-  --primary: #3A86FF;
-  --primary-soft: #EEF4FF;
-  --text: #1F2937;
+  --primary: #2F7DF6;
+  --primary-soft: #EAF2FF;
+  --text: #172033;
   --title: #12355B;
-  --muted: #64748B;
-  --line: #E5E7EB;
-  --bg: #F5F7FB;
+  --muted: #667085;
+  --line: #DFE5EF;
+  --bg: #EEF3F8;
   --card: #FFFFFF;
-  --green: #34C759;
-  --orange: #FF9500;
-  --red: #FF3B30;
+  --green: #20B26B;
+  --green-soft: #E8F8EF;
+  --orange: #FF8A1F;
+  --orange-soft: #FFF1DF;
+  --red: #EF4444;
+  --red-soft: #FEECEC;
   min-height: 100vh;
   background: var(--bg);
   color: var(--text);
@@ -26,10 +29,14 @@ text {
   min-height: 100vh;
   background: var(--bg);
   padding-bottom: 148rpx;
+  overflow-x: hidden;
 }
 
 .page-content {
+  width: 100%;
   padding: 24rpx 28rpx 148rpx;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 .card {
@@ -63,6 +70,14 @@ text {
   color: var(--primary);
 }
 
+.btn.green {
+  background: var(--green);
+}
+
+.btn.orange {
+  background: var(--orange);
+}
+
 .btn.gray {
   background: #F1F5F9;
   color: #475569;
@@ -81,5 +96,54 @@ text {
 .section-head .more {
   color: var(--muted);
   font-size: 24rpx;
+  font-weight: 700;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  height: 42rpx;
+  padding: 0 16rpx;
+  border-radius: 21rpx;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 22rpx;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.pill.green {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.pill.orange {
+  background: var(--orange-soft);
+  color: var(--orange);
+}
+
+.pill.red {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.menu-row {
+  min-height: 92rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24rpx;
+  border-bottom: 1rpx solid var(--line);
+  color: var(--text);
+  font-size: 26rpx;
+  font-weight: 800;
+}
+
+.menu-row:last-child {
+  border-bottom: 0;
+}
+
+.menu-row text:last-child {
+  color: var(--muted);
   font-weight: 700;
 }

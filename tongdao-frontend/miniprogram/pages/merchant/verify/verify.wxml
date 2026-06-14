@@ -1,0 +1,21 @@
+<view class="page-shell">
+  <td-topbar title="扫码核销" placeholder="核销后自动触发分账" action="扫" />
+  <view class="page-content">
+    <view class="scan-card card">
+      <view class="scan-icon">□</view>
+      <view class="scan-title">核销确认</view>
+      <view class="scan-sub">已识别券码 TD-318-0926</view>
+    </view>
+
+    <view class="card order-card">
+      <view class="section-title">订单核对</view>
+      <view class="pay-row"><text>商品</text><text>牛肉面套餐</text></view>
+      <view class="pay-row"><text>订单金额</text><text>￥39.00</text></view>
+      <view class="pay-row"><text>商家入账</text><text>￥37.05</text></view>
+      <view class="pay-row"><text>平台服务费</text><text>5%</text></view>
+    </view>
+
+    <view class="btn green main-btn" bindtap="confirm">确认核销并分账</view>
+    <view class="btn ghost main-btn">订单异常，联系运营</view>
+  </view>
+</view>

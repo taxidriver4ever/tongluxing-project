@@ -1,0 +1,41 @@
+<view class="detail-page">
+  <view class="hero">
+    <td-topbar title="拼团详情" placeholder="分享给车队" action="享" />
+    <view class="hero-copy">
+      <view class="hero-title">318 服务区牛肉面套餐</view>
+      <view class="hero-sub">车队同行专享 · 支持到店核销 · 成团失败原路退</view>
+    </view>
+  </view>
+
+  <scroll-view scroll-y class="detail-content">
+    <view class="deal-card card">
+      <view class="price-line">
+        <view><text class="price">￥39</text><text class="old-price">￥58</text></view>
+        <view class="pill orange">还差 2 人成团</view>
+      </view>
+      <view class="progress"><view class="bar"></view></view>
+      <view class="progress-text">已参团 6/8 · 阶梯价已降至最低</view>
+    </view>
+
+    <view class="card section">
+      <view class="section-title">阶梯价格</view>
+      <view class="step-row active"><text>4 人成团</text><text>￥49/份</text></view>
+      <view class="step-row active"><text>6 人同行</text><text>￥42/份</text></view>
+      <view class="step-row"><text>8 人同行</text><text>￥39/份</text></view>
+    </view>
+
+    <view class="card section">
+      <view class="section-title">商家保障</view>
+      <view class="tag-row">
+        <view class="pill green">L4 金牌商家</view>
+        <view class="pill">核销后分账</view>
+        <view class="pill orange">客服可介入</view>
+      </view>
+    </view>
+  </scroll-view>
+
+  <view class="bottom-bar">
+    <view class="btn ghost">发起拼团</view>
+    <view class="btn" bindtap="goCheckout">立即参团</view>
+  </view>
+</view>

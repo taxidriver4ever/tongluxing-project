@@ -1,0 +1,56 @@
+<view class="page-shell privacy-page">
+  <td-topbar title="隐私设置" placeholder="资料、行程、位置可见范围" action="私" />
+  <scroll-view scroll-y class="page-content">
+    <view class="notice">
+      <view class="notice-title">隐私提示</view>
+      <view>手机号默认不公开。关闭公开资料后，公开资料卡片将不再展示。</view>
+    </view>
+
+    <view class="card setting-card">
+      <view class="setting-row">
+        <view class="setting-copy">
+          <view class="setting-title">公开个人资料</view>
+          <view class="setting-desc">允许行程、车队、推荐列表展示你的公开资料</view>
+        </view>
+        <switch checked="{{privacy.profileVisible}}" data-key="profileVisible" bindchange="onSwitch" color="#2F7DF6" />
+      </view>
+      <view class="setting-row">
+        <view class="setting-copy">
+          <view class="setting-title">队友可见手机号</view>
+          <view class="setting-desc">默认关闭，仅建议在熟人车队中开启</view>
+        </view>
+        <switch checked="{{privacy.phoneVisible}}" data-key="phoneVisible" bindchange="onSwitch" color="#2F7DF6" />
+      </view>
+      <view class="setting-row">
+        <view class="setting-copy">
+          <view class="setting-title">公开行程</view>
+          <view class="setting-desc">允许同路匹配和附近推荐使用你的行程</view>
+        </view>
+        <switch checked="{{privacy.tripVisible}}" data-key="tripVisible" bindchange="onSwitch" color="#2F7DF6" />
+      </view>
+      <view class="setting-row">
+        <view class="setting-copy">
+          <view class="setting-title">队友可见位置</view>
+          <view class="setting-desc">组队过程中向队友展示位置状态</view>
+        </view>
+        <switch checked="{{privacy.locationVisible}}" data-key="locationVisible" bindchange="onSwitch" color="#2F7DF6" />
+      </view>
+      <view class="setting-row">
+        <view class="setting-copy">
+          <view class="setting-title">允许车队邀请</view>
+          <view class="setting-desc">队长可以向你发送入队邀请</view>
+        </view>
+        <switch checked="{{privacy.allowTeamInvite}}" data-key="allowTeamInvite" bindchange="onSwitch" color="#2F7DF6" />
+      </view>
+      <view class="setting-row">
+        <view class="setting-copy">
+          <view class="setting-title">允许私信</view>
+          <view class="setting-desc">同路线车友可以向你发起会话</view>
+        </view>
+        <switch checked="{{privacy.allowPrivateMessage}}" data-key="allowPrivateMessage" bindchange="onSwitch" color="#2F7DF6" />
+      </view>
+    </view>
+
+    <view class="btn save-btn {{loading ? 'gray' : ''}}" bindtap="onSave">{{loading ? '保存中...' : '保存隐私设置'}}</view>
+  </scroll-view>
+</view>

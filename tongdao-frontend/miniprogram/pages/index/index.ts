@@ -10,5 +10,10 @@ Component({
         url: "/pages/sos/sos"
       })
     },
+    goGroupbuyList() {
+      wx.navigateTo({
+        url: "/pages/groupbuy/list/list"
+      })
+    }
   }
 })

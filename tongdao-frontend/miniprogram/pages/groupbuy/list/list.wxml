@@ -1,0 +1,26 @@
+<view class="page-shell">
+  <td-topbar title="沿途拼团" placeholder="服务区餐饮、补给、民宿" action="筛" />
+
+  <scroll-view scroll-y class="page-content">
+    <view class="filter-row">
+      <view wx:for="{{filters}}" wx:key="*this" class="pill {{index === 1 ? 'orange' : ''}}">{{item}}</view>
+    </view>
+
+    <view wx:for="{{products}}" wx:key="title" class="product-card card" bindtap="goDetail">
+      <view class="product-img img-{{index}}"></view>
+      <view class="product-main">
+        <view class="tag-row">
+          <view wx:for="{{item.tags}}" wx:key="*this" wx:for-item="tag" class="pill {{index === 0 ? 'orange' : 'green'}}">{{tag}}</view>
+        </view>
+        <view class="product-title">{{item.title}}</view>
+        <view class="product-meta">{{item.merchant}}</view>
+        <view class="price-row">
+          <view><text class="price">￥{{item.price}}</text><text class="old-price">￥{{item.oldPrice}}</text></view>
+          <view class="pill orange">{{item.status}}</view>
+        </view>
+      </view>
+    </view>
+  </scroll-view>
+
+  <td-tabbar active="map" />
+</view>

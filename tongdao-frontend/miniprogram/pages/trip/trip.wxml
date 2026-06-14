@@ -14,6 +14,14 @@
       </view>
     </view>
 
+    <view class="groupbuy-tip card" bindtap="goGroupbuyList">
+      <view>
+        <view class="tip-title">沿途拼团 4</view>
+        <view class="tip-sub">服务区餐饮、露营补给、民宿车队房正在拼</view>
+      </view>
+      <view class="pill orange">增强版</view>
+    </view>
+
     <view class="section-head">
       <text>顺路推荐</text>
       <text class="more">按顺路率排序</text>

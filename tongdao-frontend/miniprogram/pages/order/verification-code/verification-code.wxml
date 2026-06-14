@@ -1,0 +1,21 @@
+<view class="page-shell">
+  <td-topbar title="核销码" placeholder="到店向商家出示" action="码" />
+  <view class="page-content">
+    <view class="card code-card">
+      <view class="pill green">待核销</view>
+      <view class="qr">
+        <view class="qr-grid"></view>
+      </view>
+      <view class="code">TD-318-0926</view>
+      <view class="tip">到店向商家出示二维码或券码</view>
+    </view>
+
+    <view class="card info-card">
+      <view class="section-title">订单信息</view>
+      <view class="pay-row"><text>商品</text><text>牛肉面套餐</text></view>
+      <view class="pay-row"><text>商家</text><text>318 服务区餐厅</text></view>
+      <view class="pay-row"><text>金额</text><text>￥39.00</text></view>
+      <view class="pay-row"><text>有效期</text><text>今天 23:59 前</text></view>
+    </view>
+  </view>
+</view>

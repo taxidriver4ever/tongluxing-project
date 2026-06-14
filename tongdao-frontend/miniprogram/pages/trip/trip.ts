@@ -22,5 +22,10 @@ Component({
         tags: ["深度同行", "需审批"]
       }
     ]
+  },
+  methods: {
+    goGroupbuyList() {
+      wx.navigateTo({ url: "/pages/groupbuy/list/list" })
+    }
   }
 })

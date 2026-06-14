@@ -1,13 +1,14 @@
 .topbar {
   position: relative;
   z-index: 4;
-  height: 112rpx;
-  padding: 20rpx 28rpx;
+  min-height: 78px;
+  padding: 36px 112px 9px 28rpx;
   display: flex;
   align-items: center;
-  gap: 16rpx;
+  gap: 12rpx;
   background: rgba(255, 255, 255, 0.9);
   border-bottom: 1rpx solid rgba(229, 231, 235, 0.76);
+  box-sizing: border-box;
 }
 
 .city {
@@ -33,7 +34,21 @@
   text-overflow: ellipsis;
 }
 
+.back-btn {
+  flex: 0 0 auto;
+  width: 68rpx;
+  height: 68rpx;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 52rpx;
+  font-weight: 900;
+  line-height: 1;
+}
+
 .icon-btn {
+  flex: 0 0 auto;
   width: 68rpx;
   height: 68rpx;
   border-radius: 34rpx;
@@ -44,5 +59,4 @@
   justify-content: center;
   font-size: 24rpx;
   font-weight: 900;
-  flex: 0 0 auto;
 }

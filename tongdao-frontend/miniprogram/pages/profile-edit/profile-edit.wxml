@@ -7,8 +7,8 @@
         <input class="input" value="{{form.nickname}}" data-field="nickname" bindinput="onInput" maxlength="32" placeholder="请输入昵称" />
       </view>
       <view class="field">
-        <view class="label">头像地址</view>
-        <input class="input" value="{{form.avatarUrl}}" data-field="avatarUrl" bindinput="onInput" placeholder="https://..." />
+        <view class="label">头像图片标识</view>
+        <input class="input" value="{{form.avatarImageKey}}" data-field="avatarImageKey" bindinput="onInput" placeholder="/static/upload/avatar.jpg" />
       </view>
       <view class="field">
         <view class="label">性别</view>

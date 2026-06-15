@@ -13,7 +13,7 @@ public record SubmitIdentityRequest(
         @Pattern(regexp = "^[0-9A-Za-z]{15,18}$", message = "身份证号格式不正确")
         String idCardNo,
 
-        @Size(max = 512, message = "认证图片地址不能超过512个字符")
-        String faceImageUrl
+        @Size(max = 512, message = "认证图片资源标识不能超过512个字符")
+        String faceImageKey
 ) {
 }

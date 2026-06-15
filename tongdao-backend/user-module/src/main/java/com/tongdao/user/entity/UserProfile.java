@@ -11,7 +11,7 @@ public class UserProfile {
     private Long id;
     private Long userId;
     private String nickname;
-    private String avatarUrl;
+    private String avatarImageKey;
     private Integer gender;
     private LocalDate birthday;
     private String cityCode;

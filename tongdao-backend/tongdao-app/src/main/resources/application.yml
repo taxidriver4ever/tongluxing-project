@@ -23,6 +23,7 @@ spring:
       schema-locations:
         - classpath:db/auth-schema.sql
         - classpath:db/user-schema.sql
+        - classpath:db/vehicle-schema.sql
   data:
     redis:
       host: ${REDIS_HOST}
@@ -53,6 +54,13 @@ wx:
   miniapp:
     app-id: ${WX_MINIAPP_APP_ID}
     app-secret: ${WX_MINIAPP_APP_SECRET}
+
+auth:
+  jwt:
+    secret: ${AUTH_JWT_SECRET}
+    issuer: ${AUTH_JWT_ISSUER}
+    access-expire-seconds: ${AUTH_JWT_ACCESS_EXPIRE_SECONDS}
+    refresh-expire-seconds: ${AUTH_JWT_REFRESH_EXPIRE_SECONDS}
 
 management:
   endpoints:

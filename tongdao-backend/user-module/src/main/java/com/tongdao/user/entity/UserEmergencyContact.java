@@ -13,7 +13,7 @@ public class UserEmergencyContact {
     private String relation;
     private String phoneCipher;
     private String phoneMask;
-    private Integer isDefault;
+    private Integer defaultFlag;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Integer deleted;

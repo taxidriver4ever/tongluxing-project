@@ -1,0 +1,31 @@
+<view class="page-shell public-vehicle-page">
+  <td-topbar title="公开车辆" placeholder="脱敏展示车辆资料" action="卡" />
+  <scroll-view scroll-y class="page-content">
+    <view class="vehicle-card card">
+      <view class="vehicle-art">车</view>
+      <view class="vehicle-title">{{card.brand || "未填写品牌"}} {{card.model || ""}}</view>
+      <view class="vehicle-meta">{{card.plateNoMask || "未填写车牌"}} · {{card.vehicleType || "车辆类型"}} · {{card.color || "颜色未填"}}</view>
+      <view class="tag-row">
+        <view class="pill {{card.certificationStatus === 'APPROVED' ? 'green' : card.certificationStatus === 'PENDING' ? 'orange' : card.certificationStatus === 'REJECTED' ? 'red' : ''}}">
+          {{card.certificationStatus === 'APPROVED' ? '车辆已认证' : card.certificationStatus === 'PENDING' ? '认证审核中' : card.certificationStatus === 'REJECTED' ? '认证被拒' : '未认证'}}
+        </view>
+        <view wx:if="{{card.isDefault}}" class="pill">默认车辆</view>
+      </view>
+    </view>
+
+    <view class="info-card card">
+      <view class="info-row">
+        <view>
+          <view class="info-title">用于行程展示</view>
+          <view class="info-sub">发布行程时展示脱敏车牌、品牌和车型。</view>
+        </view>
+      </view>
+      <view class="info-row">
+        <view>
+          <view class="info-title">用于车队成员卡片</view>
+          <view class="info-sub">不展示行驶证、车架号、发动机号等敏感信息。</view>
+        </view>
+      </view>
+    </view>
+  </scroll-view>
+</view>

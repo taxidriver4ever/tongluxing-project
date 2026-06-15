@@ -87,7 +87,7 @@ public class UserServiceImpl implements UserService {
         UserProfile before = ensureProfile(userId);
         UserProfile profile = copyProfile(before);
         profile.setNickname(normalize(request.nickname()));
-        profile.setAvatarUrl(normalize(request.avatarUrl()));
+        profile.setAvatarImageKey(normalize(request.avatarImageKey()));
         profile.setGender(request.gender() == null ? 0 : request.gender());
         profile.setBirthday(request.birthday());
         profile.setCityCode(normalize(request.cityCode()));
@@ -146,7 +146,7 @@ public class UserServiceImpl implements UserService {
         certification.setRealName(request.realName());
         certification.setIdCardNoCipher(cipher(request.idCardNo()));
         certification.setIdCardNoMask(maskIdCard(request.idCardNo()));
-        certification.setFaceImageUrl(normalize(request.faceImageUrl()));
+        certification.setFaceImageKey(normalize(request.faceImageKey()));
         certification.setStatus(REAL_NAME_PENDING);
         certification.setRejectReason("");
         certification.setSubmittedAt(now);
@@ -185,7 +185,7 @@ public class UserServiceImpl implements UserService {
         PublicUserProfileResponse response = new PublicUserProfileResponse(
                 profile.getUserId(),
                 profile.getNickname(),
-                profile.getAvatarUrl(),
+                profile.getAvatarImageKey(),
                 profile.getCityName(),
                 profile.getRealNameStatus(),
                 false
@@ -217,7 +217,7 @@ public class UserServiceImpl implements UserService {
         contact.setId(SnowflakeIdGenerator.nextId());
         contact.setUserId(userId);
         fillContact(contact, request);
-        contact.setIsDefault(isDefault ? 1 : 0);
+        contact.setDefaultFlag(isDefault ? 1 : 0);
         contact.setCreatedAt(now);
         contact.setUpdatedAt(now);
         emergencyContactMapper.insert(contact);
@@ -238,7 +238,7 @@ public class UserServiceImpl implements UserService {
             emergencyContactMapper.clearDefault(userId, now);
         }
         fillContact(contact, request);
-        contact.setIsDefault(isDefault ? 1 : 0);
+        contact.setDefaultFlag(isDefault ? 1 : 0);
         contact.setUpdatedAt(now);
         emergencyContactMapper.update(contact);
         return toEmergencyContactResponse(contact);
@@ -264,7 +264,7 @@ public class UserServiceImpl implements UserService {
         profile.setId(SnowflakeIdGenerator.nextId());
         profile.setUserId(userId);
         profile.setNickname("");
-        profile.setAvatarUrl("");
+        profile.setAvatarImageKey("");
         profile.setGender(0);
         profile.setCityCode("");
         profile.setCityName("");
@@ -335,7 +335,7 @@ public class UserServiceImpl implements UserService {
     private int calculateCompletion(UserProfile profile) {
         int score = 0;
         score += StringUtils.hasText(profile.getNickname()) ? 20 : 0;
-        score += StringUtils.hasText(profile.getAvatarUrl()) ? 20 : 0;
+        score += StringUtils.hasText(profile.getAvatarImageKey()) ? 20 : 0;
         score += StringUtils.hasText(profile.getCityName()) ? 15 : 0;
         score += StringUtils.hasText(profile.getBio()) ? 15 : 0;
         score += profile.getBirthday() != null ? 15 : 0;
@@ -347,7 +347,7 @@ public class UserServiceImpl implements UserService {
         return new UserProfileResponse(
                 profile.getUserId(),
                 profile.getNickname(),
-                profile.getAvatarUrl(),
+                profile.getAvatarImageKey(),
                 profile.getGender(),
                 profile.getBirthday(),
                 profile.getCityCode(),
@@ -375,7 +375,7 @@ public class UserServiceImpl implements UserService {
                 certification.getUserId(),
                 certification.getRealName(),
                 certification.getIdCardNoMask(),
-                certification.getFaceImageUrl(),
+                certification.getFaceImageKey(),
                 certification.getStatus(),
                 certification.getRejectReason()
         );
@@ -387,7 +387,7 @@ public class UserServiceImpl implements UserService {
                 contact.getContactName(),
                 contact.getRelation(),
                 contact.getPhoneMask(),
-                isTrue(contact.getIsDefault())
+                isTrue(contact.getDefaultFlag())
         );
     }
 
@@ -396,7 +396,7 @@ public class UserServiceImpl implements UserService {
         profile.setId(source.getId());
         profile.setUserId(source.getUserId());
         profile.setNickname(source.getNickname());
-        profile.setAvatarUrl(source.getAvatarUrl());
+        profile.setAvatarImageKey(source.getAvatarImageKey());
         profile.setGender(source.getGender());
         profile.setBirthday(source.getBirthday());
         profile.setCityCode(source.getCityCode());

@@ -12,7 +12,7 @@ public class UserIdentityCertification {
     private String realName;
     private String idCardNoCipher;
     private String idCardNoMask;
-    private String faceImageUrl;
+    private String faceImageKey;
     private String status;
     private String rejectReason;
     private LocalDateTime submittedAt;

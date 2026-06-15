@@ -3,7 +3,7 @@ import { request } from "../utils/request"
 export interface UserProfile {
   userId: number
   nickname: string
-  avatarUrl: string
+  avatarImageKey: string
   gender: number
   birthday: string
   cityCode: string
@@ -15,7 +15,7 @@ export interface UserProfile {
 
 export interface UpdateUserProfileRequest {
   nickname: string
-  avatarUrl: string
+  avatarImageKey: string
   gender: number
   birthday: string
   cityCode: string
@@ -46,7 +46,7 @@ export interface IdentityStatus {
   userId: number
   realName: string
   idCardNoMask: string
-  faceImageUrl: string
+  faceImageKey: string
   status: string
   rejectReason: string
 }
@@ -54,7 +54,7 @@ export interface IdentityStatus {
 export interface SubmitIdentityRequest {
   realName: string
   idCardNo: string
-  faceImageUrl: string
+  faceImageKey: string
 }
 
 export interface EmergencyContact {
@@ -79,7 +79,7 @@ export interface EmergencyContactRequest {
 export interface PublicUserProfile {
   userId: number
   nickname: string
-  avatarUrl: string
+  avatarImageKey: string
   cityName: string
   realNameStatus: string
   vehicleCertified: boolean

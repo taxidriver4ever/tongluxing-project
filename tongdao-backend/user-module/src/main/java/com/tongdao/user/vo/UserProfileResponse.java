@@ -5,7 +5,7 @@ import java.time.LocalDate;
 public record UserProfileResponse(
         Long userId,
         String nickname,
-        String avatarUrl,
+        String avatarImageKey,
         Integer gender,
         LocalDate birthday,
         String cityCode,

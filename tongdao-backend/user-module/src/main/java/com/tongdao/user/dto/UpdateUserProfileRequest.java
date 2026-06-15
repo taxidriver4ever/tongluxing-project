@@ -10,8 +10,8 @@ public record UpdateUserProfileRequest(
         @Size(max = 32, message = "昵称不能超过32个字符")
         String nickname,
 
-        @Size(max = 512, message = "头像地址不能超过512个字符")
-        String avatarUrl,
+        @Size(max = 512, message = "头像图片资源标识不能超过512个字符")
+        String avatarImageKey,
 
         @Min(value = 0, message = "性别取值不正确")
         @Max(value = 2, message = "性别取值不正确")

@@ -16,7 +16,8 @@ import com.tongdao.user.entity.UserEmergencyContact;
 public interface UserEmergencyContactMapper {
 
     @Select("""
-            select id, user_id, contact_name, relation, phone_cipher, phone_mask, is_default, created_at, updated_at, deleted
+            select id, user_id, contact_name, relation, phone_cipher, phone_mask, is_default as default_flag,
+                   created_at, updated_at, deleted
             from user_emergency_contact
             where user_id = #{userId} and deleted = 0
             order by is_default desc, created_at desc
@@ -24,7 +25,8 @@ public interface UserEmergencyContactMapper {
     List<UserEmergencyContact> findByUserId(@Param("userId") Long userId);
 
     @Select("""
-            select id, user_id, contact_name, relation, phone_cipher, phone_mask, is_default, created_at, updated_at, deleted
+            select id, user_id, contact_name, relation, phone_cipher, phone_mask, is_default as default_flag,
+                   created_at, updated_at, deleted
             from user_emergency_contact
             where id = #{id} and user_id = #{userId} and deleted = 0
             limit 1
@@ -35,7 +37,7 @@ public interface UserEmergencyContactMapper {
             insert into user_emergency_contact
                 (id, user_id, contact_name, relation, phone_cipher, phone_mask, is_default, created_at, updated_at, deleted)
             values
-                (#{id}, #{userId}, #{contactName}, #{relation}, #{phoneCipher}, #{phoneMask}, #{isDefault},
+                (#{id}, #{userId}, #{contactName}, #{relation}, #{phoneCipher}, #{phoneMask}, #{defaultFlag},
                  #{createdAt}, #{updatedAt}, 0)
             """)
     int insert(UserEmergencyContact contact);
@@ -46,7 +48,7 @@ public interface UserEmergencyContactMapper {
                 relation = #{relation},
                 phone_cipher = #{phoneCipher},
                 phone_mask = #{phoneMask},
-                is_default = #{isDefault},
+                is_default = #{defaultFlag},
                 updated_at = #{updatedAt}
             where id = #{id} and user_id = #{userId} and deleted = 0
             """)

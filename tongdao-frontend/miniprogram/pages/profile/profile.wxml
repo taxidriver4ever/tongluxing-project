@@ -16,7 +16,9 @@
           <view class="status-pill {{identityStatus === 'APPROVED' ? 'green' : identityStatus === 'PENDING' ? 'orange' : identityStatus === 'REJECTED' ? 'red' : ''}}">
             {{identityStatus === 'APPROVED' ? '已实名' : identityStatus === 'PENDING' ? '审核中' : identityStatus === 'REJECTED' ? '实名被拒' : '未实名'}}
           </view>
-          <view class="status-pill">车辆待认证</view>
+          <view class="status-pill {{headVehicleStatusClass}}">
+            {{headVehicleStatusText}}
+          </view>
         </view>
       </view>
     </view>
@@ -48,6 +50,30 @@
   <view wx:if="{{rejectReason}}" class="notice reject">
     <view class="notice-title">实名审核未通过</view>
     <view>{{rejectReason}}</view>
+  </view>
+
+  <view class="vehicle-panel card">
+    <view class="panel-title-row">
+      <view class="panel-title">默认车辆</view>
+      <view class="panel-more" bindtap="goVehicleList">查看全部</view>
+    </view>
+    <view class="vehicle-card-mini">
+      <view class="vehicle-art">车</view>
+      <view class="vehicle-copy">
+        <view class="vehicle-name">{{defaultVehicleTitle}}</view>
+        <view class="vehicle-meta">{{defaultVehicleMeta}}</view>
+        <view class="vehicle-tags">
+          <view wx:if="{{defaultVehicle && defaultVehicle.isDefault}}" class="pill green">默认车辆</view>
+          <view wx:if="{{defaultVehicle}}" class="pill {{defaultVehicleStatusClass}}">
+            {{defaultVehicleStatusText}}
+          </view>
+        </view>
+      </view>
+    </view>
+    <view class="vehicle-actions">
+      <view class="btn" bindtap="goVehicleEdit">填写车辆信息</view>
+      <view class="btn ghost" bindtap="goVehicleCertification">{{defaultVehicle ? '车辆认证' : '查看车辆'}}</view>
+    </view>
   </view>
 
   <view class="trade-panel card">

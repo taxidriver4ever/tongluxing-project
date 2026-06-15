@@ -9,7 +9,7 @@ Component({
     form: {
       realName: "",
       idCardNo: "",
-      faceImageUrl: ""
+      faceImageKey: ""
     }
   },
   lifetimes: {
@@ -27,7 +27,7 @@ Component({
           rejectReason: result.rejectReason || "",
           idCardNoMask: result.idCardNoMask || "",
           "form.realName": result.realName || "",
-          "form.faceImageUrl": result.faceImageUrl || ""
+          "form.faceImageKey": result.faceImageKey || ""
         })
       } catch (error) {
         wx.showToast({ title: this.getErrorMessage(error), icon: "none" })

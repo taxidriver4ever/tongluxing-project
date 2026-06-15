@@ -5,7 +5,7 @@ Component({
     loading: false,
     form: {
       nickname: "",
-      avatarUrl: "",
+      avatarImageKey: "",
       gender: 0,
       birthday: "",
       cityCode: "",
@@ -26,7 +26,7 @@ Component({
         this.setData({
           form: {
             nickname: profile.nickname || "",
-            avatarUrl: profile.avatarUrl || "",
+            avatarImageKey: profile.avatarImageKey || "",
             gender: profile.gender || 0,
             birthday: profile.birthday || "",
             cityCode: profile.cityCode || "",

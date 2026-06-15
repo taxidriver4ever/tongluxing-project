@@ -4,7 +4,7 @@ public record IdentityStatusResponse(
         Long userId,
         String realName,
         String idCardNoMask,
-        String faceImageUrl,
+        String faceImageKey,
         String status,
         String rejectReason
 ) {

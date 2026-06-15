@@ -18,6 +18,10 @@
     "pages/privacy/privacy",
     "pages/emergency-contact/emergency-contact",
     "pages/public-profile/public-profile",
+    "pages/vehicle/list/list",
+    "pages/vehicle/edit/edit",
+    "pages/vehicle/certification/certification",
+    "pages/vehicle/public-card/public-card",
     "pages/publish-trip/publish-trip",
     "pages/sos/sos"
   ],

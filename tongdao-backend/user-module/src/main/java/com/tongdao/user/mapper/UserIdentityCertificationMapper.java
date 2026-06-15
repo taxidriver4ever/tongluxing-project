@@ -11,7 +11,7 @@ import com.tongdao.user.entity.UserIdentityCertification;
 public interface UserIdentityCertificationMapper {
 
     @Select("""
-            select id, user_id, real_name, id_card_no_cipher, id_card_no_mask, face_image_url, status,
+            select id, user_id, real_name, id_card_no_cipher, id_card_no_mask, face_image_key, status,
                    reject_reason, submitted_at, reviewed_by, reviewed_at, created_at, updated_at
             from user_identity_certification
             where user_id = #{userId}
@@ -22,10 +22,10 @@ public interface UserIdentityCertificationMapper {
 
     @Insert("""
             insert into user_identity_certification
-                (id, user_id, real_name, id_card_no_cipher, id_card_no_mask, face_image_url, status,
+                (id, user_id, real_name, id_card_no_cipher, id_card_no_mask, face_image_key, status,
                  reject_reason, submitted_at, reviewed_by, reviewed_at, created_at, updated_at)
             values
-                (#{id}, #{userId}, #{realName}, #{idCardNoCipher}, #{idCardNoMask}, #{faceImageUrl}, #{status},
+                (#{id}, #{userId}, #{realName}, #{idCardNoCipher}, #{idCardNoMask}, #{faceImageKey}, #{status},
                  #{rejectReason}, #{submittedAt}, #{reviewedBy}, #{reviewedAt}, #{createdAt}, #{updatedAt})
             """)
     int insert(UserIdentityCertification certification);

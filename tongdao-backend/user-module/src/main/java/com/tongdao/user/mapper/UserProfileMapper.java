@@ -14,7 +14,7 @@ import com.tongdao.user.entity.UserProfile;
 public interface UserProfileMapper {
 
     @Select("""
-            select id, user_id, nickname, avatar_url, gender, birthday, city_code, city_name, bio,
+            select id, user_id, nickname, avatar_image_key, gender, birthday, city_code, city_name, bio,
                    profile_completion, real_name_status, created_at, updated_at, deleted
             from user_profile
             where user_id = #{userId} and deleted = 0
@@ -24,10 +24,10 @@ public interface UserProfileMapper {
 
     @Insert("""
             insert into user_profile
-                (id, user_id, nickname, avatar_url, gender, birthday, city_code, city_name, bio,
+                (id, user_id, nickname, avatar_image_key, gender, birthday, city_code, city_name, bio,
                  profile_completion, real_name_status, created_at, updated_at, deleted)
             values
-                (#{id}, #{userId}, #{nickname}, #{avatarUrl}, #{gender}, #{birthday}, #{cityCode}, #{cityName}, #{bio},
+                (#{id}, #{userId}, #{nickname}, #{avatarImageKey}, #{gender}, #{birthday}, #{cityCode}, #{cityName}, #{bio},
                  #{profileCompletion}, #{realNameStatus}, #{createdAt}, #{updatedAt}, 0)
             """)
     int insert(UserProfile profile);
@@ -35,7 +35,7 @@ public interface UserProfileMapper {
     @Update("""
             update user_profile
             set nickname = #{nickname},
-                avatar_url = #{avatarUrl},
+                avatar_image_key = #{avatarImageKey},
                 gender = #{gender},
                 birthday = #{birthday},
                 city_code = #{cityCode},

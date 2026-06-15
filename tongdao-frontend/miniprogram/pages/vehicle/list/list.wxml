@@ -1,0 +1,44 @@
+<view class="page-shell vehicle-page">
+  <td-topbar title="我的车辆" placeholder="默认车辆和认证状态" action="车" />
+  <scroll-view scroll-y class="page-content">
+    <view class="summary card">
+      <view>
+        <view class="summary-title">车辆列表</view>
+        <view class="summary-sub">{{vehicles.length}} 辆车辆，默认车辆会用于行程和车队展示</view>
+      </view>
+      <view class="btn add-btn" bindtap="goCreate">添加车辆</view>
+    </view>
+
+    <view wx:if="{{vehicles.length === 0}}" class="empty card">
+      <view class="empty-icon">车</view>
+      <view class="empty-title">添加我的第一辆车</view>
+      <view class="empty-sub">填写品牌、车型、车牌和车辆照片后，可继续提交车辆认证。</view>
+      <view class="btn empty-btn" bindtap="goCreate">填写车辆信息</view>
+    </view>
+
+    <view wx:for="{{vehicles}}" wx:key="vehicleId" class="vehicle-card card">
+      <view class="vehicle-main">
+        <view class="vehicle-art">车</view>
+        <view class="vehicle-copy">
+          <view class="vehicle-title">{{item.brand || "未填写品牌"}} {{item.model || ""}}</view>
+          <view class="vehicle-meta">{{item.plateNoMask || "未填写车牌"}} · {{item.seatCount || 5}}座 · {{item.energyType || "未填写能源"}}</view>
+          <view class="tag-row">
+            <view wx:if="{{item.isDefault}}" class="pill green">默认</view>
+            <view class="pill {{item.certificationStatus === 'PENDING' ? 'orange' : item.certificationStatus === 'REJECTED' ? 'red' : item.certificationStatus === 'APPROVED' ? 'green' : ''}}">
+              {{item.certificationStatus === 'APPROVED' ? '已认证' : item.certificationStatus === 'PENDING' ? '审核中' : item.certificationStatus === 'REJECTED' ? '认证被拒' : '未认证'}}
+            </view>
+            <view class="pill">{{item.vehicleType || "车辆类型"}}</view>
+          </view>
+        </view>
+      </view>
+      <view class="action-grid">
+        <view class="btn ghost" data-id="{{item.vehicleId}}" bindtap="goEdit">填写车辆信息</view>
+        <view class="btn ghost" data-id="{{item.vehicleId}}" bindtap="goCertification">车辆认证</view>
+        <view class="btn ghost" data-id="{{item.vehicleId}}" bindtap="goPublicCard">公开卡片</view>
+        <view wx:if="{{!item.isDefault}}" class="btn" data-id="{{item.vehicleId}}" bindtap="onSetDefault">设为默认</view>
+        <view wx:else class="btn gray">当前默认</view>
+      </view>
+      <view class="delete-link" data-id="{{item.vehicleId}}" bindtap="onDelete">删除车辆</view>
+    </view>
+  </scroll-view>
+</view>

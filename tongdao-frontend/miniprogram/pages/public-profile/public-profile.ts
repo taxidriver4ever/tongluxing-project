@@ -4,7 +4,7 @@ function defaultPublicProfile(): PublicUserProfile {
   return {
     userId: 0,
     nickname: "同道车友",
-    avatarUrl: "",
+    avatarImageKey: "",
     cityName: "未设置城市",
     realNameStatus: "UNSUBMITTED",
     vehicleCertified: false

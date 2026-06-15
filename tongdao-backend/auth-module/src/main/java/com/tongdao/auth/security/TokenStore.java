@@ -1,10 +1,9 @@
 package com.tongdao.auth.security;
 
 import java.time.Duration;
-import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -16,40 +15,36 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class TokenStore {
 
-    public static final int TOKEN_EXPIRE_SECONDS = 7200;
-    public static final int REFRESH_TOKEN_EXPIRE_SECONDS = 604800;
-
-    private static final String TOKEN_PREFIX = "auth:token:";
-    private static final String REFRESH_PREFIX = "auth:refresh:";
-    private static final String PHONE_LOGIN_PREFIX = "auth:login:phone:";
+    private static final String ACCESS_PREFIX = "a:t:";
+    private static final String REFRESH_PREFIX = "a:r:";
+    private static final String PHONE_LOGIN_PREFIX = "a:u:";
     private static final DefaultRedisScript<Long> COMPARE_AND_DELETE_SCRIPT = new DefaultRedisScript<>(
             "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
             Long.class
     );
 
     private final StringRedisTemplate redisTemplate;
+    private final JwtTokenProvider jwtTokenProvider;
+
+    @Value("${auth.jwt.access-expire-seconds}")
+    private Integer accessExpireSeconds;
+
+    @Value("${auth.jwt.refresh-expire-seconds}")
+    private Integer refreshExpireSeconds;
 
     public TokenPair create(Long userId, String phone, String deviceId) {
-        String token = UUID.randomUUID().toString().replace("-", "");
-        String refreshToken = UUID.randomUUID().toString().replace("-", "");
+        JwtTokenProvider.JwtToken accessToken = jwtTokenProvider.createAccessToken(userId, phone, deviceId, accessExpireSeconds);
+        JwtTokenProvider.JwtToken refreshToken = jwtTokenProvider.createRefreshToken(userId, phone, refreshExpireSeconds);
 
-        String tokenKey = tokenKey(token);
-        redisTemplate.opsForHash().putAll(tokenKey, Map.of(
-                "userId", String.valueOf(userId),
-                "phone", phone,
-                "deviceId", StringUtils.hasText(deviceId) ? deviceId : ""
-        ));
-        redisTemplate.expire(tokenKey, Duration.ofSeconds(TOKEN_EXPIRE_SECONDS));
-        redisTemplate.opsForValue().set(phoneLoginKey(phone), token, Duration.ofSeconds(TOKEN_EXPIRE_SECONDS));
+        String oldJti = redisTemplate.opsForValue().get(phoneLoginKey(phone));
+        if (StringUtils.hasText(oldJti)) {
+            redisTemplate.delete(accessKey(oldJti));
+        }
+        redisTemplate.opsForValue().set(accessKey(accessToken.jti()), "1", Duration.ofSeconds(accessExpireSeconds));
+        redisTemplate.opsForValue().set(refreshKey(refreshToken.jti()), accessToken.jti(), Duration.ofSeconds(refreshExpireSeconds));
+        redisTemplate.opsForValue().set(phoneLoginKey(phone), accessToken.jti(), Duration.ofSeconds(accessExpireSeconds));
 
-        redisTemplate.opsForHash().putAll(refreshKey(refreshToken), Map.of(
-                "userId", String.valueOf(userId),
-                "phone", phone,
-                "token", token
-        ));
-        redisTemplate.expire(refreshKey(refreshToken), Duration.ofSeconds(REFRESH_TOKEN_EXPIRE_SECONDS));
-
-        return new TokenPair(token, refreshToken, TOKEN_EXPIRE_SECONDS);
+        return new TokenPair(accessToken.token(), refreshToken.token(), accessExpireSeconds);
     }
 
     public Optional<AuthPrincipal> resolve(String token) {
@@ -57,27 +52,26 @@ public class TokenStore {
             return Optional.empty();
         }
 
-        String tokenKey = tokenKey(token);
-        if (Boolean.FALSE.equals(redisTemplate.hasKey(tokenKey))) {
+        JwtTokenProvider.JwtClaims claims;
+        try {
+            claims = jwtTokenProvider.parseAccessToken(token);
+        } catch (IllegalArgumentException exception) {
             return Optional.empty();
         }
 
-        Object userId = redisTemplate.opsForHash().get(tokenKey, "userId");
-        Object phone = redisTemplate.opsForHash().get(tokenKey, "phone");
-        Object deviceId = redisTemplate.opsForHash().get(tokenKey, "deviceId");
-        if (userId == null || phone == null) {
+        if (Boolean.FALSE.equals(redisTemplate.hasKey(accessKey(claims.jti())))) {
             return Optional.empty();
         }
-        String currentToken = redisTemplate.opsForValue().get(phoneLoginKey(phone.toString()));
-        if (!token.equals(currentToken)) {
+        String currentJti = redisTemplate.opsForValue().get(phoneLoginKey(claims.phone()));
+        if (!claims.jti().equals(currentJti)) {
             return Optional.empty();
         }
 
         return Optional.of(new AuthPrincipal(
-                Long.valueOf(userId.toString()),
-                phone.toString(),
+                claims.userId(),
+                claims.phone(),
                 token,
-                deviceId == null ? "" : deviceId.toString()
+                claims.deviceId()
         ));
     }
 
@@ -85,35 +79,45 @@ public class TokenStore {
         if (!StringUtils.hasText(refreshToken)) {
             return Optional.empty();
         }
-        String refreshKey = refreshKey(refreshToken);
-        Object userId = redisTemplate.opsForHash().get(refreshKey, "userId");
-        Object phone = redisTemplate.opsForHash().get(refreshKey, "phone");
-        Object token = redisTemplate.opsForHash().get(refreshKey, "token");
-        if (userId == null || phone == null || token == null) {
+        JwtTokenProvider.JwtClaims claims;
+        try {
+            claims = jwtTokenProvider.parseRefreshToken(refreshToken);
+        } catch (IllegalArgumentException exception) {
             return Optional.empty();
         }
-        String currentToken = redisTemplate.opsForValue().get(phoneLoginKey(phone.toString()));
-        if (!token.toString().equals(currentToken)) {
+
+        String accessJti = redisTemplate.opsForValue().get(refreshKey(claims.jti()));
+        if (!StringUtils.hasText(accessJti)) {
             return Optional.empty();
         }
-        return Optional.of(new RefreshPrincipal(Long.valueOf(userId.toString()), phone.toString(), token.toString()));
+        String currentJti = redisTemplate.opsForValue().get(phoneLoginKey(claims.phone()));
+        if (!accessJti.equals(currentJti)) {
+            return Optional.empty();
+        }
+        return Optional.of(new RefreshPrincipal(claims.userId(), claims.phone(), accessJti, claims.jti()));
     }
 
     public void deleteToken(AuthPrincipal principal) {
-        redisTemplate.delete(tokenKey(principal.token()));
-        redisTemplate.execute(COMPARE_AND_DELETE_SCRIPT, java.util.List.of(phoneLoginKey(principal.phone())), principal.token());
+        String jti = jwtTokenProvider.parseAccessToken(principal.token()).jti();
+        redisTemplate.delete(accessKey(jti));
+        redisTemplate.execute(COMPARE_AND_DELETE_SCRIPT, java.util.List.of(phoneLoginKey(principal.phone())), jti);
     }
 
     public void deleteRefreshToken(String refreshToken) {
-        redisTemplate.delete(refreshKey(refreshToken));
+        try {
+            JwtTokenProvider.JwtClaims claims = jwtTokenProvider.parseRefreshToken(refreshToken);
+            redisTemplate.delete(refreshKey(claims.jti()));
+        } catch (IllegalArgumentException ignored) {
+            // Invalid refresh tokens do not need Redis cleanup.
+        }
     }
 
-    private String tokenKey(String token) {
-        return TOKEN_PREFIX + token;
+    private String accessKey(String jti) {
+        return ACCESS_PREFIX + jti;
     }
 
-    private String refreshKey(String refreshToken) {
-        return REFRESH_PREFIX + refreshToken;
+    private String refreshKey(String jti) {
+        return REFRESH_PREFIX + jti;
     }
 
     private String phoneLoginKey(String phone) {
@@ -123,6 +127,6 @@ public class TokenStore {
     public record TokenPair(String token, String refreshToken, Integer expireSeconds) {
     }
 
-    public record RefreshPrincipal(Long userId, String phone, String token) {
+    public record RefreshPrincipal(Long userId, String phone, String accessJti, String refreshJti) {
     }
 }

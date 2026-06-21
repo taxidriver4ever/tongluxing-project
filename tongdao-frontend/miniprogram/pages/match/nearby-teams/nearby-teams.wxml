@@ -1,0 +1,35 @@
+<view class="page-shell">
+  <td-topbar title="附近车队" placeholder="按路线、时间、顺路率排序" action="队" />
+  <scroll-view scroll-y class="page-content">
+    <view class="hero-card card">
+      <view>
+        <view class="hero-title">顺路车队推荐</view>
+        <view class="hero-sub">优先展示公开、活跃、未满员车队。</view>
+      </view>
+      <view class="btn ghost" bindtap="loadTeams">{{loading ? '刷新中' : '刷新'}}</view>
+    </view>
+
+    <view wx:for="{{teams}}" wx:key="teamId" class="team-card card">
+      <view class="team-top">
+        <view class="team-left" data-id="{{item.teamId}}" bindtap="goDetail">
+          <td-avatar text="队" theme="blue" />
+          <view>
+            <view class="team-name">{{item.teamName}}</view>
+            <view class="team-sub">{{item.startName}} → {{item.endName}}</view>
+          </view>
+        </view>
+        <view class="score"><text>{{item.overlapRate}}%</text><text>顺路率</text></view>
+      </view>
+      <view class="route-line">
+        <text>出发：{{item.departureTime}}</text>
+        <text>{{item.currentMemberCount}}/{{item.maxMemberCount}} 车</text>
+      </view>
+      <view class="card-actions">
+        <view class="btn gray" data-id="{{item.teamId}}" bindtap="goDetail">查看车队</view>
+        <view class="btn" data-id="{{item.teamId}}" bindtap="applyTeam">申请入队</view>
+      </view>
+    </view>
+
+    <view wx:if="{{teams.length === 0 && !loading}}" class="notice-card card">附近暂无车队</view>
+  </scroll-view>
+</view>

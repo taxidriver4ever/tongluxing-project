@@ -30,6 +30,7 @@ import com.tongdao.auth.vo.SmsCodeResponse;
 import com.tongdao.common.exception.BusinessException;
 import com.tongdao.common.result.ResultCode;
 import com.tongdao.common.utils.SnowflakeIdGenerator;
+import com.tongdao.user.service.UserService;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -55,6 +56,7 @@ public class AuthServiceImpl implements AuthService {
     private final AuthSmsLogMapper smsLogMapper;
     private final AuthLoginLogMapper loginLogMapper;
     private final WxMiniProgramClient wxMiniProgramClient;
+    private final UserService userService;
 
     @Override
     public SmsCodeResponse sendSmsCode(SmsCodeRequest request) {
@@ -89,7 +91,7 @@ public class AuthServiceImpl implements AuthService {
         validateLoginFailLimit(phone);
         validateSmsCode(phone, request.code());
 
-        LoginResponse response = doLoginByPhone(phone, request.deviceId(), "login");
+        LoginResponse response = doLoginByPhone(phone, request.deviceId(), "login", request.inviteCode());
         redisTemplate.delete(key(SMS_CODE_KEY, DEFAULT_SCENE, phone));
         return response;
     }
@@ -98,10 +100,10 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public LoginResponse wxPhoneLogin(WxPhoneLoginRequest request) {
         String phone = wxMiniProgramClient.getPhoneNumber(request.code());
-        return doLoginByPhone(phone, request.deviceId(), "wx_phone_login");
+        return doLoginByPhone(phone, request.deviceId(), "wx_phone_login", request.inviteCode());
     }
 
-    private LoginResponse doLoginByPhone(String phone, String deviceId, String actionType) {
+    private LoginResponse doLoginByPhone(String phone, String deviceId, String actionType, String inviteCode) {
         AuthAccount account = accountMapper.findByPhone(phone);
         boolean isNewUser = account == null;
         if (account == null) {
@@ -109,6 +111,9 @@ public class AuthServiceImpl implements AuthService {
         }
         if (Integer.valueOf(2).equals(account.getAccountStatus())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "账号已被禁用");
+        }
+        if (isNewUser && StringUtils.hasText(inviteCode)) {
+            userService.bindInviteForNewUser(account.getUserId(), inviteCode);
         }
 
         String ip = currentIp();

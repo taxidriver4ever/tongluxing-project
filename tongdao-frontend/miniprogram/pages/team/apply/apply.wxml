@@ -1,0 +1,15 @@
+<view class="page-shell">
+  <td-topbar title="申请入队" placeholder="待队长审批" action="申" />
+  <scroll-view scroll-y class="page-content">
+    <view class="card team-card">
+      <view class="team-name">{{team ? team.teamName : '车队'}}</view>
+      <view class="team-sub">{{team ? (team.startName + ' → ' + team.endName) : ''}}</view>
+      <view class="team-sub">申请通过后，会自动加入车队群聊。</view>
+    </view>
+    <view class="card form-card">
+      <view class="field-label">申请留言</view>
+      <textarea class="textarea" value="{{applyMessage}}" bindinput="onInput" maxlength="255" placeholder="介绍同行计划、车辆情况或集合偏好" />
+      <view class="btn submit-btn {{loading ? 'gray' : ''}}" bindtap="submit">{{loading ? '提交中...' : '提交申请'}}</view>
+    </view>
+  </scroll-view>
+</view>

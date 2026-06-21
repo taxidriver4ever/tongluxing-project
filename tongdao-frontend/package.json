@@ -8,6 +8,7 @@
   "author": "",
   "license": "",
   "dependencies": {
+    "tim-wx-sdk": "latest"
   },
   "devDependencies": {
     "miniprogram-api-typings": "^2.8.3-1"

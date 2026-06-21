@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.tongdao.user.mapper.UserDomainMapper">
+    <select id="findInvitations" resultType="java.util.HashMap">
+        select id as relationId, invitee_user_id as inviteeUserId, invite_code as inviteCode,
+               relation_status as status, bound_at as boundAt,
+               first_team_completed_at as firstTeamCompletedAt
+        from invite_relation
+        where inviter_user_id = #{userId} and deleted = 0
+        <if test="status != null and status != ''">
+            and relation_status = #{status}
+        </if>
+        order by bound_at desc
+        limit #{offset}, #{size}
+    </select>
+
+    <select id="countInvitations" resultType="long">
+        select count(*) from invite_relation
+        where inviter_user_id = #{userId} and deleted = 0
+        <if test="status != null and status != ''">
+            and relation_status = #{status}
+        </if>
+    </select>
+
+    <select id="findCoupons" resultType="java.util.HashMap">
+        select uc.id, uc.template_id as templateId, ct.coupon_name as couponName,
+               ct.coupon_type as couponType, ct.threshold_amount as thresholdAmount,
+               ct.discount_amount as discountAmount, uc.coupon_status as couponStatus,
+               uc.valid_start_at as validStartAt, uc.valid_end_at as validEndAt
+        from user_coupon uc
+        join coupon_template ct on ct.id = uc.template_id
+        where uc.user_id = #{userId} and uc.deleted = 0 and ct.deleted = 0
+        <if test="status != null and status != ''">
+            and uc.coupon_status = #{status}
+        </if>
+        <if test="type != null and type != ''">
+            and ct.coupon_type = #{type}
+        </if>
+        order by uc.valid_end_at
+        limit #{offset}, #{size}
+    </select>
+
+    <select id="countCoupons" resultType="long">
+        select count(*)
+        from user_coupon uc
+        join coupon_template ct on ct.id = uc.template_id
+        where uc.user_id = #{userId} and uc.deleted = 0 and ct.deleted = 0
+        <if test="status != null and status != ''">
+            and uc.coupon_status = #{status}
+        </if>
+        <if test="type != null and type != ''">
+            and ct.coupon_type = #{type}
+        </if>
+    </select>
+
+    <select id="findDrafts" resultType="java.util.HashMap">
+        select id as draftId, user_id as userId, start_location_json as startJson,
+               end_location_json as endJson, waypoint_json as waypointJson,
+               departure_time as departureTime, duration_days as durationDays,
+               people_count as peopleCount, remark, draft_status as draftStatus,
+               published_trip_id as publishedTripId, updated_at as updatedAt
+        from trip_draft
+        where user_id = #{userId} and deleted = 0
+        <if test="status != null and status != ''">
+            and draft_status = #{status}
+        </if>
+        order by updated_at desc
+        limit #{offset}, #{size}
+    </select>
+
+    <select id="countDrafts" resultType="long">
+        select count(*) from trip_draft
+        where user_id = #{userId} and deleted = 0
+        <if test="status != null and status != ''">
+            and draft_status = #{status}
+        </if>
+    </select>
+</mapper>

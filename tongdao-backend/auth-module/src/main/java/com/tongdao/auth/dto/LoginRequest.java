@@ -12,6 +12,8 @@ public record LoginRequest(
         @Pattern(regexp = "^\\d{6}$", message = "验证码格式不正确")
         String code,
 
-        String deviceId
+        String deviceId,
+
+        String inviteCode
 ) {
 }

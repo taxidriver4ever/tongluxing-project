@@ -1,34 +1,59 @@
 <view class="publish-page">
-  <view class="map-backdrop">
-    <view class="road r1"></view>
-    <view class="road r2"></view>
-    <view class="road r3"></view>
-  </view>
+  <td-topbar title="{{isEdit ? '编辑行程' : '发布行程'}}" placeholder="填写行程信息" action="关" />
 
-  <td-topbar title="发布行程" placeholder="广州 → 大理" action="关" />
+  <view class="form-panel">
+    <view class="section-title">路线地点</view>
+    <view class="location-row" bindtap="chooseStartLocation">
+      <view>
+        <view class="location-label">起点</view>
+        <view class="location-value">{{startText}}</view>
+      </view>
+      <view class="location-action">地图选择</view>
+    </view>
 
-  <view class="sheet">
-    <view class="handle"></view>
-    <view class="step">Step 1 / 2 画路线</view>
-    <view class="input">起点：当前位置 · 广州天河</view>
-    <view class="input">终点：大理古城</view>
-    <view class="mini-map">
-      <view class="path"></view>
-      <view class="dot a"></view>
-      <view class="dot b"></view>
+    <view class="location-row" bindtap="chooseEndLocation">
+      <view>
+        <view class="location-label">终点</view>
+        <view class="location-value">{{endText}}</view>
+      </view>
+      <view class="location-action">地图选择</view>
     </view>
-    <view class="step">Step 2 / 2 行程详情</view>
-    <view class="input">出发时间：6.12 08:00</view>
+
+    <view class="waypoint-head">
+      <view class="section-title">途经点（最多 5 个）</view>
+      <view class="add-waypoint" bindtap="addWaypoint">添加途经点</view>
+    </view>
+    <view wx:for="{{form.waypoints}}" wx:key="sortOrder" class="waypoint-row">
+      <view class="waypoint-main" data-index="{{index}}" bindtap="editWaypoint">
+        <view class="location-label">途经点 {{item.sortOrder}}</view>
+        <view class="location-value">{{item.name || item.address}}</view>
+      </view>
+      <view class="sort-actions">
+        <view data-index="{{index}}" bindtap="moveWaypointUp">上</view>
+        <view data-index="{{index}}" bindtap="moveWaypointDown">下</view>
+        <view data-index="{{index}}" bindtap="deleteWaypoint">删</view>
+      </view>
+    </view>
+    <view wx:if="{{form.waypoints.length === 0}}" class="empty-waypoint">V1 不推荐途经点，请按自己的计划添加。</view>
+
+    <view class="section-title detail-title">行程信息</view>
+    <input class="input" value="{{form.departureTime}}" data-field="departureTime" bindinput="onInput" placeholder="出发时间：2026-06-20 08:00:00" />
+    <input class="input" value="{{form.routeSummary}}" data-field="routeSummary" bindinput="onInput" maxlength="255" placeholder="路线摘要：广州-桂林-大理" />
+    <view class="route-tip">路线由地图服务按起点、途经点、终点顺序串联；V1 不做智能推荐。</view>
     <view class="option-grid">
-      <view class="option">浅同行</view>
-      <view class="option active">中同行</view>
-      <view class="option">深同行</view>
+      <view class="option {{form.travelDepth === 'LIGHT' ? 'active' : ''}}" data-depth="LIGHT" bindtap="onDepthTap">浅同行</view>
+      <view class="option {{form.travelDepth === 'MIDDLE' ? 'active' : ''}}" data-depth="MIDDLE" bindtap="onDepthTap">中同行</view>
+      <view class="option {{form.travelDepth === 'DEEP' ? 'active' : ''}}" data-depth="DEEP" bindtap="onDepthTap">深同行</view>
     </view>
-    <view class="option-grid">
-      <view class="option active">2车</view>
-      <view class="option">4车</view>
-      <view class="option">不设限</view>
+    <view class="inline-grid">
+      <input class="input" type="number" value="{{form.estimatedDays}}" data-field="estimatedDays" bindinput="onNumberInput" placeholder="预计天数" />
+      <input class="input" type="number" value="{{form.maxVehicleCount}}" data-field="maxVehicleCount" bindinput="onNumberInput" placeholder="同行车辆上限" />
     </view>
-    <view class="btn publish-btn" bindtap="goBack">发布行程并寻找同路车队</view>
+    <input class="input" value="{{form.remark}}" data-field="remark" bindinput="onInput" maxlength="255" placeholder="备注：拍照、美食、露营等" />
+    <view class="switch-row">
+      <text>公开展示</text>
+      <switch checked="{{form.publicFlag}}" bindchange="onPublicChange" color="#2F7DF6" />
+    </view>
+    <view class="btn publish-btn {{loading ? 'gray' : ''}}" bindtap="onSubmit">{{loading ? '提交中...' : (isEdit ? '保存行程' : '发布行程并寻找同路车队')}}</view>
   </view>
 </view>

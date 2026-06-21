@@ -1,0 +1,3 @@
+package com.tongdao.coupon.service;
+import java.math.BigDecimal;import java.util.List;import com.tongdao.coupon.integration.CouponFacade;import com.tongdao.user.model.UserModels.*;
+public interface CouponService extends CouponFacade {PageResult<CouponSummaryVO> currentCoupons(String status,String type,int page,int size);UserCouponDetailVO currentCoupon(Long id);List<AvailableCouponVO> available(String orderType,Long merchantId,BigDecimal amount);CouponIssueResult claim(Long templateId);CouponDeductionVO lock(Long id,CouponLockRequest request);void orderResult(CouponOrderResultRequest request);}

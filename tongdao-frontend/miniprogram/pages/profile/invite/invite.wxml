@@ -1,0 +1,75 @@
+<!-- 邀请好友 — invite.wxml -->
+<view class="invite-page">
+
+  <!-- 顶部导航 -->
+  <view class="topbar-wrap">
+    <view class="statusbar-space" style="{{statusStyle}}"></view>
+    <view class="topbar" style="{{topbarStyle}}">
+      <view class="back-btn" bindtap="goBack">‹</view>
+      <view class="bar-title">邀请好友</view>
+      <view class="bar-spacer"></view>
+    </view>
+    <view class="bar-subtitle">老带新一起上路</view>
+  </view>
+
+  <scroll-view scroll-y class="content-scroll">
+
+    <!-- 邀请进度 Banner -->
+    <view class="invite-banner">
+      <view class="banner-top">
+        <view class="pill orange">本月邀请 {{validInviteCount}} 人</view>
+      </view>
+      <view class="banner-title">再邀 {{nextRewardNeed}} 人，解锁下一个奖励 🎉</view>
+      <view class="banner-sub">好友注册得 +50 同路值，完成首次组队再得 +100</view>
+      <view class="progress-track">
+        <view class="progress-fill" style="width:{{inviteProgressPercent}}%"></view>
+      </view>
+      <view class="banner-hint">{{validInviteCount}} / {{nextMilestone}} 人 · 已解锁：{{grantedDesc}}</view>
+    </view>
+
+    <!-- 邀请码 & 二维码 -->
+    <view class="code-card">
+      <view class="code-hint">专属邀请码</view>
+      <view class="invite-code">{{inviteCode}}</view>
+      <view class="qr-box">
+        <view class="qr-inner">TD</view>
+      </view>
+      <view class="code-desc">扫码注册即领新人券包（洗车+加油+住宿）</view>
+      <view class="btn-row">
+        <view class="btn blue" bindtap="shareInvite">分享好友</view>
+        <view class="btn ghost" bindtap="saveCard">保存邀请卡</view>
+      </view>
+    </view>
+
+    <!-- 阶梯奖励 -->
+    <view class="section-card">
+      <view class="sec-title">阶梯奖励</view>
+      <view wx:for="{{rewardSteps}}" wx:key="milestone" class="task-row">
+        <text class="task-label">邀请 {{item.milestone}} 人</text>
+        <view class="pill {{item.done ? 'green' : item.current ? 'orange' : ''}}">
+          {{item.rewardDesc}} {{item.done ? '已解锁' : item.current ? '进行中' : '未解锁'}}
+        </view>
+      </view>
+    </view>
+
+    <!-- 最近邀请记录 -->
+    <view class="section-card">
+      <view class="sec-head">
+        <text class="sec-title">最近邀请</text>
+        <text class="sec-link" bindtap="goAllInvitations">查看全部 ›</text>
+      </view>
+      <view wx:for="{{recentInvitations}}" wx:key="relationId" class="inv-row">
+        <view class="inv-avatar">{{item.avatarText}}</view>
+        <view class="inv-copy">
+          <text class="inv-name">{{item.statusDesc}}</text>
+          <text class="inv-date">{{item.boundAt}}</text>
+        </view>
+        <view class="pill {{item.pointClass}}">+{{item.points}}</view>
+      </view>
+      <view wx:if="{{recentInvitations.length === 0}}" class="empty-hint">暂无邀请记录</view>
+    </view>
+
+    <view class="bottom-safe"></view>
+  </scroll-view>
+
+</view>

@@ -1,0 +1,15 @@
+<view class="page-shell public-trip-page">
+  <td-topbar title="公开行程" placeholder="公开展示的同路行程" action="公" />
+  <scroll-view scroll-y class="page-content">
+    <view wx:if="{{trips.length === 0}}" class="empty-card card">暂无公开行程。</view>
+    <view wx:for="{{trips}}" wx:key="tripId" class="trip-card card" data-id="{{item.tripId}}" bindtap="goDetail">
+      <view class="trip-title">{{item.startName}} → {{item.endName}}</view>
+      <view class="trip-sub">出发：{{item.departureTime}} ｜ {{item.joinedVehicleCount}}/{{item.maxVehicleCount}}车</view>
+      <view class="trip-route">{{item.routeSummary || item.remark || '暂无路线摘要'}}</view>
+      <view class="tag-row">
+        <td-tag text="{{item.travelDepth === 'LIGHT' ? '浅度同行' : item.travelDepth === 'DEEP' ? '深度同行' : '中度同行'}}" />
+        <td-tag text="{{item.status === 'ONGOING' ? '进行中' : '可查看'}}" />
+      </view>
+    </view>
+  </scroll-view>
+</view>

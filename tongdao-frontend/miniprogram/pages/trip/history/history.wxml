@@ -1,0 +1,14 @@
+<view class="page-shell trip-list-page">
+  <td-topbar title="历史行程" placeholder="已结束、已取消、已归档" action="历" />
+  <scroll-view scroll-y class="page-content">
+    <view wx:if="{{trips.length === 0}}" class="empty-card card">暂无历史行程。</view>
+    <view wx:for="{{trips}}" wx:key="tripId" class="trip-card card" data-id="{{item.tripId}}" bindtap="goDetail">
+      <view class="trip-title">{{item.startName}} → {{item.endName}}</view>
+      <view class="trip-sub">出发：{{item.departureTime}} ｜ {{item.status}}</view>
+      <view class="tag-row">
+        <td-tag text="{{item.travelDepth === 'LIGHT' ? '浅度同行' : item.travelDepth === 'DEEP' ? '深度同行' : '中度同行'}}" />
+        <td-tag text="{{item.publicFlag ? '公开' : '私密'}}" />
+      </view>
+    </view>
+  </scroll-view>
+</view>

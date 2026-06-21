@@ -1,0 +1,19 @@
+<view class="chat-room">
+  <td-topbar title="{{title}}" placeholder="{{imReady ? '腾讯云 IM 已连接' : '正在连接腾讯云 IM'}}" action="聊" />
+  <scroll-view scroll-y class="message-list" scroll-into-view="{{bottomId}}">
+    <view wx:if="{{!historyCompleted}}" class="load-more" bindtap="loadMessages">{{loading ? '加载中...' : '加载历史消息'}}</view>
+    <view wx:for="{{messages}}" wx:key="messageId" class="message-row {{item.self ? 'mine' : ''}}">
+      <view class="bubble {{item.self ? 'self' : ''}}">
+        <view class="sender">用户 {{item.senderUserId}}</view>
+        <view class="content">{{item.content}}</view>
+        <view class="time">{{item.sentAt}}</view>
+      </view>
+    </view>
+    <view wx:if="{{messages.length === 0 && !loading}}" class="empty">暂无消息，发一句打个招呼吧。</view>
+    <view id="bottom-anchor"></view>
+  </scroll-view>
+  <view class="input-bar">
+    <input class="chat-input" value="{{content}}" bindinput="onInput" placeholder="输入消息" />
+    <view class="send-btn" bindtap="onSend">发送</view>
+  </view>
+</view>

@@ -1,10 +1,59 @@
+import { Conversation, getConversations } from "../../api/chat"
+
+function avatarText(name: string): string {
+  if (!name) {
+    return "聊"
+  }
+  return name.slice(0, 1)
+}
+
 Component({
   data: {
-    chats: [
-      { avatar: "川", theme: "blue", name: "318经典车队", time: "09:30", preview: "队长：前面服务区集合，注意保持车距", badge: "3" },
-      { avatar: "团", theme: "orange", name: "拼团订单通知", time: "09:12", preview: "你的牛肉面套餐核销码已生成", badge: "1" },
-      { avatar: "客", theme: "green", name: "同道客服", time: "08:56", preview: "退款、核销、商家问题都可以在这里咨询" },
-      { avatar: "系", theme: "purple", name: "系统通知", time: "周一", preview: "你的车辆认证已通过，已开放发布行程能力" }
-    ]
+    loading: false,
+    chats: [] as Array<Conversation & { avatar: string; theme: string; badge: string }>
+  },
+  pageLifetimes: {
+    show() {
+      this.loadConversations()
+    }
+  },
+  methods: {
+    async loadConversations() {
+      this.setData({ loading: true })
+      try {
+        const result = await getConversations()
+        const chats = (result.conversations || []).map((item) => {
+          return {
+            conversationId: item.conversationId,
+            bizType: item.bizType,
+            bizId: item.bizId,
+            conversationName: item.conversationName,
+            conversationStatus: item.conversationStatus,
+            providerType: item.providerType,
+            lastMessagePreview: item.lastMessagePreview,
+            lastMessageAt: item.lastMessageAt,
+            avatar: avatarText(item.conversationName),
+            theme: item.bizType === "TEAM" ? "blue" : "green",
+            badge: ""
+          }
+        })
+        this.setData({ chats })
+      } catch (error) {
+        wx.showToast({ title: this.getErrorMessage(error), icon: "none" })
+      } finally {
+        this.setData({ loading: false })
+      }
+    },
+    openChat(event: WechatMiniprogram.TouchEvent) {
+      const id = String(event.currentTarget.dataset.id || "")
+      const title = String(event.currentTarget.dataset.title || "车队群聊")
+      const groupId = String(event.currentTarget.dataset.group || "")
+      if (id) {
+        wx.navigateTo({ url: "/pages/chat/team-room/room?conversationId=" + id + "&groupId=" + groupId + "&title=" + encodeURIComponent(title) })
+      }
+    },
+    getErrorMessage(error: unknown): string {
+      return error instanceof Error ? error.message : "网络异常，请稍后重试"
+    }
   }
 })

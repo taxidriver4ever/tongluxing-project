@@ -1,0 +1,54 @@
+<view class="page-shell trip-detail-page">
+  <td-topbar title="行程详情" placeholder="{{trip.startName}} → {{trip.endName}}" action="行" />
+  <scroll-view scroll-y class="page-content">
+    <view class="detail-hero card">
+      <view class="state-title">
+        <text>{{trip.startName}} → {{trip.endName}}</text>
+        <text class="running">{{trip.status}}</text>
+      </view>
+      <view class="sub">出发：{{trip.departureTime}} ｜ 预计 {{trip.estimatedDays || 1}} 天 ｜ {{trip.publicFlag ? '公开' : '私密'}}</view>
+      <view class="detail-grid">
+        <view class="stat"><text>{{trip.joinedVehicleCount}}/{{trip.maxVehicleCount}}</text><text>同行车辆</text></view>
+        <view class="stat"><text>{{trip.travelDepth}}</text><text>同行深度</text></view>
+        <view class="stat"><text>{{trip.status}}</text><text>状态</text></view>
+      </view>
+    </view>
+
+    <view class="section-head"><text>路线节点</text><text class="more">地图模块后续增强</text></view>
+    <view class="timeline-card card">
+      <view class="timeline-item">
+        <view class="point"></view>
+        <view><view class="place-title">{{trip.startName}}</view><view class="place-sub">起点</view></view>
+      </view>
+      <view wx:for="{{trip.waypoints}}" wx:key="sortOrder" class="timeline-item">
+        <view class="point"></view>
+        <view><view class="place-title">{{item.name || item.address}}</view><view class="place-sub">途经点 {{item.sortOrder}}</view></view>
+      </view>
+      <view class="timeline-item">
+        <view class="point end"></view>
+        <view><view class="place-title">{{trip.endName}}</view><view class="place-sub">终点</view></view>
+      </view>
+    </view>
+
+    <view class="section-head"><text>同行成员</text><text class="more">成员快照</text></view>
+    <view class="member-card card">
+      <view wx:for="{{members}}" wx:key="userId" class="member-row">
+        <view class="member-left">
+          <td-avatar text="同" theme="{{item.memberRole === 'OWNER' ? 'blue' : 'green'}}" />
+          <view>
+            <view class="member-name">{{item.nicknameSnapshot || '同道车友'}}</view>
+            <view class="member-sub">{{item.vehicleSnapshot || '车辆信息未填写'}}</view>
+          </view>
+        </view>
+        <td-tag text="{{item.memberRole === 'OWNER' ? '队长' : '同行'}}" />
+      </view>
+    </view>
+
+    <view wx:if="{{trip.status === 'PUBLISHED' || trip.status === 'ONGOING'}}" class="btn-row">
+      <view class="btn ghost" bindtap="goEdit">编辑行程</view>
+      <view class="btn" bindtap="goCreateTeam">创建车队</view>
+      <view class="btn gray" bindtap="onEnd">结束行程</view>
+      <view class="btn orange" bindtap="onCancel">取消</view>
+    </view>
+  </scroll-view>
+</view>

@@ -1,0 +1,79 @@
+<!-- 成长中心 — growth.wxml -->
+<view class="growth-page">
+
+  <!-- ─── 顶部 Level Banner ─── -->
+  <view class="level-banner" style="{{safeStyle}}">
+    <view class="topbar" style="{{topbarStyle}}">
+      <view class="back-btn" bindtap="goBack">‹</view>
+      <view class="bar-title">成长中心</view>
+      <view class="bar-spacer"></view>
+    </view>
+
+    <view class="level-info">
+      <view class="level-row">
+        <text class="level-name">{{levelName}}</text>
+        <view class="level-row-right">
+          <text class="month-hint">本月 +{{monthlyPoints}}</text>
+          <view class="rule-pill" bindtap="showRules">规则</view>
+        </view>
+      </view>
+      <text class="level-perks">{{levelPerks}}</text>
+      <view class="progress-track">
+        <view class="progress-fill" style="width:{{progressPercent}}%"></view>
+      </view>
+      <text class="progress-label">{{totalPoints}} / {{levelMaxPoints}} · 距 {{nextLevelName}} 还差 {{nextLevelPoints}}</text>
+    </view>
+  </view>
+
+  <!-- ─── 页面主体 ─── -->
+  <scroll-view scroll-y class="content-scroll">
+
+    <!-- 今日任务 -->
+    <view class="section-card">
+      <view class="sec-head">
+        <text class="sec-title">今日任务</text>
+        <text class="sec-sub">已获 {{earnedToday}} / {{totalToday}} 同路值</text>
+      </view>
+      <view wx:for="{{todayTasks}}" wx:key="label" class="task-row">
+        <text class="task-label">{{item.label}}</text>
+        <view class="pill {{item.done ? 'green' : item.action ? 'blue' : 'gray'}}">
+          {{item.badge}}
+        </view>
+      </view>
+    </view>
+
+    <!-- 勋章墙 -->
+    <view class="section-card">
+      <view class="sec-head">
+        <text class="sec-title">勋章墙</text>
+        <text class="sec-sub">已获得 {{earnedBadgeCount}} / {{totalBadgeCount}}</text>
+      </view>
+      <view class="badge-grid">
+        <view wx:for="{{badges}}" wx:key="badgeCode"
+              class="badge-item {{item.earned ? (item.orange ? 'lit-orange' : 'lit') : ''}}">
+          <text class="badge-icon">{{item.icon}}</text>
+          <text class="badge-name">{{item.badgeName}}</text>
+        </view>
+      </view>
+      <view class="btn ghost" style="margin-top:16rpx" bindtap="showAllBadges">查看全部勋章</view>
+    </view>
+
+    <!-- 最近同路值记录 -->
+    <view class="section-card">
+      <view class="sec-head">
+        <text class="sec-title">最近同路值</text>
+        <text class="sec-sub link" bindtap="goGrowthLogs">全部记录 ›</text>
+      </view>
+      <view wx:for="{{growthLogs}}" wx:key="id" class="task-row">
+        <text class="task-label">{{item.remark || item.bizType}}</text>
+        <text class="point-val {{item.pointDelta > 0 ? 'green-text' : 'red-text'}}">
+          {{item.pointDelta > 0 ? "+" : ""}}{{item.pointDelta}}
+        </text>
+      </view>
+      <view wx:if="{{growthLogs.length === 0}}" class="empty-hint">暂无记录</view>
+    </view>
+
+    <view class="bottom-safe"></view>
+  </scroll-view>
+
+</view>

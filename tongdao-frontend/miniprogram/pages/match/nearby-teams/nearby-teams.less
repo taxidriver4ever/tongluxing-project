@@ -1,0 +1,79 @@
+.hero-card,
+.team-card {
+  margin-bottom: 20rpx;
+}
+
+.hero-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.hero-title {
+  color: var(--title);
+  font-size: 34rpx;
+  font-weight: 900;
+}
+
+.hero-sub,
+.team-sub {
+  margin-top: 8rpx;
+  color: var(--muted);
+  font-size: 24rpx;
+}
+
+.team-top,
+.team-left,
+.score,
+.card-actions,
+.route-line {
+  display: flex;
+  align-items: center;
+}
+
+.team-top {
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.team-left {
+  min-width: 0;
+  flex: 1;
+  gap: 18rpx;
+}
+
+.team-name {
+  color: var(--title);
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.score {
+  flex-direction: column;
+  color: var(--green);
+  font-size: 20rpx;
+  font-weight: 800;
+}
+
+.score text:first-child {
+  font-size: 38rpx;
+  font-weight: 900;
+}
+
+.route-line {
+  margin: 20rpx 0;
+  justify-content: space-between;
+  color: #475569;
+  font-size: 24rpx;
+}
+
+.card-actions {
+  gap: 16rpx;
+}
+
+.card-actions .btn {
+  flex: 1;
+  height: 68rpx;
+  border-radius: 34rpx;
+}

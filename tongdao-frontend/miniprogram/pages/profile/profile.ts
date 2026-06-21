@@ -1,206 +1,200 @@
-import { getCurrentUserProfile, getIdentityStatus, UserProfile } from "../../api/user"
+import { getUserDashboard, UserDashboard, GrowthSummary } from "../../api/user"
 import { getMyVehicles, Vehicle } from "../../api/vehicle"
 import { getToken } from "../../utils/auth-storage"
 
-function defaultProfile(): UserProfile {
+// 等级映射表
+const LEVEL_MAP: Record<string, { name: string; maxPoints: number; nextName: string }> = {
+  "Lv1": { name: "Lv.1 同路新人", maxPoints: 500,  nextName: "Lv.2" },
+  "Lv2": { name: "Lv.2 同路旅人", maxPoints: 1500, nextName: "Lv.3" },
+  "Lv3": { name: "Lv.3 同路先锋", maxPoints: 5000, nextName: "Lv.4" },
+  "Lv4": { name: "Lv.4 同路达人", maxPoints: 12000, nextName: "Lv.5" },
+  "Lv5": { name: "Lv.5 同路领袖", maxPoints: 999999, nextName: "顶级" },
+}
+
+function defaultDashboard(): UserDashboard {
   return {
-    userId: 0,
-    nickname: "同道车友",
-    avatarImageKey: "",
-    gender: 0,
-    birthday: "",
-    cityCode: "",
-    cityName: "未设置城市",
-    bio: "",
-    profileCompletion: 0,
-    realNameStatus: "UNSUBMITTED"
+    profile: {
+      userId: 0,
+      nickname: "同道车友",
+      avatarImageKey: "",
+      gender: 0,
+      birthday: "",
+      cityCode: "",
+      cityName: "未设置城市",
+      bio: "",
+      profileStatus: "INCOMPLETE",
+      certificationStatus: "UNSUBMITTED"
+    },
+    growth: { totalPoints: 0, levelCode: "Lv1", nextLevelPoints: 500 },
+    coupon: { availableCount: 0, expiringCount: 0 },
+    invitation: { validInviteCount: 0, nextRewardNeed: 5 },
+    nextTripDraft: null
   }
 }
 
 Component({
   data: {
     loading: false,
-    profile: defaultProfile(),
-    vehicles: [] as Vehicle[],
+    dashboard: defaultDashboard() as UserDashboard,
     defaultVehicle: null as Vehicle | null,
-    defaultVehicleTitle: "添加我的第一辆车",
-    defaultVehicleMeta: "填写品牌、车型、车牌和车辆照片",
-    defaultVehicleStatusText: "",
-    defaultVehicleStatusClass: "",
-    headVehicleStatusText: "未添加车辆",
-    headVehicleStatusClass: "",
-    avatarText: "同",
-    identityStatus: "UNSUBMITTED",
-    rejectReason: "",
+    // 计算属性 —— header
     headStyle: "",
-    menus: [
-      { label: "编辑个人资料", value: "头像、昵称、城市、简介", url: "/pages/profile-edit/profile-edit" },
-      { label: "实名认证", value: "提交真实姓名和证件信息", url: "/pages/identity-cert/identity-cert" },
-      { label: "我的车辆", value: "车辆档案、默认车辆、认证状态", url: "/pages/vehicle/list/list" },
-      { label: "车辆认证", value: "行驶证上传和审核结果", url: "/pages/vehicle/list/list" },
-      { label: "隐私设置", value: "资料、行程、位置可见范围", url: "/pages/privacy/privacy" },
-      { label: "紧急联系人", value: "预留家人或朋友联系方式", url: "/pages/emergency-contact/emergency-contact" },
-      { label: "公开资料卡", value: "预览推荐列表展示效果", url: "/pages/public-profile/public-profile" },
-      { label: "商家工作台", value: "待办与收入", url: "/pages/merchant/home/home" },
-      { label: "帮助与客服", value: "微信客服" }
-    ]
+    avatarText: "同",
+    certPillText: "未认证",
+    certPillClass: "",
+    levelName: "Lv.1 同路新人",
+    nextLevelName: "Lv.2",
+    nextLevelPoints: 500,
+    totalPoints: 0,
+    progressPercent: 0,
+    vehicleLabel: "未添加车辆",
+    // 车辆认证状态 (第三卡片)
+    headVehicleStatusText: "未认证",
+    headVehicleStatusClass: "",
+    // 功能入口文案
+    inviteHint: "邀请好友一起上路",
+    nextTripLabel: "暂无草稿行程"
   },
+
   lifetimes: {
     attached() {
-      this.initProfileSafeArea()
+      this.initSafeArea()
     }
   },
+
   pageLifetimes: {
     show() {
-      this.loadProfile()
+      this.loadDashboard()
     }
   },
+
   methods: {
-    initProfileSafeArea() {
+    initSafeArea() {
       try {
-        const system = wx.getSystemInfoSync()
         const menu = wx.getMenuButtonBoundingClientRect()
+        const system = wx.getSystemInfoSync()
         const top = menu.top || system.statusBarHeight || 24
-        const rightSafe = system.windowWidth - menu.left + 8
-        this.setData({
-          headStyle: "padding-top: " + top + "px; padding-right: " + rightSafe + "px;"
-        })
-      } catch (error) {
-        this.setData({
-          headStyle: "padding-top: 36px; padding-right: 112px;"
-        })
+        this.setData({ headStyle: "padding-top: " + top + "px;" })
+      } catch (_) {
+        this.setData({ headStyle: "padding-top: 44px;" })
       }
     },
-    async loadProfile() {
+
+    async loadDashboard() {
       if (!getToken()) {
         wx.showToast({ title: "请先登录", icon: "none" })
+        wx.navigateTo({ url: "/pages/login/login" })
         return
       }
-
       this.setData({ loading: true })
       try {
-        const profile = await getCurrentUserProfile()
-        const identity = await getIdentityStatus()
-        const vehicleList = await getMyVehicles()
+        const [dashboard, vehicleList] = await Promise.all([
+          getUserDashboard(),
+          getMyVehicles()
+        ])
         const vehicles = vehicleList.vehicles || []
         const defaultVehicle = this.findDefaultVehicle(vehicles)
         this.setData({
-          profile,
-          vehicles,
+          dashboard,
           defaultVehicle,
-          defaultVehicleTitle: this.getVehicleTitle(defaultVehicle),
-          defaultVehicleMeta: this.getVehicleMeta(defaultVehicle),
-          defaultVehicleStatusText: this.getVehicleStatusText(defaultVehicle),
-          defaultVehicleStatusClass: this.getVehicleStatusClass(defaultVehicle),
-          headVehicleStatusText: this.getHeadVehicleStatusText(defaultVehicle),
-          headVehicleStatusClass: this.getVehicleStatusClass(defaultVehicle),
-          avatarText: profile.nickname ? profile.nickname.substring(0, 1) : "同",
-          identityStatus: identity.status || profile.realNameStatus,
-          rejectReason: identity.rejectReason || ""
+          ...this.computeDerivedData(dashboard, defaultVehicle)
         })
-      } catch (error) {
-        wx.showToast({ title: this.getErrorMessage(error), icon: "none" })
+      } catch (err) {
+        wx.showToast({ title: this.errMsg(err), icon: "none" })
       } finally {
         this.setData({ loading: false })
       }
     },
-    onMenuTap(event: WechatMiniprogram.TouchEvent) {
-      const url = event.currentTarget.dataset.url
-      if (url) {
-        wx.navigateTo({ url })
-        return
+
+    computeDerivedData(dashboard: UserDashboard, vehicle: Vehicle | null) {
+      const profile = dashboard.profile
+      const growth = dashboard.growth
+      const invite = dashboard.invitation
+
+      // 头像文字
+      const avatarText = profile.nickname ? profile.nickname.substring(0, 1) : "同"
+
+      // 认证状态药丸
+      const certStatus = profile.certificationStatus
+      let certPillText = "未实名"
+      let certPillClass = ""
+      if (certStatus === "APPROVED") { certPillText = "已认证车主"; certPillClass = "green" }
+      else if (certStatus === "PENDING") { certPillText = "审核中"; certPillClass = "orange" }
+      else if (certStatus === "REJECTED") { certPillText = "认证被拒"; certPillClass = "red" }
+
+      // 等级与进度
+      const lv = LEVEL_MAP[growth.levelCode] || LEVEL_MAP["Lv1"]
+      const levelName = lv.name
+      const nextLevelName = lv.nextName
+      const nextLevelPoints = growth.nextLevelPoints || 0
+      const totalPoints = growth.totalPoints || 0
+      const usedPoints = lv.maxPoints - nextLevelPoints
+      const progressPercent = lv.maxPoints > 0
+        ? Math.min(100, Math.round((usedPoints / lv.maxPoints) * 100))
+        : 0
+
+      // 车辆标签
+      let vehicleLabel = "未添加车辆"
+      let headVehicleStatusText = "未认证"
+      let headVehicleStatusClass = ""
+      if (vehicle) {
+        vehicleLabel = (vehicle.brand || "") + " " + (vehicle.model || "")
+        const cs = vehicle.certificationStatus
+        if (cs === "APPROVED") { headVehicleStatusText = "已认证"; headVehicleStatusClass = "green" }
+        else if (cs === "PENDING") { headVehicleStatusText = "审核中"; headVehicleStatusClass = "orange" }
+        else if (cs === "REJECTED") { headVehicleStatusText = "认证被拒"; headVehicleStatusClass = "red" }
+        else { headVehicleStatusText = "待认证" }
       }
-      wx.showToast({ title: "客服入口待接入", icon: "none" })
-    },
-    goVehicleEdit() {
-      const vehicle = this.data.defaultVehicle
-      if (vehicle && vehicle.vehicleId) {
-        wx.navigateTo({ url: "/pages/vehicle/edit/edit?vehicleId=" + vehicle.vehicleId })
-        return
+
+      // 邀请文案
+      const nextReward = invite.nextRewardNeed || 0
+      const inviteHint = nextReward > 0
+        ? "再邀 " + nextReward + " 人得洗车券"
+        : "老带新一起上路"
+
+      // 下一趟行程
+      const draft = dashboard.nextTripDraft
+      let nextTripLabel = "暂无草稿行程"
+      if (draft && draft.startLocation && draft.endLocation) {
+        nextTripLabel = (draft.startLocation.name || "出发地") + "→" + (draft.endLocation.name || "目的地") + " 草稿"
       }
-      wx.navigateTo({ url: "/pages/vehicle/edit/edit" })
-    },
-    goVehicleList() {
-      wx.navigateTo({ url: "/pages/vehicle/list/list" })
-    },
-    goVehicleCertification() {
-      const vehicle = this.data.defaultVehicle
-      if (vehicle && vehicle.vehicleId) {
-        wx.navigateTo({ url: "/pages/vehicle/certification/certification?vehicleId=" + vehicle.vehicleId })
-        return
+
+      return {
+        avatarText, certPillText, certPillClass,
+        levelName, nextLevelName, nextLevelPoints, totalPoints, progressPercent,
+        vehicleLabel, headVehicleStatusText, headVehicleStatusClass,
+        inviteHint, nextTripLabel
       }
-      wx.navigateTo({ url: "/pages/vehicle/list/list" })
     },
+
     findDefaultVehicle(vehicles: Vehicle[]): Vehicle | null {
-      if (!vehicles.length) {
-        return null
-      }
-      for (let index = 0; index < vehicles.length; index += 1) {
-        if (vehicles[index].isDefault) {
-          return vehicles[index]
-        }
+      if (!vehicles.length) return null
+      for (let i = 0; i < vehicles.length; i++) {
+        if (vehicles[i].isDefault) return vehicles[i]
       }
       return vehicles[0]
     },
-    getVehicleTitle(vehicle: Vehicle | null): string {
-      if (!vehicle) {
-        return "添加我的第一辆车"
-      }
-      return (vehicle.brand || "未填写品牌") + " " + (vehicle.model || "")
+
+    // ─── 导航 ──────────────────────────────────────────────────
+    goProfileEdit() {
+      wx.navigateTo({ url: "/pages/profile-edit/profile-edit" })
     },
-    getVehicleMeta(vehicle: Vehicle | null): string {
-      if (!vehicle) {
-        return "填写品牌、车型、车牌和车辆照片"
-      }
-      return (vehicle.plateNoMask || "未填写车牌") + " · " + (vehicle.vehicleType || "车辆类型") + " · " + (vehicle.energyType || "能源未填")
+    goGrowth() {
+      wx.navigateTo({ url: "/pages/profile/growth/growth" })
     },
-    getVehicleStatusText(vehicle: Vehicle | null): string {
-      if (!vehicle) {
-        return ""
-      }
-      if (vehicle.certificationStatus === "APPROVED") {
-        return "已认证"
-      }
-      if (vehicle.certificationStatus === "PENDING") {
-        return "审核中"
-      }
-      if (vehicle.certificationStatus === "REJECTED") {
-        return "认证被拒"
-      }
-      return "未认证"
+    goCoupon() {
+      wx.navigateTo({ url: "/pages/profile/coupon/coupon" })
     },
-    getHeadVehicleStatusText(vehicle: Vehicle | null): string {
-      if (!vehicle) {
-        return "未添加车辆"
-      }
-      if (vehicle.certificationStatus === "APPROVED") {
-        return "车辆已认证"
-      }
-      if (vehicle.certificationStatus === "PENDING") {
-        return "车辆审核中"
-      }
-      if (vehicle.certificationStatus === "REJECTED") {
-        return "车辆被拒"
-      }
-      return "车辆待认证"
+    goInvite() {
+      wx.navigateTo({ url: "/pages/profile/invite/invite" })
     },
-    getVehicleStatusClass(vehicle: Vehicle | null): string {
-      if (!vehicle) {
-        return ""
+    goNextTrip() {
+      const draft = this.data.dashboard.nextTripDraft
+      if (draft && draft.draftId) {
+        wx.navigateTo({ url: "/pages/publish-trip/publish-trip?draftId=" + draft.draftId })
+      } else {
+        wx.navigateTo({ url: "/pages/publish-trip/publish-trip" })
       }
-      if (vehicle.certificationStatus === "APPROVED") {
-        return "green"
-      }
-      if (vehicle.certificationStatus === "PENDING") {
-        return "orange"
-      }
-      if (vehicle.certificationStatus === "REJECTED") {
-        return "red"
-      }
-      return ""
-    },
-    goLogin() {
-      wx.navigateTo({ url: "/pages/login/login" })
     },
     goGroupbuy() {
       wx.navigateTo({ url: "/pages/groupbuy/list/list" })
@@ -208,24 +202,23 @@ Component({
     goVerification() {
       wx.navigateTo({ url: "/pages/order/verification-code/verification-code" })
     },
-    showTradeTip(event: WechatMiniprogram.TouchEvent) {
-      const label = String(event.currentTarget.dataset.label || "订单")
-      wx.showToast({ title: label + "功能待接入", icon: "none" })
+    goVehicleCert() {
+      const v = this.data.defaultVehicle
+      if (v && v.vehicleId) {
+        wx.navigateTo({ url: "/pages/vehicle/certification/certification?vehicleId=" + v.vehicleId })
+      } else {
+        wx.navigateTo({ url: "/pages/vehicle/list/list" })
+      }
     },
-    identityText(status: string): string {
-      if (status === "APPROVED") {
-        return "已实名"
-      }
-      if (status === "PENDING") {
-        return "审核中"
-      }
-      if (status === "REJECTED") {
-        return "实名被拒"
-      }
-      return "未实名"
+    goPrivacy() {
+      wx.navigateTo({ url: "/pages/privacy/privacy" })
     },
-    getErrorMessage(error: unknown): string {
-      return error instanceof Error ? error.message : "网络异常，请稍后重试"
+    goEmergencyContact() {
+      wx.navigateTo({ url: "/pages/emergency-contact/emergency-contact" })
+    },
+
+    errMsg(err: unknown): string {
+      return err instanceof Error ? err.message : "网络异常，请稍后重试"
     }
   }
 })

@@ -1,0 +1,30 @@
+<view class="page-shell">
+  <td-topbar title="创建车队" placeholder="选择行程后创建 L2 车队" action="队" />
+  <scroll-view scroll-y class="page-content">
+    <view class="form-card card">
+      <view class="field-label">绑定行程</view>
+      <picker mode="selector" range="{{trips}}" range-key="routeSummary" bindchange="onTripChange">
+        <view class="picker-row">{{selectedTripText}}</view>
+      </picker>
+
+      <view class="field-label">车队名称</view>
+      <input class="input" value="{{form.teamName}}" data-field="teamName" bindinput="onInput" placeholder="例如：川藏先锋队" maxlength="64" />
+
+      <view class="field-label">车队说明</view>
+      <input class="input" value="{{form.teamDesc}}" data-field="teamDesc" bindinput="onInput" placeholder="节奏、住宿、费用方式" maxlength="255" />
+
+      <view class="field-label">车辆上限</view>
+      <input class="input" type="number" value="{{form.maxMemberCount}}" data-field="maxMemberCount" bindinput="onNumberInput" placeholder="最多车辆数" />
+
+      <view class="switch-row">
+        <text>公开展示</text>
+        <switch checked="{{form.publicFlag}}" bindchange="onPublicChange" color="#2F7DF6" />
+      </view>
+
+      <view class="field-label">队内公告</view>
+      <input class="input" value="{{form.notice}}" data-field="notice" bindinput="onInput" placeholder="集合点、注意事项" maxlength="255" />
+
+      <view class="btn submit-btn {{loading ? 'gray' : ''}}" bindtap="submit">{{loading ? '创建中...' : '创建车队'}}</view>
+    </view>
+  </scroll-view>
+</view>

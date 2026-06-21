@@ -7,6 +7,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @MapperScan({
         "com.tongdao.auth.mapper",
         "com.tongdao.user.mapper",
+        "com.tongdao.growth.mapper",
+        "com.tongdao.invite.mapper",
+        "com.tongdao.coupon.mapper",
         "com.tongdao.vehicle.mapper",
         "com.tongdao.trip.mapper",
         "com.tongdao.match.mapper",

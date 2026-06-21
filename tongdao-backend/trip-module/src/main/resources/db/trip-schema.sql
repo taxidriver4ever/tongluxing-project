@@ -1,0 +1,101 @@
+create table if not exists trip (
+    id bigint primary key,
+    user_id bigint not null,
+    vehicle_id bigint not null,
+    start_name varchar(128) not null,
+    start_lat decimal(10,6) null,
+    start_lng decimal(10,6) null,
+    start_location_name varchar(128) not null default '',
+    start_location_address varchar(255) not null default '',
+    start_latitude decimal(10,6) null,
+    start_longitude decimal(10,6) null,
+    end_name varchar(128) not null,
+    end_lat decimal(10,6) null,
+    end_lng decimal(10,6) null,
+    end_location_name varchar(128) not null default '',
+    end_location_address varchar(255) not null default '',
+    end_latitude decimal(10,6) null,
+    end_longitude decimal(10,6) null,
+    route_summary varchar(255) null,
+    route_polyline_key varchar(512) null,
+    route_distance int null,
+    route_duration int null,
+    route_polyline text null,
+    waypoints_json text null,
+    departure_time datetime not null,
+    estimated_days int null,
+    total_distance_meters int null,
+    max_vehicle_count int not null,
+    joined_vehicle_count int not null default 1,
+    travel_depth varchar(16) not null,
+    public_flag tinyint(1) not null default 1,
+    status varchar(20) not null,
+    remark varchar(255) null,
+    created_at datetime not null,
+    updated_at datetime not null,
+    deleted tinyint(1) not null default 0,
+    key idx_trip_user_status_time (user_id, status, departure_time),
+    key idx_trip_public_status_time (public_flag, status, departure_time),
+    key idx_trip_vehicle (vehicle_id)
+);
+
+create table if not exists trip_waypoint (
+    id bigint primary key,
+    trip_id bigint not null,
+    seq_no int not null,
+    place_name varchar(128) not null,
+    lat decimal(10,6) null,
+    lng decimal(10,6) null,
+    stay_minutes int null,
+    created_at datetime not null,
+    updated_at datetime not null,
+    deleted tinyint(1) not null default 0,
+    key idx_waypoint_trip_seq (trip_id, seq_no)
+);
+
+create table if not exists trip_member_snapshot (
+    id bigint primary key,
+    trip_id bigint not null,
+    user_id bigint not null,
+    vehicle_id bigint null,
+    member_role varchar(16) not null,
+    join_status varchar(20) not null,
+    nickname_snapshot varchar(64) null,
+    vehicle_snapshot varchar(128) null,
+    joined_at datetime null,
+    created_at datetime not null,
+    updated_at datetime not null,
+    key idx_member_trip_status (trip_id, join_status)
+);
+
+create table if not exists trip_audit_log (
+    id bigint primary key,
+    trip_id bigint not null,
+    user_id bigint not null,
+    operation_type varchar(32) not null,
+    before_json json null,
+    after_json json null,
+    remark varchar(255) null,
+    created_at datetime not null,
+    key idx_audit_trip_time (trip_id, created_at)
+);
+
+create table if not exists trip_draft (
+    id bigint primary key,
+    user_id bigint not null,
+    start_location_json json not null,
+    end_location_json json not null,
+    waypoint_json json not null,
+    departure_time datetime not null,
+    duration_days int not null,
+    people_count int not null,
+    remark varchar(255) not null default '',
+    draft_status varchar(16) not null default 'DRAFT',
+    published_trip_id bigint null,
+    publish_idempotency_key varchar(64) null,
+    created_at datetime not null default current_timestamp,
+    updated_at datetime not null default current_timestamp on update current_timestamp,
+    deleted tinyint not null default 0,
+    key idx_trip_draft_user_status (user_id, draft_status, updated_at),
+    unique key uk_trip_draft_publish_key (publish_idempotency_key, deleted)
+);

@@ -1,115 +1,162 @@
-<view class="page-shell user-profile-page">
+<view class="profile-page">
+
+  <!-- ═══════════════════════ 顶部渐变 Header ═══════════════════════ -->
   <view class="profile-head" style="{{headStyle}}">
-    <view class="profile-head-top">
-      <view class="head-title">我的</view>
-      <view class="head-actions">
-        <view wx:if="{{!loading}}" class="refresh-btn" bindtap="loadProfile">刷新</view>
+    <view class="head-top-row">
+      <view class="cert-pill {{certPillClass}}">{{certPillText}}</view>
+      <view class="head-btn" bindtap="loadDashboard">
+        <view class="head-btn-dot"></view>
+        <view class="head-btn-dot"></view>
+        <view class="head-btn-dot"></view>
       </view>
     </view>
 
     <view class="profile-row">
-      <view class="profile-avatar">{{avatarText}}</view>
+      <view class="profile-avatar" bindtap="goProfileEdit">{{avatarText}}</view>
       <view class="profile-copy">
-        <view class="profile-name">{{profile.nickname || "同道车友"}}</view>
-        <view class="profile-sub">{{profile.cityName || "未设置城市"}} · 资料完整度 {{profile.profileCompletion || 0}}%</view>
-        <view class="tag-row">
-          <view class="status-pill {{identityStatus === 'APPROVED' ? 'green' : identityStatus === 'PENDING' ? 'orange' : identityStatus === 'REJECTED' ? 'red' : ''}}">
-            {{identityStatus === 'APPROVED' ? '已实名' : identityStatus === 'PENDING' ? '审核中' : identityStatus === 'REJECTED' ? '实名被拒' : '未实名'}}
-          </view>
-          <view class="status-pill {{headVehicleStatusClass}}">
-            {{headVehicleStatusText}}
-          </view>
-        </view>
+        <view class="profile-name">{{dashboard.profile.nickname || "同道车友"}}</view>
+        <view class="profile-sub">{{levelName}} · {{vehicleLabel}}</view>
       </view>
     </view>
 
-    <view class="stats">
-      <view class="stat">
-        <text class="stat-value">{{profile.profileCompletion || 0}}%</text>
-        <text class="stat-label">资料完整度</text>
+    <!-- 等级进度条 -->
+    <view class="progress-wrap">
+      <view class="progress-meta">
+        <text>同路值 {{totalPoints}}</text>
+        <text>距 {{nextLevelName}} 还差 {{nextLevelPoints}}</text>
       </view>
-      <view class="stat">
-        <text class="stat-value">2</text>
-        <text class="stat-label">参与拼团</text>
+      <view class="progress-track">
+        <view class="progress-fill" style="width:{{progressPercent}}%"></view>
       </view>
-      <view class="stat">
-        <text class="stat-value">1</text>
-        <text class="stat-label">待核销</text>
+    </view>
+
+    <!-- 三格统计 -->
+    <view class="stats-grid">
+      <view class="stat-item">
+        <text class="stat-val">{{totalPoints}}</text>
+        <text class="stat-lbl">同路值</text>
+      </view>
+      <view class="stat-item">
+        <text class="stat-val">{{dashboard.invitation.validInviteCount || 0}}</text>
+        <text class="stat-lbl">邀请好友</text>
+      </view>
+      <view class="stat-item">
+        <text class="stat-val">{{dashboard.coupon.availableCount || 0}}</text>
+        <text class="stat-lbl">可用券</text>
       </view>
     </view>
   </view>
 
-  <view wx:if="{{!profile.userId}}" class="login-tip card">
-    <view>
-      <view class="login-title">当前未获取到用户资料</view>
-      <view class="login-sub">登录后可查看订单、核销码和个人资料</view>
+  <!-- ═══════════════════════ 快捷功能卡片 1 ═══════════════════════ -->
+  <view class="menu-card">
+    <view class="menu-item" bindtap="goGrowth">
+      <view class="menu-icon-wrap blue-bg">🏅</view>
+      <view class="menu-body">
+        <text class="menu-title">成长中心</text>
+        <text class="menu-sub">{{levelName}} · 等级与勋章</text>
+      </view>
+      <text class="menu-arrow">›</text>
     </view>
-    <view class="btn" bindtap="goLogin">去登录</view>
-  </view>
+    <view class="divider-line"></view>
 
-  <view wx:if="{{rejectReason}}" class="notice reject">
-    <view class="notice-title">实名审核未通过</view>
-    <view>{{rejectReason}}</view>
-  </view>
+    <view class="menu-item" bindtap="goCoupon">
+      <view class="menu-icon-wrap orange-bg">🎟</view>
+      <view class="menu-body">
+        <text class="menu-title">我的券包</text>
+        <text class="menu-sub {{dashboard.coupon.expiringCount > 0 ? 'warn-text' : ''}}">{{dashboard.coupon.availableCount || 0}} 张可用{{dashboard.coupon.expiringCount > 0 ? " · " + dashboard.coupon.expiringCount + " 张即将到期" : ""}}</text>
+      </view>
+      <text class="menu-arrow">›</text>
+    </view>
+    <view class="divider-line"></view>
 
-  <view class="vehicle-panel card">
-    <view class="panel-title-row">
-      <view class="panel-title">默认车辆</view>
-      <view class="panel-more" bindtap="goVehicleList">查看全部</view>
-    </view>
-    <view class="vehicle-card-mini">
-      <view class="vehicle-art">车</view>
-      <view class="vehicle-copy">
-        <view class="vehicle-name">{{defaultVehicleTitle}}</view>
-        <view class="vehicle-meta">{{defaultVehicleMeta}}</view>
-        <view class="vehicle-tags">
-          <view wx:if="{{defaultVehicle && defaultVehicle.isDefault}}" class="pill green">默认车辆</view>
-          <view wx:if="{{defaultVehicle}}" class="pill {{defaultVehicleStatusClass}}">
-            {{defaultVehicleStatusText}}
-          </view>
-        </view>
+    <view class="menu-item" bindtap="goInvite">
+      <view class="menu-icon-wrap green-bg">🔗</view>
+      <view class="menu-body">
+        <text class="menu-title">邀请好友</text>
+        <text class="menu-sub orange-text">{{inviteHint}}</text>
       </view>
+      <text class="menu-arrow">›</text>
     </view>
-    <view class="vehicle-actions">
-      <view class="btn" bindtap="goVehicleEdit">填写车辆信息</view>
-      <view class="btn ghost" bindtap="goVehicleCertification">{{defaultVehicle ? '车辆认证' : '查看车辆'}}</view>
-    </view>
-  </view>
+    <view class="divider-line"></view>
 
-  <view class="trade-panel card">
-    <view class="panel-title">我的交易</view>
-    <view class="trade-grid">
-      <view class="trade-item" bindtap="goGroupbuy">
-        <text class="trade-num">2</text>
-        <text class="trade-label">我的拼团</text>
+    <view class="menu-item" bindtap="goNextTrip">
+      <view class="menu-icon-wrap blue-bg">📍</view>
+      <view class="menu-body">
+        <text class="menu-title">下一趟行程</text>
+        <text class="menu-sub">{{nextTripLabel}}</text>
       </view>
-      <view class="trade-item" bindtap="goVerification">
-        <text class="trade-num">1</text>
-        <text class="trade-label">待核销</text>
-      </view>
-      <view class="trade-item" data-label="退款" bindtap="showTradeTip">
-        <text class="trade-num">0</text>
-        <text class="trade-label">退款中</text>
-      </view>
-      <view class="trade-item" data-label="订单" bindtap="showTradeTip">
-        <text class="trade-num">0</text>
-        <text class="trade-label">已完成</text>
-      </view>
+      <text class="menu-arrow">›</text>
     </view>
   </view>
 
-  <view class="menu-card card">
-    <view wx:for="{{menus}}" wx:key="label" class="menu-row user-menu" data-url="{{item.url}}" bindtap="onMenuTap">
-      <text>{{item.label}}</text>
-      <text>{{item.value}}</text>
+  <!-- ═══════════════════════ 快捷功能卡片 2 ═══════════════════════ -->
+  <view class="menu-card">
+    <view class="menu-item" bindtap="goGroupbuy">
+      <view class="menu-body full">
+        <text class="menu-title">我的拼团</text>
+        <text class="menu-sub">2 个进行中</text>
+      </view>
+      <text class="menu-arrow muted">›</text>
+    </view>
+    <view class="divider-line"></view>
+
+    <view class="menu-item" bindtap="goVerification">
+      <view class="menu-body full">
+        <text class="menu-title">我的订单</text>
+        <text class="menu-sub orange-text">待核销 1</text>
+      </view>
+      <text class="menu-arrow muted">›</text>
+    </view>
+    <view class="divider-line"></view>
+
+    <view class="menu-item">
+      <view class="menu-body full">
+        <text class="menu-title">退款/售后</text>
+        <text class="menu-sub">0 个处理中</text>
+      </view>
+      <text class="menu-arrow muted">›</text>
     </view>
   </view>
 
-  <view class="notice">
-    <view class="notice-title">隐私提示</view>
-    <view>公开资料会被行程、车队、推荐列表引用。</view>
-    <view>手机号默认不公开，仅认证和安全场景使用。</view>
+  <!-- ═══════════════════════ 快捷功能卡片 3 ═══════════════════════ -->
+  <view class="menu-card">
+    <view class="menu-item" bindtap="goVehicleCert">
+      <view class="menu-body full">
+        <text class="menu-title">车辆认证</text>
+      </view>
+      <view class="status-pill {{headVehicleStatusClass}}">{{headVehicleStatusText}}</view>
+    </view>
+    <view class="divider-line"></view>
+
+    <view class="menu-item" bindtap="goPrivacy">
+      <view class="menu-body full">
+        <text class="menu-title">隐私设置</text>
+        <text class="menu-sub">位置与资料可见范围</text>
+      </view>
+      <text class="menu-arrow muted">›</text>
+    </view>
+    <view class="divider-line"></view>
+
+    <view class="menu-item" bindtap="goEmergencyContact">
+      <view class="menu-body full">
+        <text class="menu-title">紧急联系人</text>
+        <text class="menu-sub">预留家人或朋友联系方式</text>
+      </view>
+      <text class="menu-arrow muted">›</text>
+    </view>
+    <view class="divider-line"></view>
+
+    <view class="menu-item">
+      <view class="menu-body full">
+        <text class="menu-title">帮助与客服</text>
+        <text class="menu-sub">微信客服</text>
+      </view>
+      <text class="menu-arrow muted">›</text>
+    </view>
   </view>
+
+  <!-- 底部安全区 -->
+  <view class="bottom-safe"></view>
 
   <td-tabbar active="profile" />
 </view>

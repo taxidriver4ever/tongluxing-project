@@ -24,6 +24,15 @@
             <artifactId>team-module</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>user-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.tencentyun</groupId>
+            <artifactId>tls-sig-api-v2</artifactId>
+            <version>2.0</version>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>

@@ -1,0 +1,80 @@
+<!-- 我的券包 — coupon.wxml -->
+<view class="coupon-page">
+
+  <!-- 顶部导航 -->
+  <view class="topbar-wrap">
+    <view class="statusbar-space" style="{{statusStyle}}"></view>
+    <view class="topbar" style="{{topbarStyle}}">
+      <view class="back-btn" bindtap="goBack">‹</view>
+      <view class="bar-title">我的券包</view>
+      <view class="bar-spacer"></view>
+    </view>
+    <view class="bar-subtitle">{{summaryText}}</view>
+  </view>
+
+  <!-- 分类 Tab -->
+  <view class="tab-bar">
+    <view wx:for="{{tabs}}" wx:key="key"
+          class="tab-item {{activeTab === item.key ? 'active' : ''}}"
+          bindtap="switchTab" data-key="{{item.key}}">
+      {{item.label}}
+    </view>
+  </view>
+
+  <!-- 统计概览 -->
+  <view class="stats-row">
+    <view class="stat-box">
+      <text class="stat-n blue">{{availableCount}}</text>
+      <text class="stat-l">可使用</text>
+    </view>
+    <view class="stat-box">
+      <text class="stat-n red">{{expiringCount}}</text>
+      <text class="stat-l">将过期</text>
+    </view>
+    <view class="stat-box">
+      <text class="stat-n gray">{{usedCount}}</text>
+      <text class="stat-l">已使用</text>
+    </view>
+    <view class="stat-box">
+      <text class="stat-n gray">{{expiredCount}}</text>
+      <text class="stat-l">已过期</text>
+    </view>
+  </view>
+
+  <!-- 券列表 -->
+  <scroll-view scroll-y class="coupon-scroll">
+
+    <!-- 可用券 -->
+    <block wx:if="{{coupons.length > 0}}">
+      <view wx:for="{{coupons}}" wx:key="id" class="coupon-card">
+        <view class="coupon-accent {{item.accentClass}}"></view>
+        <view class="coupon-body">
+          <view class="coupon-left">
+            <view class="coupon-pill {{item.pillClass}}">{{item.typeLabel}}</view>
+            <view class="coupon-expire {{item.expiring ? 'red-text' : ''}}">{{item.expireLabel}}</view>
+          </view>
+          <view class="coupon-info">
+            <view class="coupon-name">{{item.couponName}}</view>
+            <view class="coupon-condition">满 {{item.thresholdAmount > 0 ? item.thresholdAmount + " 元可用" : "无门槛"}}</view>
+          </view>
+          <view class="coupon-amount {{item.amountClass}}">{{item.amountLabel}}</view>
+        </view>
+        <view class="coupon-footer">
+          <view class="btn-use {{item.btnClass}}" bindtap="useCoupon" data-id="{{item.id}}">{{item.btnText}}</view>
+        </view>
+      </view>
+    </block>
+
+    <!-- 空状态 -->
+    <view wx:else class="empty-wrap">
+      <text class="empty-icon">🎟</text>
+      <text class="empty-text">暂无{{activeTabLabel}}优惠券</text>
+    </view>
+
+    <!-- 查看已用/过期 -->
+    <view class="history-link" bindtap="loadHistory">已使用 / 已过期券 ›</view>
+
+    <view class="bottom-safe"></view>
+  </scroll-view>
+
+</view>

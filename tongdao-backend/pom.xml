@@ -16,6 +16,9 @@
         <module>tongdao-common</module>
         <module>auth-module</module>
         <module>user-module</module>
+        <module>growth-module</module>
+        <module>invite-module</module>
+        <module>coupon-module</module>
         <module>vehicle-module</module>
         <module>trip-module</module>
         <module>match-module</module>
@@ -70,6 +73,21 @@
             <dependency>
                 <groupId>com.tongdao</groupId>
                 <artifactId>user-module</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tongdao</groupId>
+                <artifactId>growth-module</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tongdao</groupId>
+                <artifactId>invite-module</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tongdao</groupId>
+                <artifactId>coupon-module</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

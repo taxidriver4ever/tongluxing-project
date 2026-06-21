@@ -23,7 +23,15 @@ spring:
       schema-locations:
         - classpath:db/auth-schema.sql
         - classpath:db/user-schema.sql
+        - classpath:db/growth-schema.sql
+        - classpath:db/invite-schema.sql
+        - classpath:db/coupon-schema.sql
         - classpath:db/vehicle-schema.sql
+        - classpath:db/trip-schema.sql
+        - classpath:db/map-schema.sql
+        - classpath:db/team-schema.sql
+        - classpath:db/chat-schema.sql
+        - classpath:db/match-schema.sql
   data:
     redis:
       host: ${REDIS_HOST}
@@ -45,7 +53,9 @@ spring:
       add-mappings: false
 
 mybatis:
-  mapper-locations: classpath*:/mapper/**/*.xml
+  mapper-locations:
+    - classpath*:/mapper/**/*.xml
+    - classpath*:/db/*Mapper.xml
   type-aliases-package: com.tongdao.*.entity
   configuration:
     map-underscore-to-camel-case: true
@@ -61,6 +71,13 @@ auth:
     issuer: ${AUTH_JWT_ISSUER}
     access-expire-seconds: ${AUTH_JWT_ACCESS_EXPIRE_SECONDS}
     refresh-expire-seconds: ${AUTH_JWT_REFRESH_EXPIRE_SECONDS}
+
+tencent:
+  im:
+    sdk-app-id: ${TENCENT_IM_SDK_APP_ID}
+    secret-key: ${TENCENT_IM_SECRET_KEY}
+    admin-user-id: ${TENCENT_IM_ADMIN_USER_ID}
+    expire-seconds: ${TENCENT_IM_EXPIRE_SECONDS}
 
 management:
   endpoints:

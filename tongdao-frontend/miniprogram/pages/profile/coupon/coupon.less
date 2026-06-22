@@ -1,6 +1,9 @@
 /* coupon.less — 我的券包 */
 
 .coupon-page {
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin: 0 auto;
   min-height: 100vh;
   background: var(--bg);
   display: flex;
@@ -19,6 +22,9 @@
 }
 
 .topbar {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   height: 96rpx;
@@ -42,11 +48,15 @@
 
 /* Centered title */
 .bar-title {
-  flex: 1;
+  position: absolute;
+  left: 50%;
+  width: 280rpx;
+  transform: translateX(-50%);
   text-align: center;
   font-size: 32rpx;
   font-weight: 900;
   color: var(--title);
+  line-height: 1.3;
 }
 
 /* Right spacer matching back-btn width for symmetric centering */
@@ -61,7 +71,7 @@
   font-size: 24rpx;
   color: var(--muted);
   padding: 0 28rpx 14rpx;
-  line-height: 1;
+  line-height: 1.4;
   min-height: 32rpx;
 }
 
@@ -131,7 +141,13 @@
 /* ─── 滚动区 ─────────────────────────────────────────────── */
 .coupon-scroll {
   flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin: 0 auto;
   padding: 24rpx 28rpx;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 /* ─── 券卡片 ─────────────────────────────────────────────── */
@@ -149,6 +165,7 @@
   align-items: center;
   padding: 0;
   gap: 0;
+  min-width: 0;
 }
 
 .coupon-accent {
@@ -272,4 +289,4 @@
   padding: 16rpx 0 8rpx;
 }
 
-.bottom-safe { height: 40rpx; }
+.bottom-safe { height: calc(40rpx + env(safe-area-inset-bottom)); }

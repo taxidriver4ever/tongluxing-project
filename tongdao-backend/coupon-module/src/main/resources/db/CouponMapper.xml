@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.tongdao.coupon.mapper.CouponMapper">
-    <select id="findCoupons" resultType="java.util.HashMap">
+    <select id="findCoupons" resultType="com.tongdao.coupon.dto.CouponQueryDTO">
         select cu.id,
                cu.template_id as templateId,
                ct.coupon_name as couponName,
@@ -12,8 +12,11 @@
                cu.valid_start_at as validStartAt,
                cu.valid_end_at as validEndAt
         from coupon_user cu
-        join coupon_template ct on ct.id = cu.template_id and ct.deleted = 0
-        where cu.user_id = #{userId} and cu.deleted = 0
+        join coupon_template ct
+          on ct.id = cu.template_id
+         and ct.deleted = 0
+        where cu.user_id = #{userId}
+          and cu.deleted = 0
         <if test="status != null and status != ''">
             and cu.coupon_status = #{status}
         </if>
@@ -21,14 +24,18 @@
             and ct.coupon_type = #{type}
         </if>
         order by cu.valid_end_at
-        limit #{offset}, #{size}
+        limit #{offset},
+              #{size}
     </select>
 
     <select id="countCoupons" resultType="long">
         select count(*)
         from coupon_user cu
-        join coupon_template ct on ct.id = cu.template_id and ct.deleted = 0
-        where cu.user_id = #{userId} and cu.deleted = 0
+        join coupon_template ct
+          on ct.id = cu.template_id
+         and ct.deleted = 0
+        where cu.user_id = #{userId}
+          and cu.deleted = 0
         <if test="status != null and status != ''">
             and cu.coupon_status = #{status}
         </if>

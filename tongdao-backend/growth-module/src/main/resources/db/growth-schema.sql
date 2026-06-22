@@ -25,11 +25,12 @@ CREATE TABLE IF NOT EXISTS growth_level_rule (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS growth_badge (
   id BIGINT NOT NULL, badge_code VARCHAR(32) NOT NULL, badge_name VARCHAR(64) NOT NULL,
-  badge_image_key VARCHAR(512) NULL, condition_json JSON NOT NULL,
+  badge_image_key VARCHAR(512) NULL, event_type VARCHAR(32) NOT NULL, threshold INT NOT NULL,
   enabled_flag TINYINT NOT NULL DEFAULT 1, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (id),
-  UNIQUE KEY uk_growth_badge_code (badge_code, deleted)
+  UNIQUE KEY uk_growth_badge_code (badge_code, deleted),
+  KEY idx_growth_badge_event_threshold (event_type, enabled_flag, deleted, threshold)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS growth_user_badge (
   id BIGINT NOT NULL, user_id BIGINT NOT NULL, badge_id BIGINT NOT NULL,

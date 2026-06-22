@@ -2,10 +2,20 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.tongdao.chat.mapper.ChatMessageMapper">
     <select id="findMessages" resultType="com.tongdao.chat.entity.ChatMessage">
-        select id, conversation_id, sender_user_id, message_type, message_payload_json,
-               message_status, provider_message_key, sent_at, created_at, updated_at, deleted
+        select id,
+               conversation_id,
+               sender_user_id,
+               message_type,
+               message_payload_json,
+               message_status,
+               provider_message_key,
+               sent_at,
+               created_at,
+               updated_at,
+               deleted
         from chat_message
-        where conversation_id = #{conversationId} and deleted = 0
+        where conversation_id = #{conversationId}
+          and deleted = 0
         <if test="beforeMessageId != null">
             and id &lt; #{beforeMessageId}
         </if>

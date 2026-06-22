@@ -18,6 +18,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tongdao.common.exception.BusinessException;
 import com.tongdao.common.result.ResultCode;
 import com.tongdao.common.utils.SnowflakeIdGenerator;
+import com.tongdao.growth.integration.GrowthFacade;
+import com.tongdao.invite.integration.InviteFacade;
 import com.tongdao.trip.dto.CreateTripRequest;
 import com.tongdao.trip.dto.LocationRequest;
 import com.tongdao.trip.dto.UpdateTripRequest;
@@ -35,7 +37,6 @@ import com.tongdao.trip.vo.TripResponse;
 import com.tongdao.trip.vo.LocationResponse;
 import com.tongdao.trip.vo.WaypointLocationResponse;
 import com.tongdao.user.model.UserModels.UserProfileVO;
-import com.tongdao.user.service.UserDomainEventService;
 import com.tongdao.user.service.UserService;
 import com.tongdao.user.support.CurrentUserContext;
 import com.tongdao.vehicle.entity.VehicleProfile;
@@ -68,7 +69,8 @@ public class TripServiceImpl implements TripService {
     private final TripAuditLogMapper auditLogMapper;
     private final VehicleProfileMapper vehicleProfileMapper;
     private final UserService userService;
-    private final UserDomainEventService userDomainEventService;
+    private final GrowthFacade growthFacade;
+    private final InviteFacade inviteFacade;
 
     @Override
     @Transactional
@@ -149,9 +151,14 @@ public class TripServiceImpl implements TripService {
         TripResponse response = changeStatus(tripId, STATUS_ENDED, "END", "结束行程");
         memberMapper.findByTripId(tripId).stream()
                 .filter(member -> List.of("OWNER", "APPROVED").contains(member.getJoinStatus()))
-                .forEach(member -> userDomainEventService.handleTeamTripCompleted(
-                        tripId, member.getUserId(), "trip-completed:" + tripId));
+                .forEach(member -> handleTripCompleted(tripId, member.getUserId()));
         return response;
+    }
+
+    private void handleTripCompleted(Long tripId, Long userId) {
+        String bizId = "trip-completed:" + tripId;
+        growthFacade.grant(userId, "TEAM_TRIP_COMPLETED", bizId + ":" + userId, 100, "完成有效同行");
+        inviteFacade.completeFirstTeam(userId, tripId, bizId);
     }
 
     @Override

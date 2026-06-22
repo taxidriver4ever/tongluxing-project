@@ -1,16 +1,154 @@
 package com.tongdao.coupon.service.impl;
-import java.math.BigDecimal;import java.time.LocalDateTime;import java.util.*;import org.springframework.dao.DuplicateKeyException;import org.springframework.stereotype.Service;import org.springframework.transaction.annotation.Transactional;import org.springframework.util.StringUtils;
-import com.fasterxml.jackson.core.type.TypeReference;import com.fasterxml.jackson.databind.ObjectMapper;import com.tongdao.common.exception.BusinessException;import com.tongdao.common.result.ResultCode;import com.tongdao.common.utils.SnowflakeIdGenerator;import com.tongdao.coupon.integration.CouponFacade.CouponIssueResult;import com.tongdao.coupon.mapper.CouponMapper;import com.tongdao.coupon.service.CouponService;import com.tongdao.user.model.UserModels.*;import com.tongdao.user.support.CurrentUserContext;import lombok.RequiredArgsConstructor;
-@Service @RequiredArgsConstructor public class CouponServiceImpl implements CouponService {private final CouponMapper mapper;private final CurrentUserContext currentUser;private final ObjectMapper objectMapper;
- @Override public PageResult<CouponSummaryVO> currentCoupons(String status,String type,int page,int size){long uid=currentUser.requireUserId();int p=Math.max(1,page),s=Math.min(100,Math.max(1,size));return new PageResult<>(mapper.findCoupons(uid,status,type,(p-1)*s,s).stream().map(this::summary).toList(),mapper.countCoupons(uid,status,type),p,s);}
- @Override public UserCouponDetailVO currentCoupon(Long id){Map<String,Object>r=mapper.findCoupon(id,currentUser.requireUserId());if(r==null)throw new BusinessException(ResultCode.NOT_FOUND,"优惠券不存在");return detail(r);}
- @Override public List<AvailableCouponVO> available(String orderType,Long merchantId,BigDecimal amount){if(!StringUtils.hasText(orderType)||amount==null||amount.signum()<0)throw new BusinessException(ResultCode.BAD_REQUEST,"订单参数不完整");return mapper.findAvailable(currentUser.requireUserId(),merchantId,amount).stream().filter(r->scopeAllows(str(r,"scopeJson"),orderType,merchantId)).map(r->new AvailableCouponVO(lng(r,"id"),str(r,"couponName"),dec(r,"deductionAmount"),time(r,"validEndAt"))).toList();}
- @Override public CouponIssueResult claim(Long templateId){long uid=currentUser.requireUserId();return issue(uid,templateId,"CLAIM","CLAIM:"+uid+":"+templateId);}
- @Override @Transactional public CouponIssueResult issue(Long userId,Long templateId,String sourceType,String sourceBizId){Map<String,Object>old=mapper.findBySource(userId,templateId,sourceType,sourceBizId);if(old!=null)return new CouponIssueResult(lng(old,"id"),str(old,"couponStatus"),true);Map<String,Object>t=mapper.findTemplate(templateId);if(t==null)throw new BusinessException(ResultCode.NOT_FOUND,"优惠券模板不存在或未启用");LocalDateTime now=LocalDateTime.now(),start=fieldTime(t,"valid_start_at",now),end=fieldTime(t,"valid_end_at",null);if("DAYS_AFTER_CLAIM".equals(field(t,"validity_type"))){start=now;end=now.plusDays(fieldInt(t,"valid_days",1));}if(end==null||!end.isAfter(now))throw new BusinessException(409,"优惠券模板已过期");if(mapper.increaseClaimed(templateId,now)==0)throw new BusinessException(409,"优惠券已领完");long id=SnowflakeIdGenerator.nextId();try{mapper.insertCoupon(id,userId,templateId,sourceType,sourceBizId,start,end,now);}catch(DuplicateKeyException e){old=mapper.findBySource(userId,templateId,sourceType,sourceBizId);return new CouponIssueResult(lng(old,"id"),str(old,"couponStatus"),true);}return new CouponIssueResult(id,"AVAILABLE",false);}
- @Override @Transactional public CouponDeductionVO lock(Long id,CouponLockRequest request){LocalDateTime now=LocalDateTime.now();if(mapper.lock(id,request.orderId(),request.amount(),now)==0)throw new BusinessException(409,"优惠券状态冲突或不满足使用规则");Map<String,Object>r=mapper.findLocked(id,request.orderId());return new CouponDeductionVO(id,request.orderId(),dec(r,"discountAmount"),"LOCKED");}
- @Override @Transactional public void orderResult(CouponOrderResultRequest r){int changed="SUCCESS".equals(r.payStatus())?mapper.confirm(r.orderId(),LocalDateTime.now()):mapper.release(r.orderId(),LocalDateTime.now());if(changed==0)throw new BusinessException(409,"订单优惠券状态冲突");}
- @Override public CouponCountVO count(Long userId){return new CouponCountVO(mapper.countAvailable(userId),mapper.countExpiring(userId));}
- private boolean scopeAllows(String json,String orderType,Long merchantId){if(!StringUtils.hasText(json))return true;try{Map<String,Object>s=objectMapper.readValue(json,new TypeReference<>(){});Object os=s.get("orderTypes"),ms=s.get("merchantIds");boolean a=!(os instanceof List<?>l)||l.isEmpty()||l.contains(orderType);boolean b=!(ms instanceof List<?>l)||l.isEmpty()||merchantId!=null&&l.stream().anyMatch(v->merchantId.toString().equals(v.toString()));return a&&b;}catch(Exception e){return false;}}
- private CouponSummaryVO summary(Map<String,Object>r){return new CouponSummaryVO(lng(r,"id"),lng(r,"templateId"),str(r,"couponName"),str(r,"couponType"),dec(r,"thresholdAmount"),dec(r,"discountAmount"),str(r,"couponStatus"),time(r,"validStartAt"),time(r,"validEndAt"));}private UserCouponDetailVO detail(Map<String,Object>r){return new UserCouponDetailVO(lng(r,"id"),lng(r,"templateId"),str(r,"couponName"),str(r,"couponType"),nullable(r,"issuerId"),dec(r,"thresholdAmount"),dec(r,"discountAmount"),str(r,"scopeJson"),str(r,"couponStatus"),time(r,"validStartAt"),time(r,"validEndAt"),nullable(r,"lockedOrderId"),nullable(r,"usedOrderId"));}
- private Object get(Map<String,Object>r,String k){Object v=r.get(k);return v!=null?v:r.get(k.replaceAll("([A-Z])","_$1").toLowerCase());}private String str(Map<String,Object>r,String k){Object v=get(r,k);return v==null?"":v.toString();}private long lng(Map<String,Object>r,String k){Object v=get(r,k);return v instanceof Number n?n.longValue():Long.parseLong(v.toString());}private Long nullable(Map<String,Object>r,String k){Object v=get(r,k);return v==null?null:v instanceof Number n?n.longValue():Long.valueOf(v.toString());}private BigDecimal dec(Map<String,Object>r,String k){Object v=get(r,k);return v instanceof BigDecimal b?b:new BigDecimal(v.toString());}private LocalDateTime time(Map<String,Object>r,String k){Object v=get(r,k);return v==null?null:v instanceof LocalDateTime t?t:LocalDateTime.parse(v.toString().replace(' ','T'));}private String field(Map<String,Object>r,String k){Object v=r.get(k);return v==null?"":v.toString();}private int fieldInt(Map<String,Object>r,String k,int d){Object v=r.get(k);return v==null?d:((Number)v).intValue();}private LocalDateTime fieldTime(Map<String,Object>r,String k,LocalDateTime d){Object v=r.get(k);return v==null?d:v instanceof LocalDateTime t?t:LocalDateTime.parse(v.toString().replace(' ','T'));}
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tongdao.common.exception.BusinessException;
+import com.tongdao.common.result.ResultCode;
+import com.tongdao.common.utils.SnowflakeIdGenerator;
+import com.tongdao.coupon.integration.CouponFacade.CouponIssueResult;
+import com.tongdao.coupon.mapper.CouponMapper;
+import com.tongdao.coupon.dto.CouponQueryDTO;
+import com.tongdao.coupon.service.CouponService;
+import com.tongdao.user.model.UserModels.AvailableCouponVO;
+import com.tongdao.user.model.UserModels.CouponCountVO;
+import com.tongdao.user.model.UserModels.CouponDeductionVO;
+import com.tongdao.user.model.UserModels.CouponLockRequest;
+import com.tongdao.user.model.UserModels.CouponOrderResultRequest;
+import com.tongdao.user.model.UserModels.CouponSummaryVO;
+import com.tongdao.user.model.UserModels.PageResult;
+import com.tongdao.user.model.UserModels.UserCouponDetailVO;
+import com.tongdao.user.support.CurrentUserContext;
+
+import lombok.RequiredArgsConstructor;
+
+@Service
+@RequiredArgsConstructor
+public class CouponServiceImpl implements CouponService {
+    private final CouponMapper mapper;
+    private final CurrentUserContext currentUser;
+    private final ObjectMapper objectMapper;
+
+    @Override
+    public PageResult<CouponSummaryVO> currentCoupons(String status, String type, int page, int size) {
+        long userId = currentUser.requireUserId();
+        int normalizedPage = Math.max(1, page);
+        int normalizedSize = Math.min(100, Math.max(1, size));
+        List<CouponSummaryVO> records = mapper.findCoupons(userId, status, type,
+                (normalizedPage - 1) * normalizedSize, normalizedSize).stream().map(this::summary).toList();
+        return new PageResult<>(records, mapper.countCoupons(userId, status, type), normalizedPage, normalizedSize);
+    }
+
+    @Override
+    public UserCouponDetailVO currentCoupon(Long id) {
+        CouponQueryDTO row = mapper.findCoupon(id, currentUser.requireUserId());
+        if (row == null) throw new BusinessException(ResultCode.NOT_FOUND, "优惠券不存在");
+        return detail(row);
+    }
+
+    @Override
+    public List<AvailableCouponVO> available(String orderType, Long merchantId, BigDecimal amount) {
+        if (!StringUtils.hasText(orderType) || amount == null || amount.signum() < 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "订单参数不完整");
+        }
+        return mapper.findAvailable(currentUser.requireUserId(), merchantId, amount).stream()
+                .filter(row -> scopeAllows(row.getScopeJson(), orderType, merchantId))
+                .map(row -> new AvailableCouponVO(row.getId(), row.getCouponName(),
+                        row.getDeductionAmount(), row.getValidEndAt()))
+                .toList();
+    }
+
+    @Override
+    public CouponIssueResult claim(Long templateId) {
+        long userId = currentUser.requireUserId();
+        return issue(userId, templateId, "CLAIM", "CLAIM:" + userId + ":" + templateId);
+    }
+
+    @Override
+    @Transactional
+    public CouponIssueResult issue(Long userId, Long templateId, String sourceType, String sourceBizId) {
+        CouponQueryDTO existing = mapper.findBySource(userId, templateId, sourceType, sourceBizId);
+        if (existing != null) return new CouponIssueResult(existing.getId(), existing.getCouponStatus(), true);
+        CouponQueryDTO template = mapper.findTemplate(templateId);
+        if (template == null) throw new BusinessException(ResultCode.NOT_FOUND, "优惠券模板不存在或未启用");
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime start = template.getValidStartAt() == null ? now : template.getValidStartAt();
+        LocalDateTime end = template.getValidEndAt();
+        if ("DAYS_AFTER_CLAIM".equals(template.getValidityType())) {
+            start = now;
+            end = now.plusDays(template.getValidDays() == null ? 1 : template.getValidDays());
+        }
+        if (end == null || !end.isAfter(now)) throw new BusinessException(409, "优惠券模板已过期");
+        if (mapper.increaseClaimed(templateId, now) == 0) throw new BusinessException(409, "优惠券已领完");
+        long id = SnowflakeIdGenerator.nextId();
+        try {
+            mapper.insertCoupon(id, userId, templateId, sourceType, sourceBizId, start, end, now);
+        } catch (DuplicateKeyException e) {
+            existing = mapper.findBySource(userId, templateId, sourceType, sourceBizId);
+            return new CouponIssueResult(existing.getId(), existing.getCouponStatus(), true);
+        }
+        return new CouponIssueResult(id, "AVAILABLE", false);
+    }
+
+    @Override
+    @Transactional
+    public CouponDeductionVO lock(Long id, CouponLockRequest request) {
+        LocalDateTime now = LocalDateTime.now();
+        if (mapper.lock(id, request.orderId(), request.amount(), now) == 0) {
+            throw new BusinessException(409, "优惠券状态冲突或不满足使用规则");
+        }
+        CouponQueryDTO row = mapper.findLocked(id, request.orderId());
+        return new CouponDeductionVO(id, request.orderId(), row.getDiscountAmount(), "LOCKED");
+    }
+
+    @Override
+    @Transactional
+    public void orderResult(CouponOrderResultRequest request) {
+        int changed = "SUCCESS".equals(request.payStatus())
+                ? mapper.confirm(request.orderId(), LocalDateTime.now())
+                : mapper.release(request.orderId(), LocalDateTime.now());
+        if (changed == 0) throw new BusinessException(409, "订单优惠券状态冲突");
+    }
+
+    @Override
+    public CouponCountVO count(Long userId) {
+        return new CouponCountVO(mapper.countAvailable(userId), mapper.countExpiring(userId));
+    }
+
+    private boolean scopeAllows(String json, String orderType, Long merchantId) {
+        if (!StringUtils.hasText(json)) return true;
+        try {
+            Map<String, Object> scope = objectMapper.readValue(json, new TypeReference<>() { });
+            Object orderTypes = scope.get("orderTypes");
+            Object merchantIds = scope.get("merchantIds");
+            boolean orderAllowed = !(orderTypes instanceof List<?> values) || values.isEmpty() || values.contains(orderType);
+            boolean merchantAllowed = !(merchantIds instanceof List<?> values) || values.isEmpty()
+                    || merchantId != null && values.stream().anyMatch(v -> merchantId.toString().equals(v.toString()));
+            return orderAllowed && merchantAllowed;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private CouponSummaryVO summary(CouponQueryDTO row) {
+        return new CouponSummaryVO(row.getId(), row.getTemplateId(), row.getCouponName(), row.getCouponType(),
+                row.getThresholdAmount(), row.getDiscountAmount(), row.getCouponStatus(),
+                row.getValidStartAt(), row.getValidEndAt());
+    }
+
+    private UserCouponDetailVO detail(CouponQueryDTO row) {
+        return new UserCouponDetailVO(row.getId(), row.getTemplateId(), row.getCouponName(), row.getCouponType(),
+                row.getIssuerId(), row.getThresholdAmount(), row.getDiscountAmount(), row.getScopeJson(),
+                row.getCouponStatus(), row.getValidStartAt(), row.getValidEndAt(),
+                row.getLockedOrderId(), row.getUsedOrderId());
+    }
 }

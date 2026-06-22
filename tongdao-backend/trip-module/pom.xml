@@ -32,6 +32,14 @@
             <artifactId>map-module</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>growth-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>invite-module</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>

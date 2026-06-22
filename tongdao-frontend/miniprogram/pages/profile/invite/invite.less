@@ -1,6 +1,9 @@
 /* invite.less — 邀请好友页 */
 
 .invite-page {
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin: 0 auto;
   min-height: 100vh;
   background: var(--bg);
   display: flex;
@@ -19,6 +22,9 @@
 }
 
 .topbar {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   height: 96rpx;
@@ -42,11 +48,15 @@
 
 /* 居中标题 */
 .bar-title {
-  flex: 1;
+  position: absolute;
+  left: 50%;
+  width: 280rpx;
+  transform: translateX(-50%);
   text-align: center;
   font-size: 32rpx;
   font-weight: 900;
   color: var(--title);
+  line-height: 1.3;
 }
 
 /* 右侧占位，与 back-btn 等宽，使标题对称居中 */
@@ -61,12 +71,18 @@
   font-size: 24rpx;
   color: var(--muted);
   padding: 0 28rpx 14rpx;
-  line-height: 1;
+  line-height: 1.4;
 }
 
 .content-scroll {
   flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin: 0 auto;
   padding: 24rpx 28rpx;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 /* ─── Invite Banner ─────────────────────────────────────── */
@@ -76,10 +92,14 @@
   background: #FFF7ED;
   border: 1rpx solid #FFE4BC;
   margin-bottom: 24rpx;
+  width: 100%;
+  text-align: center;
 }
 
 .banner-top {
   margin-bottom: 14rpx;
+  display: flex;
+  justify-content: center;
 }
 
 .banner-title {
@@ -88,6 +108,7 @@
   color: var(--title);
   margin-bottom: 10rpx;
   line-height: 1.4;
+  text-align: center;
 }
 
 .banner-sub {
@@ -95,6 +116,7 @@
   color: var(--muted);
   margin-bottom: 16rpx;
   line-height: 1.5;
+  text-align: center;
 }
 
 .progress-track {
@@ -115,6 +137,7 @@
 .banner-hint {
   font-size: 22rpx;
   color: #C35C00;
+  text-align: center;
 }
 
 /* ─── Code Card ─────────────────────────────────────────── */
@@ -126,6 +149,7 @@
   padding: 36rpx 28rpx;
   text-align: center;
   margin-bottom: 24rpx;
+  width: 100%;
 }
 
 .code-hint {
@@ -306,4 +330,4 @@
   padding: 24rpx 0;
 }
 
-.bottom-safe { height: 40rpx; }
+.bottom-safe { height: calc(40rpx + env(safe-area-inset-bottom)); }

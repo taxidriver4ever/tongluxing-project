@@ -1,4 +1,4 @@
-package com.tongdao.user.controller;
+package com.tongdao.customerservice.controller;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -12,7 +12,7 @@ import com.tongdao.user.model.UserModels.CustomerServiceEntryVO;
 @RequestMapping("/v1/customer-service")
 public class CustomerServiceController {
     @GetMapping("/entry")
-    public Result<CustomerServiceEntryVO> entry(@RequestParam(defaultValue="USER_CENTER") String scene) {
+    public Result<CustomerServiceEntryVO> entry(@RequestParam(defaultValue = "USER_CENTER") String scene) {
         return Result.success(new CustomerServiceEntryVO(scene, "WECHAT", "tongdao-service"));
     }
 }

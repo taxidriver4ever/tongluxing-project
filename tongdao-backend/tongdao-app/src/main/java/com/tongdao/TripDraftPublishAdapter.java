@@ -7,8 +7,6 @@ import java.util.List;
 
 import org.springframework.stereotype.Component;
 
-import com.tongdao.auth.entity.AuthAccount;
-import com.tongdao.auth.mapper.AuthAccountMapper;
 import com.tongdao.common.exception.BusinessException;
 import com.tongdao.common.result.ResultCode;
 import com.tongdao.match.service.MatchService;
@@ -17,9 +15,9 @@ import com.tongdao.team.service.TeamService;
 import com.tongdao.trip.dto.CreateTripRequest;
 import com.tongdao.trip.dto.LocationRequest;
 import com.tongdao.trip.dto.WaypointLocationRequest;
+import com.tongdao.trip.service.TripDraftPublishPort;
 import com.tongdao.trip.service.TripService;
 import com.tongdao.trip.vo.TripResponse;
-import com.tongdao.user.integration.UserModuleFacade;
 import com.tongdao.user.model.UserModels.LocationVO;
 import com.tongdao.user.model.UserModels.TeamMatchVO;
 import com.tongdao.user.model.UserModels.TripDraftVO;
@@ -30,16 +28,14 @@ import lombok.RequiredArgsConstructor;
 
 @Component
 @RequiredArgsConstructor
-public class UserModuleFacadeAdapter implements UserModuleFacade {
-
+public class TripDraftPublishAdapter implements TripDraftPublishPort {
     private final VehicleService vehicleService;
     private final TripService tripService;
     private final TeamService teamService;
     private final MatchService matchService;
-    private final AuthAccountMapper authAccountMapper;
 
     @Override
-    public PublishOutcome publishDraft(Long userId, TripDraftVO draft, String publishType, String bizId) {
+    public PublishOutcome publish(Long userId, TripDraftVO draft, String publishType, String bizId) {
         VehicleResponse vehicle = vehicleService.getMyVehicles().vehicles().stream()
                 .filter(v -> "APPROVED".equals(v.certificationStatus()))
                 .min(Comparator.comparing(v -> !Boolean.TRUE.equals(v.isDefault())))
@@ -49,8 +45,7 @@ public class UserModuleFacadeAdapter implements UserModuleFacade {
                 vehicle.vehicleId(), location(draft.startLocation()), location(draft.endLocation()),
                 draft.startLocation().name() + " - " + draft.endLocation().name(), draft.departureTime().toString(),
                 draft.durationDays(), 0, 0, "", Math.max(2, Math.min(20, draft.peopleCount())),
-                "RELAXED", true, draft.remark(), waypoints(draft.waypoints())
-        ));
+                "RELAXED", true, draft.remark(), waypoints(draft.waypoints())));
         long tripId = Long.parseLong(trip.tripId());
         if ("TRIP".equals(publishType)) return new PublishOutcome(tripId, tripId);
 
@@ -70,13 +65,6 @@ public class UserModuleFacadeAdapter implements UserModuleFacade {
                         java.math.BigDecimal.valueOf(team.overlapRate() == null ? 0 : team.overlapRate()).movePointLeft(2),
                         timeDifference(draft.departureTime(), team.departureTime())))
                 .toList();
-    }
-
-    @Override
-    public boolean isInviteBindingEligible(Long userId) {
-        AuthAccount account = authAccountMapper.findByUserId(userId);
-        return account != null && account.getCreatedAt() != null
-                && account.getCreatedAt().isAfter(LocalDateTime.now().minusHours(24));
     }
 
     private LocationRequest location(LocationVO value) {

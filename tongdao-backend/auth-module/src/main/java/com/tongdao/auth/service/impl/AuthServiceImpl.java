@@ -30,7 +30,7 @@ import com.tongdao.auth.vo.SmsCodeResponse;
 import com.tongdao.common.exception.BusinessException;
 import com.tongdao.common.result.ResultCode;
 import com.tongdao.common.utils.SnowflakeIdGenerator;
-import com.tongdao.user.service.UserService;
+import com.tongdao.invite.integration.InviteFacade;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -56,7 +56,7 @@ public class AuthServiceImpl implements AuthService {
     private final AuthSmsLogMapper smsLogMapper;
     private final AuthLoginLogMapper loginLogMapper;
     private final WxMiniProgramClient wxMiniProgramClient;
-    private final UserService userService;
+    private final InviteFacade inviteFacade;
 
     @Override
     public SmsCodeResponse sendSmsCode(SmsCodeRequest request) {
@@ -113,7 +113,7 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(ResultCode.FORBIDDEN, "账号已被禁用");
         }
         if (isNewUser && StringUtils.hasText(inviteCode)) {
-            userService.bindInviteForNewUser(account.getUserId(), inviteCode);
+            inviteFacade.bind(account.getUserId(), inviteCode);
         }
 
         String ip = currentIp();

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.tongdao.trip.mapper.TripDraftMapper">
+    <select id="findAll" resultType="com.tongdao.trip.dto.TripDraftQueryDTO">
+        select id as draftId,
+               user_id as userId,
+               start_location_json as startJson,
+               end_location_json as endJson,
+               waypoint_json as waypointJson,
+               departure_time as departureTime,
+               duration_days as durationDays,
+               people_count as peopleCount,
+               remark,
+               draft_status as draftStatus,
+               published_trip_id as publishedTripId,
+               updated_at as updatedAt
+        from trip_draft
+        where user_id = #{userId}
+          and deleted = 0
+        <if test="status != null and status != ''">
+            and draft_status = #{status}
+        </if>
+        order by updated_at desc
+        limit #{offset},
+              #{size}
+    </select>
+
+    <select id="count" resultType="long">
+        select count(*)
+        from trip_draft
+        where user_id = #{userId}
+          and deleted = 0
+        <if test="status != null and status != ''">
+            and draft_status = #{status}
+        </if>
+    </select>
+</mapper>

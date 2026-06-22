@@ -18,14 +18,42 @@ page {
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
   letter-spacing: 0;
+  width: 100%;
+  overflow-x: hidden;
+  --page-gutter: 28rpx;
+  --page-max-width: 960rpx;
 }
 
 view,
-text {
+text,
+image,
+button,
+input,
+textarea,
+scroll-view,
+swiper,
+swiper-item {
   box-sizing: border-box;
 }
 
+page > view,
+page > scroll-view {
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+scroll-view,
+swiper {
+  width: 100%;
+  min-width: 0;
+}
+
 .page-shell {
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin: 0 auto;
   min-height: 100vh;
   background: var(--bg);
   padding-bottom: 148rpx;
@@ -34,12 +62,16 @@ text {
 
 .page-content {
   width: 100%;
-  padding: 24rpx 28rpx 148rpx;
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: 24rpx var(--page-gutter) calc(148rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
   overflow-x: hidden;
 }
 
 .card {
+  width: 100%;
+  min-width: 0;
   background: var(--card);
   border: 1rpx solid var(--line);
   border-radius: 16rpx;

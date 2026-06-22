@@ -12,7 +12,7 @@
 
     <artifactId>user-module</artifactId>
     <name>user-module</name>
-    <description>User profile, certification, growth, invitation, coupon, and trip-draft module</description>
+    <description>User profile, privacy settings, public profile and identity certification</description>
 
     <dependencies>
         <dependency>

@@ -16,12 +16,19 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * Bearer Token 认证过滤器。
+ *
+ * <p>每个请求只执行一次：从 Authorization 头提取 access token，校验通过后写入 Spring Security 上下文。</p>
+ */
 @Component
 @RequiredArgsConstructor
 public class TokenAuthenticationFilter extends OncePerRequestFilter {
 
+    /** Token 存储与校验组件。 */
     private final TokenStore tokenStore;
 
+    /** 解析请求中的 Token，并在有效时设置当前请求的认证信息。 */
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
@@ -37,6 +44,7 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    /** 从 Authorization: Bearer xxx 请求头中提取 token。 */
     private String resolveToken(HttpServletRequest request) {
         String authorization = request.getHeader("Authorization");
         if (!StringUtils.hasText(authorization) || !authorization.startsWith("Bearer ")) {

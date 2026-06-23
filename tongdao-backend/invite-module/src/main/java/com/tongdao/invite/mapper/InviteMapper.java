@@ -11,8 +11,15 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+/**
+ * 邀请模块 MyBatis Mapper。
+ *
+ * <p>负责邀请码、邀请关系、邀请奖励记录的读写；分页查询放在 XML 中，其他简单 SQL 直接使用注解。</p>
+ */
 @Mapper
 public interface InviteMapper {
+
+    /** 根据用户 ID 查询该用户的邀请码。 */
     @Select("""
             select id,
                    user_id userId,
@@ -25,6 +32,7 @@ public interface InviteMapper {
             """)
     InviteQueryDTO findCodeByUser(Long userId);
 
+    /** 根据邀请码查询有效的邀请码归属人。 */
     @Select("""
             select id,
                    user_id userId,
@@ -38,6 +46,7 @@ public interface InviteMapper {
             """)
     InviteQueryDTO findCode(String code);
 
+    /** 为用户创建邀请码，默认启用且未删除。 */
     @Insert("""
             insert into invite_code(
                 id, user_id, invite_code, enabled_flag,
@@ -51,6 +60,7 @@ public interface InviteMapper {
     int insertCode(@Param("id") Long id, @Param("userId") Long userId,
                    @Param("code") String code, @Param("now") LocalDateTime now);
 
+    /** 查询某个用户是否已经作为被邀请人绑定过邀请关系。 */
     @Select("""
             select id
             from invite_relation
@@ -60,6 +70,11 @@ public interface InviteMapper {
             """)
     Long findRelationIdByInvitee(Long userId);
 
+    /**
+     * 判断新增邀请关系是否会形成循环。
+     *
+     * <p>例如 A 邀请 B、B 邀请 C 后，不允许 C 再邀请 A。</p>
+     */
     @Select("""
             with recursive ancestors(user_id) as (
                 select inviter_user_id
@@ -78,6 +93,7 @@ public interface InviteMapper {
             """)
     int createsCycle(@Param("inviterId") Long inviterId, @Param("inviteeId") Long inviteeId);
 
+    /** 新增邀请关系，初始状态为 BOUND，等待被邀请人完成有效行为。 */
     @Insert("""
             insert into invite_relation(
                 id, inviter_user_id, invitee_user_id, invite_code, relation_status,
@@ -92,11 +108,14 @@ public interface InviteMapper {
                        @Param("inviteeId") Long inviteeId, @Param("code") String code,
                        @Param("now") LocalDateTime now);
 
+    /** 分页查询某个邀请人的邀请记录。 */
     List<InviteQueryDTO> findRecords(@Param("userId") Long userId, @Param("status") String status,
                                      @Param("offset") int offset, @Param("size") int size);
 
+    /** 统计某个邀请人的邀请记录总数。 */
     long countRecords(@Param("userId") Long userId, @Param("status") String status);
 
+    /** 统计已经转为 VALID 的有效邀请数量。 */
     @Select("""
             select count(*)
             from invite_relation
@@ -106,6 +125,7 @@ public interface InviteMapper {
             """)
     int countValid(Long userId);
 
+    /** 查询已成功发放的奖励规则编码，用于前端展示奖励进度。 */
     @Select("""
             select rule_code
             from invite_reward_record
@@ -116,6 +136,7 @@ public interface InviteMapper {
             """)
     List<String> findGrantedRules(Long userId);
 
+    /** 锁定被邀请人的邀请关系，防止并发完成事件重复处理。 */
     @Select("""
             select id relationId,
                    inviter_user_id inviterUserId
@@ -126,6 +147,7 @@ public interface InviteMapper {
             """)
     InviteQueryDTO findRelationForUpdate(Long userId);
 
+    /** 将邀请关系从 BOUND 标记为 VALID，并记录首次完成组队时间。 */
     @Update("""
             update invite_relation
             set relation_status = 'VALID',
@@ -137,6 +159,7 @@ public interface InviteMapper {
             """)
     int markValid(@Param("id") Long id, @Param("now") LocalDateTime now);
 
+    /** 插入待发放的邀请奖励记录。 */
     @Insert("""
             insert into invite_reward_record(
                 id, relation_id, beneficiary_user_id, rule_code, reward_biz_no,
@@ -154,6 +177,7 @@ public interface InviteMapper {
                      @Param("bizNo") String bizNo, @Param("snapshot") String snapshot,
                      @Param("now") LocalDateTime now);
 
+    /** 更新邀请奖励发放状态。 */
     @Update("""
             update invite_reward_record
             set reward_status = #{status},

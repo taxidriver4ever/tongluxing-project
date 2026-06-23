@@ -30,43 +30,64 @@ import com.tongdao.auth.vo.SmsCodeResponse;
 import com.tongdao.common.exception.BusinessException;
 import com.tongdao.common.result.ResultCode;
 import com.tongdao.common.utils.SnowflakeIdGenerator;
-import com.tongdao.invite.integration.InviteFacade;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 认证业务服务实现。
+ *
+ * <p>负责短信验证码登录、微信手机号登录、Token 签发/刷新/退出和认证日志记录。</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
+    /** 默认验证码场景：登录。 */
     private static final String DEFAULT_SCENE = "login";
+    /** 验证码有效期，单位秒。 */
     private static final int SMS_EXPIRE_SECONDS = 300;
+    /** 同一手机号同一场景发送验证码冷却时间，单位秒。 */
     private static final int SMS_COOLDOWN_SECONDS = 60;
+    /** 同一手机号同一场景每日最多发送次数。 */
     private static final int SMS_DAILY_LIMIT = 10;
+    /** 登录验证码错误次数上限。 */
     private static final int LOGIN_FAIL_LIMIT = 5;
 
+    /** 短信验证码 Redis key。 */
     private static final String SMS_CODE_KEY = "auth:sms:code:%s:%s";
+    /** 短信验证码发送冷却 Redis key。 */
     private static final String SMS_COOLDOWN_KEY = "auth:sms:cooldown:%s:%s";
+    /** 短信验证码每日发送次数 Redis key。 */
     private static final String SMS_DAILY_KEY = "auth:sms:daily:%s:%s";
+    /** 登录失败次数 Redis key。 */
     private static final String LOGIN_FAIL_KEY = "auth:login:fail:%s";
 
+    /** Redis 模板，用于验证码、限流计数和登录失败计数。 */
     private final StringRedisTemplate redisTemplate;
+    /** Token 存储组件，负责 JWT 签发和 Redis 登录态维护。 */
     private final TokenStore tokenStore;
+    /** 认证账号表 Mapper。 */
     private final AuthAccountMapper accountMapper;
+    /** 短信发送日志 Mapper。 */
     private final AuthSmsLogMapper smsLogMapper;
+    /** 登录行为日志 Mapper。 */
     private final AuthLoginLogMapper loginLogMapper;
+    /** 微信小程序接口客户端。 */
     private final WxMiniProgramClient wxMiniProgramClient;
-    private final InviteFacade inviteFacade;
 
+    /** 发送登录验证码，并执行发送冷却和每日次数限制。 */
     @Override
     public SmsCodeResponse sendSmsCode(SmsCodeRequest request) {
         String scene = normalizeScene(request.scene());
         String phone = request.phone();
 
+        // 冷却窗口内不允许重复发送，避免前端连点或短信轰炸。
         if (Boolean.TRUE.equals(redisTemplate.hasKey(key(SMS_COOLDOWN_KEY, scene, phone)))) {
             throw new BusinessException("发送太频繁，请稍后再试");
         }
 
+        // 每日次数限制按“场景 + 手机号”维度统计，首次写入时设置 24 小时过期。
         Long dailyCount = redisTemplate.opsForValue().increment(key(SMS_DAILY_KEY, scene, phone));
         if (dailyCount != null && dailyCount == 1) {
             redisTemplate.expire(key(SMS_DAILY_KEY, scene, phone), Duration.ofHours(24));
@@ -76,7 +97,7 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("发送太频繁，请稍后再试");
         }
 
-        // V1 mock SMS provider. The code is persisted only in Redis and never returned to client.
+        // V1 阶段使用 mock 短信通道；验证码只写 Redis，不返回给客户端。
         String code = generateCode();
         redisTemplate.opsForValue().set(key(SMS_CODE_KEY, scene, phone), code, Duration.ofSeconds(SMS_EXPIRE_SECONDS));
         redisTemplate.opsForValue().set(key(SMS_COOLDOWN_KEY, scene, phone), "1", Duration.ofSeconds(SMS_COOLDOWN_SECONDS));
@@ -84,6 +105,7 @@ public class AuthServiceImpl implements AuthService {
         return new SmsCodeResponse(SMS_EXPIRE_SECONDS);
     }
 
+    /** 手机号验证码登录。 */
     @Override
     @Transactional
     public LoginResponse login(LoginRequest request) {
@@ -91,19 +113,25 @@ public class AuthServiceImpl implements AuthService {
         validateLoginFailLimit(phone);
         validateSmsCode(phone, request.code());
 
-        LoginResponse response = doLoginByPhone(phone, request.deviceId(), "login", request.inviteCode());
+        LoginResponse response = doLoginByPhone(phone, request.deviceId(), "login");
         redisTemplate.delete(key(SMS_CODE_KEY, DEFAULT_SCENE, phone));
         return response;
     }
 
+    /** 微信手机号授权登录。 */
     @Override
     @Transactional
     public LoginResponse wxPhoneLogin(WxPhoneLoginRequest request) {
         String phone = wxMiniProgramClient.getPhoneNumber(request.code());
-        return doLoginByPhone(phone, request.deviceId(), "wx_phone_login", request.inviteCode());
+        return doLoginByPhone(phone, request.deviceId(), "wx_phone_login");
     }
 
-    private LoginResponse doLoginByPhone(String phone, String deviceId, String actionType, String inviteCode) {
+    /**
+     * 手机号登录公共流程。
+     *
+     * <p>手机号验证码登录和微信手机号登录最终都会走到这里：查账号、必要时创建账号、签发 Token、记录日志。</p>
+     */
+    private LoginResponse doLoginByPhone(String phone, String deviceId, String actionType) {
         AuthAccount account = accountMapper.findByPhone(phone);
         boolean isNewUser = account == null;
         if (account == null) {
@@ -112,12 +140,10 @@ public class AuthServiceImpl implements AuthService {
         if (Integer.valueOf(2).equals(account.getAccountStatus())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "账号已被禁用");
         }
-        if (isNewUser && StringUtils.hasText(inviteCode)) {
-            inviteFacade.bind(account.getUserId(), inviteCode);
-        }
 
         String ip = currentIp();
         updateLastLogin(account.getUserId(), ip);
+        // 登录成功后清除验证码错误计数，避免用户后续被旧失败次数影响。
         redisTemplate.delete(loginFailKey(phone));
 
         TokenStore.TokenPair tokenPair = tokenStore.create(account.getUserId(), phone, deviceId);
@@ -131,6 +157,7 @@ public class AuthServiceImpl implements AuthService {
         );
     }
 
+    /** 退出登录：解析当前 Token，删除 Redis 登录态，并记录退出日志。 */
     @Override
     public LogoutResponse logout(String authorization) {
         AuthPrincipal principal = resolvePrincipal(authorization);
@@ -139,6 +166,7 @@ public class AuthServiceImpl implements AuthService {
         return new LogoutResponse(true);
     }
 
+    /** 获取当前登录用户基础信息。 */
     @Override
     public CurrentUserResponse getCurrentUser(String authorization) {
         AuthPrincipal principal = resolvePrincipal(authorization);
@@ -149,6 +177,7 @@ public class AuthServiceImpl implements AuthService {
         return new CurrentUserResponse(account.getUserId(), maskPhone(account.getPhone()), "LOGIN");
     }
 
+    /** 使用 refresh token 换取新的 access token。 */
     @Override
     public RefreshTokenResponse refreshToken(RefreshTokenRequest request) {
         TokenStore.RefreshPrincipal refreshPrincipal = tokenStore.resolveRefreshToken(request.refreshToken())
@@ -158,12 +187,14 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "登录状态已失效");
         }
 
+        // refresh token 一次性使用：刷新成功后立即删除旧 refresh token。
         tokenStore.deleteRefreshToken(request.refreshToken());
         TokenStore.TokenPair tokenPair = tokenStore.create(refreshPrincipal.userId(), account.getPhone(), "");
         insertLoginLog(refreshPrincipal.userId(), account.getPhone(), "refresh", null, currentIp(), true, "refresh token success");
         return new RefreshTokenResponse(tokenPair.token(), tokenPair.expireSeconds());
     }
 
+    /** 校验短信验证码；过期或错误都会累计登录失败次数。 */
     private void validateSmsCode(String phone, String code) {
         String redisKey = key(SMS_CODE_KEY, DEFAULT_SCENE, phone);
         String savedCode = redisTemplate.opsForValue().get(redisKey);
@@ -179,6 +210,7 @@ public class AuthServiceImpl implements AuthService {
         }
     }
 
+    /** 创建认证账号，并分配新的业务用户 ID。 */
     private AuthAccount createAccount(String phone, String ip) {
         LocalDateTime now = LocalDateTime.now();
         AuthAccount account = new AuthAccount();
@@ -192,19 +224,23 @@ public class AuthServiceImpl implements AuthService {
         return accountMapper.findByPhone(phone);
     }
 
+    /** 更新账号最近登录信息。 */
     private void updateLastLogin(Long userId, String ip) {
         LocalDateTime now = LocalDateTime.now();
         accountMapper.updateLastLogin(userId, now, ip, now);
     }
 
+    /** 写入短信发送日志。 */
     private void insertSmsLog(String phone, String scene, boolean success, String provider, String errorMessage) {
         smsLogMapper.insert(SnowflakeIdGenerator.nextId(), phone, scene, success ? 1 : 2, provider, errorMessage);
     }
 
+    /** 写入登录行为日志。 */
     private void insertLoginLog(Long userId, String phone, String actionType, String deviceId, String ip, boolean success, String message) {
         loginLogMapper.insert(SnowflakeIdGenerator.nextId(), userId, phone, actionType, deviceId, ip, success ? 1 : 0, message);
     }
 
+    /** 登录前检查验证码错误次数是否达到上限。 */
     private void validateLoginFailLimit(String phone) {
         String failCount = redisTemplate.opsForValue().get(loginFailKey(phone));
         if (StringUtils.hasText(failCount) && Integer.parseInt(failCount) >= LOGIN_FAIL_LIMIT) {
@@ -212,6 +248,7 @@ public class AuthServiceImpl implements AuthService {
         }
     }
 
+    /** 增加验证码错误次数，首次失败时设置 15 分钟过期。 */
     private void increaseLoginFail(String phone) {
         Long count = redisTemplate.opsForValue().increment(loginFailKey(phone));
         if (count != null && count == 1) {
@@ -219,6 +256,7 @@ public class AuthServiceImpl implements AuthService {
         }
     }
 
+    /** 从 Authorization 请求头解析当前登录主体。 */
     private AuthPrincipal resolvePrincipal(String authorization) {
         if (!StringUtils.hasText(authorization) || !authorization.startsWith("Bearer ")) {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "请先登录");
@@ -228,22 +266,27 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new BusinessException(ResultCode.UNAUTHORIZED, "登录状态已过期"));
     }
 
+    /** 规范化短信验证码场景，空值使用默认登录场景。 */
     private String normalizeScene(String scene) {
         return StringUtils.hasText(scene) ? scene : DEFAULT_SCENE;
     }
 
+    /** 按统一格式生成短信相关 Redis key。 */
     private String key(String pattern, String scene, String phone) {
         return pattern.formatted(scene, phone);
     }
 
+    /** 生成登录失败次数 Redis key。 */
     private String loginFailKey(String phone) {
         return LOGIN_FAIL_KEY.formatted(phone);
     }
 
+    /** 生成短信验证码；当前为 mock 固定验证码，方便联调。 */
     private String generateCode() {
         return "829416";
     }
 
+    /** 手机号脱敏展示。 */
     private String maskPhone(String phone) {
         if (!StringUtils.hasText(phone) || phone.length() < 11) {
             return phone;
@@ -251,6 +294,7 @@ public class AuthServiceImpl implements AuthService {
         return phone.substring(0, 3) + "****" + phone.substring(7);
     }
 
+    /** 获取当前请求 IP，优先读取网关/代理透传的 X-Forwarded-For。 */
     private String currentIp() {
         ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         if (attributes == null) {

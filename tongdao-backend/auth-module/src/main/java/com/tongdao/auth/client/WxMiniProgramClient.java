@@ -12,15 +12,29 @@ import com.tongdao.common.result.ResultCode;
 
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 微信小程序服务端接口客户端。
+ *
+ * <p>当前只封装登录链路需要的两个微信接口：获取 access_token、通过手机号授权 code 获取手机号。</p>
+ */
 @Component
 @RequiredArgsConstructor
 public class WxMiniProgramClient {
 
+    /** 微信开放接口基础地址。 */
     private static final String WECHAT_API_BASE_URL = "https://api.weixin.qq.com";
 
+    /** 小程序 appId/appSecret 配置。 */
     private final WxMiniProgramProperties properties;
+    /** RestClient 固定绑定微信 API 域名，避免业务层拼接完整 URL。 */
     private final RestClient restClient = RestClient.create(WECHAT_API_BASE_URL);
 
+    /**
+     * 根据小程序端传来的手机号授权 code 获取用户手机号。
+     *
+     * @param code 微信小程序 wx.getPhoneNumber 返回的一次性 code
+     * @return 微信返回的完整手机号
+     */
     public String getPhoneNumber(String code) {
         String accessToken = getAccessToken();
         try {
@@ -48,6 +62,11 @@ public class WxMiniProgramClient {
         }
     }
 
+    /**
+     * 获取微信接口调用凭证。
+     *
+     * <p>这里保持简单直连微信；如果后续调用量变大，可以增加 Redis 缓存 access_token。</p>
+     */
     private String getAccessToken() {
         if (!StringUtils.hasText(properties.getAppId()) || !StringUtils.hasText(properties.getAppSecret())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "微信小程序 appId 或 appSecret 未配置");
@@ -79,6 +98,7 @@ public class WxMiniProgramClient {
         }
     }
 
+    /** 微信获取 access_token 接口响应。 */
     private record AccessTokenResponse(
             @JsonProperty("access_token")
             String accessToken,
@@ -92,9 +112,11 @@ public class WxMiniProgramClient {
     ) {
     }
 
+    /** 微信手机号授权接口请求体。 */
     private record PhoneNumberRequest(String code) {
     }
 
+    /** 微信手机号授权接口响应。 */
     private record PhoneNumberResponse(
             Integer errcode,
 
@@ -105,6 +127,7 @@ public class WxMiniProgramClient {
     ) {
     }
 
+    /** 微信返回的手机号信息。 */
     private record PhoneInfo(
             @JsonProperty("phoneNumber")
             String phoneNumber,

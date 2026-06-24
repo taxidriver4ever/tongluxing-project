@@ -70,6 +70,25 @@ public interface InviteMapper {
             """)
     Long findRelationIdByInvitee(Long userId);
 
+    /** 查询某个用户已经绑定的邀请关系，用于“第一条关系为准”的返回。 */
+    @Select("""
+            select id relationId,
+                   inviter_user_id inviterUserId,
+                   invitee_user_id inviteeUserId,
+                   invite_code inviteCode,
+                   relation_status status,
+                   bind_source bindSource,
+                   bind_source_value bindSourceValue,
+                   invitee_registered_at inviteeRegisteredAt,
+                   bound_at boundAt,
+                   first_team_completed_at firstTeamCompletedAt
+            from invite_relation
+            where invitee_user_id = #{userId}
+              and deleted = 0
+            limit 1
+            """)
+    InviteQueryDTO findRelationByInvitee(Long userId);
+
     /**
      * 判断新增邀请关系是否会形成循环。
      *
@@ -97,15 +116,20 @@ public interface InviteMapper {
     @Insert("""
             insert into invite_relation(
                 id, inviter_user_id, invitee_user_id, invite_code, relation_status,
+                bind_source, bind_source_value, invitee_registered_at,
                 bound_at, first_team_completed_at, created_at, updated_at, deleted
             )
             values (
                 #{id}, #{inviterId}, #{inviteeId}, #{code}, 'BOUND',
+                #{bindSource}, #{bindSourceValue}, #{registeredAt},
                 #{now}, null, #{now}, #{now}, 0
             )
             """)
     int insertRelation(@Param("id") Long id, @Param("inviterId") Long inviterId,
                        @Param("inviteeId") Long inviteeId, @Param("code") String code,
+                       @Param("bindSource") String bindSource,
+                       @Param("bindSourceValue") String bindSourceValue,
+                       @Param("registeredAt") LocalDateTime registeredAt,
                        @Param("now") LocalDateTime now);
 
     /** 分页查询某个邀请人的邀请记录。 */

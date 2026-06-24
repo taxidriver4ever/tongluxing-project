@@ -2,11 +2,13 @@ package com.tongdao.invite.controller;
 
 import org.springframework.web.bind.annotation.*;
 import com.tongdao.common.result.Result;
+import com.tongdao.invite.dto.CompleteRequest;
+import com.tongdao.invite.dto.InviteAutoBindRequest;
+import com.tongdao.invite.dto.InvitePhoneBindRequest;
 import com.tongdao.invite.integration.InviteFacade.InviteRewardResult;
 import com.tongdao.invite.model.InviteModels.*;
 import com.tongdao.invite.service.InviteService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -27,10 +29,16 @@ public class InviteController {
         return Result.success(service.currentCode());
     }
 
-    /** 当前登录用户绑定他人的邀请码。 */
+    /** 分享链接/二维码注册后，根据系统邀请参数自动绑定邀请关系。 */
     @PostMapping("/v1/invites/bind")
-    public Result<InviteBindVO> bind(@Valid @RequestBody BindRequest request) {
-        return Result.success(service.bindCurrent(request.inviteCode()));
+    public Result<InviteBindVO> bind(@Valid @RequestBody InviteAutoBindRequest request) {
+        return Result.success(service.autoBindCurrent(request.inviteCode(), request.sourceType(), request.sourceScene()));
+    }
+
+    /** 新用户注册后 7 天内，通过填写邀请人手机号进行弱兜底绑定。 */
+    @PostMapping("/v1/invites/bind-by-phone")
+    public Result<InviteBindVO> bindByPhone(@Valid @RequestBody InvitePhoneBindRequest request) {
+        return Result.success(service.bindCurrentByPhone(request.inviterPhone()));
     }
 
     /** 查询当前登录用户的邀请奖励进度摘要。 */
@@ -57,24 +65,5 @@ public class InviteController {
     @PostMapping("/internal/v1/invites/first-team-completed")
     public Result<InviteRewardResult> completed(@RequestBody CompleteRequest request) {
         return Result.success(service.completeFirstTeam(request.userId(), request.teamId(), request.bizId()));
-    }
-
-    /** 绑定邀请码请求。 */
-    public record BindRequest(
-            /** 邀请人分享的邀请码。 */
-            @NotBlank
-            String inviteCode
-    ) {
-    }
-
-    /** 首次组队完成事件请求。 */
-    public record CompleteRequest(
-            /** 完成首次组队的用户 ID，也就是被邀请人。 */
-            Long userId,
-            /** 完成的队伍 ID。 */
-            Long teamId,
-            /** 业务幂等号，通常由上游事件或订单/队伍完成记录生成。 */
-            String bizId
-    ) {
     }
 }

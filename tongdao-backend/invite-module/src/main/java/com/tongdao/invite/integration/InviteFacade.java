@@ -12,7 +12,7 @@ public interface InviteFacade {
     /** 获取指定用户的邀请码；不存在时由实现层自动生成。 */
     InviteCodeVO getCode(Long userId);
 
-    /** 为指定被邀请人绑定邀请码。 */
+    /** 为指定被邀请人按默认链接来源自动绑定系统邀请参数。 */
     InviteBindVO bind(Long inviteeUserId, String inviteCode);
 
     /** 查询指定用户的邀请奖励进度。 */

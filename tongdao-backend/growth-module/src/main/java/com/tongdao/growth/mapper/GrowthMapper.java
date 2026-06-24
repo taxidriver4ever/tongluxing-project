@@ -11,8 +11,18 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+/**
+ * 成长模块数据库访问接口。
+ *
+ * <p>这里使用 MyBatis 注解 SQL 管理成长账户、成长流水、等级规则和徽章授予数据。
+ * Service 层负责业务编排，Mapper 只表达清晰的数据读写动作。</p>
+ */
 @Mapper
 public interface GrowthMapper {
+
+    /**
+     * 查询用户成长账户。
+     */
     @Select("""
             select id,
                    total_points totalPoints,
@@ -25,6 +35,11 @@ public interface GrowthMapper {
             """)
     GrowthQueryDTO findAccount(@Param("userId") Long userId);
 
+    /**
+     * 查询用户成长账户并加行锁。
+     *
+     * <p>发放成长值时需要先锁定账户，避免并发请求同时更新导致成长值覆盖。</p>
+     */
     @Select("""
             select id,
                    total_points totalPoints,
@@ -37,6 +52,9 @@ public interface GrowthMapper {
             """)
     GrowthQueryDTO findAccountForUpdate(@Param("userId") Long userId);
 
+    /**
+     * 初始化用户成长账户，默认成长值为 0、等级为 LV1。
+     */
     @Insert("""
             insert into growth_account(
                 id, user_id, total_points, level_code, version,
@@ -49,6 +67,9 @@ public interface GrowthMapper {
             """)
     int insertAccount(@Param("id") Long id, @Param("userId") Long userId, @Param("now") LocalDateTime now);
 
+    /**
+     * 根据成长值查询当前匹配的等级编码。
+     */
     @Select("""
             select level_code
             from growth_level_rule
@@ -61,6 +82,9 @@ public interface GrowthMapper {
             """)
     String findLevelCode(@Param("points") int points);
 
+    /**
+     * 查询下一等级的起始成长值，用于计算距离升级还差多少成长值。
+     */
     @Select("""
             select min_points
             from growth_level_rule
@@ -72,6 +96,11 @@ public interface GrowthMapper {
             """)
     Integer findNextLevelPoints(@Param("points") int points);
 
+    /**
+     * 更新成长账户余额和等级。
+     *
+     * <p>通过 version 字段做乐观锁校验，防止并发更新覆盖。</p>
+     */
     @Update("""
             update growth_account
             set total_points = #{points},
@@ -86,6 +115,11 @@ public interface GrowthMapper {
                       @Param("levelCode") String levelCode, @Param("version") int version,
                       @Param("now") LocalDateTime now);
 
+    /**
+     * 写入成长值变更流水。
+     *
+     * <p>数据库唯一索引会保证同一业务事件不会重复写入。</p>
+     */
     @Insert("""
             insert into growth_log(
                 id, user_id, biz_type, biz_id, point_delta,
@@ -101,6 +135,9 @@ public interface GrowthMapper {
                   @Param("delta") int delta, @Param("balance") int balance,
                   @Param("remark") String remark, @Param("now") LocalDateTime now);
 
+    /**
+     * 分页查询用户成长值流水。
+     */
     @Select("""
             select id,
                    biz_type bizType,
@@ -118,6 +155,9 @@ public interface GrowthMapper {
     List<GrowthQueryDTO> findLogs(@Param("userId") Long userId,
                                   @Param("offset") int offset, @Param("size") int size);
 
+    /**
+     * 统计用户成长值流水数量。
+     */
     @Select("""
             select count(*)
             from growth_log
@@ -126,6 +166,9 @@ public interface GrowthMapper {
             """)
     long countLogs(@Param("userId") Long userId);
 
+    /**
+     * 统计用户某类业务事件已发生次数，用于判断徽章达成条件。
+     */
     @Select("""
             select count(*)
             from growth_log
@@ -135,6 +178,9 @@ public interface GrowthMapper {
             """)
     int countEvents(@Param("userId") Long userId, @Param("bizType") String bizType);
 
+    /**
+     * 查询当前事件次数已经满足条件的徽章。
+     */
     @Select("""
             select id
             from growth_badge
@@ -145,6 +191,11 @@ public interface GrowthMapper {
             """)
     List<Long> findEligibleBadges(@Param("bizType") String bizType, @Param("count") int count);
 
+    /**
+     * 给用户授予徽章。
+     *
+     * <p>使用 insert ignore 配合唯一索引，保证同一用户同一徽章只授予一次。</p>
+     */
     @Insert("""
             insert ignore into growth_user_badge(
                 id, user_id, badge_id, source_biz_id,
@@ -159,6 +210,9 @@ public interface GrowthMapper {
                         @Param("badgeId") Long badgeId, @Param("bizId") String bizId,
                         @Param("now") LocalDateTime now);
 
+    /**
+     * 查询用户已经获得的徽章。
+     */
     @Select("""
             select b.id badgeId,
                    b.badge_code badgeCode,
@@ -176,6 +230,9 @@ public interface GrowthMapper {
             """)
     List<GrowthQueryDTO> findEarnedBadges(@Param("userId") Long userId);
 
+    /**
+     * 查询用户尚未获得但仍启用展示的徽章。
+     */
     @Select("""
             select b.id badgeId,
                    b.badge_code badgeCode,

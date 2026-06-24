@@ -12,15 +12,33 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+/**
+ * 优惠券模块数据库访问接口。
+ *
+ * <p>Mapper 聚焦优惠券模板、用户优惠券、锁券和订单结果流转的数据读写；
+ * 业务规则由 Service 层组合这些数据操作完成。</p>
+ */
 @Mapper
 public interface CouponMapper {
+
+    /**
+     * 分页查询用户优惠券列表，支持按状态和类型过滤。
+     *
+     * <p>该 SQL 放在 XML 中，便于表达可选过滤条件。</p>
+     */
     List<CouponQueryDTO> findCoupons(@Param("userId") Long userId, @Param("status") String status,
                                      @Param("type") String type, @Param("offset") int offset,
                                      @Param("size") int size);
 
+    /**
+     * 统计用户优惠券列表数量，和 findCoupons 使用同一套过滤条件。
+     */
     long countCoupons(@Param("userId") Long userId, @Param("status") String status,
                       @Param("type") String type);
 
+    /**
+     * 查询用户单张优惠券详情。
+     */
     @Select("""
             select cu.id,
                    cu.template_id templateId,
@@ -44,6 +62,11 @@ public interface CouponMapper {
             """)
     CouponQueryDTO findCoupon(@Param("id") Long id, @Param("userId") Long userId);
 
+    /**
+     * 查询金额、有效期、状态和商户维度上可用的优惠券。
+     *
+     * <p>更细的 scope_json 规则在 Service 层解析，以便处理订单类型等复杂条件。</p>
+     */
     @Select("""
             select cu.id,
                    ct.coupon_name couponName,
@@ -65,6 +88,9 @@ public interface CouponMapper {
                                        @Param("merchantId") Long merchantId,
                                        @Param("amount") BigDecimal amount);
 
+    /**
+     * 查询可发放的优惠券模板。
+     */
     @Select("""
             select *
             from coupon_template
@@ -75,6 +101,9 @@ public interface CouponMapper {
             """)
     CouponQueryDTO findTemplate(Long id);
 
+    /**
+     * 根据发券来源查询用户已领取的券，用于幂等判断。
+     */
     @Select("""
             select id,
                    coupon_status couponStatus
@@ -90,6 +119,9 @@ public interface CouponMapper {
                                 @Param("sourceType") String sourceType,
                                 @Param("sourceBizId") String sourceBizId);
 
+    /**
+     * 写入用户优惠券，初始状态为 AVAILABLE。
+     */
     @Insert("""
             insert into coupon_user(
                 id, user_id, template_id, source_type, source_biz_id,
@@ -109,6 +141,11 @@ public interface CouponMapper {
                      @Param("sourceBizId") String sourceBizId, @Param("start") LocalDateTime start,
                      @Param("end") LocalDateTime end, @Param("now") LocalDateTime now);
 
+    /**
+     * 增加模板已领取数量。
+     *
+     * <p>通过 claimed_quantity &lt; total_quantity 在数据库层控制库存不会超发。</p>
+     */
     @Update("""
             update coupon_template
             set claimed_quantity = claimed_quantity + 1,
@@ -119,6 +156,11 @@ public interface CouponMapper {
             """)
     int increaseClaimed(@Param("id") Long id, @Param("now") LocalDateTime now);
 
+    /**
+     * 锁定用户优惠券。
+     *
+     * <p>只有 AVAILABLE、未过期、满足金额门槛的券才能被锁定。</p>
+     */
     @Update("""
             update coupon_user cu
             join coupon_template ct on ct.id = cu.template_id
@@ -136,6 +178,9 @@ public interface CouponMapper {
     int lock(@Param("id") Long id, @Param("orderId") Long orderId,
              @Param("amount") BigDecimal amount, @Param("now") LocalDateTime now);
 
+    /**
+     * 查询已经被指定订单锁定的优惠券。
+     */
     @Select("""
             select cu.id,
                    cu.user_id userId,
@@ -149,6 +194,9 @@ public interface CouponMapper {
             """)
     CouponQueryDTO findLocked(@Param("id") Long id, @Param("orderId") Long orderId);
 
+    /**
+     * 查询指定订单当前锁定的优惠券 ID 列表。
+     */
     @Select("""
             select id
             from coupon_user
@@ -158,6 +206,9 @@ public interface CouponMapper {
             """)
     List<Long> findLockedIds(Long orderId);
 
+    /**
+     * 订单支付成功后，将已锁定优惠券确认为已使用。
+     */
     @Update("""
             update coupon_user
             set coupon_status = 'USED',
@@ -170,6 +221,9 @@ public interface CouponMapper {
             """)
     int confirm(@Param("orderId") Long orderId, @Param("now") LocalDateTime now);
 
+    /**
+     * 订单未支付成功或取消时，释放已锁定优惠券。
+     */
     @Update("""
             update coupon_user
             set coupon_status = 'AVAILABLE',
@@ -181,6 +235,9 @@ public interface CouponMapper {
             """)
     int release(@Param("orderId") Long orderId, @Param("now") LocalDateTime now);
 
+    /**
+     * 统计用户当前仍在有效期内的可用券数量。
+     */
     @Select("""
             select count(*)
             from coupon_user
@@ -191,6 +248,9 @@ public interface CouponMapper {
             """)
     int countAvailable(Long userId);
 
+    /**
+     * 统计用户 7 天内即将过期的可用券数量。
+     */
     @Select("""
             select count(*)
             from coupon_user

@@ -13,8 +13,11 @@ public interface InviteService extends InviteFacade {
     /** 获取当前登录用户的邀请码。 */
     InviteCodeVO currentCode();
 
-    /** 当前登录用户绑定邀请码。 */
-    InviteBindVO bindCurrent(String code);
+    /** 当前登录用户根据分享链接/二维码系统参数自动绑定邀请关系。 */
+    InviteBindVO autoBindCurrent(String inviteCode, String sourceType, String sourceScene);
+
+    /** 当前登录用户通过邀请人手机号进行 7 天内弱兜底绑定。 */
+    InviteBindVO bindCurrentByPhone(String inviterPhone);
 
     /** 查询当前登录用户的邀请奖励进度。 */
     InviteRewardProgressVO currentProgress();

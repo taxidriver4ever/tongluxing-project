@@ -36,6 +36,15 @@ public class InviteQueryDTO {
     /** 邀请关系状态：BOUND 已绑定，VALID 已完成有效行为。 */
     private String status;
 
+    /** 绑定来源：LINK、QR_CODE、PHONE_FALLBACK。 */
+    private String bindSource;
+
+    /** 绑定来源值：系统分享参数或邀请人手机号脱敏值。 */
+    private String bindSourceValue;
+
+    /** 被邀请人注册时间快照。 */
+    private LocalDateTime inviteeRegisteredAt;
+
     /** 邀请关系绑定时间。 */
     private LocalDateTime boundAt;
 

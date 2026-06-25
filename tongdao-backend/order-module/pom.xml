@@ -32,6 +32,14 @@
             <artifactId>merchant-module</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.tongdao</groupId>
+            <artifactId>coupon-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>

@@ -12,6 +12,10 @@ import org.springframework.util.StringUtils;
 import com.tongdao.common.exception.BusinessException;
 import com.tongdao.common.result.ResultCode;
 import com.tongdao.common.utils.SnowflakeIdGenerator;
+import com.tongdao.match.integration.MatchTeamPort;
+import com.tongdao.match.integration.MatchTeamPort.MatchTeamDTO;
+import com.tongdao.match.integration.MatchTripPort;
+import com.tongdao.match.integration.MatchTripPort.MatchTripDTO;
 import com.tongdao.match.mapper.MatchRecommendLogMapper;
 import com.tongdao.match.service.MatchService;
 import com.tongdao.match.vo.MatchRecommendationListResponse;
@@ -19,10 +23,6 @@ import com.tongdao.match.vo.MatchTeamCardResponse;
 import com.tongdao.match.vo.MatchTripCardResponse;
 import com.tongdao.match.vo.NearbyTeamListResponse;
 import com.tongdao.match.vo.NearbyTripListResponse;
-import com.tongdao.team.entity.Team;
-import com.tongdao.team.mapper.TeamMapper;
-import com.tongdao.trip.entity.Trip;
-import com.tongdao.trip.mapper.TripMapper;
 import com.tongdao.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
@@ -33,28 +33,28 @@ public class MatchServiceImpl implements MatchService {
 
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private final TripMapper tripMapper;
-    private final TeamMapper teamMapper;
+    private final MatchTripPort tripPort;
+    private final MatchTeamPort teamPort;
     private final MatchRecommendLogMapper recommendLogMapper;
     private final CurrentUserContext currentUserContext;
 
     @Override
     public MatchRecommendationListResponse getTripRecommendations(Long tripId, Integer limit) {
         Long userId = currentUserContext.requireUserId();
-        Trip source = tripMapper.findById(tripId);
+        MatchTripDTO source = tripPort.getTrip(tripId);
         if (source == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "行程不存在");
         }
         int safeLimit = safeLimit(limit);
-        List<MatchTripCardResponse> trips = tripMapper.findPublicTrips(100).stream()
-                .filter(item -> !item.getId().equals(source.getId()))
-                .filter(item -> !item.getUserId().equals(userId))
+        List<MatchTripCardResponse> trips = tripPort.listPublicTrips(100).stream()
+                .filter(item -> !item.tripId().equals(source.tripId()))
+                .filter(item -> !item.userId().equals(userId))
                 .map(item -> toTripCard(source, item))
                 .sorted(Comparator.comparing(MatchTripCardResponse::matchScore).reversed())
                 .limit(safeLimit)
                 .toList();
-        List<MatchTeamCardResponse> teams = teamMapper.findPublicActive(100).stream()
-                .filter(item -> !item.getOwnerUserId().equals(userId))
+        List<MatchTeamCardResponse> teams = teamPort.listPublicActiveTeams(100).stream()
+                .filter(item -> !item.ownerUserId().equals(userId))
                 .map(item -> toTeamCard(source, item))
                 .sorted(Comparator.comparing(MatchTeamCardResponse::matchScore).reversed())
                 .limit(safeLimit)
@@ -68,7 +68,7 @@ public class MatchServiceImpl implements MatchService {
         parse(latitude, "纬度不能为空");
         parse(longitude, "经度不能为空");
         int safeLimit = safeLimit(limit);
-        List<MatchTripCardResponse> trips = tripMapper.findPublicTrips(safeLimit).stream()
+        List<MatchTripCardResponse> trips = tripPort.listPublicTrips(safeLimit).stream()
                 .map(item -> toTripCard(null, item))
                 .toList();
         return new NearbyTripListResponse(trips);
@@ -79,22 +79,22 @@ public class MatchServiceImpl implements MatchService {
         parse(latitude, "纬度不能为空");
         parse(longitude, "经度不能为空");
         int safeLimit = safeLimit(limit);
-        List<MatchTeamCardResponse> teams = teamMapper.findPublicActive(safeLimit).stream()
+        List<MatchTeamCardResponse> teams = teamPort.listPublicActiveTeams(safeLimit).stream()
                 .map(item -> toTeamCard(null, item))
                 .toList();
         return new NearbyTeamListResponse(teams);
     }
 
-    private MatchTripCardResponse toTripCard(Trip source, Trip target) {
-        int departureGap = source == null ? 0 : (int) Math.abs(Duration.between(source.getDepartureTime(), target.getDepartureTime()).toMinutes());
-        int score = source == null ? 80 : score(source.getStartName(), source.getEndName(), target.getStartName(), target.getEndName(), departureGap);
+    private MatchTripCardResponse toTripCard(MatchTripDTO source, MatchTripDTO target) {
+        int departureGap = source == null ? 0 : (int) Math.abs(Duration.between(source.departureTime(), target.departureTime()).toMinutes());
+        int score = source == null ? 80 : score(source.startName(), source.endName(), target.startName(), target.endName(), departureGap);
         return new MatchTripCardResponse(
-                String.valueOf(target.getId()),
-                String.valueOf(target.getUserId()),
-                target.getStartName(),
-                target.getEndName(),
-                FORMATTER.format(target.getDepartureTime()),
-                target.getTravelDepth(),
+                String.valueOf(target.tripId()),
+                String.valueOf(target.userId()),
+                target.startName(),
+                target.endName(),
+                FORMATTER.format(target.departureTime()),
+                target.travelDepth(),
                 score,
                 score,
                 departureGap,
@@ -102,17 +102,17 @@ public class MatchServiceImpl implements MatchService {
         );
     }
 
-    private MatchTeamCardResponse toTeamCard(Trip source, Team team) {
-        int score = source == null ? 80 : score(source.getStartName(), source.getEndName(), team.getStartName(), team.getEndName(), 0);
+    private MatchTeamCardResponse toTeamCard(MatchTripDTO source, MatchTeamDTO team) {
+        int score = source == null ? 80 : score(source.startName(), source.endName(), team.startName(), team.endName(), 0);
         return new MatchTeamCardResponse(
-                String.valueOf(team.getId()),
-                String.valueOf(team.getTripId()),
-                team.getTeamName(),
-                team.getStartName(),
-                team.getEndName(),
-                FORMATTER.format(team.getDepartureTime()),
-                team.getCurrentMemberCount(),
-                team.getMaxMemberCount(),
+                String.valueOf(team.teamId()),
+                String.valueOf(team.tripId()),
+                team.teamName(),
+                team.startName(),
+                team.endName(),
+                FORMATTER.format(team.departureTime()),
+                team.currentMemberCount(),
+                team.maxMemberCount(),
                 score,
                 score
         );

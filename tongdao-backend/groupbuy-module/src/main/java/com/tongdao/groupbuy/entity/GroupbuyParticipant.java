@@ -1,0 +1,21 @@
+package com.tongdao.groupbuy.entity;
+
+import java.time.LocalDateTime;
+
+import lombok.Data;
+
+@Data
+public class GroupbuyParticipant {
+    private Long id;
+    private Long activityId;
+    private Long orderId;
+    private Long userId;
+    private String participantStatus;
+    private LocalDateTime joinedAt;
+    private LocalDateTime paidAt;
+    private LocalDateTime refundedAt;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+    private Integer deleted;
+}
+

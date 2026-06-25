@@ -26,6 +26,10 @@ import com.tongdao.trip.dto.UpdateTripRequest;
 import com.tongdao.trip.dto.WaypointLocationRequest;
 import com.tongdao.trip.entity.Trip;
 import com.tongdao.trip.entity.TripMemberSnapshot;
+import com.tongdao.trip.integration.TripUserProfilePort;
+import com.tongdao.trip.integration.TripUserProfilePort.TripUserProfileDTO;
+import com.tongdao.trip.integration.TripVehiclePort;
+import com.tongdao.trip.integration.TripVehiclePort.TripVehicleDTO;
 import com.tongdao.trip.mapper.TripAuditLogMapper;
 import com.tongdao.trip.mapper.TripMapper;
 import com.tongdao.trip.mapper.TripMemberSnapshotMapper;
@@ -36,11 +40,7 @@ import com.tongdao.trip.vo.TripMemberSnapshotResponse;
 import com.tongdao.trip.vo.TripResponse;
 import com.tongdao.trip.vo.LocationResponse;
 import com.tongdao.trip.vo.WaypointLocationResponse;
-import com.tongdao.user.model.UserModels.UserProfileVO;
-import com.tongdao.user.service.UserService;
 import com.tongdao.user.support.CurrentUserContext;
-import com.tongdao.vehicle.entity.VehicleProfile;
-import com.tongdao.vehicle.mapper.VehicleProfileMapper;
 
 import lombok.RequiredArgsConstructor;
 
@@ -67,8 +67,8 @@ public class TripServiceImpl implements TripService {
     private final TripWaypointMapper waypointMapper;
     private final TripMemberSnapshotMapper memberMapper;
     private final TripAuditLogMapper auditLogMapper;
-    private final VehicleProfileMapper vehicleProfileMapper;
-    private final UserService userService;
+    private final TripVehiclePort vehiclePort;
+    private final TripUserProfilePort userProfilePort;
     private final GrowthFacade growthFacade;
     private final InviteFacade inviteFacade;
 
@@ -78,7 +78,7 @@ public class TripServiceImpl implements TripService {
         Long userId = currentUserContext.requireUserId();
         checkRateLimit(PUBLISH_RL_KEY.formatted(userId), PUBLISH_LIMIT, Duration.ofHours(1), "行程发布太频繁，请稍后再试");
         validateRequest(request.startLocation(), request.endLocation(), request.travelDepth(), request.waypoints());
-        VehicleProfile vehicle = requireCertifiedVehicle(request.vehicleId(), userId);
+        TripVehicleDTO vehicle = requireCertifiedVehicle(request.vehicleId(), userId);
 
         LocalDateTime now = LocalDateTime.now();
         Trip trip = new Trip();
@@ -253,8 +253,8 @@ public class TripServiceImpl implements TripService {
         trip.setEndLng(endLocation.longitude());
     }
 
-    private void insertOwnerSnapshot(Trip trip, VehicleProfile vehicle, LocalDateTime now) {
-        UserProfileVO profile = userService.getCurrentProfile();
+    private void insertOwnerSnapshot(Trip trip, TripVehicleDTO vehicle, LocalDateTime now) {
+        TripUserProfileDTO profile = userProfilePort.getCurrentProfile();
         TripMemberSnapshot member = new TripMemberSnapshot();
         member.setId(SnowflakeIdGenerator.nextId());
         member.setTripId(trip.getId());
@@ -263,19 +263,19 @@ public class TripServiceImpl implements TripService {
         member.setMemberRole("OWNER");
         member.setJoinStatus("OWNER");
         member.setNicknameSnapshot(profile == null ? "同道车友" : profile.nickname());
-        member.setVehicleSnapshot((vehicle.getBrand() + " " + vehicle.getModel()).trim());
+        member.setVehicleSnapshot((vehicle.brand() + " " + vehicle.model()).trim());
         member.setJoinedAt(now);
         member.setCreatedAt(now);
         member.setUpdatedAt(now);
         memberMapper.insert(member);
     }
 
-    private VehicleProfile requireCertifiedVehicle(Long vehicleId, Long userId) {
-        VehicleProfile vehicle = vehicleProfileMapper.findByIdAndUserId(vehicleId, userId);
+    private TripVehicleDTO requireCertifiedVehicle(Long vehicleId, Long userId) {
+        TripVehicleDTO vehicle = vehiclePort.getCertifiedVehicle(vehicleId, userId);
         if (vehicle == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "车辆不存在或不属于当前用户");
         }
-        if (!CERT_APPROVED.equals(vehicle.getCertificationStatus())) {
+        if (!CERT_APPROVED.equals(vehicle.certificationStatus())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "车辆未认证，请先完成车辆认证");
         }
         return vehicle;

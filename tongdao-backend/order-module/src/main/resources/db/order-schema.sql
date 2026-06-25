@@ -1,0 +1,66 @@
+create table if not exists order_trade (
+    id bigint not null,
+    order_no varchar(64) not null,
+    user_id bigint not null,
+    merchant_id bigint not null default 0,
+    product_id bigint not null,
+    activity_id bigint null,
+    original_amount decimal(12,2) not null default 0.00,
+    groupbuy_discount_amount decimal(12,2) not null default 0.00,
+    coupon_deduction_amount decimal(12,2) not null default 0.00,
+    payable_amount decimal(12,2) not null default 0.00,
+    paid_amount decimal(12,2) not null default 0.00,
+    user_coupon_id bigint null,
+    order_status varchar(32) not null,
+    payment_status varchar(32) not null,
+    verification_status varchar(32) not null,
+    refund_status varchar(32) not null,
+    profit_sharing_status varchar(32) not null,
+    expire_at datetime null,
+    paid_at datetime null,
+    completed_at datetime null,
+    remark varchar(255) not null default '',
+    created_at datetime not null,
+    updated_at datetime not null,
+    deleted tinyint not null default 0,
+    primary key (id),
+    unique key uk_order_trade_no (order_no),
+    key idx_order_trade_user (user_id, created_at),
+    key idx_order_trade_merchant (merchant_id, created_at),
+    key idx_order_trade_status (order_status, payment_status),
+    key idx_order_trade_activity (activity_id)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+
+create table if not exists order_item (
+    id bigint not null,
+    order_id bigint not null,
+    product_id bigint not null,
+    product_name varchar(128) not null,
+    product_type varchar(32) not null,
+    unit_price decimal(12,2) not null default 0.00,
+    quantity int not null default 1,
+    total_amount decimal(12,2) not null default 0.00,
+    snapshot_json text null,
+    created_at datetime not null,
+    primary key (id),
+    key idx_order_item_order (order_id)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+
+create table if not exists order_compensation_task (
+    id bigint not null,
+    biz_type varchar(64) not null,
+    biz_id varchar(64) not null,
+    idempotent_key varchar(128) not null,
+    target_module varchar(64) not null,
+    request_payload text null,
+    task_status varchar(32) not null,
+    retry_count int not null default 0,
+    next_retry_at datetime null,
+    last_error varchar(1000) null,
+    created_at datetime not null,
+    updated_at datetime not null,
+    primary key (id),
+    key idx_order_compensation_status (task_status, next_retry_at),
+    key idx_order_compensation_biz (biz_type, biz_id)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+

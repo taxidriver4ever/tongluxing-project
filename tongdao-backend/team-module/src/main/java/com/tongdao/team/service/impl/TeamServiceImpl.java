@@ -15,6 +15,8 @@ import com.tongdao.team.dto.ReviewTeamApplicationRequest;
 import com.tongdao.team.entity.Team;
 import com.tongdao.team.entity.TeamJoinApplication;
 import com.tongdao.team.entity.TeamMember;
+import com.tongdao.team.integration.TeamTripPort;
+import com.tongdao.team.integration.TeamTripPort.TeamTripDTO;
 import com.tongdao.team.mapper.TeamAuditLogMapper;
 import com.tongdao.team.mapper.TeamJoinApplicationMapper;
 import com.tongdao.team.mapper.TeamMapper;
@@ -24,8 +26,6 @@ import com.tongdao.team.vo.TeamApplicationResponse;
 import com.tongdao.team.vo.TeamMemberListResponse;
 import com.tongdao.team.vo.TeamMemberResponse;
 import com.tongdao.team.vo.TeamResponse;
-import com.tongdao.trip.entity.Trip;
-import com.tongdao.trip.mapper.TripMapper;
 import com.tongdao.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
@@ -40,7 +40,7 @@ public class TeamServiceImpl implements TeamService {
     private final TeamMemberMapper memberMapper;
     private final TeamJoinApplicationMapper applicationMapper;
     private final TeamAuditLogMapper auditLogMapper;
-    private final TripMapper tripMapper;
+    private final TeamTripPort tripPort;
     private final CurrentUserContext currentUserContext;
 
     @Override
@@ -49,21 +49,21 @@ public class TeamServiceImpl implements TeamService {
         if (memberMapper.findActiveByUserId(userId) != null || teamMapper.findActiveOwnedByUser(userId) != null) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "当前用户已有活跃车队");
         }
-        Trip trip = tripMapper.findById(request.tripId());
-        if (trip == null || !userId.equals(trip.getUserId())) {
+        TeamTripDTO trip = tripPort.getTrip(request.tripId());
+        if (trip == null || !userId.equals(trip.ownerUserId())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "只能基于自己的行程创建车队");
         }
         LocalDateTime now = LocalDateTime.now();
         Team team = new Team();
         team.setId(SnowflakeIdGenerator.nextId());
-        team.setTripId(trip.getId());
+        team.setTripId(trip.tripId());
         team.setOwnerUserId(userId);
         team.setOwnerVehicleId(request.ownerVehicleId());
         team.setTeamName(request.teamName());
         team.setTeamDesc(request.teamDesc());
-        team.setStartName(trip.getStartName());
-        team.setEndName(trip.getEndName());
-        team.setDepartureTime(trip.getDepartureTime());
+        team.setStartName(trip.startName());
+        team.setEndName(trip.endName());
+        team.setDepartureTime(trip.departureTime());
         team.setMaxMemberCount(request.maxMemberCount());
         team.setCurrentMemberCount(1);
         team.setJoinMode(StringUtils.hasText(request.joinMode()) ? request.joinMode() : "APPROVAL");

@@ -1,0 +1,68 @@
+create table if not exists payment_record (
+    id bigint not null,
+    order_id bigint not null,
+    order_no varchar(64) not null default '',
+    payment_no varchar(64) not null,
+    wx_prepay_id varchar(128) null,
+    wx_transaction_id varchar(128) null,
+    pay_channel varchar(32) not null,
+    pay_amount decimal(12,2) not null default 0.00,
+    payment_status varchar(32) not null,
+    callback_payload text null,
+    paid_at datetime null,
+    created_at datetime not null,
+    updated_at datetime not null,
+    deleted tinyint not null default 0,
+    primary key (id),
+    unique key uk_payment_no (payment_no),
+    unique key uk_payment_wx_transaction (wx_transaction_id),
+    key idx_payment_order (order_id)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+
+create table if not exists payment_refund_record (
+    id bigint not null,
+    order_id bigint not null,
+    refund_no varchar(64) not null,
+    wx_refund_id varchar(128) null,
+    user_id bigint not null,
+    refund_amount decimal(12,2) not null default 0.00,
+    refund_reason varchar(255) not null default '',
+    refund_type varchar(32) not null,
+    refund_status varchar(32) not null,
+    audit_status varchar(32) not null,
+    callback_payload text null,
+    requested_at datetime not null,
+    refunded_at datetime null,
+    created_at datetime not null,
+    updated_at datetime not null,
+    deleted tinyint not null default 0,
+    primary key (id),
+    unique key uk_payment_refund_no (refund_no),
+    key idx_payment_refund_order (order_id),
+    key idx_payment_refund_status (refund_status, audit_status)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+
+create table if not exists payment_profit_sharing_record (
+    id bigint not null,
+    order_id bigint not null,
+    merchant_id bigint not null,
+    verification_id bigint not null,
+    sharing_no varchar(64) not null,
+    wx_sharing_id varchar(128) null,
+    total_amount decimal(12,2) not null default 0.00,
+    platform_commission_amount decimal(12,2) not null default 0.00,
+    merchant_amount decimal(12,2) not null default 0.00,
+    commission_rate decimal(5,4) not null default 0.0000,
+    sharing_status varchar(32) not null,
+    callback_payload text null,
+    shared_at datetime null,
+    created_at datetime not null,
+    updated_at datetime not null,
+    deleted tinyint not null default 0,
+    primary key (id),
+    unique key uk_payment_sharing_no (sharing_no),
+    key idx_payment_sharing_order (order_id),
+    key idx_payment_sharing_merchant (merchant_id, created_at),
+    key idx_payment_sharing_status (sharing_status)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+

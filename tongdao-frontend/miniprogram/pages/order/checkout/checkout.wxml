@@ -2,18 +2,19 @@
   <td-topbar title="订单确认" placeholder="微信支付" action="安" />
   <view class="page-content">
     <view class="card order-card">
-      <view class="order-title">318 服务区牛肉面套餐</view>
-      <view class="order-sub">1 份 · 到店扫码核销 · 成团失败原路退</view>
+      <view class="order-title">商品 #{{productId}}</view>
+      <view class="order-sub">{{quantity}} 份 · 到店扫码核销 · 成团失败原路退</view>
     </view>
 
     <view class="card pay-card">
-      <view class="pay-row"><text>套餐原价</text><text>￥58.00</text></view>
-      <view class="pay-row"><text>拼团优惠</text><text class="red">-￥19.00</text></view>
+      <view class="pay-row"><text>商品原价</text><text>￥{{preview.originalAmount || 0}}</text></view>
+      <view class="pay-row"><text>拼团优惠</text><text class="red">-￥{{preview.groupbuyDiscountAmount || 0}}</text></view>
+      <view class="pay-row"><text>优惠券抵扣</text><text class="red">-￥{{preview.couponDeductionAmount || 0}}</text></view>
       <view class="pay-row"><text>核销方式</text><text>到店扫码核销</text></view>
-      <view class="pay-row total"><text>实付</text><text>￥39.00</text></view>
+      <view class="pay-row total"><text>实付</text><text>￥{{preview.payableAmount || 0}}</text></view>
     </view>
 
-    <view class="btn green pay-btn" bindtap="pay">微信支付 ￥39.00</view>
+    <view class="btn green pay-btn {{paying ? 'gray' : ''}}" bindtap="pay">{{paying ? '处理中...' : '微信支付 ￥' + (preview.payableAmount || 0)}}</view>
     <view class="btn ghost cancel-btn">取消订单</view>
   </view>
 </view>

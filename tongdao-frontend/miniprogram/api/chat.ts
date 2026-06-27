@@ -81,3 +81,9 @@ export function addConversationMember(conversationId: string, userId: string): P
     }
   })
 }
+
+export function exitConversation(conversationId: string): Promise<void> {
+  return request<void>("/v1/chats/conversations/" + conversationId + "/members/me", {
+    method: "DELETE"
+  })
+}

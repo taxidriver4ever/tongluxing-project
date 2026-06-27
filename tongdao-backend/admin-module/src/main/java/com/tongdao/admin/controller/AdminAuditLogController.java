@@ -16,12 +16,20 @@ import com.tongdao.common.result.Result;
 
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 运营后台审计日志查询接口。
+ *
+ * <p>用于按操作人、动作类型、目标模块和时间范围分页查询后台操作记录。</p>
+ */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/v1/admin/audit-logs")
 public class AdminAuditLogController {
+
+    /** 后台查询服务。 */
     private final AdminQueryService queryService;
 
+    /** 分页查询后台审计日志。 */
     @GetMapping
     public Result<PageResult<AdminAuditLogVO>> page(
             @RequestParam(required = false) Long operatorId,

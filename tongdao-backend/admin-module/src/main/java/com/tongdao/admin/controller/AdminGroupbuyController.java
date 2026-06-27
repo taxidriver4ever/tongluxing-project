@@ -19,14 +19,23 @@ import com.tongdao.common.result.Result;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 运营后台拼团管理接口。
+ *
+ * <p>当前支持拼团列表占位查询和拼团人工干预动作记录。</p>
+ */
 @Validated
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/v1/admin/groupbuys")
 public class AdminGroupbuyController {
+
+    /** 后台人工干预服务。 */
     private final AdminInterventionService interventionService;
+    /** 后台通用查询服务。 */
     private final AdminQueryService queryService;
 
+    /** 分页查询拼团活动；当前实现为占位空分页，后续可接入 groupbuy-module 查询端口。 */
     @GetMapping
     public Result<PageResult<Object>> page(@RequestParam(required = false) String status,
                                            @RequestParam(defaultValue = "1") int page,
@@ -34,6 +43,7 @@ public class AdminGroupbuyController {
         return Result.success(queryService.emptyBusinessPage("groupbuy-module", status, null, null, null, page, size));
     }
 
+    /** 对指定拼团活动执行人工干预，实际处理通过补偿任务交给业务模块承接。 */
     @PostMapping("/{activityId}/intervene")
     public Result<AdminInterventionResultVO> intervene(@PathVariable Long activityId,
                                                        @Valid @RequestBody AdminInterventionRequest request) {

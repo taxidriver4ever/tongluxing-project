@@ -10,9 +10,13 @@ import org.apache.ibatis.annotations.Select;
 
 import com.tongdao.admin.entity.AdminAuditLog;
 
+/**
+ * 后台审计日志 Mapper。
+ */
 @Mapper
 public interface AdminAuditLogMapper {
 
+    /** 插入一条后台审计日志。 */
     @Insert("""
             insert into admin_audit_log
                 (id, operator_id, operator_name, action_type, target_module,
@@ -25,6 +29,7 @@ public interface AdminAuditLogMapper {
             """)
     void insert(AdminAuditLog log);
 
+    /** 根据请求幂等 ID 查询审计日志。 */
     @Select("""
             select id, operator_id, operator_name, action_type, target_module,
                    target_type, target_id, request_id, before_snapshot, after_snapshot,
@@ -35,6 +40,7 @@ public interface AdminAuditLogMapper {
             """)
     AdminAuditLog findByRequestId(@Param("requestId") String requestId);
 
+    /** 按筛选条件分页查询审计日志。 */
     @Select("""
             select id, operator_id, operator_name, action_type, target_module,
                    target_type, target_id, request_id, before_snapshot, after_snapshot,
@@ -60,6 +66,7 @@ public interface AdminAuditLogMapper {
                                   @Param("offset") int offset,
                                   @Param("size") int size);
 
+    /** 统计符合筛选条件的审计日志数量。 */
     @Select("""
             select count(1)
             from admin_audit_log

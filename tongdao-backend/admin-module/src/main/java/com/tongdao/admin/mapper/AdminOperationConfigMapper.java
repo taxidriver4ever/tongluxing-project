@@ -8,9 +8,13 @@ import org.apache.ibatis.annotations.Update;
 
 import com.tongdao.admin.entity.AdminOperationConfig;
 
+/**
+ * 运营配置主表 Mapper。
+ */
 @Mapper
 public interface AdminOperationConfigMapper {
 
+    /** 新增运营配置主记录。 */
     @Insert("""
             insert into admin_operation_config
                 (id, config_domain, config_key, current_version, config_status,
@@ -21,6 +25,7 @@ public interface AdminOperationConfigMapper {
             """)
     void insert(AdminOperationConfig config);
 
+    /** 根据配置域和配置键查询未删除配置。 */
     @Select("""
             select id, config_domain, config_key, current_version, config_status,
                    effective_at, created_at, updated_at, deleted
@@ -33,6 +38,7 @@ public interface AdminOperationConfigMapper {
     AdminOperationConfig findByKey(@Param("configDomain") String configDomain,
                                    @Param("configKey") String configKey);
 
+    /** 更新当前版本号、状态和生效时间。 */
     @Update("""
             update admin_operation_config
             set current_version = #{currentVersion},

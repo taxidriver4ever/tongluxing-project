@@ -19,14 +19,21 @@ import com.tongdao.common.result.Result;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 运营后台用户认证审核接口。
+ */
 @Validated
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/v1/admin/users/certifications")
 public class AdminUserAuditController {
+
+    /** 后台审核服务。 */
     private final AdminAuditService auditService;
+    /** 后台通用查询服务。 */
     private final AdminQueryService queryService;
 
+    /** 分页查询用户认证申请；当前返回空分页，后续可接入 user-module 查询端口。 */
     @GetMapping
     public Result<PageResult<Object>> page(@RequestParam(required = false) String status,
                                            @RequestParam(required = false) String keyword,
@@ -35,6 +42,7 @@ public class AdminUserAuditController {
         return Result.success(queryService.emptyBusinessPage("user-module", status, keyword, null, null, page, size));
     }
 
+    /** 审核指定用户认证申请。 */
     @PostMapping("/{certificationId}/audit")
     public Result<AdminAuditResultVO> audit(@PathVariable Long certificationId,
                                             @Valid @RequestBody AdminAuditRequest request) {

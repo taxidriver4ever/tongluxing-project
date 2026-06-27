@@ -1,4 +1,4 @@
-import { getIdentityStatus, submitIdentity } from "../../api/user"
+import { submitCertification } from "../../api/user"
 
 Component({
   data: {
@@ -9,6 +9,7 @@ Component({
     form: {
       realName: "",
       idCardNo: "",
+      drivingLicenseImageKey: "",
       faceImageKey: ""
     }
   },
@@ -19,21 +20,7 @@ Component({
   },
   methods: {
     async loadStatus() {
-      this.setData({ loading: true })
-      try {
-        const result = await getIdentityStatus()
-        this.setData({
-          status: result.status || "UNSUBMITTED",
-          rejectReason: result.rejectReason || "",
-          idCardNoMask: result.idCardNoMask || "",
-          "form.realName": result.realName || "",
-          "form.faceImageKey": result.faceImageKey || ""
-        })
-      } catch (error) {
-        wx.showToast({ title: this.getErrorMessage(error), icon: "none" })
-      } finally {
-        this.setData({ loading: false })
-      }
+      this.setData({ status: "UNSUBMITTED", rejectReason: "", idCardNoMask: "" })
     },
     onInput(event: any) {
       const field = event.currentTarget.dataset.field
@@ -49,18 +36,18 @@ Component({
         wx.showToast({ title: "实名审核中，请勿重复提交", icon: "none" })
         return
       }
-      if (!this.data.form.realName || !this.data.form.idCardNo) {
-        wx.showToast({ title: "请填写真实姓名和证件号", icon: "none" })
+      if (!this.data.form.realName || !this.data.form.idCardNo || !this.data.form.drivingLicenseImageKey || !this.data.form.faceImageKey) {
+        wx.showToast({ title: "请填写实名资料和图片标识", icon: "none" })
         return
       }
 
       this.setData({ loading: true })
       try {
-        const result = await submitIdentity(this.data.form)
+        const result = await submitCertification(this.data.form)
         this.setData({
-          status: result.status,
+          status: result.certificationStatus,
           rejectReason: result.rejectReason || "",
-          idCardNoMask: result.idCardNoMask || ""
+          idCardNoMask: ""
         })
         wx.showToast({ title: "实名资料已提交", icon: "success" })
       } catch (error) {

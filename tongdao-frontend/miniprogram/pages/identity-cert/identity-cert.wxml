@@ -20,7 +20,11 @@
         <input class="input" value="{{form.idCardNo}}" data-field="idCardNo" bindinput="onInput" placeholder="请输入身份证号" disabled="{{status === 'PENDING' || status === 'APPROVED'}}" />
       </view>
       <view class="field">
-        <view class="label">认证图片标识</view>
+        <view class="label">行驶证图片标识</view>
+        <input class="input" value="{{form.drivingLicenseImageKey}}" data-field="drivingLicenseImageKey" bindinput="onInput" placeholder="ImageKey，例如 cert/license.jpg" disabled="{{status === 'PENDING' || status === 'APPROVED'}}" />
+      </view>
+      <view class="field">
+        <view class="label">人脸图片标识</view>
         <input class="input" value="{{form.faceImageKey}}" data-field="faceImageKey" bindinput="onInput" placeholder="/static/upload/cert.jpg" disabled="{{status === 'PENDING' || status === 'APPROVED'}}" />
       </view>
     </view>

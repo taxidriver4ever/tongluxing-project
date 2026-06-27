@@ -6,8 +6,8 @@ function defaultPublicProfile(): PublicUserProfile {
     nickname: "同道车友",
     avatarImageKey: "",
     cityName: "未设置城市",
-    realNameStatus: "UNSUBMITTED",
-    vehicleCertified: false
+    bio: "",
+    certificationStatus: "UNSUBMITTED"
   }
 }
 

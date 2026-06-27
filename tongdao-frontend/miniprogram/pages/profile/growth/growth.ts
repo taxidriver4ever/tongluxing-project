@@ -1,4 +1,4 @@
-import { getGrowthSummary, getGrowthLogs, getBadgeWall, GrowthSummary, GrowthLog, Badge } from "../../../api/user"
+import { getGrowthSummary, getGrowthLogs, getBadgeWall, GrowthLog, Badge } from "../../../api/growth"
 import { getToken } from "../../../utils/auth-storage"
 
 // 等级配置

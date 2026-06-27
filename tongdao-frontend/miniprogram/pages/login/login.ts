@@ -1,4 +1,4 @@
-import { login, sendSmsCode, wxPhoneLogin } from "../../api/auth"
+import { wxPhoneLogin } from "../../api/auth"
 import { saveSession } from "../../utils/auth-storage"
 
 Component({
@@ -35,37 +35,6 @@ Component({
     goHome() {
       wx.reLaunch({ url: "/pages/index/index" })
     },
-    async onDevLogin() {
-      if (this.data.loading) {
-        return
-      }
-      this.setData({ loading: true })
-      try {
-        const phone = "13800138000"
-        await sendSmsCode({
-          phone,
-          scene: "login"
-        })
-        const result = await login({
-          phone,
-          code: "829416",
-          deviceId: "miniapp-dev-device"
-        })
-        saveSession({
-          token: result.token,
-          refreshToken: result.refreshToken,
-          userId: result.userId
-        })
-        wx.showToast({ title: "测试 token 已写入", icon: "success" })
-        setTimeout(() => {
-          wx.reLaunch({ url: "/pages/index/index" })
-        }, 500)
-      } catch (error) {
-        wx.showToast({ title: this.getErrorMessage(error), icon: "none" })
-      } finally {
-        this.setData({ loading: false })
-      }
-    },
     toggleAgree() {
       this.setData({ agreed: !this.data.agreed })
     },
@@ -79,7 +48,6 @@ Component({
       this.setData({ showAgreementModal: true })
     },
     async onWxPhoneLogin(event: any) {
-      console.log("getPhoneNumber detail", event.detail)
       if (!this.data.agreed) {
         this.setData({ showAgreementModal: true })
         return

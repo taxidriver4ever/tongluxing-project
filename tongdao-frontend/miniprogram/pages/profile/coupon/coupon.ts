@@ -1,4 +1,4 @@
-import { getUserCoupons, CouponSummary } from "../../../api/user"
+import { getUserCoupons, CouponSummary } from "../../../api/coupon"
 import { getToken } from "../../../utils/auth-storage"
 
 const TABS = [
@@ -14,6 +14,8 @@ const TYPE_STYLE: Record<string, { typeLabel: string; accentClass: string; pillC
   "MERCHANT":  { typeLabel: "商家拉新券", accentClass: "blue",   pillClass: "blue",   amountClass: "blue",   btnClass: "blue",   btnText: "查看券码" },
   "REWARD":    { typeLabel: "邀请奖励券", accentClass: "green",  pillClass: "green",  amountClass: "green",  btnClass: "green",  btnText: "查看可用门店" },
 }
+
+const EXPIRING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 interface CouponRow extends CouponSummary {
   accentClass: string
@@ -80,21 +82,17 @@ Page({
     this.setData({ loading: true })
     try {
       const type = tabKey === "all" ? undefined : tabKey
-      // 可用 + 即将过期
-      const [availRes, expiringRes, usedRes, expiredRes] = await Promise.all([
+      const [availRes, usedRes] = await Promise.all([
         getUserCoupons("AVAILABLE", type, 1, 50),
-        getUserCoupons("EXPIRING",  type, 1, 5),
         getUserCoupons("USED",      type, 1, 1),
-        getUserCoupons("EXPIRED",   type, 1, 1),
       ])
 
       const now = Date.now()
-      const sevenDays = 7 * 24 * 60 * 60 * 1000
 
       const couponRows: CouponRow[] = (availRes.records || []).map((c: CouponSummary) => {
         const style = TYPE_STYLE[c.couponType] || TYPE_STYLE["PLATFORM"]
         const endTs = c.validEndAt ? new Date(c.validEndAt).getTime() : 0
-        const expiring = endTs > 0 && endTs - now < sevenDays
+        const expiring = endTs > 0 && endTs >= now && endTs - now < EXPIRING_WINDOW_MS
         const daysLeft = endTs > 0 ? Math.ceil((endTs - now) / 86400000) : 0
         const expireLabel = expiring
           ? (daysLeft <= 1 ? "今日到期" : "剩 " + daysLeft + " 天")
@@ -113,14 +111,15 @@ Page({
           amountLabel
         }
       })
+      const expiringCount = couponRows.filter(item => item.expiring).length
 
       this.setData({
         coupons: couponRows,
         availableCount: availRes.total || 0,
-        expiringCount: expiringRes.total || 0,
+        expiringCount,
         usedCount: usedRes.total || 0,
-        expiredCount: expiredRes.total || 0,
-        summaryText: (availRes.total || 0) + " 张可用" + (expiringRes.total > 0 ? " · " + expiringRes.total + " 张即将到期" : "")
+        expiredCount: 0,
+        summaryText: (availRes.total || 0) + " 张可用" + (expiringCount > 0 ? " · " + expiringCount + " 张即将到期" : "")
       })
     } catch (_) {
       wx.showToast({ title: "加载失败，请重试", icon: "none" })

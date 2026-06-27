@@ -15,6 +15,13 @@ export interface TripLocation {
   longitude: number
 }
 
+export interface PageResult<T> {
+  records: T[]
+  total: number
+  page: number
+  size: number
+}
+
 export interface Trip {
   tripId: string
   userId: string
@@ -77,6 +84,47 @@ export interface TripMember {
   joinedAt: string
 }
 
+export interface TripDraftRequest {
+  startLocation: TripLocation
+  endLocation: TripLocation
+  waypoints?: TripLocation[]
+  departureTime: string
+  durationDays: number
+  peopleCount: number
+  remark?: string
+}
+
+export interface TripDraft {
+  draftId: number
+  startLocation: TripLocation
+  endLocation: TripLocation
+  waypoints: TripLocation[]
+  departureTime: string
+  durationDays: number
+  peopleCount: number
+  remark: string
+  draftStatus: string
+  publishedTripId: number | null
+  updatedAt: string
+}
+
+export interface PublishDraftRequest {
+  publishType: "TRIP" | "TEAM"
+}
+
+export interface PublishDraftResult {
+  draftId: number
+  publishType: string
+  publishedId: number
+}
+
+export interface TeamMatch {
+  teamId: number
+  teamName: string
+  routeOverlapRate: number
+  timeDifferenceMinutes: number
+}
+
 export function createTrip(data: TripRequest): Promise<Trip> {
   return request<Trip>("/v1/trips", {
     method: "POST",
@@ -117,4 +165,41 @@ export function getPublicTrips(limit: number): Promise<TripList> {
 
 export function getTripMembers(tripId: string): Promise<TripMember[]> {
   return request<TripMember[]>("/v1/trips/" + tripId + "/members")
+}
+
+export function createTripDraft(data: TripDraftRequest): Promise<TripDraft> {
+  return request<TripDraft>("/v1/trip-drafts", {
+    method: "POST",
+    data
+  })
+}
+
+export function getTripDrafts(status?: string, page: number = 1, size: number = 20): Promise<PageResult<TripDraft>> {
+  let url = "/v1/trip-drafts?page=" + page + "&size=" + size
+  if (status) url += "&status=" + encodeURIComponent(status)
+  return request<PageResult<TripDraft>>(url)
+}
+
+export function updateTripDraft(id: number, data: TripDraftRequest): Promise<TripDraft> {
+  return request<TripDraft>("/v1/trip-drafts/" + id, {
+    method: "PUT",
+    data
+  })
+}
+
+export function deleteTripDraft(id: number): Promise<void> {
+  return request<void>("/v1/trip-drafts/" + id, {
+    method: "DELETE"
+  })
+}
+
+export function publishTripDraft(id: number, data: PublishDraftRequest): Promise<PublishDraftResult> {
+  return request<PublishDraftResult>("/v1/trip-drafts/" + id + "/publish", {
+    method: "POST",
+    data
+  })
+}
+
+export function getTripDraftTeamRecommendations(id: number, page: number = 1, size: number = 20): Promise<PageResult<TeamMatch>> {
+  return request<PageResult<TeamMatch>>("/v1/trip-drafts/" + id + "/team-recommendations?page=" + page + "&size=" + size)
 }

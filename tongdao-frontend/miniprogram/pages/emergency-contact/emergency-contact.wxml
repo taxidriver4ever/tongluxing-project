@@ -2,6 +2,10 @@
   <td-topbar title="紧急联系人" placeholder="预留家人或朋友联系方式" action="急" />
   <scroll-view scroll-y class="page-content">
     <view class="card form-card">
+      <view class="notice">
+        <view class="notice-title">接口待确认</view>
+        <view>当前后端暂未提供紧急联系人接口，本页暂不提交数据。</view>
+      </view>
       <view class="field">
         <view class="label">联系人姓名</view>
         <input class="input" value="{{form.contactName}}" data-field="contactName" bindinput="onInput" maxlength="64" placeholder="例如：张女士" />

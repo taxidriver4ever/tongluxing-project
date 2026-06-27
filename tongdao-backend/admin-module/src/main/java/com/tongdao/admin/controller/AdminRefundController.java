@@ -19,14 +19,21 @@ import com.tongdao.common.result.Result;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 运营后台退款审核接口。
+ */
 @Validated
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/v1/admin/refunds")
 public class AdminRefundController {
+
+    /** 后台审核服务。 */
     private final AdminAuditService auditService;
+    /** 后台通用查询服务。 */
     private final AdminQueryService queryService;
 
+    /** 分页查询退款单；当前返回空分页，后续可接入 payment-module 查询端口。 */
     @GetMapping
     public Result<PageResult<Object>> page(@RequestParam(required = false) String status,
                                            @RequestParam(defaultValue = "1") int page,
@@ -34,6 +41,7 @@ public class AdminRefundController {
         return Result.success(queryService.emptyBusinessPage("payment-module", status, null, null, null, page, size));
     }
 
+    /** 审核指定退款申请。 */
     @PostMapping("/{refundId}/audit")
     public Result<AdminAuditResultVO> audit(@PathVariable Long refundId,
                                             @Valid @RequestBody AdminAuditRequest request) {

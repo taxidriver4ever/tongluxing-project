@@ -19,14 +19,21 @@ import com.tongdao.common.result.Result;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 运营后台核销撤销审核接口。
+ */
 @Validated
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/v1/admin/verifications/reversals")
 public class AdminVerificationController {
+
+    /** 后台审核服务。 */
     private final AdminAuditService auditService;
+    /** 后台通用查询服务。 */
     private final AdminQueryService queryService;
 
+    /** 分页查询核销撤销申请；当前返回空分页，后续可接入 verification-module 查询端口。 */
     @GetMapping
     public Result<PageResult<Object>> page(@RequestParam(required = false) String status,
                                            @RequestParam(defaultValue = "1") int page,
@@ -34,6 +41,7 @@ public class AdminVerificationController {
         return Result.success(queryService.emptyBusinessPage("verification-module", status, null, null, null, page, size));
     }
 
+    /** 审核指定核销撤销申请。 */
     @PostMapping("/{reversalId}/audit")
     public Result<AdminAuditResultVO> audit(@PathVariable Long reversalId,
                                             @Valid @RequestBody AdminAuditRequest request) {

@@ -47,10 +47,6 @@
         <view class="check {{agreed ? '' : 'off'}}"></view>
         <view>我已阅读并同意 <text class="link">用户协议</text> 和 <text class="link">隐私政策</text></view>
       </view>
-
-      <view class="dev-login" bindtap="onDevLogin">
-        测试阶段：生成 token 并进入首页
-      </view>
     </view>
 
     <view class="bottom-note">首次登录将自动创建账号</view>

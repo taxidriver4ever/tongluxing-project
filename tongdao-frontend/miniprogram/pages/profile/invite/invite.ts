@@ -1,4 +1,4 @@
-import { getMyInviteCode, getInvitationList, getInviteRewardProgress, InvitationRecord, InviteRewardProgress } from "../../../api/user"
+import { getMyInviteCode, getInvitationList, getInviteRewardProgress, InvitationRecord } from "../../../api/invite"
 import { getToken } from "../../../utils/auth-storage"
 
 // 阶梯奖励里程碑

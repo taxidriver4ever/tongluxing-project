@@ -8,9 +8,13 @@ import org.apache.ibatis.annotations.Select;
 
 import com.tongdao.admin.entity.AdminRole;
 
+/**
+ * 后台角色 Mapper。
+ */
 @Mapper
 public interface AdminRoleMapper {
 
+    /** 查询操作员当前有效角色。 */
     @Select("""
             select r.id, r.role_code, r.role_name, r.permission_json, r.role_status,
                    r.created_at, r.updated_at, r.deleted

@@ -3,7 +3,7 @@
   <scroll-view scroll-y class="page-content">
     <view class="notice">
       <view class="notice-title">隐私提示</view>
-      <view>手机号默认不公开。关闭公开资料后，公开资料卡片将不再展示。</view>
+      <view>手机号默认不公开。当前后端暂未提供隐私设置接口，本页仅保留用户端入口和交互样式。</view>
     </view>
 
     <view class="card setting-card">

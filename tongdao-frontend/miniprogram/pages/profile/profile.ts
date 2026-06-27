@@ -1,4 +1,8 @@
-import { getUserDashboard, UserDashboard, GrowthSummary } from "../../api/user"
+import { getCurrentUserProfile, UserProfile } from "../../api/user"
+import { getGrowthSummary, GrowthSummary } from "../../api/growth"
+import { getInviteSummary, InviteRewardProgress } from "../../api/invite"
+import { getUserCoupons } from "../../api/coupon"
+import { getTripDrafts, TripDraft } from "../../api/trip"
 import { getMyVehicles, Vehicle } from "../../api/vehicle"
 import { getToken } from "../../utils/auth-storage"
 
@@ -9,6 +13,19 @@ const LEVEL_MAP: Record<string, { name: string; maxPoints: number; nextName: str
   "Lv3": { name: "Lv.3 同路先锋", maxPoints: 5000, nextName: "Lv.4" },
   "Lv4": { name: "Lv.4 同路达人", maxPoints: 12000, nextName: "Lv.5" },
   "Lv5": { name: "Lv.5 同路领袖", maxPoints: 999999, nextName: "顶级" },
+}
+
+interface CouponCount {
+  availableCount: number
+  expiringCount: number
+}
+
+interface UserDashboard {
+  profile: UserProfile
+  growth: GrowthSummary
+  coupon: CouponCount
+  invitation: InviteRewardProgress
+  nextTripDraft: TripDraft | null
 }
 
 function defaultDashboard(): UserDashboard {
@@ -27,7 +44,7 @@ function defaultDashboard(): UserDashboard {
     },
     growth: { totalPoints: 0, levelCode: "Lv1", nextLevelPoints: 500 },
     coupon: { availableCount: 0, expiringCount: 0 },
-    invitation: { validInviteCount: 0, nextRewardNeed: 5 },
+    invitation: { validInviteCount: 0, nextRewardNeed: 5, grantedRuleCodes: [] },
     nextTripDraft: null
   }
 }
@@ -89,7 +106,7 @@ Component({
       this.setData({ loading: true })
       try {
         const [dashboard, vehicleList] = await Promise.all([
-          getUserDashboard(),
+          this.loadDashboardData(),
           getMyVehicles()
         ])
         const vehicles = vehicleList.vehicles || []
@@ -103,6 +120,34 @@ Component({
         wx.showToast({ title: this.errMsg(err), icon: "none" })
       } finally {
         this.setData({ loading: false })
+      }
+    },
+
+    async loadDashboardData(): Promise<UserDashboard> {
+      const [profile, growth, invite, coupons, drafts] = await Promise.all([
+        getCurrentUserProfile(),
+        getGrowthSummary(),
+        getInviteSummary(),
+        getUserCoupons("AVAILABLE", undefined, 1, 50),
+        getTripDrafts(undefined, 1, 1)
+      ])
+      const now = Date.now()
+      const sevenDays = 7 * 24 * 60 * 60 * 1000
+      const availableCoupons = coupons.records || []
+      const expiringCount = availableCoupons.filter(c => {
+        if (!c.validEndAt) return false
+        const end = new Date(c.validEndAt).getTime()
+        return end > now && end - now <= sevenDays
+      }).length
+      return {
+        profile,
+        growth,
+        coupon: {
+          availableCount: coupons.total || availableCoupons.length,
+          expiringCount
+        },
+        invitation: invite,
+        nextTripDraft: (drafts.records && drafts.records.length > 0) ? drafts.records[0] : null
       }
     },
 

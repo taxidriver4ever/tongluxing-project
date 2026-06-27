@@ -6,11 +6,8 @@
       <view class="nickname">{{profile.nickname || "同道车友"}}</view>
       <view class="city">{{profile.cityName || "未设置城市"}}</view>
       <view class="tag-row">
-        <view class="pill {{profile.realNameStatus === 'APPROVED' ? 'green' : ''}}">
-          {{profile.realNameStatus === 'APPROVED' ? '已实名' : '未实名'}}
-        </view>
-        <view class="pill {{profile.vehicleCertified ? 'green' : ''}}">
-          {{profile.vehicleCertified ? '车辆已认证' : '车辆待认证'}}
+        <view class="pill {{profile.certificationStatus === 'APPROVED' ? 'green' : ''}}">
+          {{profile.certificationStatus === 'APPROVED' ? '已实名' : '未实名'}}
         </view>
       </view>
     </view>

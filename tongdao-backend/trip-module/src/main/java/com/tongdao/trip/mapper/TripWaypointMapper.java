@@ -11,9 +11,15 @@ import org.apache.ibatis.annotations.Select;
 
 import com.tongdao.trip.entity.TripWaypoint;
 
+/**
+ * 行程途经点 Mapper。
+ */
 @Mapper
 public interface TripWaypointMapper {
 
+    /**
+     * 查询行程途经点列表。
+     */
     @Select("""
             select id, trip_id, seq_no, place_name, lat, lng, stay_minutes, created_at, updated_at, deleted
             from trip_waypoint
@@ -22,6 +28,9 @@ public interface TripWaypointMapper {
             """)
     List<TripWaypoint> findByTripId(@Param("tripId") Long tripId);
 
+    /**
+     * 新增行程途经点。
+     */
     @Insert("""
             insert into trip_waypoint
                 (id, trip_id, seq_no, place_name, lat, lng, stay_minutes, created_at, updated_at, deleted)
@@ -30,6 +39,9 @@ public interface TripWaypointMapper {
             """)
     void insert(TripWaypoint waypoint);
 
+    /**
+     * 删除指定行程下的全部途经点。
+     */
     @Delete("""
             delete from trip_waypoint
             where trip_id = #{tripId}

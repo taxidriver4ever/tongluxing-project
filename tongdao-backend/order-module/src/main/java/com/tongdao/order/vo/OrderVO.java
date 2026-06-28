@@ -3,6 +3,9 @@ package com.tongdao.order.vo;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+/**
+ * OrderVO 视图响应对象。
+ */
 
 public record OrderVO(
         Long orderId,

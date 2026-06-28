@@ -27,8 +27,16 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         "com.tongdao.admin.mapper"
 })
 @SpringBootApplication(scanBasePackages = "com.tongdao")
+/**
+ * 同道后端统一启动入口。
+ *
+ * <p>该应用层模块负责装配各业务模块，并统一声明 MyBatis Mapper 扫描范围。</p>
+ */
 public class TongdaoApplication {
 
+    /**
+     * 启动 Spring Boot 应用。
+     */
     public static void main(String[] args) {
         SpringApplication.run(TongdaoApplication.class, args);
     }

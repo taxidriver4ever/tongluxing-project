@@ -8,13 +8,18 @@ import org.apache.ibatis.annotations.Param;
 
 import com.tongdao.chat.entity.ChatMessage;
 
+/**
+ * 聊天消息 Mapper。
+ */
 @Mapper
 public interface ChatMessageMapper {
 
+    /** 查询会话历史消息；beforeMessageId 为空时查询最新消息。 */
     List<ChatMessage> findMessages(@Param("conversationId") Long conversationId,
                                    @Param("beforeMessageId") Long beforeMessageId,
                                    @Param("limit") Integer limit);
 
+    /** 新增聊天消息。 */
     @Insert("""
             insert into chat_message
                 (id, conversation_id, sender_user_id, message_type, message_payload_json,

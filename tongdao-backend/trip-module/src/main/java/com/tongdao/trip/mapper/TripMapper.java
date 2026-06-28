@@ -11,9 +11,15 @@ import org.apache.ibatis.annotations.Update;
 
 import com.tongdao.trip.entity.Trip;
 
+/**
+ * 行程主表 Mapper。
+ */
 @Mapper
 public interface TripMapper {
 
+    /**
+     * 根据行程 ID 查询未删除行程。
+     */
     @Select("""
             select id, user_id, vehicle_id, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
@@ -28,6 +34,9 @@ public interface TripMapper {
             """)
     Trip findById(@Param("tripId") Long tripId);
 
+    /**
+     * 查询用户当前活跃行程。
+     */
     @Select("""
             select id, user_id, vehicle_id, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
@@ -43,6 +52,9 @@ public interface TripMapper {
             """)
     List<Trip> findActiveByUserId(@Param("userId") Long userId);
 
+    /**
+     * 查询用户历史行程。
+     */
     @Select("""
             select id, user_id, vehicle_id, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
@@ -59,6 +71,9 @@ public interface TripMapper {
             """)
     List<Trip> findHistoryByUserId(@Param("userId") Long userId, @Param("limit") Integer limit);
 
+    /**
+     * 查询公开且仍可参与的行程列表。
+     */
     @Select("""
             select id, user_id, vehicle_id, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
@@ -75,6 +90,9 @@ public interface TripMapper {
             """)
     List<Trip> findPublicTrips(@Param("limit") Integer limit);
 
+    /**
+     * 新增行程主表记录。
+     */
     @Insert("""
             insert into trip
                 (id, user_id, vehicle_id, start_name, start_lat, start_lng,
@@ -95,6 +113,9 @@ public interface TripMapper {
             """)
     void insert(Trip trip);
 
+    /**
+     * 更新行程路线、时间、人数和公开信息。
+     */
     @Update("""
             update trip
             set vehicle_id = #{vehicleId},
@@ -130,6 +151,9 @@ public interface TripMapper {
             """)
     void update(Trip trip);
 
+    /**
+     * 更新行程状态，用于结束或取消行程。
+     */
     @Update("""
             update trip
             set status = #{status}, updated_at = #{updatedAt}

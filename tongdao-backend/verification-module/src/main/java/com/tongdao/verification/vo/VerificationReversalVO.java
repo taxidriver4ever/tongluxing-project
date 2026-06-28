@@ -1,6 +1,9 @@
 package com.tongdao.verification.vo;
 
 import java.time.LocalDateTime;
+/**
+ * VerificationReversalVO 视图响应对象。
+ */
 
 public record VerificationReversalVO(
         Long reversalId,

@@ -6,6 +6,9 @@ import java.time.LocalDateTime;
 import lombok.Data;
 
 @Data
+/**
+ * TripWaypoint 数据库实体。
+ */
 public class TripWaypoint {
     private Long id;
     private Long tripId;

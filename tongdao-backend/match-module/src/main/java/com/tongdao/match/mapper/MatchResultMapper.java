@@ -5,9 +5,15 @@ import org.apache.ibatis.annotations.Mapper;
 
 import com.tongdao.match.entity.MatchResult;
 
+/**
+ * 行程匹配结果 Mapper。
+ */
 @Mapper
 public interface MatchResultMapper {
 
+    /**
+     * 新增或更新两条行程之间的匹配结果。
+     */
     @Insert("""
             insert into match_result
                 (id, source_trip_id, target_trip_id, source_user_id, target_user_id,

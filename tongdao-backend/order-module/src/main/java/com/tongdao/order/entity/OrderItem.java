@@ -4,6 +4,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 import lombok.Data;
+/**
+ * OrderItem 数据库实体。
+ */
 
 @Data
 public class OrderItem {

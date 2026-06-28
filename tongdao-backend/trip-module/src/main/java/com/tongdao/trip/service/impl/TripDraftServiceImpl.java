@@ -31,6 +31,9 @@ import com.tongdao.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 行程草稿业务服务实现，负责草稿增删改查、发布和推荐车队查询。
+ */
 @Service
 @RequiredArgsConstructor
 public class TripDraftServiceImpl implements TripDraftService {
@@ -39,6 +42,9 @@ public class TripDraftServiceImpl implements TripDraftService {
     private final ObjectMapper objectMapper;
     private final ObjectProvider<TripDraftPublishPort> publishPort;
 
+    /**
+     * 创建行程草稿，并将位置和途经点序列化保存。
+     */
     @Override
     @Transactional
     public TripDraftVO create(TripDraftRequest request) {
@@ -50,6 +56,9 @@ public class TripDraftServiceImpl implements TripDraftService {
         return draft(mapper.find(id, userId));
     }
 
+    /**
+     * 分页查询当前用户草稿，规范分页参数范围。
+     */
     @Override
     public PageResult<TripDraftVO> list(String status, int page, int size) {
         long userId = currentUserContext.requireUserId();
@@ -58,6 +67,9 @@ public class TripDraftServiceImpl implements TripDraftService {
         return new PageResult<>(records, mapper.count(userId, status), p, s);
     }
 
+    /**
+     * 更新可编辑状态下的草稿。
+     */
     @Override
     @Transactional
     public TripDraftVO update(Long id, TripDraftRequest request) {
@@ -68,6 +80,9 @@ public class TripDraftServiceImpl implements TripDraftService {
         return draft(mapper.find(id, userId));
     }
 
+    /**
+     * 删除可删除状态下的草稿。
+     */
     @Override
     @Transactional
     public void delete(Long id) {
@@ -76,6 +91,9 @@ public class TripDraftServiceImpl implements TripDraftService {
         }
     }
 
+    /**
+     * 发布草稿；实际发布动作通过 TripDraftPublishPort 交给应用层适配器完成。
+     */
     @Override
     @Transactional
     public PublishResultVO publish(Long id, String publishType) {
@@ -93,6 +111,9 @@ public class TripDraftServiceImpl implements TripDraftService {
         return new PublishResultVO(id, publishType, outcome.publishedId());
     }
 
+    /**
+     * 基于草稿内容查询推荐车队；发布适配器不可用时返回空列表。
+     */
     @Override
     public PageResult<TeamMatchVO> recommendTeams(Long id, int page, int size) {
         long userId = currentUserContext.requireUserId();
@@ -105,6 +126,9 @@ public class TripDraftServiceImpl implements TripDraftService {
         return new PageResult<>(records, records.size(), p, s);
     }
 
+    /**
+     * 将数据库查询行转换为草稿视图对象。
+     */
     private TripDraftVO draft(TripDraftQueryDTO row) {
         if (row == null) return null;
         return new TripDraftVO(row.getDraftId(), location(row.getStartJson()), location(row.getEndJson()),
@@ -112,6 +136,9 @@ public class TripDraftServiceImpl implements TripDraftService {
                 row.getPeopleCount(), row.getRemark(), row.getDraftStatus(), row.getPublishedTripId(), row.getUpdatedAt());
     }
 
+    /**
+     * 将草稿位置 JSON 反序列化为位置视图对象。
+     */
     private LocationVO location(String json) {
         if (!StringUtils.hasText(json)) return null;
         try {
@@ -122,6 +149,9 @@ public class TripDraftServiceImpl implements TripDraftService {
         }
     }
 
+    /**
+     * 将草稿途经点 JSON 反序列化为位置视图列表。
+     */
     private List<LocationVO> locations(String json) {
         if (!StringUtils.hasText(json)) return List.of();
         try {
@@ -132,11 +162,21 @@ public class TripDraftServiceImpl implements TripDraftService {
         }
     }
 
+    /**
+     * 将请求对象序列化为 JSON 字符串。
+     */
     private String json(Object value) {
         try { return objectMapper.writeValueAsString(value); }
         catch (JsonProcessingException e) { throw new BusinessException(ResultCode.BAD_REQUEST, "请求数据无法序列化"); }
     }
 
+    /**
+     * 空列表兜底，避免保存 null 途经点。
+     */
     private <T> List<T> list(List<T> value) { return value == null ? Collections.emptyList() : value; }
+
+    /**
+     * 清理备注等文本字段前后空格。
+     */
     private String text(String value) { return value == null ? "" : value.trim(); }
 }

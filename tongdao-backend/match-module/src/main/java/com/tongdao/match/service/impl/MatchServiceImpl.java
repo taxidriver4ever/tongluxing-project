@@ -27,6 +27,9 @@ import com.tongdao.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 匹配模块业务服务实现，负责聚合行程、车队数据并计算推荐分。
+ */
 @Service
 @RequiredArgsConstructor
 public class MatchServiceImpl implements MatchService {
@@ -63,6 +66,9 @@ public class MatchServiceImpl implements MatchService {
         return new MatchRecommendationListResponse(String.valueOf(tripId), trips, teams);
     }
 
+    /**
+     * 校验经纬度参数后，按数量上限返回公开行程卡片。
+     */
     @Override
     public NearbyTripListResponse getNearbyTrips(String latitude, String longitude, Integer radiusMeters, Integer limit) {
         parse(latitude, "纬度不能为空");
@@ -74,6 +80,9 @@ public class MatchServiceImpl implements MatchService {
         return new NearbyTripListResponse(trips);
     }
 
+    /**
+     * 校验经纬度参数后，按数量上限返回公开活跃车队卡片。
+     */
     @Override
     public NearbyTeamListResponse getNearbyTeams(String latitude, String longitude, Integer radiusMeters, Integer limit) {
         parse(latitude, "纬度不能为空");
@@ -85,6 +94,9 @@ public class MatchServiceImpl implements MatchService {
         return new NearbyTeamListResponse(teams);
     }
 
+    /**
+     * 将行程端口数据转换为前端展示卡片，并在有源行程时计算匹配分。
+     */
     private MatchTripCardResponse toTripCard(MatchTripDTO source, MatchTripDTO target) {
         int departureGap = source == null ? 0 : (int) Math.abs(Duration.between(source.departureTime(), target.departureTime()).toMinutes());
         int score = source == null ? 80 : score(source.startName(), source.endName(), target.startName(), target.endName(), departureGap);
@@ -102,6 +114,9 @@ public class MatchServiceImpl implements MatchService {
         );
     }
 
+    /**
+     * 将车队端口数据转换为前端展示卡片，并在有源行程时计算匹配分。
+     */
     private MatchTeamCardResponse toTeamCard(MatchTripDTO source, MatchTeamDTO team) {
         int score = source == null ? 80 : score(source.startName(), source.endName(), team.startName(), team.endName(), 0);
         return new MatchTeamCardResponse(
@@ -118,6 +133,9 @@ public class MatchServiceImpl implements MatchService {
         );
     }
 
+    /**
+     * 根据起点、终点和出发时间差计算匹配分，并限制在 1 到 99 之间。
+     */
     private int score(String sourceStart, String sourceEnd, String targetStart, String targetEnd, int departureGapMinutes) {
         int score = 60;
         if (StringUtils.hasText(sourceStart) && sourceStart.equals(targetStart)) {
@@ -134,10 +152,16 @@ public class MatchServiceImpl implements MatchService {
         return Math.max(1, Math.min(score, 99));
     }
 
+    /**
+     * 统一限制分页数量，避免一次性拉取过多推荐数据。
+     */
     private int safeLimit(Integer limit) {
         return limit == null ? 20 : Math.max(1, Math.min(limit, 50));
     }
 
+    /**
+     * 校验并解析经纬度字符串。
+     */
     private BigDecimal parse(String value, String message) {
         if (!StringUtils.hasText(value)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, message);
@@ -149,6 +173,9 @@ public class MatchServiceImpl implements MatchService {
         }
     }
 
+    /**
+     * 记录推荐曝光日志，便于后续分析推荐效果。
+     */
     private void log(Long userId, Long tripId, String scene, String actionType) {
         recommendLogMapper.insert(SnowflakeIdGenerator.nextId(), userId, tripId, null, null, scene, actionType, null, null);
     }

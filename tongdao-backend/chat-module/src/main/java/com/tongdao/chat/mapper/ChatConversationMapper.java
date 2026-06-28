@@ -11,9 +11,13 @@ import org.apache.ibatis.annotations.Update;
 
 import com.tongdao.chat.entity.ChatConversation;
 
+/**
+ * 聊天会话 Mapper。
+ */
 @Mapper
 public interface ChatConversationMapper {
 
+    /** 根据会话 ID 查询未删除会话。 */
     @Select("""
             select id, biz_type, biz_id, conversation_name, conversation_status, provider_type,
                    provider_conversation_key, last_message_id, last_message_preview, last_message_at,
@@ -24,6 +28,7 @@ public interface ChatConversationMapper {
             """)
     ChatConversation findById(@Param("conversationId") Long conversationId);
 
+    /** 根据业务类型和业务 ID 查询会话，用于避免重复创建同一业务会话。 */
     @Select("""
             select id, biz_type, biz_id, conversation_name, conversation_status, provider_type,
                    provider_conversation_key, last_message_id, last_message_preview, last_message_at,
@@ -34,6 +39,7 @@ public interface ChatConversationMapper {
             """)
     ChatConversation findByBiz(@Param("bizType") String bizType, @Param("bizId") Long bizId);
 
+    /** 查询用户参与的有效会话列表。 */
     @Select("""
             select c.id, c.biz_type, c.biz_id, c.conversation_name, c.conversation_status, c.provider_type,
                    c.provider_conversation_key, c.last_message_id, c.last_message_preview, c.last_message_at,
@@ -46,6 +52,7 @@ public interface ChatConversationMapper {
             """)
     List<ChatConversation> findActiveByUserId(@Param("userId") Long userId);
 
+    /** 新增会话。 */
     @Insert("""
             insert into chat_conversation
                 (id, biz_type, biz_id, conversation_name, conversation_status, provider_type,
@@ -58,6 +65,7 @@ public interface ChatConversationMapper {
             """)
     void insert(ChatConversation conversation);
 
+    /** 更新会话最后一条消息摘要。 */
     @Update("""
             update chat_conversation
             set last_message_id = #{messageId},

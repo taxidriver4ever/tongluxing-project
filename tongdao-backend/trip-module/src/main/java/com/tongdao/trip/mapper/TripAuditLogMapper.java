@@ -6,9 +6,15 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+/**
+ * 行程操作审计日志 Mapper。
+ */
 @Mapper
 public interface TripAuditLogMapper {
 
+    /**
+     * 写入行程操作审计日志。
+     */
     @Insert("""
             insert into trip_audit_log
                 (id, trip_id, user_id, operation_type, before_json, after_json, remark, created_at)

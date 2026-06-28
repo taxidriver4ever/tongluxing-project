@@ -10,9 +10,15 @@ import org.apache.ibatis.annotations.Update;
 
 import com.tongdao.verification.entity.VerificationCode;
 
+/**
+ * 核销码 Mapper。
+ */
 @Mapper
 public interface VerificationCodeMapper {
 
+    /**
+     * 新增核销码记录。
+     */
     @Insert("""
             insert into verification_code
                 (id, verification_code, qr_content, biz_type, biz_id, order_id,
@@ -25,6 +31,9 @@ public interface VerificationCodeMapper {
             """)
     void insert(VerificationCode code);
 
+    /**
+     * 根据核销码 ID 查询记录。
+     */
     @Select("""
             select id, verification_code, qr_content, biz_type, biz_id, order_id,
                    user_coupon_id, user_id, merchant_id, amount, code_status,
@@ -36,6 +45,9 @@ public interface VerificationCodeMapper {
             """)
     VerificationCode findById(@Param("id") Long id);
 
+    /**
+     * 根据核销码字符串查询记录。
+     */
     @Select("""
             select id, verification_code, qr_content, biz_type, biz_id, order_id,
                    user_coupon_id, user_id, merchant_id, amount, code_status,
@@ -47,6 +59,9 @@ public interface VerificationCodeMapper {
             """)
     VerificationCode findByCode(@Param("verificationCode") String verificationCode);
 
+    /**
+     * 根据业务类型和业务 ID 查询已生成的核销码。
+     */
     @Select("""
             select id, verification_code, qr_content, biz_type, biz_id, order_id,
                    user_coupon_id, user_id, merchant_id, amount, code_status,
@@ -59,6 +74,9 @@ public interface VerificationCodeMapper {
             """)
     VerificationCode findByBiz(@Param("bizType") String bizType, @Param("bizId") Long bizId);
 
+    /**
+     * 将可用核销码标记为已核销，带商家和过期时间条件防并发误核销。
+     */
     @Update("""
             update verification_code
             set code_status = 'VERIFIED',
@@ -73,6 +91,9 @@ public interface VerificationCodeMapper {
     int markVerified(@Param("id") Long id, @Param("merchantId") Long merchantId,
                      @Param("verifiedAt") LocalDateTime verifiedAt);
 
+    /**
+     * 将已过期但仍为 ACTIVE 的核销码标记为 EXPIRED。
+     */
     @Update("""
             update verification_code
             set code_status = 'EXPIRED',

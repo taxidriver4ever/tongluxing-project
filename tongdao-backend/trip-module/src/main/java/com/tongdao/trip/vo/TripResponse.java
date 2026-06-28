@@ -3,6 +3,9 @@ package com.tongdao.trip.vo;
 import java.math.BigDecimal;
 import java.util.List;
 
+/**
+ * TripResponse 响应数据对象。
+ */
 public record TripResponse(
         String tripId,
         String userId,

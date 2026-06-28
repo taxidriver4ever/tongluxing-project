@@ -35,6 +35,9 @@ import com.tongdao.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 支付模块业务服务实现，负责支付会话、回调幂等、退款和核销后分账。
+ */
 @Service
 @RequiredArgsConstructor
 public class PaymentServiceImpl implements PaymentService {
@@ -49,6 +52,9 @@ public class PaymentServiceImpl implements PaymentService {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
 
+    /**
+     * 创建支付记录并返回小程序调起支付所需参数。
+     */
     @Override
     @Transactional
     public JsapiPayParamsVO createJsapiPayment(JsapiPaymentRequest request) {
@@ -78,6 +84,9 @@ public class PaymentServiceImpl implements PaymentService {
         return params;
     }
 
+    /**
+     * 处理支付成功回调；通过 transactionId 做幂等，避免重复推进订单和拼团状态。
+     */
     @Override
     @Transactional
     public void handlePaymentCallback(PaymentCallbackRequest request) {
@@ -103,6 +112,7 @@ public class PaymentServiceImpl implements PaymentService {
         }
         paymentRecordMapper.markSuccess(request.orderId(), request.transactionId(), request.rawPayload(), paidAt);
         PaymentOrderDTO order = orderPort.markPaid(request.orderId(), paidAt);
+        // 支付成功后，如果订单来自拼团活动，则同步拼团参与人支付状态。
         if (order.activityId() != null) {
             groupbuyPort.addPaidParticipant(order.activityId(), order.orderId(), order.userId(), paidAt,
                     "payment-callback:" + request.transactionId());
@@ -110,6 +120,9 @@ public class PaymentServiceImpl implements PaymentService {
         writeJson(idemKey, "SUCCESS", Duration.ofDays(7));
     }
 
+    /**
+     * 用户申请退款；通过 requestId 做幂等，防止重复创建退款单。
+     */
     @Override
     @Transactional
     public RefundVO applyRefund(RefundApplyRequest request) {
@@ -123,6 +136,7 @@ public class PaymentServiceImpl implements PaymentService {
         if (!"SUCCESS".equals(order.paymentStatus())) {
             throw new BusinessException("订单未支付，不能退款");
         }
+        // 已核销或已分账订单不能走普通退款，避免资金和履约状态不一致。
         if ("VERIFIED".equals(order.verificationStatus()) || "SUCCESS".equals(order.profitSharingStatus())) {
             throw new BusinessException("已核销或已分账订单不能普通退款");
         }
@@ -148,6 +162,9 @@ public class PaymentServiceImpl implements PaymentService {
         return result;
     }
 
+    /**
+     * 查询退款记录，不存在时返回统一业务异常。
+     */
     @Override
     public RefundVO refundDetail(Long refundId) {
         PaymentRefundRecord record = refundRecordMapper.findById(refundId);
@@ -157,6 +174,9 @@ public class PaymentServiceImpl implements PaymentService {
         return toRefundVO(record);
     }
 
+    /**
+     * 处理退款成功回调；通过微信退款单号做幂等，并同步订单退款状态。
+     */
     @Override
     @Transactional
     public void handleRefundCallback(RefundCallbackRequest request) {
@@ -174,6 +194,9 @@ public class PaymentServiceImpl implements PaymentService {
         writeJson(idemKey, "SUCCESS", Duration.ofDays(7));
     }
 
+    /**
+     * 核销完成后执行分账，并将订单推进到已完成状态。
+     */
     @Override
     @Transactional
     public ProfitSharingVO shareAfterVerification(ProfitSharingRequest request) {
@@ -184,6 +207,7 @@ public class PaymentServiceImpl implements PaymentService {
         }
         PaymentOrderDTO verified = orderPort.markVerified(request.orderId());
         LocalDateTime now = LocalDateTime.now();
+        // 以实付金额为分账基数；若支付记录缺失，则回退到应付金额。
         BigDecimal total = verified.paidAmount() == null || BigDecimal.ZERO.compareTo(verified.paidAmount()) == 0
                 ? verified.payableAmount() : verified.paidAmount();
         BigDecimal commission = total.multiply(DEFAULT_COMMISSION_RATE).setScale(2, RoundingMode.HALF_UP);
@@ -212,17 +236,26 @@ public class PaymentServiceImpl implements PaymentService {
         return result;
     }
 
+    /**
+     * 将退款实体转换为接口返回对象。
+     */
     private RefundVO toRefundVO(PaymentRefundRecord record) {
         return new RefundVO(record.getId(), record.getOrderId(), record.getRefundNo(), record.getRefundAmount(),
                 record.getRefundStatus(), record.getAuditStatus(), record.getRequestedAt(), record.getRefundedAt());
     }
 
+    /**
+     * 将分账实体转换为接口返回对象。
+     */
     private ProfitSharingVO toSharingVO(PaymentProfitSharingRecord record) {
         return new ProfitSharingVO(record.getId(), record.getOrderId(), record.getMerchantId(), record.getSharingNo(),
                 record.getTotalAmount(), record.getPlatformCommissionAmount(), record.getMerchantAmount(),
                 record.getCommissionRate(), record.getSharingStatus(), record.getSharedAt());
     }
 
+    /**
+     * 从 Redis 读取幂等或会话缓存；读取失败时降级为空，避免缓存影响主流程。
+     */
     private <T> T readJson(String key, Class<T> type) {
         try {
             String value = redis.opsForValue().get(key);
@@ -232,6 +265,9 @@ public class PaymentServiceImpl implements PaymentService {
         }
     }
 
+    /**
+     * 写入 Redis 缓存；写入失败不影响 MySQL 事实数据。
+     */
     private void writeJson(String key, Object value, Duration ttl) {
         try {
             redis.opsForValue().set(key, value instanceof String text ? text : objectMapper.writeValueAsString(value), ttl);

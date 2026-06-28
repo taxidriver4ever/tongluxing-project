@@ -8,7 +8,9 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import com.tongdao.groupbuy.entity.GroupbuyParticipant;
-
+/**
+ * GroupbuyParticipantMapper MyBatis Mapper。
+ */
 @Mapper
 public interface GroupbuyParticipantMapper {
     @Insert("""

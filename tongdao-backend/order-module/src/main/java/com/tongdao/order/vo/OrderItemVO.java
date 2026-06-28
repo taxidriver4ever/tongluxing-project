@@ -1,6 +1,9 @@
 package com.tongdao.order.vo;
 
 import java.math.BigDecimal;
+/**
+ * OrderItemVO 视图响应对象。
+ */
 
 public record OrderItemVO(
         Long itemId,

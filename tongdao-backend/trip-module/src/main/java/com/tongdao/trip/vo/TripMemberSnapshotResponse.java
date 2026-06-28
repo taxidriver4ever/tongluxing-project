@@ -1,5 +1,8 @@
 package com.tongdao.trip.vo;
 
+/**
+ * TripMemberSnapshotResponse 响应数据对象。
+ */
 public record TripMemberSnapshotResponse(
         String userId,
         String vehicleId,

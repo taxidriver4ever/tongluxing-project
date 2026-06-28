@@ -7,9 +7,15 @@ import org.apache.ibatis.annotations.Select;
 
 import com.tongdao.verification.entity.VerificationReversalRequest;
 
+/**
+ * 核销冲正申请 Mapper。
+ */
 @Mapper
 public interface VerificationReversalRequestMapper {
 
+    /**
+     * 新增冲正申请。
+     */
     @Insert("""
             insert into verification_reversal_request
                 (id, verification_id, merchant_id, applicant_id, reason,
@@ -22,6 +28,9 @@ public interface VerificationReversalRequestMapper {
             """)
     void insert(VerificationReversalRequest request);
 
+    /**
+     * 根据冲正申请 ID 查询记录。
+     */
     @Select("""
             select id, verification_id, merchant_id, applicant_id, reason,
                    audit_status, reviewer_id, reviewed_at, reject_reason,
@@ -33,6 +42,9 @@ public interface VerificationReversalRequestMapper {
             """)
     VerificationReversalRequest findById(@Param("id") Long id);
 
+    /**
+     * 查询指定核销记录最近一次冲正申请。
+     */
     @Select("""
             select id, verification_id, merchant_id, applicant_id, reason,
                    audit_status, reviewer_id, reviewed_at, reject_reason,

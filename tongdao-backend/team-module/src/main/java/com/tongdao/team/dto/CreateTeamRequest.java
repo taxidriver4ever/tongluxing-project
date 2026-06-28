@@ -6,6 +6,9 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+/**
+ * CreateTeamRequest 请求参数对象。
+ */
 public record CreateTeamRequest(
         @NotNull Long tripId,
         @NotNull Long ownerVehicleId,

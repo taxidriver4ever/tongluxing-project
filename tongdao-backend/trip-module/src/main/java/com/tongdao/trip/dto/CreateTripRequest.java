@@ -10,6 +10,9 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+/**
+ * CreateTripRequest 请求参数对象。
+ */
 public record CreateTripRequest(
         @NotNull Long vehicleId,
         @Valid @NotNull LocationRequest startLocation,

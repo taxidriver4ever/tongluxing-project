@@ -10,9 +10,15 @@ import org.apache.ibatis.annotations.Update;
 
 import com.tongdao.team.entity.TeamJoinApplication;
 
+/**
+ * 入队申请 Mapper。
+ */
 @Mapper
 public interface TeamJoinApplicationMapper {
 
+    /**
+     * 根据申请 ID 查询入队申请。
+     */
     @Select("""
             select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, reviewer_user_id,
                    application_status, apply_message, join_question_json, review_message, reviewed_at,
@@ -23,6 +29,9 @@ public interface TeamJoinApplicationMapper {
             """)
     TeamJoinApplication findById(@Param("applicationId") Long applicationId);
 
+    /**
+     * 查询指定用户在指定车队下是否已有待审批申请。
+     */
     @Select("""
             select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, reviewer_user_id,
                    application_status, apply_message, join_question_json, review_message, reviewed_at,
@@ -34,6 +43,9 @@ public interface TeamJoinApplicationMapper {
             """)
     TeamJoinApplication findPending(@Param("teamId") Long teamId, @Param("userId") Long userId);
 
+    /**
+     * 新增入队申请。
+     */
     @Insert("""
             insert into team_join_application
                 (id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, reviewer_user_id,
@@ -46,6 +58,9 @@ public interface TeamJoinApplicationMapper {
             """)
     void insert(TeamJoinApplication application);
 
+    /**
+     * 审批待处理入队申请，避免重复审批。
+     */
     @Update("""
             update team_join_application
             set application_status = #{status},

@@ -1,6 +1,9 @@
 package com.tongdao.groupbuy.vo;
 
 import java.time.LocalDateTime;
+/**
+ * GroupbuyParticipantVO 视图响应对象。
+ */
 
 public record GroupbuyParticipantVO(
         Long participantId,

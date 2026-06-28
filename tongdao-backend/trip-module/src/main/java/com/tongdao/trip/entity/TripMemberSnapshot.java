@@ -5,6 +5,9 @@ import java.time.LocalDateTime;
 import lombok.Data;
 
 @Data
+/**
+ * TripMemberSnapshot 数据库实体。
+ */
 public class TripMemberSnapshot {
     private Long id;
     private Long tripId;

@@ -6,6 +6,9 @@ import java.time.LocalDateTime;
 import lombok.Data;
 
 @Data
+/**
+ * MatchRouteSnapshot 数据库实体。
+ */
 public class MatchRouteSnapshot {
     private Long id;
     private Long tripId;

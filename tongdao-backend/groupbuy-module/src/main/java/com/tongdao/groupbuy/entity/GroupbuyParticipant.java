@@ -3,6 +3,9 @@ package com.tongdao.groupbuy.entity;
 import java.time.LocalDateTime;
 
 import lombok.Data;
+/**
+ * GroupbuyParticipant 数据库实体。
+ */
 
 @Data
 public class GroupbuyParticipant {

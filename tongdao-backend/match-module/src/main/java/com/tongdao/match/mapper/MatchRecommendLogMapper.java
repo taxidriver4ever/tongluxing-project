@@ -4,9 +4,15 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+/**
+ * 推荐曝光与行为日志 Mapper。
+ */
 @Mapper
 public interface MatchRecommendLogMapper {
 
+    /**
+     * 写入一次推荐场景下的用户行为日志。
+     */
     @Insert("""
             insert into match_recommend_log
                 (id, user_id, trip_id, target_trip_id, target_team_id, scene, action_type,

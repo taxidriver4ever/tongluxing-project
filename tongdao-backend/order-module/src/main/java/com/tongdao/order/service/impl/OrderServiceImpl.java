@@ -31,6 +31,9 @@ import com.tongdao.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 订单模块业务服务实现，负责订单金额试算、创建、查询和状态流转。
+ */
 @Service
 @RequiredArgsConstructor
 public class OrderServiceImpl implements OrderService {
@@ -44,6 +47,9 @@ public class OrderServiceImpl implements OrderService {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
 
+    /**
+     * 读取短期试算缓存；缓存不存在时重新计算金额并写回 Redis。
+     */
     @Override
     public OrderPreviewVO preview(OrderPreviewRequest request) {
         Long userId = currentUserContext.requireUserId();
@@ -58,6 +64,9 @@ public class OrderServiceImpl implements OrderService {
         return result;
     }
 
+    /**
+     * 创建订单主表和订单明细，并通过 requestId 防止重复提交。
+     */
     @Override
     @Transactional
     public OrderVO create(CreateOrderRequest request) {
@@ -97,6 +106,7 @@ public class OrderServiceImpl implements OrderService {
         order.setDeleted(0);
         orderMapper.insert(order);
 
+        // 当前商品信息为本地快照，后续接入商品模块后可替换为真实商品快照。
         OrderItem item = new OrderItem();
         item.setId(SnowflakeIdGenerator.nextId());
         item.setOrderId(orderId);
@@ -110,6 +120,7 @@ public class OrderServiceImpl implements OrderService {
         item.setCreatedAt(now);
         itemMapper.insert(item);
 
+        // 订单创建后通过补偿任务异步锁定优惠券，避免订单与优惠券模块强耦合。
         if (preview.selectedCouponId() != null) {
             addCompensation("COUPON_LOCK", String.valueOf(orderId), request.requestId(), "coupon-module",
                     "{\"orderId\":%d,\"userCouponId\":%d}".formatted(orderId, preview.selectedCouponId()), now);
@@ -120,6 +131,9 @@ public class OrderServiceImpl implements OrderService {
         return result;
     }
 
+    /**
+     * 按用户和状态分页查询订单，并统一规范分页参数范围。
+     */
     @Override
     public PageResult<OrderVO> myOrders(String status, int page, int size) {
         Long userId = currentUserContext.requireUserId();
@@ -134,6 +148,9 @@ public class OrderServiceImpl implements OrderService {
         return new PageResult<>(records, orderMapper.countByUser(userId, normalizedStatus), normalizedPage, normalizedSize);
     }
 
+    /**
+     * 查询订单详情，并校验当前用户只能查看自己的订单。
+     */
     @Override
     public OrderVO detail(Long orderId) {
         Long userId = currentUserContext.requireUserId();
@@ -144,6 +161,9 @@ public class OrderServiceImpl implements OrderService {
         return toVO(order);
     }
 
+    /**
+     * 取消待支付订单；如订单绑定了优惠券，则写入释放优惠券的补偿任务。
+     */
     @Override
     @Transactional
     public void cancel(Long orderId) {
@@ -167,6 +187,9 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    /**
+     * 支付成功后更新订单、支付和核销状态。
+     */
     @Override
     @Transactional
     public OrderVO markPaid(Long orderId, LocalDateTime paidAt) {
@@ -175,6 +198,9 @@ public class OrderServiceImpl implements OrderService {
         return toVO(requireOrder(orderId));
     }
 
+    /**
+     * 退款申请通过后，将订单置为退款中。
+     */
     @Override
     @Transactional
     public OrderVO markRefunding(Long orderId) {
@@ -183,6 +209,9 @@ public class OrderServiceImpl implements OrderService {
         return toVO(requireOrder(orderId));
     }
 
+    /**
+     * 退款成功后，同步订单退款状态和订单状态。
+     */
     @Override
     @Transactional
     public OrderVO markRefunded(Long orderId) {
@@ -191,6 +220,9 @@ public class OrderServiceImpl implements OrderService {
         return toVO(requireOrder(orderId));
     }
 
+    /**
+     * 券码核销成功后，订单进入已核销并等待分账状态。
+     */
     @Override
     @Transactional
     public OrderVO markVerified(Long orderId) {
@@ -199,6 +231,9 @@ public class OrderServiceImpl implements OrderService {
         return toVO(requireOrder(orderId));
     }
 
+    /**
+     * 订单完成履约后标记完成时间。
+     */
     @Override
     @Transactional
     public OrderVO markCompleted(Long orderId) {
@@ -207,6 +242,9 @@ public class OrderServiceImpl implements OrderService {
         return toVO(requireOrder(orderId));
     }
 
+    /**
+     * 本地金额试算逻辑：根据数量、拼团活动和用户券计算应付金额。
+     */
     private OrderPreviewVO calculatePreview(Long productId, Long activityId, Integer quantity, Long userCouponId) {
         BigDecimal original = DEFAULT_UNIT_PRICE.multiply(BigDecimal.valueOf(quantity == null ? 1 : quantity));
         BigDecimal groupDiscount = activityId == null ? BigDecimal.ZERO : original.multiply(new BigDecimal("0.10"));
@@ -216,6 +254,9 @@ public class OrderServiceImpl implements OrderService {
                 "当前为本地试算；创建订单时会重新计算并通过补偿任务对接优惠券锁定");
     }
 
+    /**
+     * 查询订单，不存在时统一抛出业务异常。
+     */
     private OrderTrade requireOrder(Long orderId) {
         OrderTrade order = orderMapper.findById(orderId);
         if (order == null) {
@@ -224,6 +265,9 @@ public class OrderServiceImpl implements OrderService {
         return order;
     }
 
+    /**
+     * 将订单主表和明细表数据组装成前端返回对象。
+     */
     private OrderVO toVO(OrderTrade order) {
         List<OrderItemVO> items = itemMapper.findByOrderId(order.getId())
                 .stream()
@@ -238,6 +282,9 @@ public class OrderServiceImpl implements OrderService {
                 order.getPaidAt(), order.getCompletedAt(), items);
     }
 
+    /**
+     * 创建跨模块补偿任务，用于后续异步处理优惠券锁定/释放等操作。
+     */
     private void addCompensation(String type, String bizId, String idem, String target, String payload, LocalDateTime now) {
         OrderCompensationTask task = new OrderCompensationTask();
         task.setId(SnowflakeIdGenerator.nextId());
@@ -254,15 +301,24 @@ public class OrderServiceImpl implements OrderService {
         compensationTaskMapper.insert(task);
     }
 
+    /**
+     * 根据试算参数生成缓存键后缀。
+     */
     private String previewHash(OrderPreviewRequest request) {
         return "%s:%s:%s:%s:%s".formatted(request.productId(), request.activityId(), request.quantity(),
                 request.userCouponId(), request.useBestCoupon()).replace(" ", "");
     }
 
+    /**
+     * 清理用户输入的备注内容。
+     */
     private String trim(String value) {
         return value == null ? "" : value.trim();
     }
 
+    /**
+     * 从 Redis 读取 JSON 缓存；读取失败时降级为空，避免缓存影响主流程。
+     */
     private <T> T readJson(String key, Class<T> type) {
         try {
             String value = redis.opsForValue().get(key);
@@ -272,6 +328,9 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    /**
+     * 写入 Redis JSON 缓存；写入失败不影响 MySQL 事实数据。
+     */
     private void writeJson(String key, Object value, Duration ttl) {
         try {
             redis.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl);
@@ -280,4 +339,3 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 }
-

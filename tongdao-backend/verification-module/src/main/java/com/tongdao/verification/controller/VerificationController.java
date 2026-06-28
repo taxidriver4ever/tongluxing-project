@@ -28,6 +28,9 @@ import com.tongdao.verification.vo.VerificationReversalVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 券核销模块接口控制器，提供核销码生成、解析、确认核销、查询和冲正申请能力。
+ */
 @Validated
 @RestController
 @RequiredArgsConstructor
@@ -35,21 +38,33 @@ import lombok.RequiredArgsConstructor;
 public class VerificationController {
     private final VerificationService verificationService;
 
+    /**
+     * 为订单或优惠券生成核销码。
+     */
     @PostMapping("/codes")
     public Result<VerificationCodeVO> createCode(@Valid @RequestBody CreateVerificationCodeRequest request) {
         return Result.success(verificationService.createCode(request));
     }
 
+    /**
+     * 扫码后解析核销码，返回是否可核销及阻断原因。
+     */
     @PostMapping("/parse")
     public Result<VerificationParseVO> parse(@Valid @RequestBody ParseVerificationRequest request) {
         return Result.success(verificationService.parse(request));
     }
 
+    /**
+     * 商家确认核销。
+     */
     @PostMapping("/confirm")
     public Result<VerificationRecordVO> confirm(@Valid @RequestBody ConfirmVerificationRequest request) {
         return Result.success(verificationService.confirm(request));
     }
 
+    /**
+     * 分页查询核销记录。
+     */
     @GetMapping
     public Result<PageResult<VerificationRecordVO>> pageQuery(
             @RequestParam(required = false) Long merchantId,
@@ -64,12 +79,18 @@ public class VerificationController {
         return Result.success(verificationService.pageQuery(request));
     }
 
+    /**
+     * 查询单条核销记录详情。
+     */
     @GetMapping("/{verificationId}")
     public Result<VerificationRecordVO> detail(@PathVariable Long verificationId,
                                                @RequestParam(required = false) Long merchantId) {
         return Result.success(verificationService.detail(verificationId, merchantId));
     }
 
+    /**
+     * 对已核销记录提交冲正申请。
+     */
     @PostMapping("/{verificationId}/reversal")
     public Result<VerificationReversalVO> applyReversal(@PathVariable Long verificationId,
                                                         @Valid @RequestBody ReversalApplyRequest request) {

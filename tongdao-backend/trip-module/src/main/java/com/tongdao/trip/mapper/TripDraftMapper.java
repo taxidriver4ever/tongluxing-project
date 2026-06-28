@@ -11,8 +11,15 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+/**
+ * 行程草稿 Mapper。
+ */
 @Mapper
 public interface TripDraftMapper {
+
+    /**
+     * 新增草稿记录，初始状态为 DRAFT。
+     */
     @Insert("""
             insert into trip_draft(id,user_id,start_location_json,end_location_json,waypoint_json,departure_time,duration_days,
                 people_count,remark,draft_status,published_trip_id,created_at,updated_at,deleted)
@@ -23,6 +30,9 @@ public interface TripDraftMapper {
                @Param("departureTime") LocalDateTime departureTime, @Param("durationDays") Integer durationDays,
                @Param("peopleCount") Integer peopleCount, @Param("remark") String remark, @Param("now") LocalDateTime now);
 
+    /**
+     * 查询当前用户的指定草稿。
+     */
     @Select("""
             select id draftId,user_id userId,start_location_json startJson,end_location_json endJson,waypoint_json waypointJson,
                    departure_time departureTime,duration_days durationDays,people_count peopleCount,remark,draft_status draftStatus,
@@ -31,6 +41,9 @@ public interface TripDraftMapper {
             """)
     TripDraftQueryDTO find(@Param("id") Long id, @Param("userId") Long userId);
 
+    /**
+     * 发布草稿前加锁查询，避免重复发布。
+     */
     @Select("""
             select id draftId,user_id userId,start_location_json startJson,end_location_json endJson,waypoint_json waypointJson,
                    departure_time departureTime,duration_days durationDays,people_count peopleCount,remark,draft_status draftStatus,
@@ -39,10 +52,20 @@ public interface TripDraftMapper {
             """)
     TripDraftQueryDTO findForUpdate(@Param("id") Long id, @Param("userId") Long userId);
 
+    /**
+     * 分页查询当前用户草稿列表。
+     */
     List<TripDraftQueryDTO> findAll(@Param("userId") Long userId, @Param("status") String status,
                                     @Param("offset") int offset, @Param("size") int size);
+
+    /**
+     * 统计当前用户草稿数量。
+     */
     long count(@Param("userId") Long userId, @Param("status") String status);
 
+    /**
+     * 更新 DRAFT 状态草稿内容。
+     */
     @Update("""
             update trip_draft
             set start_location_json = #{startJson},
@@ -63,6 +86,9 @@ public interface TripDraftMapper {
                @Param("departureTime") LocalDateTime departureTime, @Param("durationDays") Integer durationDays,
                @Param("peopleCount") Integer peopleCount, @Param("remark") String remark, @Param("now") LocalDateTime now);
 
+    /**
+     * 逻辑删除 DRAFT 状态草稿。
+     */
     @Update("""
             update trip_draft
             set draft_status = 'DELETED',
@@ -75,6 +101,9 @@ public interface TripDraftMapper {
             """)
     int delete(@Param("id") Long id, @Param("userId") Long userId, @Param("now") LocalDateTime now);
 
+    /**
+     * 标记草稿已发布，并记录发布后的行程 ID 和幂等键。
+     */
     @Update("""
             update trip_draft
             set draft_status = 'PUBLISHED',

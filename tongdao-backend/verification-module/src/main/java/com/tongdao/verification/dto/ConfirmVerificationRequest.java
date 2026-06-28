@@ -4,6 +4,9 @@ import java.math.BigDecimal;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+/**
+ * ConfirmVerificationRequest 请求对象。
+ */
 
 public record ConfirmVerificationRequest(
         @NotBlank String verificationCode,

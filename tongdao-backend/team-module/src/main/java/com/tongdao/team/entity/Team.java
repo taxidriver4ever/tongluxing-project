@@ -5,6 +5,9 @@ import java.time.LocalDateTime;
 import lombok.Data;
 
 @Data
+/**
+ * Team 数据库实体。
+ */
 public class Team {
     private Long id;
     private Long tripId;

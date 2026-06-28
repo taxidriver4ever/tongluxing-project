@@ -11,9 +11,15 @@ import org.apache.ibatis.annotations.Update;
 
 import com.tongdao.verification.entity.VerificationRecord;
 
+/**
+ * 核销记录 Mapper。
+ */
 @Mapper
 public interface VerificationRecordMapper {
 
+    /**
+     * 新增核销成功记录。
+     */
     @Insert("""
             insert into verification_record
                 (id, verification_code_id, verification_code, biz_type, biz_id,
@@ -28,6 +34,9 @@ public interface VerificationRecordMapper {
             """)
     void insert(VerificationRecord record);
 
+    /**
+     * 根据核销记录 ID 查询详情。
+     */
     @Select("""
             select id, verification_code_id, verification_code, biz_type, biz_id,
                    order_id, user_coupon_id, user_id, merchant_id, operator_id,
@@ -40,6 +49,9 @@ public interface VerificationRecordMapper {
             """)
     VerificationRecord findById(@Param("id") Long id);
 
+    /**
+     * 根据核销码 ID 查询核销记录，用于防止同一码重复核销。
+     */
     @Select("""
             select id, verification_code_id, verification_code, biz_type, biz_id,
                    order_id, user_coupon_id, user_id, merchant_id, operator_id,
@@ -52,6 +64,9 @@ public interface VerificationRecordMapper {
             """)
     VerificationRecord findByCodeId(@Param("verificationCodeId") Long verificationCodeId);
 
+    /**
+     * 按商家、业务类型、状态和时间区间分页查询核销记录。
+     */
     @Select("""
             select id, verification_code_id, verification_code, biz_type, biz_id,
                    order_id, user_coupon_id, user_id, merchant_id, operator_id,
@@ -75,6 +90,9 @@ public interface VerificationRecordMapper {
                                        @Param("offset") int offset,
                                        @Param("size") int size);
 
+    /**
+     * 统计符合查询条件的核销记录数量。
+     */
     @Select("""
             select count(1)
             from verification_record
@@ -91,6 +109,9 @@ public interface VerificationRecordMapper {
                     @Param("startTime") LocalDateTime startTime,
                     @Param("endTime") LocalDateTime endTime);
 
+    /**
+     * 更新核销记录的冲正状态。
+     */
     @Update("""
             update verification_record
             set reversal_status = #{reversalStatus},

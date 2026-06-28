@@ -3,6 +3,9 @@ package com.tongdao.verification.entity;
 import java.time.LocalDateTime;
 
 import lombok.Data;
+/**
+ * VerificationReversalRequest 请求对象。
+ */
 
 @Data
 public class VerificationReversalRequest {

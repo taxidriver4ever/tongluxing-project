@@ -1,5 +1,8 @@
 package com.tongdao.team.vo;
 
+/**
+ * TeamMemberResponse 响应数据对象。
+ */
 public record TeamMemberResponse(
         String memberId,
         String teamId,

@@ -3,6 +3,9 @@ package com.tongdao.order.entity;
 import java.time.LocalDateTime;
 
 import lombok.Data;
+/**
+ * OrderCompensationTask 数据库实体。
+ */
 
 @Data
 public class OrderCompensationTask {

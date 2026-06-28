@@ -44,6 +44,9 @@ import com.tongdao.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 行程模块业务服务实现，负责行程发布、查询、编辑、状态流转、成员快照和缓存维护。
+ */
 @Service
 @RequiredArgsConstructor
 public class TripServiceImpl implements TripService {
@@ -72,6 +75,9 @@ public class TripServiceImpl implements TripService {
     private final GrowthFacade growthFacade;
     private final InviteFacade inviteFacade;
 
+    /**
+     * 创建行程：校验发布频率、路线参数、车辆认证后写入行程和车主成员快照。
+     */
     @Override
     @Transactional
     public TripResponse createTrip(CreateTripRequest request) {
@@ -97,6 +103,9 @@ public class TripServiceImpl implements TripService {
         return buildResponse(trip.getId());
     }
 
+    /**
+     * 查询当前用户行程列表，并按 active/history 维度使用短期缓存。
+     */
     @Override
     public TripListResponse getMyTrips(String scope) {
         Long userId = currentUserContext.requireUserId();
@@ -114,6 +123,9 @@ public class TripServiceImpl implements TripService {
         return response;
     }
 
+    /**
+     * 查询行程详情，公开行程或本人行程可读，并写入详情缓存。
+     */
     @Override
     public TripResponse getTrip(Long tripId) {
         Trip trip = requireReadableTrip(tripId);
@@ -127,6 +139,9 @@ public class TripServiceImpl implements TripService {
         return response;
     }
 
+    /**
+     * 编辑本人可变更状态下的行程，并记录变更审计日志。
+     */
     @Override
     @Transactional
     public TripResponse updateTrip(Long tripId, UpdateTripRequest request) {
@@ -145,6 +160,9 @@ public class TripServiceImpl implements TripService {
         return buildResponse(tripId);
     }
 
+    /**
+     * 结束行程，并对有效同行成员发放成长值和触发邀请首队完成事件。
+     */
     @Override
     @Transactional
     public TripResponse endTrip(Long tripId) {
@@ -155,18 +173,27 @@ public class TripServiceImpl implements TripService {
         return response;
     }
 
+    /**
+     * 完成行程后的跨模块奖励和邀请进度处理。
+     */
     private void handleTripCompleted(Long tripId, Long userId) {
         String bizId = "trip-completed:" + tripId;
         growthFacade.grant(userId, "TEAM_TRIP_COMPLETED", bizId + ":" + userId, 100, "完成有效同行");
         inviteFacade.completeFirstTeam(userId, tripId, bizId);
     }
 
+    /**
+     * 取消本人可变更状态下的行程。
+     */
     @Override
     @Transactional
     public TripResponse cancelTrip(Long tripId) {
         return changeStatus(tripId, STATUS_CANCELLED, "CANCEL", "取消行程");
     }
 
+    /**
+     * 查询公开行程列表，限制最大返回数量并使用短期缓存。
+     */
     @Override
     public TripListResponse getPublicTrips(Integer limit) {
         int size = limit == null ? 20 : Math.max(1, Math.min(limit, 50));
@@ -180,12 +207,18 @@ public class TripServiceImpl implements TripService {
         return response;
     }
 
+    /**
+     * 查询行程成员快照。
+     */
     @Override
     public List<TripMemberSnapshotResponse> getMembers(Long tripId) {
         requireReadableTrip(tripId);
         return memberMapper.findByTripId(tripId).stream().map(this::toMemberResponse).toList();
     }
 
+    /**
+     * 统一处理结束/取消等状态变更，并写入审计日志、清理缓存。
+     */
     private TripResponse changeStatus(Long tripId, String status, String operation, String remark) {
         Long userId = currentUserContext.requireUserId();
         Trip before = requireOwnerTrip(tripId, userId);
@@ -200,6 +233,9 @@ public class TripServiceImpl implements TripService {
         return toResponse(after);
     }
 
+    /**
+     * 根据创建请求填充行程主表字段。
+     */
     private void fillTrip(Trip trip, CreateTripRequest request) {
         trip.setVehicleId(request.vehicleId());
         fillLocations(trip, request.startLocation(), request.endLocation());
@@ -218,6 +254,9 @@ public class TripServiceImpl implements TripService {
         trip.setRemark(normalize(request.remark()));
     }
 
+    /**
+     * 根据更新请求填充行程主表字段。
+     */
     private void fillTrip(Trip trip, UpdateTripRequest request) {
         trip.setVehicleId(request.vehicleId());
         fillLocations(trip, request.startLocation(), request.endLocation());
@@ -236,6 +275,9 @@ public class TripServiceImpl implements TripService {
         trip.setRemark(normalize(request.remark()));
     }
 
+    /**
+     * 填充起终点展示字段和标准位置字段。
+     */
     private void fillLocations(Trip trip, LocationRequest startLocation, LocationRequest endLocation) {
         trip.setStartLocationName(normalize(startLocation.name()));
         trip.setStartLocationAddress(normalize(startLocation.address()));
@@ -253,6 +295,9 @@ public class TripServiceImpl implements TripService {
         trip.setEndLng(endLocation.longitude());
     }
 
+    /**
+     * 发布行程时写入车主成员快照，保留昵称和车辆展示信息。
+     */
     private void insertOwnerSnapshot(Trip trip, TripVehicleDTO vehicle, LocalDateTime now) {
         TripUserProfileDTO profile = userProfilePort.getCurrentProfile();
         TripMemberSnapshot member = new TripMemberSnapshot();
@@ -270,6 +315,9 @@ public class TripServiceImpl implements TripService {
         memberMapper.insert(member);
     }
 
+    /**
+     * 校验车辆属于当前用户且认证状态通过。
+     */
     private TripVehicleDTO requireCertifiedVehicle(Long vehicleId, Long userId) {
         TripVehicleDTO vehicle = vehiclePort.getCertifiedVehicle(vehicleId, userId);
         if (vehicle == null) {
@@ -281,6 +329,9 @@ public class TripServiceImpl implements TripService {
         return vehicle;
     }
 
+    /**
+     * 查询可读行程；本人行程或公开行程才允许查看。
+     */
     private Trip requireReadableTrip(Long tripId) {
         Long userId = currentUserContext.requireUserId();
         Trip trip = tripMapper.findById(tripId);
@@ -293,6 +344,9 @@ public class TripServiceImpl implements TripService {
         return trip;
     }
 
+    /**
+     * 查询本人拥有的行程，用于编辑、结束、取消等写操作。
+     */
     private Trip requireOwnerTrip(Long tripId, Long userId) {
         Trip trip = tripMapper.findById(tripId);
         if (trip == null) {
@@ -304,12 +358,18 @@ public class TripServiceImpl implements TripService {
         return trip;
     }
 
+    /**
+     * 校验当前行程状态是否允许修改。
+     */
     private void ensureMutable(Trip trip) {
         if (!STATUS_PUBLISHED.equals(trip.getStatus()) && !STATUS_ONGOING.equals(trip.getStatus())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "当前状态不允许操作");
         }
     }
 
+    /**
+     * 校验起终点、同行深度和途经点等发布参数。
+     */
     private void validateRequest(LocationRequest startLocation, LocationRequest endLocation, String travelDepth, List<WaypointLocationRequest> waypoints) {
         if (startLocation == null || endLocation == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "起点和终点必填");
@@ -341,6 +401,9 @@ public class TripServiceImpl implements TripService {
         }
     }
 
+    /**
+     * 重新读取行程并构建响应对象。
+     */
     private TripResponse buildResponse(Long tripId) {
         Trip trip = tripMapper.findById(tripId);
         if (trip == null) {
@@ -349,14 +412,23 @@ public class TripServiceImpl implements TripService {
         return toResponse(trip);
     }
 
+    /**
+     * 构建带途经点的行程响应。
+     */
     private TripResponse toResponse(Trip trip) {
         return toResponse(trip, readWaypoints(trip.getWaypointsJson()));
     }
 
+    /**
+     * 构建列表场景下的行程响应。
+     */
     private TripResponse toResponseWithoutChildren(Trip trip) {
         return toResponse(trip, readWaypoints(trip.getWaypointsJson()));
     }
 
+    /**
+     * 将行程实体和途经点列表转换为接口响应对象。
+     */
     private TripResponse toResponse(Trip trip, List<WaypointLocationResponse> waypoints) {
         return new TripResponse(
                 String.valueOf(trip.getId()),
@@ -390,6 +462,9 @@ public class TripServiceImpl implements TripService {
         );
     }
 
+    /**
+     * 将成员快照实体转换为接口响应对象。
+     */
     private TripMemberSnapshotResponse toMemberResponse(TripMemberSnapshot member) {
         return new TripMemberSnapshotResponse(
                 String.valueOf(member.getUserId()),
@@ -402,6 +477,9 @@ public class TripServiceImpl implements TripService {
         );
     }
 
+    /**
+     * 复制行程实体，用于更新前后的审计对比。
+     */
     private Trip copyTrip(Trip source) {
         Trip trip = new Trip();
         trip.setId(source.getId());
@@ -442,6 +520,9 @@ public class TripServiceImpl implements TripService {
         return trip;
     }
 
+    /**
+     * 按 sortOrder 对途经点排序。
+     */
     private List<WaypointLocationRequest> sortWaypoints(List<WaypointLocationRequest> waypoints) {
         if (waypoints == null || waypoints.isEmpty()) {
             return List.of();
@@ -451,6 +532,9 @@ public class TripServiceImpl implements TripService {
                 .toList();
     }
 
+    /**
+     * 从 JSON 中读取并排序途经点，解析失败时返回空列表。
+     */
     private List<WaypointLocationResponse> readWaypoints(String json) {
         if (!StringUtils.hasText(json)) {
             return List.of();
@@ -466,11 +550,17 @@ public class TripServiceImpl implements TripService {
         }
     }
 
+    /**
+     * 清理指定行程详情缓存和用户列表缓存。
+     */
     private void clearTripCaches(Long userId, Long tripId) {
         redisTemplate.delete(DETAIL_CACHE_KEY.formatted(tripId));
         clearListCaches(userId);
     }
 
+    /**
+     * 清理当前用户行程列表和常用公开列表缓存。
+     */
     private void clearListCaches(Long userId) {
         redisTemplate.delete(MINE_CACHE_KEY.formatted(userId, "active"));
         redisTemplate.delete(MINE_CACHE_KEY.formatted(userId, "history"));
@@ -478,6 +568,9 @@ public class TripServiceImpl implements TripService {
         redisTemplate.delete(PUBLIC_CACHE_KEY.formatted(50));
     }
 
+    /**
+     * 使用 Redis 对行程发布频率做简单限流。
+     */
     private void checkRateLimit(String key, int limit, Duration ttl, String message) {
         Long count = redisTemplate.opsForValue().increment(key);
         if (count != null && count == 1) {
@@ -488,10 +581,16 @@ public class TripServiceImpl implements TripService {
         }
     }
 
+    /**
+     * 写入行程操作审计日志。
+     */
     private void insertAuditLog(Long tripId, Long userId, String operationType, Object before, Object after, String remark) {
         auditLogMapper.insert(SnowflakeIdGenerator.nextId(), tripId, userId, operationType, toJson(before), toJson(after), remark, LocalDateTime.now());
     }
 
+    /**
+     * 将对象序列化为 JSON，失败时返回空对象字符串。
+     */
     private String toJson(Object value) {
         if (value == null) {
             return null;
@@ -503,6 +602,9 @@ public class TripServiceImpl implements TripService {
         }
     }
 
+    /**
+     * 从 Redis 读取 JSON 缓存；解析失败时删除脏缓存。
+     */
     private <T> T readJson(String key, Class<T> clazz) {
         String json = redisTemplate.opsForValue().get(key);
         if (!StringUtils.hasText(json)) {
@@ -516,6 +618,9 @@ public class TripServiceImpl implements TripService {
         }
     }
 
+    /**
+     * 写入 JSON 缓存；序列化失败时清理对应缓存键。
+     */
     private void writeJson(String key, Object value, Duration ttl) {
         try {
             redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl);
@@ -524,6 +629,9 @@ public class TripServiceImpl implements TripService {
         }
     }
 
+    /**
+     * 解析出发时间，兼容 ISO 和 yyyy-MM-dd HH:mm:ss 两种格式。
+     */
     private LocalDateTime parseTime(String value) {
         String text = normalize(value);
         try {
@@ -533,10 +641,16 @@ public class TripServiceImpl implements TripService {
         }
     }
 
+    /**
+     * 统一格式化时间字段。
+     */
     private String formatTime(LocalDateTime value) {
         return value == null ? "" : value.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
     }
 
+    /**
+     * 优先使用名称作为展示名，名称为空时回退到地址。
+     */
     private String displayName(String name, String address) {
         String normalizedName = normalize(name);
         if (StringUtils.hasText(normalizedName)) {
@@ -545,6 +659,9 @@ public class TripServiceImpl implements TripService {
         return normalize(address);
     }
 
+    /**
+     * 统一处理空字符串和前后空格。
+     */
     private String normalize(String value) {
         return StringUtils.hasText(value) ? value.trim() : "";
     }

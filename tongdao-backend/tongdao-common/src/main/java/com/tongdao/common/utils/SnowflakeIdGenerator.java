@@ -5,6 +5,11 @@ import java.net.NetworkInterface;
 import java.security.SecureRandom;
 import java.util.Enumeration;
 
+/**
+ * 雪花算法 ID 生成器。
+ *
+ * <p>用于在各业务模块中生成趋势递增的唯一 Long ID，并提供字符串形式的便捷方法。</p>
+ */
 public final class SnowflakeIdGenerator {
 
     private static final long EPOCH = 1735689600000L;
@@ -36,14 +41,23 @@ public final class SnowflakeIdGenerator {
         this.workerId = workerId;
     }
 
+    /**
+     * 生成下一个 Long 类型 ID。
+     */
     public static long nextId() {
         return INSTANCE.next();
     }
 
+    /**
+     * 生成下一个字符串类型 ID。
+     */
     public static String nextIdString() {
         return String.valueOf(nextId());
     }
 
+    /**
+     * 按时间戳、机房 ID、机器 ID 和序列号组合生成 ID。
+     */
     private synchronized long next() {
         long timestamp = currentTimeMillis();
         if (timestamp < lastTimestamp) {
@@ -66,6 +80,9 @@ public final class SnowflakeIdGenerator {
                 | sequence;
     }
 
+    /**
+     * 等待到下一毫秒，处理同毫秒序列耗尽或时钟回拨场景。
+     */
     private long waitUntil(long timestamp) {
         long current = currentTimeMillis();
         while (current <= timestamp) {
@@ -75,19 +92,31 @@ public final class SnowflakeIdGenerator {
         return current;
     }
 
+    /**
+     * 获取当前系统毫秒时间。
+     */
     private long currentTimeMillis() {
         return System.currentTimeMillis();
     }
 
+    /**
+     * 根据 MAC 地址哈希推导数据中心 ID。
+     */
     private static long resolveDatacenterId() {
         return Math.floorMod(hashMacAddress(), MAX_DATACENTER_ID + 1);
     }
 
+    /**
+     * 根据运行时进程名推导机器 ID。
+     */
     private static long resolveWorkerId() {
         String runtimeName = ManagementFactory.getRuntimeMXBean().getName();
         return Math.floorMod(runtimeName.hashCode(), (int) MAX_WORKER_ID + 1);
     }
 
+    /**
+     * 获取本机 MAC 地址哈希；获取失败时使用随机数兜底。
+     */
     private static int hashMacAddress() {
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();

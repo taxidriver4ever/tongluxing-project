@@ -38,6 +38,9 @@ import com.tongdao.verification.vo.VerificationReversalVO;
 
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 券核销模块业务服务实现，负责核销码生命周期、核销幂等、冲正申请和跨模块补偿任务。
+ */
 @Service
 @RequiredArgsConstructor
 public class VerificationServiceImpl implements VerificationService {
@@ -60,6 +63,9 @@ public class VerificationServiceImpl implements VerificationService {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
 
+    /**
+     * 创建核销码；通过 requestId 做幂等，业务对象已有核销码时直接复用。
+     */
     @Override
     @Transactional
     public VerificationCodeVO createCode(CreateVerificationCodeRequest request) {
@@ -104,6 +110,9 @@ public class VerificationServiceImpl implements VerificationService {
         return result;
     }
 
+    /**
+     * 解析核销码并短期缓存解析结果，降低频繁扫码对数据库的压力。
+     */
     @Override
     public VerificationParseVO parse(ParseVerificationRequest request) {
         String codeValue = normalizeCode(request.code());
@@ -119,6 +128,9 @@ public class VerificationServiceImpl implements VerificationService {
         return result;
     }
 
+    /**
+     * 确认核销；通过 requestId 幂等和 Redis 短锁避免同一码并发重复核销。
+     */
     @Override
     @Transactional
     public VerificationRecordVO confirm(ConfirmVerificationRequest request) {
@@ -159,6 +171,7 @@ public class VerificationServiceImpl implements VerificationService {
 
             VerificationRecord record = buildRecord(code, request, now);
             recordMapper.insert(record);
+            // 核销成功后写入补偿任务，由后续任务处理分账或券状态同步。
             addCrossModuleCompensation(record, request.requestId(), now);
 
             VerificationRecordVO result = toRecordVO(record);
@@ -171,6 +184,9 @@ public class VerificationServiceImpl implements VerificationService {
         }
     }
 
+    /**
+     * 分页查询核销记录，统一规范分页参数和查询状态格式。
+     */
     @Override
     public PageResult<VerificationRecordVO> pageQuery(VerificationQueryRequest request) {
         int page = Math.max(request.page(), 1);
@@ -189,6 +205,9 @@ public class VerificationServiceImpl implements VerificationService {
         return new PageResult<>(records, total, page, size);
     }
 
+    /**
+     * 查询核销详情，并可按商家 ID 做访问控制。
+     */
     @Override
     public VerificationRecordVO detail(Long verificationId, Long merchantId) {
         VerificationRecord record = requireRecord(verificationId);
@@ -198,6 +217,9 @@ public class VerificationServiceImpl implements VerificationService {
         return toRecordVO(record);
     }
 
+    /**
+     * 提交冲正申请；同一核销记录已有待审核冲正时直接返回已有申请。
+     */
     @Override
     @Transactional
     public VerificationReversalVO applyReversal(Long verificationId, ReversalApplyRequest request) {
@@ -234,6 +256,9 @@ public class VerificationServiceImpl implements VerificationService {
         return result;
     }
 
+    /**
+     * 基于核销码和确认请求构造核销记录实体。
+     */
     private VerificationRecord buildRecord(VerificationCode code, ConfirmVerificationRequest request, LocalDateTime now) {
         VerificationRecord record = new VerificationRecord();
         record.setId(SnowflakeIdGenerator.nextId());
@@ -259,6 +284,9 @@ public class VerificationServiceImpl implements VerificationService {
         return record;
     }
 
+    /**
+     * 创建跨模块补偿任务：订单核销走支付分账，券核销走优惠券核销同步。
+     */
     private void addCrossModuleCompensation(VerificationRecord record, String requestId, LocalDateTime now) {
         String target = ORDER.equals(record.getBizType()) ? "payment-module" : "coupon-module";
         String type = ORDER.equals(record.getBizType()) ? "PAYMENT_PROFIT_SHARING" : "COUPON_VERIFIED";
@@ -282,6 +310,9 @@ public class VerificationServiceImpl implements VerificationService {
         compensationTaskMapper.insert(task);
     }
 
+    /**
+     * 将核销码转换为扫码解析结果，并在过期时同步标记为 EXPIRED。
+     */
     private VerificationParseVO toParseVO(VerificationCode code) {
         if (code == null) {
             return new VerificationParseVO(null, null, null, null, null, null, null, null, false, "核销码不存在");
@@ -297,6 +328,9 @@ public class VerificationServiceImpl implements VerificationService {
                 blockReason == null, blockReason);
     }
 
+    /**
+     * 校验商家权限和核销码状态是否允许确认核销。
+     */
     private void validateCanConfirm(VerificationCode code, Long merchantId) {
         LocalDateTime now = LocalDateTime.now();
         if (!merchantId.equals(code.getMerchantId())) {
@@ -308,6 +342,9 @@ public class VerificationServiceImpl implements VerificationService {
         }
     }
 
+    /**
+     * 返回阻断核销的业务原因；为空表示当前可核销。
+     */
     private String blockReason(VerificationCode code, LocalDateTime now) {
         if (!ACTIVE.equals(code.getCodeStatus())) {
             if (VERIFIED.equals(code.getCodeStatus())) {
@@ -327,6 +364,9 @@ public class VerificationServiceImpl implements VerificationService {
         return null;
     }
 
+    /**
+     * 查询核销码，不存在时抛出统一业务异常。
+     */
     private VerificationCode requireCode(String verificationCode) {
         VerificationCode code = codeMapper.findByCode(verificationCode);
         if (code == null) {
@@ -335,6 +375,9 @@ public class VerificationServiceImpl implements VerificationService {
         return code;
     }
 
+    /**
+     * 查询核销记录，不存在时抛出统一业务异常。
+     */
     private VerificationRecord requireRecord(Long verificationId) {
         VerificationRecord record = recordMapper.findById(verificationId);
         if (record == null) {
@@ -343,6 +386,9 @@ public class VerificationServiceImpl implements VerificationService {
         return record;
     }
 
+    /**
+     * 生成不重复的核销码，最多尝试 8 次。
+     */
     private String generateUniqueCode() {
         for (int i = 0; i < 8; i++) {
             String code = "TDV" + randomToken(18);
@@ -353,6 +399,9 @@ public class VerificationServiceImpl implements VerificationService {
         throw new BusinessException("核销码生成失败，请重试");
     }
 
+    /**
+     * 生成排除易混淆字符的随机码片段。
+     */
     private String randomToken(int length) {
         String alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
         StringBuilder builder = new StringBuilder(length);
@@ -362,6 +411,9 @@ public class VerificationServiceImpl implements VerificationService {
         return builder.toString();
     }
 
+    /**
+     * 规范化并校验核销业务类型。
+     */
     private String normalizeBizType(String bizType) {
         String value = bizType == null ? "" : bizType.trim().toUpperCase(Locale.ROOT);
         if (!ORDER.equals(value) && !COUPON.equals(value)) {
@@ -370,6 +422,9 @@ public class VerificationServiceImpl implements VerificationService {
         return value;
     }
 
+    /**
+     * 校验不同业务类型所需的业务字段。
+     */
     private void validateBizRequest(String bizType, Long orderId, Long userCouponId) {
         if (ORDER.equals(bizType) && orderId == null) {
             throw new BusinessException("订单核销必须传入 orderId");
@@ -379,6 +434,9 @@ public class VerificationServiceImpl implements VerificationService {
         }
     }
 
+    /**
+     * 兼容二维码内容前缀和纯核销码输入。
+     */
     private String normalizeCode(String raw) {
         String value = raw == null ? "" : raw.trim();
         if (value.startsWith("TDVERIFY:")) {
@@ -387,11 +445,17 @@ public class VerificationServiceImpl implements VerificationService {
         return value;
     }
 
+    /**
+     * 将核销码实体转换为接口返回对象。
+     */
     private VerificationCodeVO toCodeVO(VerificationCode code) {
         return new VerificationCodeVO(code.getId(), code.getVerificationCode(), code.getQrContent(), code.getBizType(),
                 code.getBizId(), code.getCodeStatus(), code.getExpireAt());
     }
 
+    /**
+     * 将核销记录实体转换为接口返回对象。
+     */
     private VerificationRecordVO toRecordVO(VerificationRecord record) {
         return new VerificationRecordVO(record.getId(), record.getVerificationCodeId(), record.getVerificationCode(),
                 record.getBizType(), record.getBizId(), record.getOrderId(), record.getUserCouponId(),
@@ -400,17 +464,26 @@ public class VerificationServiceImpl implements VerificationService {
                 record.getLongitude(), record.getLatitude(), record.getVerifiedAt());
     }
 
+    /**
+     * 将冲正申请实体转换为接口返回对象。
+     */
     private VerificationReversalVO toReversalVO(VerificationReversalRequest request) {
         return new VerificationReversalVO(request.getId(), request.getVerificationId(), request.getMerchantId(),
                 request.getApplicantId(), request.getReason(), request.getAuditStatus(), request.getReviewerId(),
                 request.getReviewedAt(), request.getRejectReason(), request.getCreatedAt());
     }
 
+    /**
+     * 根据过期时间计算 Redis 缓存 TTL。
+     */
     private Duration ttlUntil(LocalDateTime expireAt) {
         Duration ttl = Duration.between(LocalDateTime.now(), expireAt);
         return ttl.isNegative() || ttl.isZero() ? Duration.ofSeconds(1) : ttl;
     }
 
+    /**
+     * 尝试获取 Redis 短锁；Redis 异常时降级放行，避免缓存故障阻塞主流程。
+     */
     private boolean tryLock(String key, Duration ttl) {
         try {
             Boolean ok = redis.opsForValue().setIfAbsent(key, "1", ttl.toSeconds(), TimeUnit.SECONDS);
@@ -420,6 +493,9 @@ public class VerificationServiceImpl implements VerificationService {
         }
     }
 
+    /**
+     * 从 Redis 读取 JSON 缓存；读取失败时降级为空。
+     */
     private <T> T readJson(String key, Class<T> type) {
         try {
             String value = redis.opsForValue().get(key);
@@ -429,6 +505,9 @@ public class VerificationServiceImpl implements VerificationService {
         }
     }
 
+    /**
+     * 写入 Redis JSON 缓存；写入失败不影响 MySQL 事实写入。
+     */
     private void writeJson(String key, Object value, Duration ttl) {
         try {
             redis.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl);
@@ -437,6 +516,9 @@ public class VerificationServiceImpl implements VerificationService {
         }
     }
 
+    /**
+     * 删除 Redis 缓存或锁；删除失败不影响主流程。
+     */
     private void deleteRedis(String key) {
         try {
             redis.delete(key);
@@ -445,10 +527,16 @@ public class VerificationServiceImpl implements VerificationService {
         }
     }
 
+    /**
+     * 清理文本字段，空字符串转为 null。
+     */
     private String trimToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
+    /**
+     * 将可空 Long 转换为 JSON 数字或 null 字面量。
+     */
     private String nullableNumber(Long value) {
         return value == null ? "null" : String.valueOf(value);
     }

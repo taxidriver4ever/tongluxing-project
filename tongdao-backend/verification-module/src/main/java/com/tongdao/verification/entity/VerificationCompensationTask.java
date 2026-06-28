@@ -3,6 +3,9 @@ package com.tongdao.verification.entity;
 import java.time.LocalDateTime;
 
 import lombok.Data;
+/**
+ * VerificationCompensationTask 数据库实体。
+ */
 
 @Data
 public class VerificationCompensationTask {

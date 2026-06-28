@@ -1,4 +1,7 @@
 package com.tongdao.payment.vo;
+/**
+ * JsapiPayParamsVO 视图响应对象。
+ */
 
 public record JsapiPayParamsVO(
         String appId,

@@ -7,6 +7,9 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+/**
+ * CreateVerificationCodeRequest 请求对象。
+ */
 
 public record CreateVerificationCodeRequest(
         @NotBlank String bizType,

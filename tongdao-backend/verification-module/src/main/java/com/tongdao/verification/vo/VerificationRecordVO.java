@@ -2,6 +2,9 @@ package com.tongdao.verification.vo;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+/**
+ * VerificationRecordVO 视图响应对象。
+ */
 
 public record VerificationRecordVO(
         Long verificationId,

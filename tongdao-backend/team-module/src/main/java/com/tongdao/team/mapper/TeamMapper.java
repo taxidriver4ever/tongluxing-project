@@ -11,9 +11,15 @@ import org.apache.ibatis.annotations.Update;
 
 import com.tongdao.team.entity.Team;
 
+/**
+ * 车队主表 Mapper。
+ */
 @Mapper
 public interface TeamMapper {
 
+    /**
+     * 根据车队 ID 查询未删除车队。
+     */
     @Select("""
             select id, trip_id, owner_user_id, owner_vehicle_id, team_name, team_desc,
                    start_name, end_name, departure_time, max_member_count, current_member_count,
@@ -25,6 +31,9 @@ public interface TeamMapper {
             """)
     Team findById(@Param("teamId") Long teamId);
 
+    /**
+     * 查询公开、活跃且未满员的车队列表。
+     */
     @Select("""
             select id, trip_id, owner_user_id, owner_vehicle_id, team_name, team_desc,
                    start_name, end_name, departure_time, max_member_count, current_member_count,
@@ -38,6 +47,9 @@ public interface TeamMapper {
             """)
     List<Team> findPublicActive(@Param("limit") Integer limit);
 
+    /**
+     * 查询指定用户当前拥有的活跃车队。
+     */
     @Select("""
             select id, trip_id, owner_user_id, owner_vehicle_id, team_name, team_desc,
                    start_name, end_name, departure_time, max_member_count, current_member_count,
@@ -49,6 +61,9 @@ public interface TeamMapper {
             """)
     Team findActiveOwnedByUser(@Param("userId") Long userId);
 
+    /**
+     * 新增车队主表记录。
+     */
     @Insert("""
             insert into team
                 (id, trip_id, owner_user_id, owner_vehicle_id, team_name, team_desc,
@@ -63,6 +78,9 @@ public interface TeamMapper {
             """)
     void insert(Team team);
 
+    /**
+     * 审批通过入队申请时增加车队人数，并确保车队未满员。
+     */
     @Update("""
             update team
             set current_member_count = current_member_count + 1, updated_at = #{now}
@@ -71,6 +89,9 @@ public interface TeamMapper {
             """)
     int incrementMemberCount(@Param("teamId") Long teamId, @Param("now") LocalDateTime now);
 
+    /**
+     * 成员退出时扣减车队人数，保留队长至少一人。
+     */
     @Update("""
             update team
             set current_member_count = greatest(current_member_count - 1, 1), updated_at = #{now}

@@ -18,7 +18,9 @@ import com.tongdao.groupbuy.vo.PageResult;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-
+/**
+ * GroupbuyController 接口控制器。
+ */
 @Validated
 @RestController
 @RequiredArgsConstructor

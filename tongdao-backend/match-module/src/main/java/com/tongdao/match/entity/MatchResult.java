@@ -5,6 +5,9 @@ import java.time.LocalDateTime;
 import lombok.Data;
 
 @Data
+/**
+ * MatchResult 数据库实体。
+ */
 public class MatchResult {
     private Long id;
     private Long sourceTripId;

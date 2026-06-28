@@ -4,10 +4,15 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 
 import com.tongdao.order.entity.OrderCompensationTask;
-
+/**
+ * 订单补偿任务 Mapper。
+ */
 @Mapper
 public interface OrderCompensationTaskMapper {
 
+    /**
+     * 新增一条待处理补偿任务。
+     */
     @Insert("""
             insert into order_compensation_task
                 (id, biz_type, biz_id, idempotent_key, target_module, request_payload,
@@ -18,4 +23,3 @@ public interface OrderCompensationTaskMapper {
             """)
     void insert(OrderCompensationTask task);
 }
-

@@ -27,7 +27,9 @@ import com.tongdao.groupbuy.vo.PageResult;
 import com.tongdao.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
-
+/**
+ * GroupbuyServiceImpl 业务服务实现。
+ */
 @Service
 @RequiredArgsConstructor
 public class GroupbuyServiceImpl implements GroupbuyService {
@@ -176,4 +178,3 @@ public class GroupbuyServiceImpl implements GroupbuyService {
         }
     }
 }
-

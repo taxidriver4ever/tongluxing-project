@@ -23,6 +23,9 @@ import com.tongdao.trip.vo.TripResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 行程模块接口控制器，提供行程发布、查询、编辑、结束、取消和成员快照查询能力。
+ */
 @Validated
 @RestController
 @RequiredArgsConstructor
@@ -31,41 +34,65 @@ public class TripController {
 
     private final TripService tripService;
 
+    /**
+     * 创建并发布一条行程。
+     */
     @PostMapping
     public Result<TripResponse> createTrip(@Valid @RequestBody CreateTripRequest request) {
         return Result.success(tripService.createTrip(request));
     }
 
+    /**
+     * 查询当前用户的活跃或历史行程。
+     */
     @GetMapping("/me")
     public Result<TripListResponse> getMyTrips(@RequestParam(defaultValue = "active") String scope) {
         return Result.success(tripService.getMyTrips(scope));
     }
 
+    /**
+     * 查询公开行程列表，用于发现和匹配候选池。
+     */
     @GetMapping("/public")
     public Result<TripListResponse> getPublicTrips(@RequestParam(defaultValue = "20") Integer limit) {
         return Result.success(tripService.getPublicTrips(limit));
     }
 
+    /**
+     * 查询行程详情。
+     */
     @GetMapping("/{tripId}")
     public Result<TripResponse> getTrip(@PathVariable Long tripId) {
         return Result.success(tripService.getTrip(tripId));
     }
 
+    /**
+     * 编辑当前用户拥有的行程。
+     */
     @PutMapping("/{tripId}")
     public Result<TripResponse> updateTrip(@PathVariable Long tripId, @Valid @RequestBody UpdateTripRequest request) {
         return Result.success(tripService.updateTrip(tripId, request));
     }
 
+    /**
+     * 结束当前用户拥有的行程。
+     */
     @PostMapping("/{tripId}/end")
     public Result<TripResponse> endTrip(@PathVariable Long tripId) {
         return Result.success(tripService.endTrip(tripId));
     }
 
+    /**
+     * 取消当前用户拥有的行程。
+     */
     @PostMapping("/{tripId}/cancel")
     public Result<TripResponse> cancelTrip(@PathVariable Long tripId) {
         return Result.success(tripService.cancelTrip(tripId));
     }
 
+    /**
+     * 查询行程成员快照。
+     */
     @GetMapping("/{tripId}/members")
     public Result<List<TripMemberSnapshotResponse>> getMembers(@PathVariable Long tripId) {
         return Result.success(tripService.getMembers(tripId));

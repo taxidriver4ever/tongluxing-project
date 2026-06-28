@@ -2,6 +2,9 @@ package com.tongdao.payment.vo;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+/**
+ * ProfitSharingVO 视图响应对象。
+ */
 
 public record ProfitSharingVO(
         Long sharingId,

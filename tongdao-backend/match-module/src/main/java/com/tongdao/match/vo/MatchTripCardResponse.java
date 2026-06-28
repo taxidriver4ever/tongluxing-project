@@ -1,5 +1,8 @@
 package com.tongdao.match.vo;
 
+/**
+ * MatchTripCardResponse 响应数据对象。
+ */
 public record MatchTripCardResponse(
         String tripId,
         String userId,

@@ -4,9 +4,15 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+/**
+ * 车队操作审计日志 Mapper。
+ */
 @Mapper
 public interface TeamAuditLogMapper {
 
+    /**
+     * 写入车队操作审计日志。
+     */
     @Insert("""
             insert into team_audit_log
                 (id, team_id, operator_user_id, operation_type, before_json, after_json, remark,

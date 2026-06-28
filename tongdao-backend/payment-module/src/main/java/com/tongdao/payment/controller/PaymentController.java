@@ -22,6 +22,9 @@ import com.tongdao.payment.vo.RefundVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 支付模块接口控制器，提供支付、退款和分账入口。
+ */
 @Validated
 @RestController
 @RequiredArgsConstructor
@@ -29,36 +32,53 @@ import lombok.RequiredArgsConstructor;
 public class PaymentController {
     private final PaymentService paymentService;
 
+    /**
+     * 创建微信小程序 JSAPI 支付参数。
+     */
     @PostMapping("/jsapi")
     public Result<JsapiPayParamsVO> jsapi(@Valid @RequestBody JsapiPaymentRequest request) {
         return Result.success(paymentService.createJsapiPayment(request));
     }
 
+    /**
+     * 处理支付成功回调，并推进订单与拼团状态。
+     */
     @PostMapping("/callback")
     public Result<Void> paymentCallback(@Valid @RequestBody PaymentCallbackRequest request) {
         paymentService.handlePaymentCallback(request);
         return Result.success();
     }
 
+    /**
+     * 发起用户退款申请。
+     */
     @PostMapping("/refunds")
     public Result<RefundVO> refund(@Valid @RequestBody RefundApplyRequest request) {
         return Result.success(paymentService.applyRefund(request));
     }
 
+    /**
+     * 查询退款记录详情。
+     */
     @GetMapping("/refunds/{refundId}")
     public Result<RefundVO> refundDetail(@PathVariable Long refundId) {
         return Result.success(paymentService.refundDetail(refundId));
     }
 
+    /**
+     * 处理微信退款成功回调。
+     */
     @PostMapping("/refunds/callback")
     public Result<Void> refundCallback(@Valid @RequestBody RefundCallbackRequest request) {
         paymentService.handleRefundCallback(request);
         return Result.success();
     }
 
+    /**
+     * 券码核销后触发商家分账。
+     */
     @PostMapping("/profit-sharing/after-verification")
     public Result<ProfitSharingVO> shareAfterVerification(@Valid @RequestBody ProfitSharingRequest request) {
         return Result.success(paymentService.shareAfterVerification(request));
     }
 }
-

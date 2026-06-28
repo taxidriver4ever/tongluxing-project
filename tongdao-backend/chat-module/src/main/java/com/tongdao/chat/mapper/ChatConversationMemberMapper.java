@@ -11,9 +11,13 @@ import org.apache.ibatis.annotations.Update;
 
 import com.tongdao.chat.entity.ChatConversationMember;
 
+/**
+ * 聊天会话成员 Mapper。
+ */
 @Mapper
 public interface ChatConversationMemberMapper {
 
+    /** 查询指定会话中的指定用户成员记录。 */
     @Select("""
             select id, conversation_id, user_id, member_role, member_status, unread_count,
                    last_read_message_id, joined_at, exited_at, created_at, updated_at, deleted
@@ -23,6 +27,7 @@ public interface ChatConversationMemberMapper {
             """)
     ChatConversationMember findByConversationAndUser(@Param("conversationId") Long conversationId, @Param("userId") Long userId);
 
+    /** 查询指定会话的有效成员列表。 */
     @Select("""
             select id, conversation_id, user_id, member_role, member_status, unread_count,
                    last_read_message_id, joined_at, exited_at, created_at, updated_at, deleted
@@ -31,6 +36,7 @@ public interface ChatConversationMemberMapper {
             """)
     List<ChatConversationMember> findActiveByConversationId(@Param("conversationId") Long conversationId);
 
+    /** 新增会话成员。 */
     @Insert("""
             insert into chat_conversation_member
                 (id, conversation_id, user_id, member_role, member_status, unread_count,
@@ -41,6 +47,7 @@ public interface ChatConversationMemberMapper {
             """)
     void insert(ChatConversationMember member);
 
+    /** 将成员状态更新为已退出。 */
     @Update("""
             update chat_conversation_member
             set member_status = 'EXITED', exited_at = #{now}, updated_at = #{now}
@@ -49,6 +56,7 @@ public interface ChatConversationMemberMapper {
             """)
     int exit(@Param("conversationId") Long conversationId, @Param("userId") Long userId, @Param("now") LocalDateTime now);
 
+    /** 给除发送者以外的有效成员增加未读数。 */
     @Update("""
             update chat_conversation_member
             set unread_count = unread_count + 1, updated_at = #{now}
@@ -57,6 +65,7 @@ public interface ChatConversationMemberMapper {
             """)
     void incrementUnread(@Param("conversationId") Long conversationId, @Param("senderUserId") Long senderUserId, @Param("now") LocalDateTime now);
 
+    /** 重新激活已退出的成员。 */
     @Update("""
             update chat_conversation_member
             set member_role = #{role},

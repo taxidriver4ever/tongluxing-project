@@ -10,7 +10,9 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import com.tongdao.groupbuy.entity.GroupbuyActivity;
-
+/**
+ * GroupbuyActivityMapper MyBatis Mapper。
+ */
 @Mapper
 public interface GroupbuyActivityMapper {
     @Insert("""

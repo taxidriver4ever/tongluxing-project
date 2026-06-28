@@ -30,6 +30,9 @@ import com.tongdao.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 车队模块业务服务实现，负责车队创建、入队审批、成员维护和审计日志。
+ */
 @Service
 @RequiredArgsConstructor
 public class TeamServiceImpl implements TeamService {
@@ -43,6 +46,9 @@ public class TeamServiceImpl implements TeamService {
     private final TeamTripPort tripPort;
     private final CurrentUserContext currentUserContext;
 
+    /**
+     * 创建车队：校验用户无活跃车队、行程归属后写入车队和队长成员。
+     */
     @Override
     public TeamResponse createTeam(CreateTeamRequest request) {
         Long userId = currentUserContext.requireUserId();
@@ -73,16 +79,23 @@ public class TeamServiceImpl implements TeamService {
         team.setCreatedAt(now);
         team.setUpdatedAt(now);
         teamMapper.insert(team);
+        // 创建人自动成为队长，保证车队创建后至少有一名活跃成员。
         addMember(team.getId(), userId, request.ownerVehicleId(), "OWNER");
         audit(team.getId(), userId, "CREATE_TEAM", "创建车队");
         return toTeamResponse(team);
     }
 
+    /**
+     * 查询车队详情，不存在时统一抛出业务异常。
+     */
     @Override
     public TeamResponse getTeam(Long teamId) {
         return toTeamResponse(requireTeam(teamId));
     }
 
+    /**
+     * 查询车队活跃成员列表。
+     */
     @Override
     public TeamMemberListResponse getMembers(Long teamId) {
         requireTeam(teamId);
@@ -91,6 +104,9 @@ public class TeamServiceImpl implements TeamService {
                 .toList());
     }
 
+    /**
+     * 提交入队申请：禁止队长重复申请、禁止一个用户同时加入多个活跃车队。
+     */
     @Override
     public TeamApplicationResponse apply(Long teamId, JoinTeamApplicationRequest request) {
         Long userId = currentUserContext.requireUserId();
@@ -121,6 +137,9 @@ public class TeamServiceImpl implements TeamService {
         return toApplicationResponse(application);
     }
 
+    /**
+     * 队长审批入队申请；审批通过时同步增加车队人数并写入成员记录。
+     */
     @Override
     public TeamApplicationResponse review(Long applicationId, ReviewTeamApplicationRequest request) {
         Long reviewerId = currentUserContext.requireUserId();
@@ -145,6 +164,7 @@ public class TeamServiceImpl implements TeamService {
         application.setReviewedAt(now);
         application.setUpdatedAt(now);
         if ("APPROVED".equals(status)) {
+            // 二次校验申请人是否已有活跃车队，避免审批期间状态发生变化。
             if (memberMapper.findActiveByUserId(application.getApplicantUserId()) != null) {
                 throw new BusinessException(ResultCode.BUSINESS_ERROR, "申请人已有活跃车队");
             }
@@ -158,6 +178,9 @@ public class TeamServiceImpl implements TeamService {
         return toApplicationResponse(application);
     }
 
+    /**
+     * 普通成员退出车队，并同步扣减车队人数。
+     */
     @Override
     public TeamResponse exit(Long teamId) {
         Long userId = currentUserContext.requireUserId();
@@ -174,6 +197,9 @@ public class TeamServiceImpl implements TeamService {
         return toTeamResponse(teamMapper.findById(teamId));
     }
 
+    /**
+     * 新增或重新激活车队成员。
+     */
     private void addMember(Long teamId, Long userId, Long vehicleId, String role) {
         TeamMember existed = memberMapper.findByTeamAndUser(teamId, userId);
         if (existed != null) {
@@ -196,6 +222,9 @@ public class TeamServiceImpl implements TeamService {
         memberMapper.insert(member);
     }
 
+    /**
+     * 查询车队，不存在时统一抛出业务异常。
+     */
     private Team requireTeam(Long teamId) {
         Team team = teamMapper.findById(teamId);
         if (team == null) {
@@ -204,10 +233,16 @@ public class TeamServiceImpl implements TeamService {
         return team;
     }
 
+    /**
+     * 写入车队操作审计日志。
+     */
     private void audit(Long teamId, Long userId, String operationType, String remark) {
         auditLogMapper.insert(SnowflakeIdGenerator.nextId(), teamId, userId, operationType, null, null, remark);
     }
 
+    /**
+     * 将车队实体转换为接口响应对象。
+     */
     private TeamResponse toTeamResponse(Team team) {
         return new TeamResponse(
                 String.valueOf(team.getId()),
@@ -230,6 +265,9 @@ public class TeamServiceImpl implements TeamService {
         );
     }
 
+    /**
+     * 将成员实体转换为接口响应对象。
+     */
     private TeamMemberResponse toMemberResponse(TeamMember member) {
         return new TeamMemberResponse(
                 String.valueOf(member.getId()),
@@ -244,6 +282,9 @@ public class TeamServiceImpl implements TeamService {
         );
     }
 
+    /**
+     * 将入队申请实体转换为接口响应对象。
+     */
     private TeamApplicationResponse toApplicationResponse(TeamJoinApplication application) {
         return new TeamApplicationResponse(
                 String.valueOf(application.getId()),
@@ -259,6 +300,9 @@ public class TeamServiceImpl implements TeamService {
         );
     }
 
+    /**
+     * 统一格式化时间字段。
+     */
     private String format(LocalDateTime time) {
         return time == null ? null : FORMATTER.format(time);
     }

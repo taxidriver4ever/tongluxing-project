@@ -2,6 +2,11 @@ package com.tongdao.common.result;
 
 import lombok.Getter;
 
+/**
+ * 统一响应码定义。
+ *
+ * <p>用于在业务异常、全局异常处理和接口响应中保持错误码语义一致。</p>
+ */
 @Getter
 public enum ResultCode {
 
@@ -18,6 +23,9 @@ public enum ResultCode {
     private final int code;
     private final String message;
 
+    /**
+     * 创建响应码枚举。
+     */
     ResultCode(int code, String message) {
         this.code = code;
         this.message = message;

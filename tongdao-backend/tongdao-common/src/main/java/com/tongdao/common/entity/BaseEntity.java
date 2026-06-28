@@ -6,6 +6,11 @@ import java.time.LocalDateTime;
 
 import lombok.Data;
 
+/**
+ * 数据库实体基础字段。
+ *
+ * <p>用于抽象常见创建时间、更新时间和逻辑删除标识。</p>
+ */
 @Data
 public class BaseEntity implements Serializable {
 

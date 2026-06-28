@@ -5,6 +5,9 @@ import java.time.LocalDateTime;
 import lombok.Data;
 
 @Data
+/**
+ * TripDraftQueryDTO 数据传输对象。
+ */
 public class TripDraftQueryDTO {
     private Long draftId;
     private Long userId;

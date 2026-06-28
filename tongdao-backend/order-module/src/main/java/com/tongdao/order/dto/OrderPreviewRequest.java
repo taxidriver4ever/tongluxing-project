@@ -2,6 +2,9 @@ package com.tongdao.order.dto;
 
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+/**
+ * OrderPreviewRequest 请求对象。
+ */
 
 public record OrderPreviewRequest(
         @NotNull Long productId,

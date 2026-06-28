@@ -1,6 +1,9 @@
 package com.tongdao.verification.vo;
 
 import java.util.List;
+/**
+ * PageResult 分页响应对象。
+ */
 
 public record PageResult<T>(
         List<T> records,

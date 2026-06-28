@@ -9,9 +9,15 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import com.tongdao.payment.entity.PaymentRefundRecord;
-
+/**
+ * 退款流水 Mapper。
+ */
 @Mapper
 public interface PaymentRefundRecordMapper {
+
+    /**
+     * 新增退款申请记录。
+     */
     @Insert("""
             insert into payment_refund_record
                 (id, order_id, refund_no, wx_refund_id, user_id, refund_amount,
@@ -24,6 +30,9 @@ public interface PaymentRefundRecordMapper {
             """)
     void insert(PaymentRefundRecord record);
 
+    /**
+     * 根据退款 ID 查询退款记录。
+     */
     @Select("""
             select id, order_id, refund_no, wx_refund_id, user_id, refund_amount,
                    refund_reason, refund_type, refund_status, audit_status, callback_payload,
@@ -35,6 +44,9 @@ public interface PaymentRefundRecordMapper {
             """)
     PaymentRefundRecord findById(@Param("refundId") Long refundId);
 
+    /**
+     * 退款回调成功后更新退款状态和微信退款单号。
+     */
     @Update("""
             update payment_refund_record
             set wx_refund_id = #{wxRefundId},
@@ -48,4 +60,3 @@ public interface PaymentRefundRecordMapper {
     int markSuccess(@Param("refundId") Long refundId, @Param("wxRefundId") String wxRefundId,
                     @Param("payload") String payload, @Param("refundedAt") LocalDateTime refundedAt);
 }
-

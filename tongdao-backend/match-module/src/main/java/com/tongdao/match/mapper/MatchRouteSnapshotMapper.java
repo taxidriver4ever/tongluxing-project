@@ -5,9 +5,15 @@ import org.apache.ibatis.annotations.Mapper;
 
 import com.tongdao.match.entity.MatchRouteSnapshot;
 
+/**
+ * 行程路线快照 Mapper。
+ */
 @Mapper
 public interface MatchRouteSnapshotMapper {
 
+    /**
+     * 新增或更新行程路线快照，用于后续匹配计算。
+     */
     @Insert("""
             insert into match_route_snapshot
                 (id, trip_id, user_id, vehicle_id, start_name, start_address, start_latitude, start_longitude,

@@ -24,7 +24,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         "com.tongdao.assessment.mapper",
         "com.tongdao.customerservice.mapper",
         "com.tongdao.notify.mapper",
-        "com.tongdao.admin.mapper"
+        "com.tongdao.admin.mapper",
+        "com.tongdao.storage.mapper"
 })
 @SpringBootApplication(scanBasePackages = "com.tongdao")
 /**

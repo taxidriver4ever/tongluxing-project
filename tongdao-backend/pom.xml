@@ -34,6 +34,7 @@
         <module>customer-service-module</module>
         <module>notify-module</module>
         <module>admin-module</module>
+        <module>storage-module</module>
     </modules>
 
     <properties>
@@ -163,6 +164,11 @@
             <dependency>
                 <groupId>com.tongdao</groupId>
                 <artifactId>admin-module</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tongdao</groupId>
+                <artifactId>storage-module</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

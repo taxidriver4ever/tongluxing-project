@@ -58,9 +58,33 @@ services:
     networks:
       - tongdao-network
 
+  minio:
+    image: minio/minio:latest
+    container_name: tongdao-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN}
+      TZ: Asia/Shanghai
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - tongdao_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - tongdao-network
+
 volumes:
   tongdao_mysql_data:
   tongdao_redis_data:
+  tongdao_minio_data:
 
 networks:
   tongdao-network:

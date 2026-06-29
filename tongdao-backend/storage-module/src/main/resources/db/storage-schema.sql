@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS file_storage (
+  id BIGINT NOT NULL,
+  bucket VARCHAR(128) NOT NULL,
+  object_key VARCHAR(512) NOT NULL,
+  original_file_name VARCHAR(255) NOT NULL,
+  content_type VARCHAR(128) NOT NULL,
+  file_size BIGINT NOT NULL,
+  biz_type VARCHAR(64) NOT NULL,
+  biz_id VARCHAR(128) NULL,
+  user_id BIGINT NULL,
+  storage_type VARCHAR(32) NOT NULL DEFAULT 'MINIO',
+  upload_status VARCHAR(32) NOT NULL DEFAULT 'CONFIRMED',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_file_object (bucket, object_key, deleted),
+  KEY idx_file_biz (biz_type, biz_id, deleted),
+  KEY idx_file_user (user_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

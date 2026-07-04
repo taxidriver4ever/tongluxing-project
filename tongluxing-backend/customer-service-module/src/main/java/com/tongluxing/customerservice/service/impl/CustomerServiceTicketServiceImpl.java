@@ -1,0 +1,253 @@
+package com.tongluxing.customerservice.service.impl;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.List;
+
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tongluxing.common.exception.BusinessException;
+import com.tongluxing.common.result.ResultCode;
+import com.tongluxing.common.utils.SnowflakeIdGenerator;
+import com.tongluxing.customerservice.dto.CloseTicketRequest;
+import com.tongluxing.customerservice.dto.CreateTicketRequest;
+import com.tongluxing.customerservice.dto.CustomerServiceQueryDTO;
+import com.tongluxing.customerservice.dto.ReplyTicketRequest;
+import com.tongluxing.customerservice.mapper.CustomerServiceTicketMapper;
+import com.tongluxing.customerservice.service.CustomerServiceTicketService;
+import com.tongluxing.customerservice.vo.PageResult;
+import com.tongluxing.customerservice.vo.TicketMessageVO;
+import com.tongluxing.customerservice.vo.TicketVO;
+import com.tongluxing.user.support.CurrentUserContext;
+
+import lombok.RequiredArgsConstructor;
+
+/**
+ * 客服工单服务实现。
+ *
+ * <p>第三方微信客服未接入时，工单和消息表承担客服事实数据。</p>
+ */
+@Service
+@RequiredArgsConstructor
+public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketService {
+
+    private static final String CREATOR_USER = "USER";
+    private static final String SENDER_USER = "USER";
+    private static final String SENDER_ADMIN = "ADMIN";
+    private static final String MESSAGE_TEXT = "TEXT";
+    private static final String IDEM_TICKET_KEY = "customer-service:idem:ticket:%s";
+    private static final int MAX_PAGE_SIZE = 100;
+
+    private final CurrentUserContext currentUserContext;
+    private final CustomerServiceTicketMapper ticketMapper;
+    private final StringRedisTemplate redis;
+    private final ObjectMapper objectMapper;
+
+    @Override
+    @Transactional
+    public TicketVO createTicket(CreateTicketRequest request) {
+        Long userId = currentUserContext.requireUserId();
+        String requestId = request.requestId().trim();
+        TicketVO cached = readJson(IDEM_TICKET_KEY.formatted(requestId), TicketVO.class);
+        if (cached != null) {
+            return cached;
+        }
+        CustomerServiceQueryDTO existed = ticketMapper.findTicketByRequestId(requestId);
+        if (existed != null) {
+            TicketVO result = toTicketVO(existed);
+            writeJson(IDEM_TICKET_KEY.formatted(requestId), result, Duration.ofHours(24));
+            return result;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        long ticketId = SnowflakeIdGenerator.nextId();
+        ticketMapper.insertTicket(
+                ticketId,
+                CREATOR_USER,
+                userId,
+                normalize(request.scene()),
+                trimToEmpty(request.targetType()),
+                trimToEmpty(request.targetId()),
+                request.title().trim(),
+                request.content().trim(),
+                requestId,
+                now);
+        ticketMapper.insertMessage(
+                SnowflakeIdGenerator.nextId(),
+                ticketId,
+                SENDER_USER,
+                userId,
+                MESSAGE_TEXT,
+                request.content().trim(),
+                writeImageKeys(request.imageKeys()),
+                now);
+        TicketVO result = ticketDetail(ticketId);
+        writeJson(IDEM_TICKET_KEY.formatted(requestId), result, Duration.ofHours(24));
+        return result;
+    }
+
+    @Override
+    public PageResult<TicketVO> listMyTickets(int page, int size) {
+        Long userId = currentUserContext.requireUserId();
+        int normalizedPage = Math.max(page, 1);
+        int normalizedSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        int offset = (normalizedPage - 1) * normalizedSize;
+        List<TicketVO> records = ticketMapper.listMyTickets(CREATOR_USER, userId, offset, normalizedSize)
+                .stream()
+                .map(this::toTicketVO)
+                .toList();
+        long total = ticketMapper.countMyTickets(CREATOR_USER, userId);
+        return new PageResult<>(records, total, normalizedPage, normalizedSize);
+    }
+
+    @Override
+    public TicketVO ticketDetail(Long ticketId) {
+        Long userId = currentUserContext.requireUserId();
+        CustomerServiceQueryDTO ticket = requireTicket(ticketId);
+        if (CREATOR_USER.equals(ticket.getCreatorType()) && !userId.equals(ticket.getCreatorId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "无权查看该工单");
+        }
+        return toTicketVO(ticket);
+    }
+
+    @Override
+    public PageResult<TicketVO> listAdminTickets(String status, int page, int size) {
+        int normalizedPage = Math.max(page, 1);
+        int normalizedSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        int offset = (normalizedPage - 1) * normalizedSize;
+        String normalizedStatus = StringUtils.hasText(status) ? status.trim().toUpperCase() : null;
+        List<TicketVO> records = ticketMapper.listAdminTickets(normalizedStatus, offset, normalizedSize)
+                .stream()
+                .map(this::toTicketVO)
+                .toList();
+        long total = ticketMapper.countAdminTickets(normalizedStatus);
+        return new PageResult<>(records, total, normalizedPage, normalizedSize);
+    }
+
+    @Override
+    @Transactional
+    public TicketVO reply(Long ticketId, ReplyTicketRequest request) {
+        requireTicket(ticketId);
+        LocalDateTime now = LocalDateTime.now();
+        int changed = ticketMapper.markProcessing(ticketId, request.operatorId(), now);
+        if (changed == 0) {
+            throw new BusinessException("工单状态不允许回复");
+        }
+        ticketMapper.insertMessage(
+                SnowflakeIdGenerator.nextId(),
+                ticketId,
+                SENDER_ADMIN,
+                request.operatorId(),
+                MESSAGE_TEXT,
+                request.content().trim(),
+                writeImageKeys(request.imageKeys()),
+                now);
+        return toTicketVO(requireTicket(ticketId));
+    }
+
+    @Override
+    @Transactional
+    public TicketVO close(Long ticketId, CloseTicketRequest request) {
+        requireTicket(ticketId);
+        int changed = ticketMapper.closeTicket(ticketId, request.operatorId(), LocalDateTime.now());
+        if (changed == 0) {
+            throw new BusinessException("工单已关闭或不存在");
+        }
+        return toTicketVO(requireTicket(ticketId));
+    }
+
+    private CustomerServiceQueryDTO requireTicket(Long ticketId) {
+        CustomerServiceQueryDTO ticket = ticketMapper.findTicketById(ticketId);
+        if (ticket == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "工单不存在");
+        }
+        return ticket;
+    }
+
+    private TicketVO toTicketVO(CustomerServiceQueryDTO ticket) {
+        List<TicketMessageVO> messages = ticketMapper.findMessages(ticket.getId())
+                .stream()
+                .map(this::toMessageVO)
+                .toList();
+        return new TicketVO(
+                ticket.getId(),
+                ticket.getCreatorType(),
+                ticket.getCreatorId(),
+                ticket.getScene(),
+                ticket.getTargetType(),
+                ticket.getTargetId(),
+                ticket.getTitle(),
+                ticket.getContent(),
+                ticket.getTicketStatus(),
+                ticket.getPriority(),
+                ticket.getAssignedAdminId(),
+                ticket.getCreatedAt(),
+                ticket.getUpdatedAt(),
+                ticket.getClosedAt(),
+                messages);
+    }
+
+    private TicketMessageVO toMessageVO(CustomerServiceQueryDTO message) {
+        Long ticketId = message.getTargetId() == null ? null : Long.valueOf(message.getTargetId());
+        return new TicketMessageVO(
+                message.getId(),
+                ticketId,
+                message.getSenderType(),
+                message.getSenderId(),
+                message.getMessageType(),
+                message.getContent(),
+                readImageKeys(message.getImageKeysJson()),
+                message.getCreatedAt());
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toUpperCase();
+    }
+
+    private String trimToEmpty(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private String writeImageKeys(List<String> imageKeys) {
+        try {
+            return objectMapper.writeValueAsString(imageKeys == null ? List.of() : imageKeys);
+        } catch (JsonProcessingException e) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "图片附件无法序列化");
+        }
+    }
+
+    private List<String> readImageKeys(String json) {
+        if (!StringUtils.hasText(json)) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<>() {
+            });
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
+
+    private <T> T readJson(String key, Class<T> type) {
+        try {
+            String value = redis.opsForValue().get(key);
+            return value == null ? null : objectMapper.readValue(value, type);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void writeJson(String key, Object value, Duration ttl) {
+        try {
+            redis.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl);
+        } catch (Exception ignored) {
+            // Redis 幂等缓存失败时仍有 MySQL requestId 兜底。
+        }
+    }
+}

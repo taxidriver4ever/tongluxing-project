@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.tongluxing.invite.mapper.InviteMapper">
+    <select id="findRecords" resultType="com.tongluxing.invite.dto.InviteQueryDTO">
+        select id as relationId,
+               invitee_user_id as inviteeUserId,
+               invite_code as inviteCode,
+               relation_status as status,
+               bind_source as bindSource,
+               bind_source_value as bindSourceValue,
+               invitee_registered_at as inviteeRegisteredAt,
+               bound_at as boundAt,
+               first_team_completed_at as firstTeamCompletedAt
+        from invite_relation
+        where inviter_user_id = #{userId}
+          and deleted = 0
+        <if test="status != null and status != ''">
+            and relation_status = #{status}
+        </if>
+        order by bound_at desc
+        limit #{offset},
+              #{size}
+    </select>
+
+    <select id="countRecords" resultType="long">
+        select count(*)
+        from invite_relation
+        where inviter_user_id = #{userId}
+          and deleted = 0
+        <if test="status != null and status != ''">
+            and relation_status = #{status}
+        </if>
+    </select>
+</mapper>

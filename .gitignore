@@ -1,5 +1,5 @@
 # =========================
-# Tongdao project ignore rules
+# Tongluxing project ignore rules
 # Keep source code and shared config, ignore generated/local files.
 # =========================
 
@@ -25,7 +25,7 @@ Desktop.ini
 # Logs and runtime dumps
 *.log
 /logs/
-tongdao-backend/**/logs/
+tongluxing-backend/**/logs/
 *.pid
 hs_err_pid*
 replay_pid*
@@ -81,8 +81,8 @@ private.*
 # Generated frontend output from TypeScript / Less builds
 *.js.map
 *.wxss.map
-tongdao-frontend/miniprogram/**/*.js
-tongdao-frontend/miniprogram/**/*.wxss
+tongluxing-frontend/miniprogram/**/*.js
+tongluxing-frontend/miniprogram/**/*.wxss
 
 # Test / coverage / temporary output
 coverage/

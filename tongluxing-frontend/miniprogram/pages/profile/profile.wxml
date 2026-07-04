@@ -1,0 +1,162 @@
+<view class="profile-page">
+
+  <!-- ═══════════════════════ 顶部渐变 Header ═══════════════════════ -->
+  <view class="profile-head" style="{{headStyle}}">
+    <view class="head-top-row">
+      <view class="cert-pill {{certPillClass}}">{{certPillText}}</view>
+      <view class="head-btn" bindtap="loadDashboard">
+        <view class="head-btn-dot"></view>
+        <view class="head-btn-dot"></view>
+        <view class="head-btn-dot"></view>
+      </view>
+    </view>
+
+    <view class="profile-row">
+      <view class="profile-avatar" bindtap="goProfileEdit">{{avatarText}}</view>
+      <view class="profile-copy">
+        <view class="profile-name">{{dashboard.profile.nickname || "同路行车友"}}</view>
+        <view class="profile-sub">{{levelName}} · {{vehicleLabel}}</view>
+      </view>
+    </view>
+
+    <!-- 等级进度条 -->
+    <view class="progress-wrap">
+      <view class="progress-meta">
+        <text>同路值 {{totalPoints}}</text>
+        <text>距 {{nextLevelName}} 还差 {{nextLevelPoints}}</text>
+      </view>
+      <view class="progress-track">
+        <view class="progress-fill" style="width:{{progressPercent}}%"></view>
+      </view>
+    </view>
+
+    <!-- 三格统计 -->
+    <view class="stats-grid">
+      <view class="stat-item">
+        <text class="stat-val">{{totalPoints}}</text>
+        <text class="stat-lbl">同路值</text>
+      </view>
+      <view class="stat-item">
+        <text class="stat-val">{{dashboard.invitation.validInviteCount || 0}}</text>
+        <text class="stat-lbl">邀请好友</text>
+      </view>
+      <view class="stat-item">
+        <text class="stat-val">{{dashboard.coupon.availableCount || 0}}</text>
+        <text class="stat-lbl">可用券</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ═══════════════════════ 快捷功能卡片 1 ═══════════════════════ -->
+  <view class="menu-card">
+    <view class="menu-item" bindtap="goGrowth">
+      <view class="menu-icon-wrap blue-bg">🏅</view>
+      <view class="menu-body">
+        <text class="menu-title">成长中心</text>
+        <text class="menu-sub">{{levelName}} · 等级与勋章</text>
+      </view>
+      <text class="menu-arrow">›</text>
+    </view>
+    <view class="divider-line"></view>
+
+    <view class="menu-item" bindtap="goCoupon">
+      <view class="menu-icon-wrap orange-bg">🎟</view>
+      <view class="menu-body">
+        <text class="menu-title">我的券包</text>
+        <text class="menu-sub {{dashboard.coupon.expiringCount > 0 ? 'warn-text' : ''}}">{{dashboard.coupon.availableCount || 0}} 张可用{{dashboard.coupon.expiringCount > 0 ? " · " + dashboard.coupon.expiringCount + " 张即将到期" : ""}}</text>
+      </view>
+      <text class="menu-arrow">›</text>
+    </view>
+    <view class="divider-line"></view>
+
+    <view class="menu-item" bindtap="goInvite">
+      <view class="menu-icon-wrap green-bg">🔗</view>
+      <view class="menu-body">
+        <text class="menu-title">邀请好友</text>
+        <text class="menu-sub orange-text">{{inviteHint}}</text>
+      </view>
+      <text class="menu-arrow">›</text>
+    </view>
+    <view class="divider-line"></view>
+
+    <view class="menu-item" bindtap="goNextTrip">
+      <view class="menu-icon-wrap blue-bg">📍</view>
+      <view class="menu-body">
+        <text class="menu-title">下一趟行程</text>
+        <text class="menu-sub">{{nextTripLabel}}</text>
+      </view>
+      <text class="menu-arrow">›</text>
+    </view>
+  </view>
+
+  <!-- ═══════════════════════ 快捷功能卡片 2 ═══════════════════════ -->
+  <view class="menu-card">
+    <view class="menu-item" bindtap="goGroupbuy">
+      <view class="menu-body full">
+        <text class="menu-title">我的拼团</text>
+        <text class="menu-sub">2 个进行中</text>
+      </view>
+      <text class="menu-arrow muted">›</text>
+    </view>
+    <view class="divider-line"></view>
+
+    <view class="menu-item" bindtap="goVerification">
+      <view class="menu-body full">
+        <text class="menu-title">我的订单</text>
+        <text class="menu-sub orange-text">待核销 1</text>
+      </view>
+      <text class="menu-arrow muted">›</text>
+    </view>
+    <view class="divider-line"></view>
+
+    <view class="menu-item">
+      <view class="menu-body full">
+        <text class="menu-title">退款/售后</text>
+        <text class="menu-sub">0 个处理中</text>
+      </view>
+      <text class="menu-arrow muted">›</text>
+    </view>
+  </view>
+
+  <!-- ═══════════════════════ 快捷功能卡片 3 ═══════════════════════ -->
+  <view class="menu-card">
+    <view class="menu-item" bindtap="goVehicleCert">
+      <view class="menu-body full">
+        <text class="menu-title">车辆认证</text>
+      </view>
+      <view class="status-pill {{headVehicleStatusClass}}">{{headVehicleStatusText}}</view>
+    </view>
+    <view class="divider-line"></view>
+
+    <view class="menu-item" bindtap="goPrivacy">
+      <view class="menu-body full">
+        <text class="menu-title">隐私设置</text>
+        <text class="menu-sub">位置与资料可见范围</text>
+      </view>
+      <text class="menu-arrow muted">›</text>
+    </view>
+    <view class="divider-line"></view>
+
+    <view class="menu-item" bindtap="goEmergencyContact">
+      <view class="menu-body full">
+        <text class="menu-title">紧急联系人</text>
+        <text class="menu-sub">预留家人或朋友联系方式</text>
+      </view>
+      <text class="menu-arrow muted">›</text>
+    </view>
+    <view class="divider-line"></view>
+
+    <view class="menu-item">
+      <view class="menu-body full">
+        <text class="menu-title">帮助与客服</text>
+        <text class="menu-sub">微信客服</text>
+      </view>
+      <text class="menu-arrow muted">›</text>
+    </view>
+  </view>
+
+  <!-- 底部安全区 -->
+  <view class="bottom-safe"></view>
+
+  <td-tabbar active="profile" />
+</view>

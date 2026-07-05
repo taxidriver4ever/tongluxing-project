@@ -1,5 +1,6 @@
 package com.tongluxing.customerservice.service;
 
+import com.tongluxing.customerservice.dto.AssignTicketRequest;
 import com.tongluxing.customerservice.dto.CloseTicketRequest;
 import com.tongluxing.customerservice.dto.CreateTicketRequest;
 import com.tongluxing.customerservice.dto.ReplyTicketRequest;
@@ -20,6 +21,8 @@ public interface CustomerServiceTicketService {
     PageResult<TicketVO> listAdminTickets(String status, int page, int size);
 
     TicketVO reply(Long ticketId, ReplyTicketRequest request);
+
+    TicketVO assign(Long ticketId, AssignTicketRequest request);
 
     TicketVO close(Long ticketId, CloseTicketRequest request);
 }

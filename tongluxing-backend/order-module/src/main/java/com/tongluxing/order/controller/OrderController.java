@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.order.dto.CreateOrderRequest;
 import com.tongluxing.order.dto.OrderPreviewRequest;
+import com.tongluxing.order.service.OrderCompensationTaskService;
 import com.tongluxing.order.service.OrderService;
 import com.tongluxing.order.vo.OrderPreviewVO;
 import com.tongluxing.order.vo.OrderVO;
@@ -29,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 @RequestMapping("/v1/orders")
 public class OrderController {
     private final OrderService orderService;
+    private final OrderCompensationTaskService compensationTaskService;
 
     /**
      * 订单金额试算，用于下单前展示原价、拼团优惠、券抵扣和应付金额。
@@ -71,5 +73,21 @@ public class OrderController {
     public Result<Void> cancel(@PathVariable Long orderId) {
         orderService.cancel(orderId);
         return Result.success();
+    }
+
+    /**
+     * 内部关闭超时未支付订单，便于本地任务或运营补偿触发。
+     */
+    @PostMapping("/internal/expired/close")
+    public Result<Integer> closeExpired(@RequestParam(defaultValue = "100") int limit) {
+        return Result.success(orderService.closeExpiredWaitPay(limit));
+    }
+
+    /**
+     * 内部接口：手动消费订单补偿任务，便于内测和运营排障。
+     */
+    @PostMapping("/internal/compensation-tasks/process")
+    public Result<Integer> processCompensationTasks(@RequestParam(defaultValue = "50") int limit) {
+        return Result.success(compensationTaskService.processDueTasks(limit));
     }
 }

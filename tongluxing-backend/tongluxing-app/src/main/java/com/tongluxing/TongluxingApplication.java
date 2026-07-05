@@ -3,6 +3,7 @@ package com.tongluxing;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @MapperScan({
         "com.tongluxing.auth.mapper",
@@ -27,6 +28,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         "com.tongluxing.admin.mapper",
         "com.tongluxing.storage.mapper"
 })
+@EnableScheduling
 @SpringBootApplication(scanBasePackages = "com.tongluxing")
 /**
  * 同路行后端统一启动入口。

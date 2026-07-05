@@ -31,6 +31,16 @@ public class CustomerServiceTicketController {
         return Result.success(ticketService.createTicket(request));
     }
 
+    /**
+     * 投诉快捷入口，底层复用工单事实表，便于未接入第三方客服前先完成闭环。
+     */
+    @PostMapping("/v1/customer-service/complaints")
+    public Result<TicketVO> createComplaint(@Valid @RequestBody CreateTicketRequest request) {
+        CreateTicketRequest complaint = new CreateTicketRequest("COMPLAINT", request.targetType(),
+                request.targetId(), request.title(), request.content(), request.imageKeys(), request.requestId());
+        return Result.success(ticketService.createTicket(complaint));
+    }
+
     @GetMapping("/v1/customer-service/tickets/me")
     public Result<PageResult<TicketVO>> myTickets(@RequestParam(defaultValue = "1") int page,
                                                   @RequestParam(defaultValue = "20") int size) {

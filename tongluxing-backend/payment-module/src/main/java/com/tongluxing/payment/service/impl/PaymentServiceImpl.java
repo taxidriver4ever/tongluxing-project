@@ -21,6 +21,7 @@ import com.tongluxing.payment.dto.RefundCallbackRequest;
 import com.tongluxing.payment.entity.PaymentProfitSharingRecord;
 import com.tongluxing.payment.entity.PaymentRecord;
 import com.tongluxing.payment.entity.PaymentRefundRecord;
+import com.tongluxing.payment.gateway.PaymentGateway;
 import com.tongluxing.payment.integration.PaymentGroupbuyPort;
 import com.tongluxing.payment.integration.PaymentOrderPort;
 import com.tongluxing.payment.integration.PaymentOrderPort.PaymentOrderDTO;
@@ -46,6 +47,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final CurrentUserContext currentUserContext;
     private final PaymentOrderPort orderPort;
     private final PaymentGroupbuyPort groupbuyPort;
+    private final PaymentGateway paymentGateway;
     private final PaymentRecordMapper paymentRecordMapper;
     private final PaymentRefundRecordMapper refundRecordMapper;
     private final PaymentProfitSharingRecordMapper sharingRecordMapper;
@@ -63,13 +65,14 @@ public class PaymentServiceImpl implements PaymentService {
             throw new BusinessException("订单不是待支付状态");
         }
         LocalDateTime now = LocalDateTime.now();
-        String prepayId = "mock_prepay_" + SnowflakeIdGenerator.nextIdString();
+        PaymentGateway.PrepayResult prepay = paymentGateway.createPrepay(
+                new PaymentGateway.PrepayCommand(order.orderId(), order.orderNo(), order.payableAmount()));
         PaymentRecord record = new PaymentRecord();
         record.setId(SnowflakeIdGenerator.nextId());
         record.setOrderId(order.orderId());
         record.setOrderNo(order.orderNo());
         record.setPaymentNo("PY" + SnowflakeIdGenerator.nextIdString());
-        record.setWxPrepayId(prepayId);
+        record.setWxPrepayId(prepay.prepayId());
         record.setPayChannel("WECHAT_JSAPI");
         record.setPayAmount(order.payableAmount());
         record.setPaymentStatus("PAYING");
@@ -78,8 +81,8 @@ public class PaymentServiceImpl implements PaymentService {
         record.setDeleted(0);
         paymentRecordMapper.insert(record);
 
-        JsapiPayParamsVO params = new JsapiPayParamsVO("mock-app-id", String.valueOf(System.currentTimeMillis() / 1000),
-                SnowflakeIdGenerator.nextIdString(), "prepay_id=" + prepayId, "RSA", "mock-pay-sign");
+        JsapiPayParamsVO params = new JsapiPayParamsVO(prepay.appId(), prepay.timeStamp(),
+                prepay.nonceStr(), prepay.packageValue(), prepay.signType(), prepay.paySign());
         writeJson("payment:session:%d".formatted(order.orderId()), params, Duration.ofMinutes(30));
         return params;
     }
@@ -152,6 +155,11 @@ public class PaymentServiceImpl implements PaymentService {
         record.setRefundStatus("REFUNDING");
         record.setAuditStatus("APPROVED");
         record.setRequestedAt(now);
+        PaymentGateway.RefundResult refundResult = paymentGateway.requestRefund(
+                new PaymentGateway.RefundCommand(record.getId(), record.getRefundNo(),
+                        record.getOrderId(), record.getRefundAmount(), record.getRefundReason()));
+        record.setWxRefundId(refundResult.externalRefundId());
+        record.setCallbackPayload(refundResult.rawPayload());
         record.setCreatedAt(now);
         record.setUpdatedAt(now);
         record.setDeleted(0);
@@ -218,13 +226,16 @@ public class PaymentServiceImpl implements PaymentService {
         record.setMerchantId(request.merchantId());
         record.setVerificationId(request.verificationId());
         record.setSharingNo("PS" + SnowflakeIdGenerator.nextIdString());
-        record.setWxSharingId("mock_sharing_" + SnowflakeIdGenerator.nextIdString());
+        PaymentGateway.ProfitSharingResult sharingResult = paymentGateway.createProfitSharing(
+                new PaymentGateway.ProfitSharingCommand(request.orderId(), request.merchantId(),
+                        request.verificationId(), total, merchantAmount));
+        record.setWxSharingId(sharingResult.externalSharingId());
         record.setTotalAmount(total);
         record.setPlatformCommissionAmount(commission);
         record.setMerchantAmount(merchantAmount);
         record.setCommissionRate(DEFAULT_COMMISSION_RATE);
         record.setSharingStatus("SUCCESS");
-        record.setCallbackPayload("{}");
+        record.setCallbackPayload(sharingResult.rawPayload());
         record.setSharedAt(now);
         record.setCreatedAt(now);
         record.setUpdatedAt(now);

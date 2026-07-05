@@ -37,6 +37,10 @@ public interface MerchantService {
 
     MerchantProductVO offShelfProduct(Long productId);
 
+    MerchantProductVO productSnapshot(Long productId);
+
+    void decreaseProductStock(Long productId, Integer quantity, String requestId);
+
     List<MerchantCouponPoolVO> couponPools();
 
     MerchantCouponPoolVO createCouponPool(CreateMerchantCouponPoolRequest request, String requestId);

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
@@ -28,6 +29,7 @@ import com.tongluxing.verification.entity.VerificationReversalRequest;
 import com.tongluxing.verification.mapper.VerificationCodeMapper;
 import com.tongluxing.verification.mapper.VerificationCompensationTaskMapper;
 import com.tongluxing.verification.mapper.VerificationRecordMapper;
+import com.tongluxing.verification.integration.VerificationPaymentPort;
 import com.tongluxing.verification.mapper.VerificationReversalRequestMapper;
 import com.tongluxing.verification.service.VerificationService;
 import com.tongluxing.verification.vo.PageResult;
@@ -60,6 +62,7 @@ public class VerificationServiceImpl implements VerificationService {
     private final VerificationRecordMapper recordMapper;
     private final VerificationReversalRequestMapper reversalMapper;
     private final VerificationCompensationTaskMapper compensationTaskMapper;
+    private final VerificationPaymentPort paymentPort;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
 
@@ -254,6 +257,36 @@ public class VerificationServiceImpl implements VerificationService {
         VerificationReversalVO result = toReversalVO(reversal);
         writeJson(idemKey, result, Duration.ofHours(24));
         return result;
+    }
+
+    /**
+     * 消费核销补偿任务。未接入第三方时仍会推进本地分账/券同步状态。
+     */
+    @Override
+    @Transactional
+    public int processCompensationTasks(int limit) {
+        LocalDateTime now = LocalDateTime.now();
+        int processed = 0;
+        for (VerificationCompensationTask task : compensationTaskMapper.listDueTasks(now, Math.min(Math.max(limit, 1), 100))) {
+            try {
+                if ("PAYMENT_PROFIT_SHARING".equals(task.getBizType())) {
+                    JsonNode payload = objectMapper.readTree(task.getRequestPayload());
+                    Long orderId = payload.path("orderId").isNull() ? null : payload.path("orderId").asLong();
+                    if (orderId == null || orderId == 0L) {
+                        throw new BusinessException("核销补偿任务缺少订单 ID");
+                    }
+                    Long verificationId = payload.path("verificationId").asLong(task.getId());
+                    Long merchantId = Long.valueOf(task.getBizId());
+                    paymentPort.shareAfterVerification(orderId, merchantId, verificationId,
+                            "verification-task:" + task.getId());
+                }
+                compensationTaskMapper.markSuccess(task.getId(), now);
+                processed++;
+            } catch (Exception ex) {
+                compensationTaskMapper.markFailed(task.getId(), ex.getMessage(), now.plusMinutes(5), now);
+            }
+        }
+        return processed;
     }
 
     /**

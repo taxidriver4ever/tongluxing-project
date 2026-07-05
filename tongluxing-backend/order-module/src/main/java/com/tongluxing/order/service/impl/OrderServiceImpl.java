@@ -19,6 +19,7 @@ import com.tongluxing.order.dto.OrderPreviewRequest;
 import com.tongluxing.order.entity.OrderCompensationTask;
 import com.tongluxing.order.entity.OrderItem;
 import com.tongluxing.order.entity.OrderTrade;
+import com.tongluxing.order.integration.OrderMerchantProductPort;
 import com.tongluxing.order.mapper.OrderCompensationTaskMapper;
 import com.tongluxing.order.mapper.OrderItemMapper;
 import com.tongluxing.order.mapper.OrderTradeMapper;
@@ -37,10 +38,10 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class OrderServiceImpl implements OrderService {
-    private static final BigDecimal DEFAULT_UNIT_PRICE = new BigDecimal("99.00");
     private static final String WAIT_PAY = "WAIT_PAY";
 
     private final CurrentUserContext currentUserContext;
+    private final OrderMerchantProductPort merchantProductPort;
     private final OrderTradeMapper orderMapper;
     private final OrderItemMapper itemMapper;
     private final OrderCompensationTaskMapper compensationTaskMapper;
@@ -58,7 +59,8 @@ public class OrderServiceImpl implements OrderService {
         if (cached != null) {
             return cached;
         }
-        OrderPreviewVO result = calculatePreview(request.productId(), request.activityId(), request.quantity(),
+        OrderMerchantProductPort.MerchantProductSnapshot snapshot = merchantProductPort.getSnapshot(request.productId());
+        OrderPreviewVO result = calculatePreview(snapshot, request.activityId(), request.quantity(),
                 request.userCouponId());
         writeJson(key, result, Duration.ofMinutes(5));
         return result;
@@ -77,7 +79,8 @@ public class OrderServiceImpl implements OrderService {
             return cached;
         }
 
-        OrderPreviewVO preview = calculatePreview(request.productId(), request.activityId(), request.quantity(),
+        OrderMerchantProductPort.MerchantProductSnapshot snapshot = merchantProductPort.getSnapshot(request.productId());
+        OrderPreviewVO preview = calculatePreview(snapshot, request.activityId(), request.quantity(),
                 request.userCouponId());
         LocalDateTime now = LocalDateTime.now();
         Long orderId = SnowflakeIdGenerator.nextId();
@@ -85,7 +88,7 @@ public class OrderServiceImpl implements OrderService {
         order.setId(orderId);
         order.setOrderNo("OD" + SnowflakeIdGenerator.nextIdString());
         order.setUserId(userId);
-        order.setMerchantId(0L);
+        order.setMerchantId(snapshot.merchantId());
         order.setProductId(request.productId());
         order.setActivityId(request.activityId());
         order.setOriginalAmount(preview.originalAmount());
@@ -106,17 +109,17 @@ public class OrderServiceImpl implements OrderService {
         order.setDeleted(0);
         orderMapper.insert(order);
 
-        // 当前商品信息为本地快照，后续接入商品模块后可替换为真实商品快照。
+        // 商品快照在下单时固化，后续商家改价不影响既有订单金额。
         OrderItem item = new OrderItem();
         item.setId(SnowflakeIdGenerator.nextId());
         item.setOrderId(orderId);
         item.setProductId(request.productId());
-        item.setProductName("拼团商品-" + request.productId());
-        item.setProductType("GROUPBUY");
-        item.setUnitPrice(DEFAULT_UNIT_PRICE);
+        item.setProductName(snapshot.productName());
+        item.setProductType(snapshot.productType());
+        item.setUnitPrice(snapshot.groupPrice());
         item.setQuantity(request.quantity());
         item.setTotalAmount(preview.originalAmount());
-        item.setSnapshotJson("{}");
+        item.setSnapshotJson(snapshot.snapshotJson());
         item.setCreatedAt(now);
         itemMapper.insert(item);
 
@@ -162,6 +165,54 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
+     * 内部查询订单详情，不做当前用户鉴权，供支付回调等服务端流程使用。
+     */
+    @Override
+    public OrderVO internalDetail(Long orderId) {
+        return toVO(requireOrder(orderId));
+    }
+
+    /**
+     * 商家侧订单列表。调用方需要在上层完成商家身份校验。
+     */
+    @Override
+    public PageResult<OrderVO> merchantOrders(Long merchantId, String status, int page, int size) {
+        int normalizedPage = Math.max(page, 1);
+        int normalizedSize = Math.min(Math.max(size, 1), 100);
+        int offset = (normalizedPage - 1) * normalizedSize;
+        String normalizedStatus = StringUtils.hasText(status) ? status.trim() : null;
+        List<OrderVO> records = orderMapper.findByMerchant(merchantId, normalizedStatus, offset, normalizedSize)
+                .stream()
+                .map(this::toVO)
+                .toList();
+        return new PageResult<>(records, orderMapper.countByMerchant(merchantId, normalizedStatus),
+                normalizedPage, normalizedSize);
+    }
+
+    /**
+     * 关闭超时未支付订单，供定时任务或运营手动补偿调用。
+     */
+    @Override
+    @Transactional
+    public int closeExpiredWaitPay(int limit) {
+        LocalDateTime now = LocalDateTime.now();
+        int normalizedLimit = Math.min(Math.max(limit, 1), 500);
+        int closed = 0;
+        for (OrderTrade order : orderMapper.listExpiredWaitPay(now, normalizedLimit)) {
+            if (orderMapper.closeExpiredWaitPay(order.getId(), now) == 0) {
+                continue;
+            }
+            closed++;
+            if (order.getUserCouponId() != null) {
+                addCompensation("COUPON_RELEASE", String.valueOf(order.getId()),
+                        "order:timeout:" + order.getId(), "coupon-module",
+                        "{\"orderId\":%d}".formatted(order.getId()), now);
+            }
+        }
+        return closed;
+    }
+
+    /**
      * 取消待支付订单；如订单绑定了优惠券，则写入释放优惠券的补偿任务。
      */
     @Override
@@ -194,8 +245,14 @@ public class OrderServiceImpl implements OrderService {
     @Transactional
     public OrderVO markPaid(Long orderId, LocalDateTime paidAt) {
         requireOrder(orderId);
-        orderMapper.markPaid(orderId, paidAt == null ? LocalDateTime.now() : paidAt);
-        return toVO(requireOrder(orderId));
+        LocalDateTime now = paidAt == null ? LocalDateTime.now() : paidAt;
+        orderMapper.markPaid(orderId, now);
+        OrderTrade order = requireOrder(orderId);
+        if (order.getUserCouponId() != null) {
+            addCompensation("COUPON_CONFIRM", String.valueOf(orderId), "order:paid:" + orderId,
+                    "coupon-module", "{\"orderId\":%d}".formatted(orderId), now);
+        }
+        return toVO(order);
     }
 
     /**
@@ -245,13 +302,15 @@ public class OrderServiceImpl implements OrderService {
     /**
      * 本地金额试算逻辑：根据数量、拼团活动和用户券计算应付金额。
      */
-    private OrderPreviewVO calculatePreview(Long productId, Long activityId, Integer quantity, Long userCouponId) {
-        BigDecimal original = DEFAULT_UNIT_PRICE.multiply(BigDecimal.valueOf(quantity == null ? 1 : quantity));
-        BigDecimal groupDiscount = activityId == null ? BigDecimal.ZERO : original.multiply(new BigDecimal("0.10"));
+    private OrderPreviewVO calculatePreview(OrderMerchantProductPort.MerchantProductSnapshot snapshot,
+                                            Long activityId, Integer quantity, Long userCouponId) {
+        BigDecimal original = snapshot.originalPrice().multiply(BigDecimal.valueOf(quantity == null ? 1 : quantity));
+        BigDecimal groupDiscount = activityId == null ? BigDecimal.ZERO
+                : original.subtract(snapshot.groupPrice().multiply(BigDecimal.valueOf(quantity == null ? 1 : quantity)));
         BigDecimal coupon = userCouponId == null ? BigDecimal.ZERO : new BigDecimal("10.00").min(original.subtract(groupDiscount));
         BigDecimal payable = original.subtract(groupDiscount).subtract(coupon).max(BigDecimal.ZERO);
-        return new OrderPreviewVO(productId, activityId, original, groupDiscount, coupon, payable, userCouponId,
-                "当前为本地试算；创建订单时会重新计算并通过补偿任务对接优惠券锁定");
+        return new OrderPreviewVO(snapshot.productId(), activityId, original, groupDiscount.max(BigDecimal.ZERO),
+                coupon, payable, userCouponId, "基于商家商品快照试算；创建订单时会重新计算并锁定事实金额");
     }
 
     /**

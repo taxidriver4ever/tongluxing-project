@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tongluxing.assessment.dto.AssessmentQueryDTO;
+import com.tongluxing.assessment.dto.ManualAssessmentAdjustmentRequest;
 import com.tongluxing.assessment.dto.MonthlyAssessmentRunRequest;
 import com.tongluxing.assessment.dto.RecalculateMerchantAssessmentRequest;
 import com.tongluxing.assessment.mapper.AssessmentMapper;
@@ -112,6 +113,31 @@ public class AssessmentServiceImpl implements AssessmentService {
                 merchant.getExclusionRadiusKm());
         writeJson(key, result, Duration.ofMinutes(30));
         return result;
+    }
+
+    /**
+     * 人工调整商家考核分，调整后立即刷新商家等级快照。
+     */
+    @Override
+    @Transactional
+    public MerchantAssessmentResultVO manualAdjust(Long merchantId, ManualAssessmentAdjustmentRequest request) {
+        LocalDateTime now = LocalDateTime.now();
+        AssessmentQueryDTO latest = assessmentMapper.findLatestScore(merchantId);
+        BigDecimal baseScore = latest == null ? BigDecimal.ZERO : latest.getTotalScore();
+        BigDecimal adjustedScore = baseScore.add(request.scoreDelta()).max(BigDecimal.ZERO);
+        AssessmentQueryDTO mapping = levelMapping(adjustedScore);
+        String period = latest == null ? YearMonth.now().toString() : latest.getPeriod();
+
+        // 人工调整必须单独落明细，方便运营后台审计和后续追责。
+        assessmentMapper.insertManualAdjustment(SnowflakeIdGenerator.nextId(), merchantId, request.scoreDelta(),
+                request.reason().trim(), request.operatorId(), request.requestId().trim(), now);
+        assessmentMapper.upsertScore(SnowflakeIdGenerator.nextId(), merchantId, period, adjustedScore,
+                mapping.getMerchantLevel(), mapping.getCommissionRate(), mapping.getRankWeight(),
+                mapping.getExclusionRadiusKm(), request.requestId().trim(), now);
+        assessmentMapper.updateMerchantAssessment(merchantId, adjustedScore, mapping.getMerchantLevel(),
+                mapping.getCommissionRate(), mapping.getRankWeight(), mapping.getExclusionRadiusKm(), now);
+        deleteCache(merchantId);
+        return toResult(merchantId, assessmentMapper.findLatestScore(merchantId), requireMerchant(merchantId));
     }
 
     private MerchantAssessmentResultVO calculateAndSave(Long merchantId, String period, String requestId) {

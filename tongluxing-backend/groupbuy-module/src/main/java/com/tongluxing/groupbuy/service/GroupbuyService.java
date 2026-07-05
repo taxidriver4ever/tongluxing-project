@@ -17,5 +17,6 @@ public interface GroupbuyService {
     GroupbuyActivityVO addPaidParticipant(Long activityId, PaidParticipantRequest request);
 
     GroupbuyActivityVO expire(Long activityId);
-}
 
+    GroupbuyActivityVO applyAdminIntervention(Long activityId, String action, String reason, String requestId);
+}

@@ -94,6 +94,12 @@ public class MerchantController {
         return Result.success(merchantService.offShelfProduct(productId));
     }
 
+    /** 内部读取商品快照，供订单和拼团模块使用。 */
+    @GetMapping("/products/{productId}/snapshot")
+    public Result<MerchantProductVO> productSnapshot(@PathVariable Long productId) {
+        return Result.success(merchantService.productSnapshot(productId));
+    }
+
     /** 查询商家券池配置。 */
     @GetMapping("/coupons")
     public Result<List<MerchantCouponPoolVO>> coupons() {

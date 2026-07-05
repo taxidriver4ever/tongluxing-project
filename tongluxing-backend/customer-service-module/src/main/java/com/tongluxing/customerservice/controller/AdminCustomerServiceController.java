@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.tongluxing.common.result.Result;
+import com.tongluxing.customerservice.dto.AssignTicketRequest;
 import com.tongluxing.customerservice.dto.CloseTicketRequest;
 import com.tongluxing.customerservice.dto.ReplyTicketRequest;
 import com.tongluxing.customerservice.service.CustomerServiceTicketService;
@@ -32,6 +33,12 @@ public class AdminCustomerServiceController {
                                                 @RequestParam(defaultValue = "1") int page,
                                                 @RequestParam(defaultValue = "20") int size) {
         return Result.success(ticketService.listAdminTickets(status, page, size));
+    }
+
+    @PostMapping("/v1/admin/customer-service/tickets/{ticketId}/assign")
+    public Result<TicketVO> assign(@PathVariable Long ticketId,
+                                   @Valid @RequestBody AssignTicketRequest request) {
+        return Result.success(ticketService.assign(ticketId, request));
     }
 
     @PostMapping("/v1/admin/customer-service/tickets/{ticketId}/reply")

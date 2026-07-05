@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
+import com.tongluxing.customerservice.dto.AssignTicketRequest;
 import com.tongluxing.customerservice.dto.CloseTicketRequest;
 import com.tongluxing.customerservice.dto.CreateTicketRequest;
 import com.tongluxing.customerservice.dto.CustomerServiceQueryDTO;
@@ -40,6 +41,7 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
     private static final String CREATOR_USER = "USER";
     private static final String SENDER_USER = "USER";
     private static final String SENDER_ADMIN = "ADMIN";
+    private static final String SENDER_SYSTEM = "SYSTEM";
     private static final String MESSAGE_TEXT = "TEXT";
     private static final String IDEM_TICKET_KEY = "customer-service:idem:ticket:%s";
     private static final int MAX_PAGE_SIZE = 100;
@@ -87,6 +89,7 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
                 request.content().trim(),
                 writeImageKeys(request.imageKeys()),
                 now);
+        insertAutoReply(ticketId, request.scene(), now);
         TicketVO result = ticketDetail(ticketId);
         writeJson(IDEM_TICKET_KEY.formatted(requestId), result, Duration.ofHours(24));
         return result;
@@ -153,6 +156,17 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
 
     @Override
     @Transactional
+    public TicketVO assign(Long ticketId, AssignTicketRequest request) {
+        requireTicket(ticketId);
+        int changed = ticketMapper.markProcessing(ticketId, request.operatorId(), LocalDateTime.now());
+        if (changed == 0) {
+            throw new BusinessException("工单状态不允许分配");
+        }
+        return toTicketVO(requireTicket(ticketId));
+    }
+
+    @Override
+    @Transactional
     public TicketVO close(Long ticketId, CloseTicketRequest request) {
         requireTicket(ticketId);
         int changed = ticketMapper.closeTicket(ticketId, request.operatorId(), LocalDateTime.now());
@@ -160,6 +174,37 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
             throw new BusinessException("工单已关闭或不存在");
         }
         return toTicketVO(requireTicket(ticketId));
+    }
+
+    /**
+     * 写入本地自动回复消息。
+     *
+     * <p>微信客服未接入前，先用系统消息承接用户预期；后续可替换为规则表匹配。</p>
+     */
+    private void insertAutoReply(Long ticketId, String scene, LocalDateTime now) {
+        ticketMapper.insertMessage(
+                SnowflakeIdGenerator.nextId(),
+                ticketId,
+                SENDER_SYSTEM,
+                0L,
+                MESSAGE_TEXT,
+                autoReplyContent(scene),
+                "[]",
+                now);
+    }
+
+    private String autoReplyContent(String scene) {
+        String normalizedScene = normalize(scene);
+        if ("REFUND".equals(normalizedScene)) {
+            return "已收到退款相关问题，平台会核对订单和支付状态后继续处理。";
+        }
+        if ("VERIFICATION".equals(normalizedScene) || "ORDER_DETAIL".equals(normalizedScene)) {
+            return "已收到订单或核销相关问题，平台会协助核对商家履约记录。";
+        }
+        if ("COMPLAINT".equals(normalizedScene)) {
+            return "已收到投诉，平台会尽快分配运营人员跟进。";
+        }
+        return "已收到您的问题，平台客服会尽快处理。";
     }
 
     private CustomerServiceQueryDTO requireTicket(Long ticketId) {

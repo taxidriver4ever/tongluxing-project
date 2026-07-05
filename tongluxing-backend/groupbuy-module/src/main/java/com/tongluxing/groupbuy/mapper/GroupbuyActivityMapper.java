@@ -92,5 +92,34 @@ public interface GroupbuyActivityMapper {
               and deleted = 0
             """)
     int markFailedIfExpired(@Param("activityId") Long activityId, @Param("now") LocalDateTime now);
-}
 
+    /**
+     * 运营后台强制成团。
+     */
+    @Update("""
+            update groupbuy_activity
+            set activity_status = 'SUCCESS',
+                success_at = #{now},
+                updated_at = #{now}
+            where id = #{activityId}
+              and activity_status = 'ONGOING'
+              and deleted = 0
+            """)
+    int forceSuccess(@Param("activityId") Long activityId, @Param("now") LocalDateTime now);
+
+    /**
+     * 运营后台强制失败或下线活动。
+     */
+    @Update("""
+            update groupbuy_activity
+            set activity_status = #{status},
+                failed_at = #{now},
+                updated_at = #{now}
+            where id = #{activityId}
+              and activity_status = 'ONGOING'
+              and deleted = 0
+            """)
+    int forceEnd(@Param("activityId") Long activityId,
+                 @Param("status") String status,
+                 @Param("now") LocalDateTime now);
+}

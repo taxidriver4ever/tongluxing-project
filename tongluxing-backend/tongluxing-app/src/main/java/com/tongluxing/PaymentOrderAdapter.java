@@ -25,7 +25,7 @@ public class PaymentOrderAdapter implements PaymentOrderPort {
      */
     @Override
     public PaymentOrderDTO getOrder(Long orderId) {
-        return toDTO(orderService.detail(orderId));
+        return toDTO(orderService.internalDetail(orderId));
     }
 
     /**

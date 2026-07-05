@@ -165,9 +165,17 @@ public class CouponServiceImpl implements CouponService {
         int changed = "SUCCESS".equals(request.payStatus())
                 ? mapper.confirm(request.orderId(), LocalDateTime.now())
                 : mapper.release(request.orderId(), LocalDateTime.now());
-        if (changed == 0) {
-            throw new BusinessException(409, "订单优惠券状态冲突");
+        if (changed > 0) {
+            return;
         }
+        // 订单结果回调来自补偿任务，必须允许重复投递幂等成功。
+        if ("SUCCESS".equals(request.payStatus()) && mapper.countUsedByOrder(request.orderId()) > 0) {
+            return;
+        }
+        if (!"SUCCESS".equals(request.payStatus()) && mapper.countLockedByOrder(request.orderId()) == 0) {
+            return;
+        }
+        throw new BusinessException(409, "订单优惠券状态冲突");
     }
 
     /**

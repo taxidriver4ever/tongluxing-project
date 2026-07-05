@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.tongluxing.assessment.dto.ManualAssessmentAdjustmentRequest;
 import com.tongluxing.assessment.dto.MonthlyAssessmentRunRequest;
 import com.tongluxing.assessment.dto.RecalculateMerchantAssessmentRequest;
 import com.tongluxing.assessment.service.AssessmentService;
@@ -47,5 +48,15 @@ public class AssessmentController {
     @GetMapping("/internal/v1/assessments/merchants/{merchantId}/snapshot")
     public Result<MerchantAssessmentSnapshotVO> snapshot(@PathVariable Long merchantId) {
         return Result.success(assessmentService.snapshot(merchantId));
+    }
+
+    /**
+     * 运营人工调整考核分，记录调整原因和操作人。
+     */
+    @PostMapping("/v1/admin/assessments/merchants/{merchantId}/adjustments")
+    public Result<MerchantAssessmentResultVO> manualAdjust(
+            @PathVariable Long merchantId,
+            @Valid @RequestBody ManualAssessmentAdjustmentRequest request) {
+        return Result.success(assessmentService.manualAdjust(merchantId, request));
     }
 }

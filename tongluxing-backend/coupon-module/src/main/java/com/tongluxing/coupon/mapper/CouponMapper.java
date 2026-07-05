@@ -236,6 +236,30 @@ public interface CouponMapper {
     int release(@Param("orderId") Long orderId, @Param("now") LocalDateTime now);
 
     /**
+     * 查询订单是否已经确认用券，用于重复支付成功回调幂等。
+     */
+    @Select("""
+            select count(1)
+            from coupon_user
+            where used_order_id = #{orderId}
+              and coupon_status = 'USED'
+              and deleted = 0
+            """)
+    int countUsedByOrder(Long orderId);
+
+    /**
+     * 查询订单仍锁定的优惠券数量，用于释放操作幂等。
+     */
+    @Select("""
+            select count(1)
+            from coupon_user
+            where locked_order_id = #{orderId}
+              and coupon_status = 'LOCKED'
+              and deleted = 0
+            """)
+    int countLockedByOrder(Long orderId);
+
+    /**
      * 统计用户当前仍在有效期内的可用券数量。
      */
     @Select("""

@@ -47,3 +47,19 @@ create table if not exists assessment_merchant_score_item (
     primary key (id),
     key idx_assessment_item_score (score_id)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+
+
+create table if not exists assessment_manual_adjustment (
+    id bigint not null,
+    merchant_id bigint not null,
+    score_delta decimal(8,2) not null,
+    reason varchar(255) not null,
+    operator_id bigint not null,
+    request_id varchar(128) not null,
+    created_at datetime not null,
+    updated_at datetime not null,
+    deleted tinyint not null default 0,
+    primary key (id),
+    unique key uk_assessment_manual_adjustment_request (request_id, deleted),
+    key idx_assessment_manual_adjustment_merchant (merchant_id, created_at)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;

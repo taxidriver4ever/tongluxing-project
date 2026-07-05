@@ -97,6 +97,53 @@ public interface MerchantProductMapper {
     MerchantQueryDTO findById(@Param("merchantId") Long merchantId, @Param("productId") Long productId);
 
     /**
+     * 按商品 ID 查询上架商品快照，供订单和拼团模块读取。
+     */
+    @Select("""
+            select p.id,
+                   p.merchant_id merchantId,
+                   p.product_name productName,
+                   p.product_type productType,
+                   p.original_price originalPrice,
+                   p.group_price groupPrice,
+                   p.ladder_price_json ladderPriceJson,
+                   p.target_people targetPeople,
+                   p.stock,
+                   p.valid_hours validHours,
+                   p.min_settlement_price minSettlementPrice,
+                   p.image_keys_json imageKeysJson,
+                   p.description,
+                   p.product_status productStatus,
+                   p.updated_at updatedAt
+            from merchant_product p
+            inner join merchant_profile m on m.id = p.merchant_id
+            where p.id = #{productId}
+              and p.deleted = 0
+              and p.product_status = 'ON_SHELF'
+              and m.deleted = 0
+              and m.audit_status = 'APPROVED'
+              and m.status = 'ACTIVE'
+            limit 1
+            """)
+    MerchantQueryDTO findSnapshotByProductId(@Param("productId") Long productId);
+
+    /**
+     * 锁定商品库存，避免拼团活动重复消耗超出商家库存。
+     */
+    @Update("""
+            update merchant_product
+            set stock = stock - #{quantity},
+                updated_at = #{now}
+            where id = #{productId}
+              and product_status = 'ON_SHELF'
+              and stock >= #{quantity}
+              and deleted = 0
+            """)
+    int decreaseStock(@Param("productId") Long productId,
+                      @Param("quantity") Integer quantity,
+                      @Param("now") LocalDateTime now);
+
+    /**
      * 新增拼团商品，默认直接上架。
      */
     @Insert("""

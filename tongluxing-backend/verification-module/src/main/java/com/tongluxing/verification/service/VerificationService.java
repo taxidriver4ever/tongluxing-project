@@ -45,4 +45,6 @@ public interface VerificationService {
      * 申请核销冲正。
      */
     VerificationReversalVO applyReversal(Long verificationId, ReversalApplyRequest request);
+
+    int processCompensationTasks(int limit);
 }

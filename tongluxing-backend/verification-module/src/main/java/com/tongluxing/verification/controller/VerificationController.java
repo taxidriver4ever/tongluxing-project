@@ -96,4 +96,12 @@ public class VerificationController {
                                                         @Valid @RequestBody ReversalApplyRequest request) {
         return Result.success(verificationService.applyReversal(verificationId, request));
     }
+
+    /**
+     * 内部消费核销补偿任务，用于核销后触发本地分账或券状态同步。
+     */
+    @PostMapping("/internal/compensation-tasks/process")
+    public Result<Integer> processCompensationTasks(@RequestParam(defaultValue = "20") int limit) {
+        return Result.success(verificationService.processCompensationTasks(limit));
+    }
 }

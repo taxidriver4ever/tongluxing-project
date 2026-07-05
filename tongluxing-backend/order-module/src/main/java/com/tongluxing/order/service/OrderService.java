@@ -33,6 +33,12 @@ public interface OrderService {
      */
     OrderVO detail(Long orderId);
 
+    OrderVO internalDetail(Long orderId);
+
+    PageResult<OrderVO> merchantOrders(Long merchantId, String status, int page, int size);
+
+    int closeExpiredWaitPay(int limit);
+
     /**
      * 取消待支付订单。
      */

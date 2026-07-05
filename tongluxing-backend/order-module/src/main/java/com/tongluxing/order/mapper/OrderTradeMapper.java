@@ -52,6 +52,71 @@ public interface OrderTradeMapper {
     OrderTrade findById(@Param("orderId") Long orderId);
 
     /**
+     * 分页查询指定商家的订单列表，可按订单状态过滤。
+     */
+    @Select("""
+            select id, order_no, user_id, merchant_id, product_id, activity_id,
+                   original_amount, groupbuy_discount_amount, coupon_deduction_amount,
+                   payable_amount, paid_amount, user_coupon_id, order_status,
+                   payment_status, verification_status, refund_status, profit_sharing_status,
+                   expire_at, paid_at, completed_at, remark, created_at, updated_at, deleted
+            from order_trade
+            where merchant_id = #{merchantId}
+              and deleted = 0
+              and (#{status} is null or #{status} = '' or order_status = #{status})
+            order by created_at desc
+            limit #{offset}, #{size}
+            """)
+    List<OrderTrade> findByMerchant(@Param("merchantId") Long merchantId, @Param("status") String status,
+                                    @Param("offset") int offset, @Param("size") int size);
+
+    /**
+     * 统计指定商家的订单数量，可按订单状态过滤。
+     */
+    @Select("""
+            select count(1)
+            from order_trade
+            where merchant_id = #{merchantId}
+              and deleted = 0
+              and (#{status} is null or #{status} = '' or order_status = #{status})
+            """)
+    long countByMerchant(@Param("merchantId") Long merchantId, @Param("status") String status);
+
+    /**
+     * 查询已过期的待支付订单，服务层逐单关闭以便创建补偿任务。
+     */
+    @Select("""
+            select id, order_no, user_id, merchant_id, product_id, activity_id,
+                   original_amount, groupbuy_discount_amount, coupon_deduction_amount,
+                   payable_amount, paid_amount, user_coupon_id, order_status,
+                   payment_status, verification_status, refund_status, profit_sharing_status,
+                   expire_at, paid_at, completed_at, remark, created_at, updated_at, deleted
+            from order_trade
+            where order_status = 'WAIT_PAY'
+              and payment_status = 'WAIT_PAY'
+              and expire_at <= #{now}
+              and deleted = 0
+            order by expire_at asc
+            limit #{limit}
+            """)
+    List<OrderTrade> listExpiredWaitPay(@Param("now") LocalDateTime now, @Param("limit") int limit);
+
+    /**
+     * 关闭指定待支付订单。
+     */
+    @Update("""
+            update order_trade
+            set order_status = 'CANCELLED',
+                payment_status = 'CLOSED',
+                updated_at = #{now}
+            where id = #{orderId}
+              and order_status = 'WAIT_PAY'
+              and payment_status = 'WAIT_PAY'
+              and deleted = 0
+            """)
+    int closeExpiredWaitPay(@Param("orderId") Long orderId, @Param("now") LocalDateTime now);
+
+    /**
      * 分页查询指定用户的订单列表，可按订单状态过滤。
      */
     @Select("""

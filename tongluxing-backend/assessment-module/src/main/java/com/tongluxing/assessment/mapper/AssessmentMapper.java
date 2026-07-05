@@ -221,6 +221,27 @@ public interface AssessmentMapper {
                                  @Param("exclusionRadiusKm") BigDecimal exclusionRadiusKm,
                                  @Param("now") LocalDateTime now);
 
+    /**
+     * 写入人工调整明细，用于审计考核分变化来源。
+     */
+    @Insert("""
+            insert into assessment_manual_adjustment(
+                id, merchant_id, score_delta, reason, operator_id,
+                request_id, created_at, updated_at, deleted
+            )
+            values (
+                #{id}, #{merchantId}, #{scoreDelta}, #{reason}, #{operatorId},
+                #{requestId}, #{now}, #{now}, 0
+            )
+            """)
+    int insertManualAdjustment(@Param("id") Long id,
+                               @Param("merchantId") Long merchantId,
+                               @Param("scoreDelta") BigDecimal scoreDelta,
+                               @Param("reason") String reason,
+                               @Param("operatorId") Long operatorId,
+                               @Param("requestId") String requestId,
+                               @Param("now") LocalDateTime now);
+
     @Select("""
             select id merchantId
             from merchant_profile

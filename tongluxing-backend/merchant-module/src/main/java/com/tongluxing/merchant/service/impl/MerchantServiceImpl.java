@@ -74,6 +74,7 @@ public class MerchantServiceImpl implements MerchantService {
     private static final String IDEM_APPLICATION = "merchant:idem:application:%s";
     private static final String IDEM_COUPON = "merchant:idem:coupon:%s";
     private static final String IDEM_PROMOTION = "merchant:idem:promotion-code:%s";
+    private static final String IDEM_STOCK = "merchant:idem:stock:%s";
 
     private final CurrentUserContext currentUser;
     private final MerchantProfileMapper profileMapper;
@@ -267,6 +268,36 @@ public class MerchantServiceImpl implements MerchantService {
         MerchantProductVO result = product(productMapper.findById(merchant.getMerchantId(), productId));
         audit(merchant.getMerchantId(), userId, "PRODUCT_OFF_SHELF", "PRODUCT", productId, product(old), result, "下架拼团商品");
         return result;
+    }
+
+    /**
+     * 读取商品快照，供拼团和订单模块创建本地事实数据时使用。
+     */
+    @Override
+    public MerchantProductVO productSnapshot(Long productId) {
+        MerchantQueryDTO product = productMapper.findSnapshotByProductId(productId);
+        if (product == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "商品不存在或未上架");
+        }
+        return product(product);
+    }
+
+    /**
+     * 扣减商品库存。requestId 用于跨模块重试幂等，避免重复扣库存。
+     */
+    @Override
+    @Transactional
+    public void decreaseProductStock(Long productId, Integer quantity, String requestId) {
+        String idemKey = idemKey(IDEM_STOCK, requestId);
+        if (Boolean.TRUE.equals(redis.hasKey(idemKey))) {
+            return;
+        }
+        int affected = productMapper.decreaseStock(productId, Math.max(quantity == null ? 1 : quantity, 1),
+                LocalDateTime.now());
+        if (affected == 0) {
+            throw new BusinessException("商品库存不足或已下架");
+        }
+        redis.opsForValue().set(idemKey, "SUCCESS", Duration.ofDays(7));
     }
 
     /** 查询商家券池列表。 */

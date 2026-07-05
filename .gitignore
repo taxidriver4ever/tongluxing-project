@@ -33,7 +33,7 @@ replay_pid*
 # Environment and local-only config
 .env
 .env.*
-!.env.example
+.env.example
 application-local.yml
 application-local.yaml
 application-local.properties

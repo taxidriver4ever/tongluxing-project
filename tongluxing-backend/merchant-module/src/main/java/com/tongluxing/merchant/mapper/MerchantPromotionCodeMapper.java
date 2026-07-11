@@ -58,6 +58,27 @@ public interface MerchantPromotionCodeMapper {
     MerchantQueryDTO findById(@Param("merchantId") Long merchantId, @Param("promotionId") Long promotionId);
 
     /**
+     * 根据注册来源 sourceCode 查询有效推广码。
+     */
+    @Select("""
+            select id,
+                   merchant_id merchantId,
+                   promotion_code promotionCode,
+                   channel_name channelName,
+                   scene,
+                   qr_image_key qrImageKey,
+                   status,
+                   remark,
+                   created_at createdAt
+            from merchant_promotion_code
+            where promotion_code = #{promotionCode}
+              and status = 'ACTIVE'
+              and deleted = 0
+            limit 1
+            """)
+    MerchantQueryDTO findActiveByCode(@Param("promotionCode") String promotionCode);
+
+    /**
      * 新增推广码。
      */
     @Insert("""

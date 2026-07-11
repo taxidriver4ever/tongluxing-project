@@ -8,14 +8,19 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import com.tongluxing.order.entity.OrderItem;
+
 /**
  * 订单明细 Mapper。
+ *
+ * <p>封装 order_item 表的新增和按订单查询操作。</p>
  */
 @Mapper
 public interface OrderItemMapper {
 
     /**
      * 新增订单商品明细。
+     *
+     * @param item 订单商品明细实体
      */
     @Insert("""
             insert into order_item
@@ -29,6 +34,9 @@ public interface OrderItemMapper {
 
     /**
      * 查询指定订单下的商品明细。
+     *
+     * @param orderId 订单 ID
+     * @return 订单商品明细列表
      */
     @Select("""
             select id, order_id, product_id, product_name, product_type,

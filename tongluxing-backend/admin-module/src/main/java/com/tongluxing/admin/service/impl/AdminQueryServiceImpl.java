@@ -10,7 +10,17 @@ import com.tongluxing.admin.entity.AdminAuditLog;
 import com.tongluxing.admin.mapper.AdminAuditLogMapper;
 import com.tongluxing.admin.service.AdminQueryService;
 import com.tongluxing.admin.vo.AdminAuditLogVO;
+import com.tongluxing.admin.vo.AdminDrivingLicenseDetailVO;
+import com.tongluxing.admin.vo.AdminVehicleCertificationDetailVO;
+import com.tongluxing.admin.vo.AdminVehicleCertificationImageVO;
 import com.tongluxing.admin.vo.PageResult;
+import com.tongluxing.storage.service.StorageService;
+import com.tongluxing.user.model.UserModels.DrivingLicenseAuditDetailVO;
+import com.tongluxing.user.model.UserModels.DrivingLicenseAuditSummaryVO;
+import com.tongluxing.user.service.UserService;
+import com.tongluxing.vehicle.service.VehicleService;
+import com.tongluxing.vehicle.vo.VehicleCertificationAuditDetailVO;
+import com.tongluxing.vehicle.vo.VehicleCertificationAuditSummaryVO;
 
 import lombok.RequiredArgsConstructor;
 
@@ -23,6 +33,9 @@ public class AdminQueryServiceImpl implements AdminQueryService {
 
     /** 审计日志 Mapper。 */
     private final AdminAuditLogMapper auditLogMapper;
+    private final UserService userService;
+    private final VehicleService vehicleService;
+    private final StorageService storageService;
 
     /** 分页查询审计日志。 */
     @Override
@@ -47,6 +60,55 @@ public class AdminQueryServiceImpl implements AdminQueryService {
                                                 LocalDateTime startTime, LocalDateTime endTime,
                                                 int page, int size) {
         return new PageResult<>(List.of(), 0L, normalizePage(page), normalizeSize(size));
+    }
+
+    @Override
+    public PageResult<DrivingLicenseAuditSummaryVO> drivingLicenseCertifications(
+            String status, String keyword, int page, int size) {
+        com.tongluxing.user.model.UserModels.PageResult<DrivingLicenseAuditSummaryVO> result =
+                userService.pageDrivingLicenseCertifications(status, keyword, page, size);
+        return new PageResult<>(result.records(), result.total(), result.page(), result.size());
+    }
+
+    @Override
+    public AdminDrivingLicenseDetailVO drivingLicenseCertificationDetail(Long certificationId) {
+        DrivingLicenseAuditDetailVO detail = userService.getDrivingLicenseCertificationForAudit(certificationId);
+        return new AdminDrivingLicenseDetailVO(
+                detail.certificationId(), detail.userId(), detail.holderName(), detail.licenseNo(), detail.vehicleClass(),
+                detail.firstIssueDate(), detail.validFrom(), detail.validTo(), detail.issuingAuthority(),
+                detail.licenseFrontImageKey(), presign(detail.licenseFrontImageKey()),
+                detail.licenseBackImageKey(), presign(detail.licenseBackImageKey()), detail.recognitionSource(),
+                detail.status(), detail.rejectReason(), detail.submittedAt(), detail.reviewedAt());
+    }
+
+    @Override
+    public PageResult<VehicleCertificationAuditSummaryVO> vehicleCertifications(
+            String status, String keyword, int page, int size) {
+        com.tongluxing.vehicle.vo.PageResult<VehicleCertificationAuditSummaryVO> result =
+                vehicleService.pageCertifications(status, keyword, page, size);
+        return new PageResult<>(result.records(), result.total(), result.page(), result.size());
+    }
+
+    @Override
+    public AdminVehicleCertificationDetailVO vehicleCertificationDetail(Long certificationId) {
+        VehicleCertificationAuditDetailVO detail = vehicleService.getCertificationForAudit(certificationId);
+        List<AdminVehicleCertificationImageVO> images = detail.vehicleImages().stream()
+                .map(image -> new AdminVehicleCertificationImageVO(
+                        image.imageType(), image.imageKey(), presign(image.imageKey())))
+                .toList();
+        return new AdminVehicleCertificationDetailVO(
+                detail.certificationId(), detail.vehicleId(), detail.userId(), detail.ownerName(), detail.plateNo(),
+                detail.vehicleType(), detail.vin(), detail.engineNo(), detail.registerDate(), detail.issueDate(),
+                detail.issuingAuthority(), detail.licenseFrontImageKey(), presign(detail.licenseFrontImageKey()),
+                detail.licenseBackImageKey(), presign(detail.licenseBackImageKey()), images, detail.recognitionSource(),
+                detail.status(), detail.rejectReason(), detail.submittedAt(), detail.reviewedAt());
+    }
+
+    private String presign(String objectKey) {
+        if (objectKey == null || objectKey.isBlank()) {
+            return "";
+        }
+        return storageService.presignDownload(null, null, objectKey).downloadUrl();
     }
 
     /** 将审计日志实体转换为 VO。 */

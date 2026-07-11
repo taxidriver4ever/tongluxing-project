@@ -40,3 +40,22 @@ create table if not exists auth_login_log (
     key idx_auth_login_log_action_type (action_type),
     key idx_auth_login_log_created_at (created_at)
 );
+
+create table if not exists auth_device_binding (
+    id bigint primary key,
+    user_id bigint not null,
+    phone varchar(20) not null,
+    client_type varchar(32) not null,
+    device_id varchar(128) not null,
+    device_name varchar(128) null,
+    platform varchar(32) null,
+    bind_status tinyint not null default 1 comment '1 bound, 2 disabled',
+    last_login_time datetime null,
+    last_login_ip varchar(64) null,
+    created_at datetime not null,
+    updated_at datetime not null,
+    deleted tinyint not null default 0,
+    unique key uk_auth_device_user_client_device (user_id, client_type, device_id, deleted),
+    key idx_auth_device_user_client (user_id, client_type),
+    key idx_auth_device_phone (phone)
+);

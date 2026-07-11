@@ -41,6 +41,12 @@ public class TripDraftPublishAdapter implements TripDraftPublishPort {
 
     /**
      * 根据草稿发布行程；当发布类型不是单独行程时，同时创建车队。
+     *
+     * @param userId 当前用户 ID
+     * @param draft 用户模块中的下一趟行程草稿
+     * @param publishType 发布类型；TRIP 表示仅发布行程，其它值会继续创建车队
+     * @param bizId 上游业务 ID，用于链路追踪或幂等扩展
+     * @return 发布后的行程 ID 和车队 ID
      */
     @Override
     public PublishOutcome publish(Long userId, TripDraftVO draft, String publishType, String bizId) {
@@ -70,6 +76,12 @@ public class TripDraftPublishAdapter implements TripDraftPublishPort {
 
     /**
      * 基于草稿起点查询附近车队推荐，仅第一页返回推荐结果。
+     *
+     * @param userId 当前用户 ID
+     * @param draft 用户模块中的下一趟行程草稿
+     * @param page 页码，从 1 开始
+     * @param size 每页推荐数量
+     * @return 附近车队推荐列表
      */
     @Override
     public List<TeamMatchVO> recommendTeams(Long userId, TripDraftVO draft, int page, int size) {
@@ -86,6 +98,9 @@ public class TripDraftPublishAdapter implements TripDraftPublishPort {
 
     /**
      * 将用户模块的位置值对象转换为行程创建请求的位置对象。
+     *
+     * @param value 用户模块位置值对象
+     * @return 行程模块位置请求对象
      */
     private LocationRequest location(LocationVO value) {
         return new LocationRequest(value.name(), value.address(), value.latitude(), value.longitude());
@@ -93,6 +108,9 @@ public class TripDraftPublishAdapter implements TripDraftPublishPort {
 
     /**
      * 将草稿途经点转换为行程模块的途经点请求列表。
+     *
+     * @param values 用户模块途经点列表
+     * @return 行程模块途经点请求列表
      */
     private List<WaypointLocationRequest> waypoints(List<LocationVO> values) {
         if (values == null) {
@@ -106,6 +124,10 @@ public class TripDraftPublishAdapter implements TripDraftPublishPort {
 
     /**
      * 计算草稿期望出发时间与推荐车队出发时间的分钟差。
+     *
+     * @param expected 草稿期望出发时间
+     * @param actual 推荐车队出发时间字符串
+     * @return 两个时间的分钟差；解析失败时返回 0
      */
     private long timeDifference(LocalDateTime expected, String actual) {
         try {

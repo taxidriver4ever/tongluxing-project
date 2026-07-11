@@ -1,6 +1,7 @@
 package com.tongluxing.vehicle.vo;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 车辆认证记录响应。
@@ -18,8 +19,11 @@ public record VehicleCertificationResponse(
         String vinMask,
         /** 脱敏后的发动机号。 */
         String engineNoMask,
-        /** 行驶证照片资源标识。 */
-        String licenseImageKey,
+        /** 行驶证正页/副页资源标识。 */
+        String licenseFrontImageKey,
+        String licenseBackImageKey,
+        /** 车辆审核图片。 */
+        List<VehicleCertificationImageVO> vehicleImages,
         /** 认证状态。 */
         String status,
         /** 审核拒绝原因；非拒绝状态通常为空。 */
@@ -27,6 +31,8 @@ public record VehicleCertificationResponse(
         /** 提交时间。 */
         LocalDateTime submittedAt,
         /** 审核时间。 */
-        LocalDateTime reviewedAt
+        LocalDateTime reviewedAt,
+        /** 当前状态是否允许重新提交。 */
+        Boolean canResubmit
 ) {
 }

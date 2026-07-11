@@ -56,16 +56,18 @@ public final class UserModels {
     ) {
     }
 
-    /**
-     * 实名认证提交请求。
-     *
-     * <p>真实姓名和证件号会在服务层加密保存。</p>
-     */
+    /** 驾驶证认证提交请求，字段由小程序 OCR 后经用户确认。 */
     public record CertificationRequest(
-            @NotBlank @Size(max = 64) String realName,
-            @NotBlank @Pattern(regexp = "^[0-9A-Za-z]{15,18}$") String idCardNo,
-            @NotBlank @Size(max = 512) String drivingLicenseImageKey,
-            @NotBlank @Size(max = 512) String faceImageKey
+            @NotBlank @Size(max = 64) String holderName,
+            @NotBlank @Pattern(regexp = "^[0-9A-Za-z]{6,32}$") String licenseNo,
+            @NotBlank @Size(max = 32) String vehicleClass,
+            LocalDate firstIssueDate,
+            LocalDate validFrom,
+            LocalDate validTo,
+            @Size(max = 128) String issuingAuthority,
+            @NotBlank @Size(max = 512) String licenseFrontImageKey,
+            @Size(max = 512) String licenseBackImageKey,
+            @NotBlank @Pattern(regexp = "MINIPROGRAM_OCR") String recognitionSource
     ) {
     }
 
@@ -128,16 +130,30 @@ public final class UserModels {
      */
     public record UserProfileVO(
             Long userId, String nickname, String avatarImageKey, Integer gender, LocalDate birthday,
-            String cityCode, String cityName, String bio, String profileStatus, String certificationStatus
+            String cityCode, String cityName, String bio, String profileStatus, String drivingLicenseCertificationStatus
     ) {
     }
 
-    /**
-     * 实名认证状态返回对象。
-     */
+    /** 驾驶证认证状态返回对象。 */
     public record CertificationVO(
-            Long certificationId, Long userId, String certificationStatus, String rejectReason,
-            LocalDateTime submittedAt, LocalDateTime reviewedAt
+            Long certificationId, Long userId, String status, String rejectReason,
+            LocalDateTime submittedAt, LocalDateTime reviewedAt, Boolean canResubmit
+    ) {
+    }
+
+    /** 后台驾驶证认证列表项。 */
+    public record DrivingLicenseAuditSummaryVO(
+            Long certificationId, Long userId, String holderName, String licenseNoMasked,
+            String vehicleClass, LocalDate validTo, String status, LocalDateTime submittedAt
+    ) {
+    }
+
+    /** 后台驾驶证认证详情，图片 URL 由 admin-module 按需补充。 */
+    public record DrivingLicenseAuditDetailVO(
+            Long certificationId, Long userId, String holderName, String licenseNo, String vehicleClass,
+            LocalDate firstIssueDate, LocalDate validFrom, LocalDate validTo, String issuingAuthority,
+            String licenseFrontImageKey, String licenseBackImageKey, String recognitionSource,
+            String status, String rejectReason, LocalDateTime submittedAt, LocalDateTime reviewedAt
     ) {
     }
 
@@ -148,7 +164,7 @@ public final class UserModels {
      */
     public record PublicProfileVO(
             Long userId, String nickname, String avatarImageKey, String cityName, String bio,
-            String certificationStatus
+            String drivingLicenseCertificationStatus
     ) {
     }
 

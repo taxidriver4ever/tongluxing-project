@@ -1,5 +1,6 @@
 package com.tongluxing.vehicle.entity;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import lombok.Data;
@@ -23,14 +24,24 @@ public class VehicleCertification {
     private String plateNoCipher;
     /** 认证车牌号脱敏值。 */
     private String plateNoMask;
+    /** 行驶证车辆类型。 */
+    private String vehicleType;
     /** VIN 密文。 */
     private String vinCipher;
     /** VIN 脱敏值。 */
     private String vinMask;
-    /** 发动机号脱敏值。 */
+    /** 发动机号密文及脱敏值。 */
+    private String engineNoCipher;
     private String engineNoMask;
-    /** 行驶证照片资源标识。 */
-    private String licenseImageKey;
+    /** 行驶证日期和发证机关。 */
+    private LocalDate registerDate;
+    private LocalDate issueDate;
+    private String issuingAuthority;
+    /** 行驶证正页/副页资源标识。 */
+    private String licenseFrontImageKey;
+    private String licenseBackImageKey;
+    /** 小程序识别来源。 */
+    private String recognitionSource;
     /** 审核状态。 */
     private String status;
     /** 审核拒绝原因。 */

@@ -38,6 +38,12 @@ public class OrderCompensationTaskServiceImpl implements OrderCompensationTaskSe
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
 
+    /**
+     * 拉取并处理到期补偿任务。
+     *
+     * @param limit 单次最大处理数量
+     * @return 成功处理的任务数量
+     */
     @Override
     public int processDueTasks(int limit) {
         LocalDateTime now = LocalDateTime.now();
@@ -83,6 +89,9 @@ public class OrderCompensationTaskServiceImpl implements OrderCompensationTaskSe
         }
     }
 
+    /**
+     * 查询补偿任务关联订单。
+     */
     private OrderTrade requireOrder(Long orderId) {
         OrderTrade order = orderMapper.findById(orderId);
         if (order == null) {
@@ -91,18 +100,27 @@ public class OrderCompensationTaskServiceImpl implements OrderCompensationTaskSe
         return order;
     }
 
+    /**
+     * 为单个任务加 Redis 锁，避免多实例重复执行同一任务。
+     */
     private boolean tryLock(Long taskId) {
         String key = TASK_LOCK_KEY.formatted(taskId);
         Boolean locked = redis.opsForValue().setIfAbsent(key, "1", 120, TimeUnit.SECONDS);
         return Boolean.TRUE.equals(locked);
     }
 
+    /**
+     * 计算指数退避后的下次重试时间，最长延迟 5 分钟。
+     */
     private LocalDateTime nextRetryAt(OrderCompensationTask task, LocalDateTime now) {
         int retryCount = task.getRetryCount() == null ? 0 : task.getRetryCount();
         long delaySeconds = Math.min(300L, (long) Math.pow(2, Math.min(retryCount, 8)) * 10L);
         return now.plus(Duration.ofSeconds(delaySeconds));
     }
 
+    /**
+     * 归一化异常信息，避免数据库错误字段过长。
+     */
     private String normalizeError(Exception ex) {
         String message = ex.getMessage();
         if (message == null || message.isBlank()) {

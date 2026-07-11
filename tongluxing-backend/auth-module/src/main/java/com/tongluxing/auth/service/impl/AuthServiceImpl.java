@@ -2,8 +2,10 @@ package com.tongluxing.auth.service.impl;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -11,23 +13,30 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import com.tongluxing.auth.client.WxMiniProgramClient;
+import com.tongluxing.auth.dto.AppBindByMiniTicketRequest;
+import com.tongluxing.auth.dto.AppLoginRequest;
 import com.tongluxing.auth.dto.LoginRequest;
 import com.tongluxing.auth.dto.RefreshTokenRequest;
+import com.tongluxing.auth.dto.RegisterSource;
 import com.tongluxing.auth.dto.SmsCodeRequest;
 import com.tongluxing.auth.dto.WxPhoneLoginRequest;
 import com.tongluxing.auth.entity.AuthAccount;
+import com.tongluxing.auth.entity.AuthDeviceBinding;
 import com.tongluxing.auth.mapper.AuthAccountMapper;
+import com.tongluxing.auth.mapper.AuthDeviceBindingMapper;
 import com.tongluxing.auth.mapper.AuthLoginLogMapper;
 import com.tongluxing.auth.mapper.AuthSmsLogMapper;
 import com.tongluxing.auth.security.AuthPrincipal;
 import com.tongluxing.auth.security.TokenStore;
 import com.tongluxing.auth.service.AuthService;
 import com.tongluxing.auth.vo.CurrentUserResponse;
+import com.tongluxing.auth.vo.AppBindTicketResponse;
 import com.tongluxing.auth.vo.LoginResponse;
 import com.tongluxing.auth.vo.LogoutResponse;
 import com.tongluxing.auth.vo.RefreshTokenResponse;
 import com.tongluxing.auth.vo.SmsCodeResponse;
 import com.tongluxing.common.exception.BusinessException;
+import com.tongluxing.common.event.UserRegisteredEvent;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 
@@ -62,6 +71,11 @@ public class AuthServiceImpl implements AuthService {
     private static final String SMS_DAILY_KEY = "auth:sms:daily:%s:%s";
     /** 登录失败次数 Redis key。 */
     private static final String LOGIN_FAIL_KEY = "auth:login:fail:%s";
+    /** 小程序生成的 App 绑定 ticket。 */
+    private static final String APP_BIND_TICKET_KEY = "auth:app:bind-ticket:%s";
+    private static final int APP_BIND_TICKET_EXPIRE_SECONDS = 300;
+    private static final String CLIENT_MINI_PROGRAM = "MINI_PROGRAM";
+    private static final String CLIENT_APP_DRIVER = "APP_DRIVER";
 
     /** Redis 模板，用于验证码、限流计数和登录失败计数。 */
     private final StringRedisTemplate redisTemplate;
@@ -73,8 +87,12 @@ public class AuthServiceImpl implements AuthService {
     private final AuthSmsLogMapper smsLogMapper;
     /** 登录行为日志 Mapper。 */
     private final AuthLoginLogMapper loginLogMapper;
+    /** 设备绑定 Mapper。 */
+    private final AuthDeviceBindingMapper deviceBindingMapper;
     /** 微信小程序接口客户端。 */
     private final WxMiniProgramClient wxMiniProgramClient;
+    /** Spring 事件发布器，用于首次注册成功后通知业务模块处理来源绑定。 */
+    private final ApplicationEventPublisher eventPublisher;
 
     /** 发送登录验证码，并执行发送冷却和每日次数限制。 */
     @Override
@@ -113,7 +131,7 @@ public class AuthServiceImpl implements AuthService {
         validateLoginFailLimit(phone);
         validateSmsCode(phone, request.code());
 
-        LoginResponse response = doLoginByPhone(phone, request.deviceId(), "login");
+        LoginResponse response = doLoginByPhone(phone, request.deviceId(), null, null, CLIENT_MINI_PROGRAM, "login", request.registerSource());
         redisTemplate.delete(key(SMS_CODE_KEY, DEFAULT_SCENE, phone));
         return response;
     }
@@ -123,19 +141,57 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public LoginResponse wxPhoneLogin(WxPhoneLoginRequest request) {
         String phone = wxMiniProgramClient.getPhoneNumber(request.code());
-        return doLoginByPhone(phone, request.deviceId(), "wx_phone_login");
+        return doLoginByPhone(phone, request.deviceId(), null, null, CLIENT_MINI_PROGRAM, "wx_phone_login", request.registerSource());
     }
 
-    /**
-     * 手机号登录公共流程。
-     *
-     * <p>手机号验证码登录和微信手机号登录最终都会走到这里：查账号、必要时创建账号、签发 Token、记录日志。</p>
-     */
-    private LoginResponse doLoginByPhone(String phone, String deviceId, String actionType) {
-        AuthAccount account = accountMapper.findByPhone(phone);
-        boolean isNewUser = account == null;
+    /** App 驾驶端手机号验证码登录。 */
+    @Override
+    @Transactional
+    public LoginResponse appLogin(AppLoginRequest request) {
+        String phone = request.phone();
+        validateLoginFailLimit(phone);
+        validateSmsCode(phone, request.code());
+
+        LoginResponse response = doLoginByPhone(
+                phone,
+                request.deviceId(),
+                request.deviceName(),
+                request.platform(),
+                CLIENT_APP_DRIVER,
+                "app_login",
+                request.registerSource()
+        );
+        redisTemplate.delete(key(SMS_CODE_KEY, DEFAULT_SCENE, phone));
+        return response;
+    }
+
+    /** 小程序端为当前登录用户生成一次性 App 绑定 ticket。 */
+    @Override
+    public AppBindTicketResponse createAppBindTicket(String authorization) {
+        AuthPrincipal principal = resolvePrincipal(authorization);
+        String ticket = UUID.randomUUID().toString().replace("-", "");
+        redisTemplate.opsForValue().set(
+                APP_BIND_TICKET_KEY.formatted(ticket),
+                String.valueOf(principal.userId()),
+                Duration.ofSeconds(APP_BIND_TICKET_EXPIRE_SECONDS)
+        );
+        return new AppBindTicketResponse(ticket, APP_BIND_TICKET_EXPIRE_SECONDS);
+    }
+
+    /** App 使用小程序 ticket 绑定并登录。 */
+    @Override
+    @Transactional
+    public LoginResponse bindAppByMiniTicket(AppBindByMiniTicketRequest request) {
+        String key = APP_BIND_TICKET_KEY.formatted(request.ticket());
+        String userIdText = redisTemplate.opsForValue().get(key);
+        if (!StringUtils.hasText(userIdText)) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "绑定 ticket 已失效");
+        }
+        redisTemplate.delete(key);
+
+        AuthAccount account = accountMapper.findByUserId(Long.parseLong(userIdText));
         if (account == null) {
-            account = createAccount(phone, currentIp());
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "登录状态已失效");
         }
         if (Integer.valueOf(2).equals(account.getAccountStatus())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "账号已被禁用");
@@ -143,10 +199,36 @@ public class AuthServiceImpl implements AuthService {
 
         String ip = currentIp();
         updateLastLogin(account.getUserId(), ip);
+        upsertDeviceBinding(account, CLIENT_APP_DRIVER, request.deviceId(), request.deviceName(), request.platform(), ip);
+        TokenStore.TokenPair tokenPair = tokenStore.create(account.getUserId(), account.getPhone(), normalizeDeviceId(request.deviceId()));
+        insertLoginLog(account.getUserId(), account.getPhone(), "app_bind_login", request.deviceId(), ip, true, "app bind by mini ticket success");
+        return new LoginResponse(tokenPair.token(), tokenPair.refreshToken(), account.getUserId(), false, tokenPair.expireSeconds());
+    }
+
+    /**
+     * 手机号登录公共流程。
+     *
+     * <p>手机号验证码登录和微信手机号登录最终都会走到这里：查账号、必要时创建账号、签发 Token、记录日志。</p>
+     */
+    private LoginResponse doLoginByPhone(String phone, String deviceId, String deviceName, String platform,
+                                         String clientType, String actionType, RegisterSource registerSource) {
+        AuthAccount account = accountMapper.findByPhone(phone);
+        boolean isNewUser = account == null;
+        if (account == null) {
+            account = createAccount(phone, currentIp());
+            publishUserRegistered(account, registerSource);
+        }
+        if (Integer.valueOf(2).equals(account.getAccountStatus())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "账号已被禁用");
+        }
+
+        String ip = currentIp();
+        updateLastLogin(account.getUserId(), ip);
+        upsertDeviceBinding(account, clientType, deviceId, deviceName, platform, ip);
         // 登录成功后清除验证码错误计数，避免用户后续被旧失败次数影响。
         redisTemplate.delete(loginFailKey(phone));
 
-        TokenStore.TokenPair tokenPair = tokenStore.create(account.getUserId(), phone, deviceId);
+        TokenStore.TokenPair tokenPair = tokenStore.create(account.getUserId(), phone, normalizeDeviceId(deviceId));
         insertLoginLog(account.getUserId(), phone, actionType, deviceId, ip, true, actionType + " success");
         return new LoginResponse(
                 tokenPair.token(),
@@ -155,6 +237,53 @@ public class AuthServiceImpl implements AuthService {
                 isNewUser,
                 tokenPair.expireSeconds()
         );
+    }
+
+    /** 新增或刷新设备绑定关系。 */
+    private void upsertDeviceBinding(AuthAccount account, String clientType, String deviceId, String deviceName, String platform, String ip) {
+        String normalizedDeviceId = StringUtils.hasText(deviceId) ? deviceId : "default";
+        LocalDateTime now = LocalDateTime.now();
+        int rows = deviceBindingMapper.updateLogin(
+                account.getUserId(),
+                account.getPhone(),
+                clientType,
+                normalizedDeviceId,
+                normalize(deviceName),
+                normalize(platform),
+                now,
+                ip,
+                now
+        );
+        if (rows > 0) {
+            return;
+        }
+        AuthDeviceBinding binding = new AuthDeviceBinding();
+        binding.setId(SnowflakeIdGenerator.nextId());
+        binding.setUserId(account.getUserId());
+        binding.setPhone(account.getPhone());
+        binding.setClientType(clientType);
+        binding.setDeviceId(normalizedDeviceId);
+        binding.setDeviceName(normalize(deviceName));
+        binding.setPlatform(normalize(platform));
+        binding.setBindStatus(1);
+        binding.setLastLoginTime(now);
+        binding.setLastLoginIp(ip);
+        binding.setCreatedAt(now);
+        binding.setUpdatedAt(now);
+        binding.setDeleted(0);
+        deviceBindingMapper.insert(binding);
+    }
+
+    /** 首次注册成功后发布注册来源事件；已有用户登录不会调用该方法。 */
+    private void publishUserRegistered(AuthAccount account, RegisterSource registerSource) {
+        String sourceType = registerSource == null ? null : registerSource.sourceType();
+        String sourceCode = registerSource == null ? null : registerSource.sourceCode();
+        eventPublisher.publishEvent(new UserRegisteredEvent(
+                account.getUserId(),
+                sourceType,
+                sourceCode,
+                account.getCreatedAt()
+        ));
     }
 
     /** 退出登录：解析当前 Token，删除 Redis 登录态，并记录退出日志。 */
@@ -189,7 +318,7 @@ public class AuthServiceImpl implements AuthService {
 
         // refresh token 一次性使用：刷新成功后立即删除旧 refresh token。
         tokenStore.deleteRefreshToken(request.refreshToken());
-        TokenStore.TokenPair tokenPair = tokenStore.create(refreshPrincipal.userId(), account.getPhone(), "");
+        TokenStore.TokenPair tokenPair = tokenStore.create(refreshPrincipal.userId(), account.getPhone(), refreshPrincipal.deviceId());
         insertLoginLog(refreshPrincipal.userId(), account.getPhone(), "refresh", null, currentIp(), true, "refresh token success");
         return new RefreshTokenResponse(tokenPair.token(), tokenPair.expireSeconds());
     }
@@ -269,6 +398,16 @@ public class AuthServiceImpl implements AuthService {
     /** 规范化短信验证码场景，空值使用默认登录场景。 */
     private String normalizeScene(String scene) {
         return StringUtils.hasText(scene) ? scene : DEFAULT_SCENE;
+    }
+
+    /** 规范化普通文本。 */
+    private String normalize(String value) {
+        return StringUtils.hasText(value) ? value.trim() : "";
+    }
+
+    /** 规范化设备 ID，保证 Token 和设备绑定表使用同一维度。 */
+    private String normalizeDeviceId(String deviceId) {
+        return StringUtils.hasText(deviceId) ? deviceId.trim() : "default";
     }
 
     /** 按统一格式生成短信相关 Redis key。 */

@@ -66,8 +66,6 @@ public class MerchantQueryDTO {
     private String qrImageKey;
     private String remark;
     private LocalDate statDate;
-    private Long exposureCount;
-    private Long clickCount;
     private Long registerCount;
     private Long couponClaimCount;
     private Long couponVerifyCount;

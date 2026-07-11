@@ -1,20 +1,17 @@
 package com.tongluxing.invite.controller;
 
+import com.tongluxing.invite.dto.InviteRewardResult;
 import org.springframework.web.bind.annotation.*;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.invite.dto.CompleteRequest;
-import com.tongluxing.invite.dto.InviteAutoBindRequest;
-import com.tongluxing.invite.dto.InvitePhoneBindRequest;
-import com.tongluxing.invite.integration.InviteFacade.InviteRewardResult;
 import com.tongluxing.invite.model.InviteModels.*;
 import com.tongluxing.invite.service.InviteService;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 /**
  * 邀请模块接口控制器。
  *
- * <p>对外提供邀请码查询、邀请码绑定、邀请记录和奖励进度查询；同时提供内部接口接收“首次组队完成”事件。</p>
+ * <p>对外提供邀请码查询、邀请记录和奖励进度查询；邀请绑定由 UserRegisteredEvent 驱动。</p>
  */
 @RestController
 @RequiredArgsConstructor
@@ -27,18 +24,6 @@ public class InviteController {
     @GetMapping("/v1/invites/me/code")
     public Result<InviteCodeVO> code() {
         return Result.success(service.currentCode());
-    }
-
-    /** 分享链接/二维码注册后，根据系统邀请参数自动绑定邀请关系。 */
-    @PostMapping("/v1/invites/bind")
-    public Result<InviteBindVO> bind(@Valid @RequestBody InviteAutoBindRequest request) {
-        return Result.success(service.autoBindCurrent(request.inviteCode(), request.sourceType(), request.sourceScene()));
-    }
-
-    /** 新用户注册后 7 天内，通过填写邀请人手机号进行弱兜底绑定。 */
-    @PostMapping("/v1/invites/bind-by-phone")
-    public Result<InviteBindVO> bindByPhone(@Valid @RequestBody InvitePhoneBindRequest request) {
-        return Result.success(service.bindCurrentByPhone(request.inviterPhone()));
     }
 
     /** 查询当前登录用户的邀请奖励进度摘要。 */

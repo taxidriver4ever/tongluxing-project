@@ -65,6 +65,10 @@
         </dependency>
         <dependency>
             <groupId>com.tongluxing</groupId>
+            <artifactId>driver-track-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongluxing</groupId>
             <artifactId>merchant-module</artifactId>
         </dependency>
         <dependency>

@@ -28,5 +28,6 @@ CREATE TABLE IF NOT EXISTS invite_reward_record (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (id),
   UNIQUE KEY uk_invite_reward_biz (reward_biz_no, deleted),
+  UNIQUE KEY uk_invite_reward_stage (beneficiary_user_id, rule_code, deleted),
   KEY idx_invite_reward_user (beneficiary_user_id, reward_status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

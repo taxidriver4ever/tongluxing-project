@@ -11,8 +11,8 @@ import com.tongluxing.user.model.UserModels.CustomerServiceEntryVO;
 /**
  * 客服入口接口。
  *
- * <p>当前模块仅提供前端进入客服能力所需的轻量入口信息，
- * 尚未承载客服会话、工单、人工坐席分配等完整客服业务流程。</p>
+ * <p>该接口只返回前端进入客服能力所需的轻量配置，例如渠道类型和客服账号标识。
+ * 真实问题处理闭环由工单接口承载；后续接入微信客服时，也可以继续保留该入口作为前端路由配置来源。</p>
  */
 @RestController
 @RequestMapping("/v1/customer-service")
@@ -21,7 +21,7 @@ public class CustomerServiceController {
     /**
      * 获取客服入口配置。
      *
-     * @param scene 入口场景，例如 USER_CENTER；用于前端区分从哪个页面进入客服
+     * @param scene 入口场景，例如 USER_CENTER、ORDER_DETAIL；用于前端统计和展示不同入口文案
      * @return 客服渠道和客服账号标识
      */
     @GetMapping("/entry")

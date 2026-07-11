@@ -10,14 +10,19 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import com.tongluxing.order.entity.OrderTrade;
+
 /**
  * 订单主表 Mapper。
+ *
+ * <p>封装 order_trade 表的新增、查询、分页统计和订单状态流转更新。</p>
  */
 @Mapper
 public interface OrderTradeMapper {
 
     /**
      * 新增订单主表记录。
+     *
+     * @param order 订单主表实体
      */
     @Insert("""
             insert into order_trade
@@ -37,6 +42,9 @@ public interface OrderTradeMapper {
 
     /**
      * 根据订单 ID 查询未删除订单。
+     *
+     * @param orderId 订单 ID
+     * @return 订单实体；不存在时返回 null
      */
     @Select("""
             select id, order_no, user_id, merchant_id, product_id, activity_id,
@@ -53,6 +61,12 @@ public interface OrderTradeMapper {
 
     /**
      * 分页查询指定商家的订单列表，可按订单状态过滤。
+     *
+     * @param merchantId 商家 ID
+     * @param status 订单状态过滤条件，可为空
+     * @param offset 分页偏移量
+     * @param size 每页条数
+     * @return 商家订单列表
      */
     @Select("""
             select id, order_no, user_id, merchant_id, product_id, activity_id,
@@ -72,6 +86,10 @@ public interface OrderTradeMapper {
 
     /**
      * 统计指定商家的订单数量，可按订单状态过滤。
+     *
+     * @param merchantId 商家 ID
+     * @param status 订单状态过滤条件，可为空
+     * @return 订单数量
      */
     @Select("""
             select count(1)
@@ -84,6 +102,10 @@ public interface OrderTradeMapper {
 
     /**
      * 查询已过期的待支付订单，服务层逐单关闭以便创建补偿任务。
+     *
+     * @param now 当前时间
+     * @param limit 单次最大查询数量
+     * @return 过期未支付订单列表
      */
     @Select("""
             select id, order_no, user_id, merchant_id, product_id, activity_id,
@@ -103,6 +125,10 @@ public interface OrderTradeMapper {
 
     /**
      * 关闭指定待支付订单。
+     *
+     * @param orderId 订单 ID
+     * @param now 关闭时间
+     * @return 受影响行数
      */
     @Update("""
             update order_trade
@@ -118,6 +144,12 @@ public interface OrderTradeMapper {
 
     /**
      * 分页查询指定用户的订单列表，可按订单状态过滤。
+     *
+     * @param userId 用户 ID
+     * @param status 订单状态过滤条件，可为空
+     * @param offset 分页偏移量
+     * @param size 每页条数
+     * @return 用户订单列表
      */
     @Select("""
             select id, order_no, user_id, merchant_id, product_id, activity_id,
@@ -137,6 +169,10 @@ public interface OrderTradeMapper {
 
     /**
      * 统计指定用户的订单数量，可按订单状态过滤。
+     *
+     * @param userId 用户 ID
+     * @param status 订单状态过滤条件，可为空
+     * @return 订单数量
      */
     @Select("""
             select count(1)
@@ -149,6 +185,11 @@ public interface OrderTradeMapper {
 
     /**
      * 仅允许用户取消自己的待支付订单。
+     *
+     * @param orderId 订单 ID
+     * @param userId 用户 ID
+     * @param now 取消时间
+     * @return 受影响行数
      */
     @Update("""
             update order_trade
@@ -164,6 +205,10 @@ public interface OrderTradeMapper {
 
     /**
      * 支付成功后推进订单到已支付和待核销状态。
+     *
+     * @param orderId 订单 ID
+     * @param paidAt 支付成功时间
+     * @return 受影响行数
      */
     @Update("""
             update order_trade
@@ -181,6 +226,12 @@ public interface OrderTradeMapper {
 
     /**
      * 更新订单退款状态，同时同步订单主状态。
+     *
+     * @param orderId 订单 ID
+     * @param refundStatus 退款状态
+     * @param orderStatus 订单主状态
+     * @param now 更新时间
+     * @return 受影响行数
      */
     @Update("""
             update order_trade
@@ -195,6 +246,10 @@ public interface OrderTradeMapper {
 
     /**
      * 核销成功后推进订单到已核销和待分账状态。
+     *
+     * @param orderId 订单 ID
+     * @param now 核销时间
+     * @return 受影响行数
      */
     @Update("""
             update order_trade
@@ -210,6 +265,10 @@ public interface OrderTradeMapper {
 
     /**
      * 分账或履约完成后标记订单完成。
+     *
+     * @param orderId 订单 ID
+     * @param now 完成时间
+     * @return 受影响行数
      */
     @Update("""
             update order_trade

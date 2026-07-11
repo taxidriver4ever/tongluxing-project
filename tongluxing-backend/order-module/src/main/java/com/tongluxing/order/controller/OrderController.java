@@ -22,7 +22,9 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 订单模块接口控制器，提供订单试算、创建、查询和取消能力。
+ * 用户侧订单 REST 接口。
+ *
+ * <p>提供订单试算、创建、当前用户订单查询、取消，以及少量内部运维触发入口。</p>
  */
 @Validated
 @RestController
@@ -34,6 +36,9 @@ public class OrderController {
 
     /**
      * 订单金额试算，用于下单前展示原价、拼团优惠、券抵扣和应付金额。
+     *
+     * @param request 试算参数
+     * @return 试算后的金额拆分
      */
     @PostMapping("/preview")
     public Result<OrderPreviewVO> preview(@Valid @RequestBody OrderPreviewRequest request) {
@@ -42,6 +47,9 @@ public class OrderController {
 
     /**
      * 创建订单，服务层会基于 requestId 做幂等保护。
+     *
+     * @param request 创建订单参数
+     * @return 创建后的订单详情
      */
     @PostMapping
     public Result<OrderVO> create(@Valid @RequestBody CreateOrderRequest request) {
@@ -50,6 +58,11 @@ public class OrderController {
 
     /**
      * 查询当前登录用户的订单列表。
+     *
+     * @param status 可选订单状态过滤条件
+     * @param page 页码，从 1 开始
+     * @param size 每页条数
+     * @return 当前用户订单分页数据
      */
     @GetMapping
     public Result<PageResult<OrderVO>> myOrders(@RequestParam(required = false) String status,
@@ -60,6 +73,9 @@ public class OrderController {
 
     /**
      * 查询当前登录用户可见的订单详情。
+     *
+     * @param orderId 订单 ID
+     * @return 订单详情
      */
     @GetMapping("/{orderId}")
     public Result<OrderVO> detail(@PathVariable Long orderId) {
@@ -68,6 +84,9 @@ public class OrderController {
 
     /**
      * 取消当前登录用户自己的待支付订单。
+     *
+     * @param orderId 订单 ID
+     * @return 空响应
      */
     @PostMapping("/{orderId}/cancel")
     public Result<Void> cancel(@PathVariable Long orderId) {
@@ -77,6 +96,9 @@ public class OrderController {
 
     /**
      * 内部关闭超时未支付订单，便于本地任务或运营补偿触发。
+     *
+     * @param limit 单次最多关闭订单数
+     * @return 成功关闭的订单数量
      */
     @PostMapping("/internal/expired/close")
     public Result<Integer> closeExpired(@RequestParam(defaultValue = "100") int limit) {
@@ -85,6 +107,9 @@ public class OrderController {
 
     /**
      * 内部接口：手动消费订单补偿任务，便于内测和运营排障。
+     *
+     * @param limit 单次最多处理任务数
+     * @return 成功处理的补偿任务数量
      */
     @PostMapping("/internal/compensation-tasks/process")
     public Result<Integer> processCompensationTasks(@RequestParam(defaultValue = "50") int limit) {

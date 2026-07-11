@@ -22,6 +22,9 @@ public class MatchTeamAdapter implements MatchTeamPort {
 
     /**
      * 查询公开活跃车队，作为匹配推荐候选池。
+     *
+     * @param limit 最大查询数量
+     * @return 匹配模块车队摘要列表
      */
     @Override
     public List<MatchTeamDTO> listPublicActiveTeams(int limit) {
@@ -32,6 +35,9 @@ public class MatchTeamAdapter implements MatchTeamPort {
 
     /**
      * 将车队实体转换为匹配模块所需的最小字段集合。
+     *
+     * @param team 车队实体
+     * @return 匹配模块车队 DTO
      */
     private MatchTeamDTO toDTO(Team team) {
         return new MatchTeamDTO(team.getId(), team.getTripId(), team.getOwnerUserId(), team.getTeamName(),

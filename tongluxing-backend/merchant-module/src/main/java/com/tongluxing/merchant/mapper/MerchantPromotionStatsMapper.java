@@ -17,8 +17,6 @@ public interface MerchantPromotionStatsMapper {
      */
     @Select("""
             select #{promotionId} id,
-                   coalesce(sum(exposure_count), 0) exposureCount,
-                   coalesce(sum(click_count), 0) clickCount,
                    coalesce(sum(register_count), 0) registerCount,
                    coalesce(sum(coupon_claim_count), 0) couponClaimCount,
                    coalesce(sum(coupon_verify_count), 0) couponVerifyCount,

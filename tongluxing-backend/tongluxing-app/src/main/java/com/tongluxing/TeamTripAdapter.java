@@ -20,6 +20,9 @@ public class TeamTripAdapter implements TeamTripPort {
 
     /**
      * 查询创建车队所需的行程摘要。
+     *
+     * @param tripId 行程 ID
+     * @return 车队模块行程摘要；不存在时返回 null
      */
     @Override
     public TeamTripDTO getTrip(Long tripId) {

@@ -25,6 +25,15 @@ public class MerchantOrderController {
 
     private final OrderService orderService;
 
+    /**
+     * 分页查询商家订单。
+     *
+     * @param merchantId 商家 ID
+     * @param status 可选订单状态过滤条件
+     * @param page 页码，从 1 开始
+     * @param size 每页条数
+     * @return 商家订单分页数据
+     */
     @GetMapping
     public Result<PageResult<OrderVO>> list(@RequestParam Long merchantId,
                                             @RequestParam(required = false) String status,
@@ -33,6 +42,12 @@ public class MerchantOrderController {
         return Result.success(orderService.merchantOrders(merchantId, status, page, size));
     }
 
+    /**
+     * 查询商家侧订单详情。
+     *
+     * @param orderId 订单 ID
+     * @return 订单详情
+     */
     @GetMapping("/{orderId}")
     public Result<OrderVO> detail(@PathVariable Long orderId) {
         return Result.success(orderService.internalDetail(orderId));

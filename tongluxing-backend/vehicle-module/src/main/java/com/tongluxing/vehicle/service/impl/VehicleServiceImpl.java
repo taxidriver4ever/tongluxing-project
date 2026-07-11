@@ -21,12 +21,18 @@ import com.tongluxing.vehicle.dto.CreateVehicleRequest;
 import com.tongluxing.vehicle.dto.SubmitVehicleCertificationRequest;
 import com.tongluxing.vehicle.dto.UpdateVehicleRequest;
 import com.tongluxing.vehicle.entity.VehicleCertification;
+import com.tongluxing.vehicle.entity.VehicleCertificationImage;
 import com.tongluxing.vehicle.entity.VehicleProfile;
 import com.tongluxing.vehicle.mapper.VehicleAuditLogMapper;
 import com.tongluxing.vehicle.mapper.VehicleCertificationMapper;
+import com.tongluxing.vehicle.mapper.VehicleCertificationImageMapper;
 import com.tongluxing.vehicle.mapper.VehicleProfileMapper;
 import com.tongluxing.vehicle.service.VehicleService;
 import com.tongluxing.vehicle.vo.PublicVehicleCardResponse;
+import com.tongluxing.vehicle.vo.PageResult;
+import com.tongluxing.vehicle.vo.VehicleCertificationAuditDetailVO;
+import com.tongluxing.vehicle.vo.VehicleCertificationAuditSummaryVO;
+import com.tongluxing.vehicle.vo.VehicleCertificationImageVO;
 import com.tongluxing.vehicle.vo.VehicleCertificationResponse;
 import com.tongluxing.vehicle.vo.VehicleListResponse;
 import com.tongluxing.vehicle.vo.VehicleResponse;
@@ -73,6 +79,8 @@ public class VehicleServiceImpl implements VehicleService {
     private final VehicleProfileMapper vehicleProfileMapper;
     /** 车辆认证 Mapper。 */
     private final VehicleCertificationMapper certificationMapper;
+    /** 车辆认证图片 Mapper。 */
+    private final VehicleCertificationImageMapper certificationImageMapper;
     /** 车辆审计日志 Mapper。 */
     private final VehicleAuditLogMapper auditLogMapper;
 
@@ -188,6 +196,11 @@ public class VehicleServiceImpl implements VehicleService {
         checkRateLimit(CERTIFICATION_RL_KEY.formatted(userId), CERTIFICATION_SUBMIT_LIMIT, Duration.ofHours(24), "车辆认证提交太频繁，请明天再试");
         requireOwnedVehicle(vehicleId, userId);
 
+        VehicleCertification latest = certificationMapper.findLatestByVehicleId(vehicleId);
+        if (latest != null && List.of("PENDING", "APPROVED").contains(latest.getStatus())) {
+            throw new BusinessException(409, "车辆认证正在审核或已通过");
+        }
+
         LocalDateTime now = LocalDateTime.now();
         VehicleCertification certification = new VehicleCertification();
         certification.setId(SnowflakeIdGenerator.nextId());
@@ -196,14 +209,34 @@ public class VehicleServiceImpl implements VehicleService {
         certification.setOwnerName(normalize(request.ownerName()));
         certification.setPlateNoCipher(cipher(request.plateNo()));
         certification.setPlateNoMask(maskPlateNo(request.plateNo()));
+        certification.setVehicleType(normalize(request.vehicleType()));
         certification.setVinCipher(cipher(request.vin()));
         certification.setVinMask(maskVin(request.vin()));
+        certification.setEngineNoCipher(cipher(request.engineNo()));
         certification.setEngineNoMask(maskEngineNo(request.engineNo()));
-        certification.setLicenseImageKey(normalize(request.licenseImageKey()));
+        certification.setRegisterDate(request.registerDate());
+        certification.setIssueDate(request.issueDate());
+        certification.setIssuingAuthority(normalize(request.issuingAuthority()));
+        certification.setLicenseFrontImageKey(normalize(request.licenseFrontImageKey()));
+        certification.setLicenseBackImageKey(normalize(request.licenseBackImageKey()));
+        certification.setRecognitionSource(normalize(request.recognitionSource()));
         certification.setStatus(CERTIFICATION_PENDING);
-        certification.setRejectReason("");
+        certification.setRejectReason(null);
         certification.setSubmittedAt(now);
         certificationMapper.insert(certification);
+        int sortNo = 0;
+        for (SubmitVehicleCertificationRequest.VehicleImageRequest item : request.vehicleImages()) {
+            VehicleCertificationImage image = new VehicleCertificationImage();
+            image.setId(SnowflakeIdGenerator.nextId());
+            image.setCertificationId(certification.getId());
+            image.setVehicleId(vehicleId);
+            image.setImageType(normalize(item.imageType()));
+            image.setImageKey(normalize(item.imageKey()));
+            image.setSortNo(sortNo++);
+            image.setCreatedAt(now);
+            image.setDeleted(0);
+            certificationImageMapper.insert(image);
+        }
         vehicleProfileMapper.updateCertificationStatus(vehicleId, userId, CERTIFICATION_PENDING, now);
         clearVehicleCaches(userId, vehicleId);
         insertAuditLog(vehicleId, userId, "CERTIFICATION", null, certification, "提交车辆认证");
@@ -217,9 +250,67 @@ public class VehicleServiceImpl implements VehicleService {
         requireOwnedVehicle(vehicleId, userId);
         VehicleCertification certification = certificationMapper.findLatestByVehicleId(vehicleId);
         if (certification == null) {
-            return new VehicleCertificationResponse(vehicleId, "", "", "", "", "", CERTIFICATION_UNSUBMITTED, "", null, null);
+            return new VehicleCertificationResponse(vehicleId, "", "", "", "", "", "", List.of(),
+                    CERTIFICATION_UNSUBMITTED, "", null, null, true);
         }
         return toCertificationResponse(certification);
+    }
+
+    /** 后台分页查询车辆认证申请。 */
+    @Override
+    public PageResult<VehicleCertificationAuditSummaryVO> pageCertifications(
+            String status, String keyword, int page, int size) {
+        int normalizedPage = Math.max(page, 1);
+        int normalizedSize = Math.min(Math.max(size, 1), 100);
+        String normalizedStatus = normalizeStatusFilter(status);
+        String normalizedKeyword = normalize(keyword);
+        List<VehicleCertificationAuditSummaryVO> records = certificationMapper.page(
+                        normalizedStatus, normalizedKeyword, (normalizedPage - 1) * normalizedSize, normalizedSize)
+                .stream()
+                .map(item -> new VehicleCertificationAuditSummaryVO(
+                        item.getId(), item.getVehicleId(), item.getUserId(), item.getOwnerName(),
+                        item.getPlateNoMask(), item.getVehicleType(), item.getStatus(), item.getSubmittedAt()))
+                .toList();
+        return new PageResult<>(records, certificationMapper.count(normalizedStatus, normalizedKeyword),
+                normalizedPage, normalizedSize);
+    }
+
+    /** 后台查询车辆认证详情。 */
+    @Override
+    public VehicleCertificationAuditDetailVO getCertificationForAudit(Long certificationId) {
+        VehicleCertification certification = certificationMapper.findById(certificationId);
+        if (certification == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "车辆认证申请不存在");
+        }
+        return toAuditDetail(certification);
+    }
+
+    /** 后台应用车辆认证人工审核结果。 */
+    @Override
+    @Transactional
+    public VehicleCertificationAuditDetailVO applyCertificationAuditResult(
+            Long certificationId, String auditResult, String rejectReason, Long operatorId) {
+        String normalizedResult = normalizeAuditResult(auditResult);
+        String normalizedReason = normalizeRejectReason(normalizedResult, rejectReason);
+        VehicleCertification certification = certificationMapper.findById(certificationId);
+        if (certification == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "车辆认证申请不存在");
+        }
+        if (!CERTIFICATION_PENDING.equals(certification.getStatus())) {
+            throw new BusinessException(409, "车辆认证申请已审核");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        int changed = certificationMapper.updateAudit(
+                certificationId, normalizedResult, normalizedReason, operatorId, now);
+        if (changed != 1) {
+            throw new BusinessException(409, "车辆认证状态已发生变化，请刷新后重试");
+        }
+        vehicleProfileMapper.updateCertificationStatus(
+                certification.getVehicleId(), certification.getUserId(), normalizedResult, now);
+        clearVehicleCaches(certification.getUserId(), certification.getVehicleId());
+        insertAuditLog(certification.getVehicleId(), certification.getUserId(), "CERTIFICATION_AUDIT",
+                certification, certificationMapper.findById(certificationId), normalizedReason);
+        return toAuditDetail(certificationMapper.findById(certificationId));
     }
 
     /** 查询车辆公开卡片信息，供跨模块展示使用。 */
@@ -297,12 +388,33 @@ public class VehicleServiceImpl implements VehicleService {
                 certification.getPlateNoMask(),
                 certification.getVinMask(),
                 certification.getEngineNoMask(),
-                certification.getLicenseImageKey(),
+                certification.getLicenseFrontImageKey(),
+                certification.getLicenseBackImageKey(),
+                certificationImages(certification.getId()),
                 certification.getStatus(),
                 certification.getRejectReason(),
                 certification.getSubmittedAt(),
-                certification.getReviewedAt()
+                certification.getReviewedAt(),
+                CERTIFICATION_UNSUBMITTED.equals(certification.getStatus()) || "REJECTED".equals(certification.getStatus())
         );
+    }
+
+    /** 转换后台审核详情并解码授权字段。 */
+    private VehicleCertificationAuditDetailVO toAuditDetail(VehicleCertification certification) {
+        return new VehicleCertificationAuditDetailVO(
+                certification.getId(), certification.getVehicleId(), certification.getUserId(),
+                certification.getOwnerName(), decipher(certification.getPlateNoCipher()), certification.getVehicleType(),
+                decipher(certification.getVinCipher()), decipher(certification.getEngineNoCipher()),
+                certification.getRegisterDate(), certification.getIssueDate(), certification.getIssuingAuthority(),
+                certification.getLicenseFrontImageKey(), certification.getLicenseBackImageKey(),
+                certificationImages(certification.getId()), certification.getRecognitionSource(), certification.getStatus(),
+                certification.getRejectReason(), certification.getSubmittedAt(), certification.getReviewedAt());
+    }
+
+    private List<VehicleCertificationImageVO> certificationImages(Long certificationId) {
+        return certificationImageMapper.findByCertificationId(certificationId).stream()
+                .map(image -> new VehicleCertificationImageVO(image.getImageType(), image.getImageKey()))
+                .toList();
     }
 
     /** 转换为公开车辆卡片响应。 */
@@ -414,6 +526,41 @@ public class VehicleServiceImpl implements VehicleService {
             return null;
         }
         return Base64.getEncoder().encodeToString(value.trim().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** 解码后台审核详情需要的敏感字段。 */
+    private String decipher(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        return new String(Base64.getDecoder().decode(value), StandardCharsets.UTF_8);
+    }
+
+    private String normalizeStatusFilter(String status) {
+        String value = normalize(status).toUpperCase();
+        if (value.isEmpty()) {
+            return "";
+        }
+        if (!List.of("PENDING", "APPROVED", "REJECTED").contains(value)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "车辆认证状态不合法");
+        }
+        return value;
+    }
+
+    private String normalizeAuditResult(String auditResult) {
+        String value = normalize(auditResult).toUpperCase();
+        if (!List.of("APPROVED", "REJECTED").contains(value)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "审核结果仅支持 APPROVED 或 REJECTED");
+        }
+        return value;
+    }
+
+    private String normalizeRejectReason(String auditResult, String rejectReason) {
+        String value = normalize(rejectReason);
+        if ("REJECTED".equals(auditResult) && (value.length() < 2 || value.length() > 255)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "驳回原因长度应为 2 到 255 个字符");
+        }
+        return "APPROVED".equals(auditResult) ? null : value;
     }
 
     /** 车牌号脱敏展示。 */

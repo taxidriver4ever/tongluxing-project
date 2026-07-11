@@ -16,22 +16,32 @@ create table if not exists user_profile (
     unique key uk_user_profile_user (user_id, deleted)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
 
-create table if not exists user_identity_certification (
+create table if not exists user_driving_license_certification (
     id bigint not null,
     user_id bigint not null,
-    real_name_cipher varchar(256) not null,
-    id_card_no_cipher varchar(512) not null,
-    driving_license_image_key varchar(512) not null,
-    face_image_key varchar(512) not null,
+    holder_name_cipher varchar(256) not null,
+    license_no_cipher varchar(512) not null,
+    license_no_mask varchar(32) not null,
+    vehicle_class varchar(32) not null,
+    first_issue_date date null,
+    valid_from date null,
+    valid_to date null,
+    issuing_authority varchar(128) null,
+    license_front_image_key varchar(512) not null,
+    license_back_image_key varchar(512) null,
+    recognition_source varchar(32) not null default 'MINIPROGRAM_OCR',
     certification_status varchar(20) not null default 'PENDING',
     reject_reason varchar(255) null,
+    reviewer_id bigint null,
     submitted_at datetime not null,
     reviewed_at datetime null,
     created_at datetime not null default current_timestamp,
     updated_at datetime not null default current_timestamp on update current_timestamp,
     deleted tinyint not null default 0,
     primary key (id),
-    key idx_user_cert_user_status (user_id, certification_status, submitted_at)
+    key idx_driver_cert_user_submit (user_id, submitted_at),
+    key idx_driver_cert_status_submit (certification_status, submitted_at),
+    key idx_driver_cert_reviewer (reviewer_id, reviewed_at)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
 
 create table if not exists user_privacy_setting (

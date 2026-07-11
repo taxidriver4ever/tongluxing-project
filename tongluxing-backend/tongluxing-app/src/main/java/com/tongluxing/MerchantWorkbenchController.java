@@ -33,6 +33,8 @@ public class MerchantWorkbenchController {
 
     /**
      * 查询当前商家的经营工作台汇总。
+     *
+     * @return 商家基础资料、订单数、核销数、结算占位金额和未读通知数
      */
     @GetMapping("/summary")
     public Result<MerchantWorkbenchSummaryVO> summary() {
@@ -56,6 +58,16 @@ public class MerchantWorkbenchController {
 
     /**
      * 商家工作台汇总展示对象。
+     *
+     * @param merchantId 商家 ID
+     * @param merchantName 商家名称
+     * @param auditStatus 入驻审核状态
+     * @param merchantLevel 商家等级
+     * @param commissionRate 平台佣金比例
+     * @param orderCount 订单总数
+     * @param verificationCount 核销总数
+     * @param localSettlementAmount 本地结算金额，当前版本预留
+     * @param unreadNotificationCount 当前商家未读通知数
      */
     public record MerchantWorkbenchSummaryVO(
             Long merchantId,

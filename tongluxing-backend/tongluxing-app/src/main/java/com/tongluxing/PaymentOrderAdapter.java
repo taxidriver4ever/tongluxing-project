@@ -22,6 +22,9 @@ public class PaymentOrderAdapter implements PaymentOrderPort {
 
     /**
      * 查询支付所需的订单摘要。
+     *
+     * @param orderId 订单 ID
+     * @return 支付模块订单摘要
      */
     @Override
     public PaymentOrderDTO getOrder(Long orderId) {
@@ -30,6 +33,10 @@ public class PaymentOrderAdapter implements PaymentOrderPort {
 
     /**
      * 支付回调成功后标记订单已支付。
+     *
+     * @param orderId 订单 ID
+     * @param paidAt 支付成功时间
+     * @return 更新后的支付模块订单摘要
      */
     @Override
     public PaymentOrderDTO markPaid(Long orderId, LocalDateTime paidAt) {
@@ -38,6 +45,9 @@ public class PaymentOrderAdapter implements PaymentOrderPort {
 
     /**
      * 退款申请创建后标记订单退款中。
+     *
+     * @param orderId 订单 ID
+     * @return 更新后的支付模块订单摘要
      */
     @Override
     public PaymentOrderDTO markRefunding(Long orderId) {
@@ -46,6 +56,9 @@ public class PaymentOrderAdapter implements PaymentOrderPort {
 
     /**
      * 退款回调成功后标记订单已退款。
+     *
+     * @param orderId 订单 ID
+     * @return 更新后的支付模块订单摘要
      */
     @Override
     public PaymentOrderDTO markRefunded(Long orderId) {
@@ -54,6 +67,9 @@ public class PaymentOrderAdapter implements PaymentOrderPort {
 
     /**
      * 券码核销成功后标记订单已核销。
+     *
+     * @param orderId 订单 ID
+     * @return 更新后的支付模块订单摘要
      */
     @Override
     public PaymentOrderDTO markVerified(Long orderId) {
@@ -62,6 +78,9 @@ public class PaymentOrderAdapter implements PaymentOrderPort {
 
     /**
      * 分账成功后标记订单完成。
+     *
+     * @param orderId 订单 ID
+     * @return 更新后的支付模块订单摘要
      */
     @Override
     public PaymentOrderDTO markCompleted(Long orderId) {
@@ -70,6 +89,9 @@ public class PaymentOrderAdapter implements PaymentOrderPort {
 
     /**
      * 将订单响应转换为支付模块端口 DTO。
+     *
+     * @param order 订单模块响应对象
+     * @return 支付模块端口 DTO
      */
     private PaymentOrderDTO toDTO(OrderVO order) {
         return new PaymentOrderDTO(order.orderId(), order.orderNo(), order.userId(), order.merchantId(),

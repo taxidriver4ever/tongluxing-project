@@ -15,8 +15,6 @@ public class MerchantPromotionStats {
     private Long merchantId;
     private Long promotionCodeId;
     private LocalDate statDate;
-    private Long exposureCount;
-    private Long clickCount;
     private Long registerCount;
     private Long couponClaimCount;
     private Long couponVerifyCount;

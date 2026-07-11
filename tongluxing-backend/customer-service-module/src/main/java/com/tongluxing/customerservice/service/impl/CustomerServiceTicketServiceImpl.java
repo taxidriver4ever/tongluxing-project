@@ -32,7 +32,11 @@ import lombok.RequiredArgsConstructor;
 /**
  * 客服工单服务实现。
  *
- * <p>第三方微信客服未接入时，工单和消息表承担客服事实数据。</p>
+ * <p>第三方微信客服未接入时，工单表和消息表承担客服事实数据：工单表记录处理状态和归属，
+ * 消息表记录用户首问、系统自动回复和运营回复。后续接入微信客服后，可以把外部消息同步到同一套表。</p>
+ *
+ * <p>当前实现以 MySQL request_id 作为最终幂等依据，Redis 只缓存短期结果，加快重复提交返回速度。
+ * 因此 Redis 故障不会导致重复工单，只会回落到 MySQL 查询。</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -54,12 +58,17 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
     @Override
     @Transactional
     public TicketVO createTicket(CreateTicketRequest request) {
+        // 工单归属必须来自当前登录用户，不能信任前端传入用户 ID。
         Long userId = currentUserContext.requireUserId();
         String requestId = request.requestId().trim();
+
+        // 先读 Redis 幂等缓存，重复点击时直接返回上一次创建结果。
         TicketVO cached = readJson(IDEM_TICKET_KEY.formatted(requestId), TicketVO.class);
         if (cached != null) {
             return cached;
         }
+
+        // Redis 失效后继续按 MySQL request_id 回源，保证幂等语义不依赖缓存可用性。
         CustomerServiceQueryDTO existed = ticketMapper.findTicketByRequestId(requestId);
         if (existed != null) {
             TicketVO result = toTicketVO(existed);
@@ -80,6 +89,8 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
                 request.content().trim(),
                 requestId,
                 now);
+
+        // 用户提交内容既是工单摘要，也是消息时间线中的首条消息。
         ticketMapper.insertMessage(
                 SnowflakeIdGenerator.nextId(),
                 ticketId,
@@ -113,6 +124,7 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
     public TicketVO ticketDetail(Long ticketId) {
         Long userId = currentUserContext.requireUserId();
         CustomerServiceQueryDTO ticket = requireTicket(ticketId);
+        // 用户侧详情接口只允许创建者查看自己的工单，避免互相查看投诉和订单信息。
         if (CREATOR_USER.equals(ticket.getCreatorType()) && !userId.equals(ticket.getCreatorId())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "无权查看该工单");
         }
@@ -138,6 +150,7 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
     public TicketVO reply(Long ticketId, ReplyTicketRequest request) {
         requireTicket(ticketId);
         LocalDateTime now = LocalDateTime.now();
+        // 回复前先把工单推进到处理中，关闭状态会被 Mapper 拒绝，避免关闭后继续写消息。
         int changed = ticketMapper.markProcessing(ticketId, request.operatorId(), now);
         if (changed == 0) {
             throw new BusinessException("工单状态不允许回复");
@@ -158,6 +171,7 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
     @Transactional
     public TicketVO assign(Long ticketId, AssignTicketRequest request) {
         requireTicket(ticketId);
+        // 分配和回复共用 PROCESSING 状态，assigned_admin_id 记录当前处理人。
         int changed = ticketMapper.markProcessing(ticketId, request.operatorId(), LocalDateTime.now());
         if (changed == 0) {
             throw new BusinessException("工单状态不允许分配");
@@ -193,6 +207,9 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
                 now);
     }
 
+    /**
+     * 根据场景生成 MVP 阶段自动回复文案。
+     */
     private String autoReplyContent(String scene) {
         String normalizedScene = normalize(scene);
         if ("REFUND".equals(normalizedScene)) {
@@ -207,6 +224,9 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
         return "已收到您的问题，平台客服会尽快处理。";
     }
 
+    /**
+     * 查询工单，不存在时抛出统一业务异常。
+     */
     private CustomerServiceQueryDTO requireTicket(Long ticketId) {
         CustomerServiceQueryDTO ticket = ticketMapper.findTicketById(ticketId);
         if (ticket == null) {
@@ -215,6 +235,9 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
         return ticket;
     }
 
+    /**
+     * 将工单查询对象转换为接口返回模型，并补齐消息时间线。
+     */
     private TicketVO toTicketVO(CustomerServiceQueryDTO ticket) {
         List<TicketMessageVO> messages = ticketMapper.findMessages(ticket.getId())
                 .stream()
@@ -238,6 +261,9 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
                 messages);
     }
 
+    /**
+     * 将消息查询对象转换为接口返回模型。
+     */
     private TicketMessageVO toMessageVO(CustomerServiceQueryDTO message) {
         Long ticketId = message.getTargetId() == null ? null : Long.valueOf(message.getTargetId());
         return new TicketMessageVO(
@@ -259,6 +285,9 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
         return value == null ? "" : value.trim();
     }
 
+    /**
+     * 将图片对象存储 Key 列表序列化到消息表。
+     */
     private String writeImageKeys(List<String> imageKeys) {
         try {
             return objectMapper.writeValueAsString(imageKeys == null ? List.of() : imageKeys);
@@ -267,6 +296,9 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
         }
     }
 
+    /**
+     * 读取历史图片附件；旧数据格式异常时返回空列表，避免影响工单详情展示。
+     */
     private List<String> readImageKeys(String json) {
         if (!StringUtils.hasText(json)) {
             return List.of();

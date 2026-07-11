@@ -24,7 +24,7 @@ public class TokenStore {
     private static final String ACCESS_PREFIX = "a:t:";
     /** refresh token 的 Redis key 前缀，后接 refresh token 的 jti。 */
     private static final String REFRESH_PREFIX = "a:r:";
-    /** 手机号当前登录 access jti 的 Redis key 前缀，用于控制同一手机号只保留最新登录态。 */
+    /** 手机号和设备当前登录 access jti 的 Redis key 前缀。 */
     private static final String PHONE_LOGIN_PREFIX = "a:u:";
     /** 比较并删除脚本，避免退出登录时误删新登录产生的 jti。 */
     private static final DefaultRedisScript<Long> COMPARE_AND_DELETE_SCRIPT = new DefaultRedisScript<>(
@@ -51,16 +51,17 @@ public class TokenStore {
      * <p>如果同一手机号已有登录态，会删除旧 access token，使旧设备立即失效。</p>
      */
     public TokenPair create(Long userId, String phone, String deviceId) {
-        JwtTokenProvider.JwtToken accessToken = jwtTokenProvider.createAccessToken(userId, phone, deviceId, accessExpireSeconds);
-        JwtTokenProvider.JwtToken refreshToken = jwtTokenProvider.createRefreshToken(userId, phone, refreshExpireSeconds);
+        String normalizedDeviceId = StringUtils.hasText(deviceId) ? deviceId : "default";
+        JwtTokenProvider.JwtToken accessToken = jwtTokenProvider.createAccessToken(userId, phone, normalizedDeviceId, accessExpireSeconds);
+        JwtTokenProvider.JwtToken refreshToken = jwtTokenProvider.createRefreshToken(userId, phone, normalizedDeviceId, refreshExpireSeconds);
 
-        String oldJti = redisTemplate.opsForValue().get(phoneLoginKey(phone));
+        String oldJti = redisTemplate.opsForValue().get(phoneLoginKey(phone, normalizedDeviceId));
         if (StringUtils.hasText(oldJti)) {
             redisTemplate.delete(accessKey(oldJti));
         }
         redisTemplate.opsForValue().set(accessKey(accessToken.jti()), "1", Duration.ofSeconds(accessExpireSeconds));
         redisTemplate.opsForValue().set(refreshKey(refreshToken.jti()), accessToken.jti(), Duration.ofSeconds(refreshExpireSeconds));
-        redisTemplate.opsForValue().set(phoneLoginKey(phone), accessToken.jti(), Duration.ofSeconds(accessExpireSeconds));
+        redisTemplate.opsForValue().set(phoneLoginKey(phone, normalizedDeviceId), accessToken.jti(), Duration.ofSeconds(accessExpireSeconds));
 
         return new TokenPair(accessToken.token(), refreshToken.token(), accessExpireSeconds);
     }
@@ -85,7 +86,7 @@ public class TokenStore {
         if (Boolean.FALSE.equals(redisTemplate.hasKey(accessKey(claims.jti())))) {
             return Optional.empty();
         }
-        String currentJti = redisTemplate.opsForValue().get(phoneLoginKey(claims.phone()));
+        String currentJti = redisTemplate.opsForValue().get(phoneLoginKey(claims.phone(), claims.deviceId()));
         if (!claims.jti().equals(currentJti)) {
             return Optional.empty();
         }
@@ -116,11 +117,11 @@ public class TokenStore {
         if (!StringUtils.hasText(accessJti)) {
             return Optional.empty();
         }
-        String currentJti = redisTemplate.opsForValue().get(phoneLoginKey(claims.phone()));
+        String currentJti = redisTemplate.opsForValue().get(phoneLoginKey(claims.phone(), claims.deviceId()));
         if (!accessJti.equals(currentJti)) {
             return Optional.empty();
         }
-        return Optional.of(new RefreshPrincipal(claims.userId(), claims.phone(), accessJti, claims.jti()));
+        return Optional.of(new RefreshPrincipal(claims.userId(), claims.phone(), claims.deviceId(), accessJti, claims.jti()));
     }
 
     /**
@@ -131,7 +132,7 @@ public class TokenStore {
     public void deleteToken(AuthPrincipal principal) {
         String jti = jwtTokenProvider.parseAccessToken(principal.token()).jti();
         redisTemplate.delete(accessKey(jti));
-        redisTemplate.execute(COMPARE_AND_DELETE_SCRIPT, java.util.List.of(phoneLoginKey(principal.phone())), jti);
+        redisTemplate.execute(COMPARE_AND_DELETE_SCRIPT, java.util.List.of(phoneLoginKey(principal.phone(), principal.deviceId())), jti);
     }
 
     /** 删除 refresh token；非法 token 直接忽略。 */
@@ -155,8 +156,9 @@ public class TokenStore {
     }
 
     /** 拼接手机号当前登录态 Redis key。 */
-    private String phoneLoginKey(String phone) {
-        return PHONE_LOGIN_PREFIX + phone;
+    private String phoneLoginKey(String phone, String deviceId) {
+        String normalizedDeviceId = StringUtils.hasText(deviceId) ? deviceId : "default";
+        return PHONE_LOGIN_PREFIX + phone + ":" + normalizedDeviceId;
     }
 
     /** Token 签发结果。 */
@@ -164,6 +166,6 @@ public class TokenStore {
     }
 
     /** refresh token 校验通过后的主体信息。 */
-    public record RefreshPrincipal(Long userId, String phone, String accessJti, String refreshJti) {
+    public record RefreshPrincipal(Long userId, String phone, String deviceId, String accessJti, String refreshJti) {
     }
 }

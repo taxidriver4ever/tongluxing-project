@@ -19,11 +19,14 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.util.StringUtils;
 
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tongluxing.common.exception.BusinessException;
+import com.tongluxing.common.event.UserRegisteredEvent;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.merchant.dto.CreateMerchantCouponPoolRequest;
@@ -41,6 +44,7 @@ import com.tongluxing.merchant.mapper.MerchantProfileMapper;
 import com.tongluxing.merchant.mapper.MerchantPromotionCodeMapper;
 import com.tongluxing.merchant.mapper.MerchantPromotionStatsMapper;
 import com.tongluxing.merchant.mapper.MerchantRewardPoolConfigMapper;
+import com.tongluxing.merchant.mapper.MerchantUserRelationMapper;
 import com.tongluxing.merchant.service.MerchantService;
 import com.tongluxing.merchant.vo.MerchantAssessmentVO;
 import com.tongluxing.merchant.vo.MerchantCouponPoolVO;
@@ -75,6 +79,7 @@ public class MerchantServiceImpl implements MerchantService {
     private static final String IDEM_COUPON = "merchant:idem:coupon:%s";
     private static final String IDEM_PROMOTION = "merchant:idem:promotion-code:%s";
     private static final String IDEM_STOCK = "merchant:idem:stock:%s";
+    private static final String SOURCE_MERCHANT = "MERCHANT";
 
     private final CurrentUserContext currentUser;
     private final MerchantProfileMapper profileMapper;
@@ -83,6 +88,7 @@ public class MerchantServiceImpl implements MerchantService {
     private final MerchantRewardPoolConfigMapper rewardPoolMapper;
     private final MerchantPromotionCodeMapper promotionCodeMapper;
     private final MerchantPromotionStatsMapper promotionStatsMapper;
+    private final MerchantUserRelationMapper userRelationMapper;
     private final MerchantAuditLogMapper auditLogMapper;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
@@ -411,9 +417,39 @@ public class MerchantServiceImpl implements MerchantService {
             throw new BusinessException(ResultCode.NOT_FOUND, "推广码不存在");
         }
         MerchantQueryDTO stats = promotionStatsMapper.aggregateByPromotion(merchant.getMerchantId(), promotionId);
-        return new MerchantPromotionStatsVO(promotionId, stats.getExposureCount(), stats.getClickCount(),
-                stats.getRegisterCount(), stats.getCouponClaimCount(), stats.getCouponVerifyCount(),
+        long registerCount = userRelationMapper.countByPromotion(merchant.getMerchantId(), promotionId);
+        return new MerchantPromotionStatsVO(promotionId, registerCount,
+                stats.getCouponClaimCount(), stats.getCouponVerifyCount(),
                 stats.getOrderCount(), stats.getTradeAmount());
+    }
+
+    /** 首次注册成功后，只处理 MERCHANT 来源，建立商家推广用户关系。 */
+    @Transactional
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleUserRegistered(UserRegisteredEvent event) {
+        if (event == null || !event.hasSource(SOURCE_MERCHANT)) {
+            return;
+        }
+        MerchantQueryDTO promotion = promotionCodeMapper.findActiveByCode(event.normalizedSourceCode());
+        if (promotion == null || event.userId() == null) {
+            return;
+        }
+        if (userRelationMapper.findRelationIdByUserId(event.userId()) != null) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        try {
+            userRelationMapper.insertRelation(
+                    SnowflakeIdGenerator.nextId(),
+                    promotion.getMerchantId(),
+                    promotion.getId(),
+                    promotion.getPromotionCode(),
+                    event.userId(),
+                    event.registerTime(),
+                    now);
+        } catch (DuplicateKeyException ignored) {
+            // 商家推广用户关系以 user_id 唯一约束兜底，重复事件不覆盖首条关系。
+        }
     }
 
     /** 查询商家考核中心。 */

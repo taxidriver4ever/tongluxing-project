@@ -9,8 +9,6 @@ import java.math.BigDecimal;
  */
 public record MerchantPromotionStatsVO(
         Long promotionId,
-        Long exposureCount,
-        Long clickCount,
         Long registerCount,
         Long couponClaimCount,
         Long couponVerifyCount,

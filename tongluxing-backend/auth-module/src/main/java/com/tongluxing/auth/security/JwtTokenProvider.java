@@ -67,8 +67,8 @@ public class JwtTokenProvider {
     }
 
     /** 创建 refresh token。 */
-    public JwtToken createRefreshToken(Long userId, String phone, int ttlSeconds) {
-        return createToken(userId, phone, "", REFRESH_TYPE, ttlSeconds);
+    public JwtToken createRefreshToken(Long userId, String phone, String deviceId, int ttlSeconds) {
+        return createToken(userId, phone, deviceId, REFRESH_TYPE, ttlSeconds);
     }
 
     /** 解析并校验 access token 类型。 */

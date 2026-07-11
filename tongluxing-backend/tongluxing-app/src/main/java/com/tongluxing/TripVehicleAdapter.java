@@ -20,6 +20,10 @@ public class TripVehicleAdapter implements TripVehiclePort {
 
     /**
      * 查询指定用户名下的车辆，并返回行程模块需要的车辆摘要。
+     *
+     * @param vehicleId 车辆 ID
+     * @param userId 用户 ID
+     * @return 车辆摘要；不存在时返回 null
      */
     @Override
     public TripVehicleDTO getCertifiedVehicle(Long vehicleId, Long userId) {

@@ -21,6 +21,9 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * 商家考核接口。
+ *
+ * <p>本 Controller 只负责 HTTP 入参校验和统一返回包装，考核计算、幂等、缓存刷新等业务规则
+ * 统一下沉到 {@link AssessmentService}，便于运营后台、定时任务和内部接口复用同一套逻辑。</p>
  */
 @RestController
 @RequiredArgsConstructor
@@ -28,11 +31,17 @@ public class AssessmentController {
 
     private final AssessmentService assessmentService;
 
+    /**
+     * 查询当前登录用户所绑定商家的最新考核结果。
+     */
     @GetMapping("/v1/assessments/merchants/me")
     public Result<MerchantAssessmentResultVO> currentMerchantAssessment() {
         return Result.success(assessmentService.currentMerchantAssessment());
     }
 
+    /**
+     * 内部触发指定商家的考核重算，用于运营修正数据或补偿历史月份考核。
+     */
     @PostMapping("/internal/v1/assessments/merchants/{merchantId}/recalculate")
     public Result<MerchantAssessmentResultVO> recalculate(
             @PathVariable Long merchantId,
@@ -40,18 +49,24 @@ public class AssessmentController {
         return Result.success(assessmentService.recalculate(merchantId, request));
     }
 
+    /**
+     * 内部批量执行某一自然月的商家考核，通常由定时任务或运营补偿入口调用。
+     */
     @PostMapping("/internal/v1/assessments/monthly/run")
     public Result<MonthlyRunResultVO> runMonthly(@Valid @RequestBody MonthlyAssessmentRunRequest request) {
         return Result.success(assessmentService.runMonthly(request));
     }
 
+    /**
+     * 查询商家等级快照，供支付分账、推荐排序等内部模块读取。
+     */
     @GetMapping("/internal/v1/assessments/merchants/{merchantId}/snapshot")
     public Result<MerchantAssessmentSnapshotVO> snapshot(@PathVariable Long merchantId) {
         return Result.success(assessmentService.snapshot(merchantId));
     }
 
     /**
-     * 运营人工调整考核分，记录调整原因和操作人。
+     * 运营人工调整考核分，记录调整原因和操作人，并立即刷新商家等级快照。
      */
     @PostMapping("/v1/admin/assessments/merchants/{merchantId}/adjustments")
     public Result<MerchantAssessmentResultVO> manualAdjust(

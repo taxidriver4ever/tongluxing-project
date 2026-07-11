@@ -6,6 +6,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Base64;
+import java.util.List;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -25,6 +26,9 @@ import com.tongluxing.user.mapper.UserDomainMapper;
 import com.tongluxing.user.dto.UserQueryDTO;
 import com.tongluxing.user.model.UserModels.CertificationRequest;
 import com.tongluxing.user.model.UserModels.CertificationVO;
+import com.tongluxing.user.model.UserModels.DrivingLicenseAuditDetailVO;
+import com.tongluxing.user.model.UserModels.DrivingLicenseAuditSummaryVO;
+import com.tongluxing.user.model.UserModels.PageResult;
 import com.tongluxing.user.model.UserModels.PublicProfileVO;
 import com.tongluxing.user.model.UserModels.UpdateUserProfileRequest;
 import com.tongluxing.user.model.UserModels.UserProfileVO;
@@ -36,7 +40,7 @@ import lombok.RequiredArgsConstructor;
 /**
  * 用户模块业务实现。
  *
- * <p>主要负责用户资料读写、实名认证提交、公开主页隐私控制，以及 Redis 缓存维护。
+ * <p>主要负责用户资料读写、驾驶证认证、公开主页隐私控制，以及 Redis 缓存维护。
  * 默认资料和隐私设置采用懒初始化方式，避免注册流程必须一次性写入所有用户域数据。</p>
  */
 @Service
@@ -95,12 +99,7 @@ public class UserServiceImpl implements UserService {
         return profile(userId);
     }
 
-    /**
-     * 提交实名认证申请。
-     *
-     * <p>如果用户已有待审核或已通过的认证记录，不允许重复提交。
-     * 真实姓名和证件号会加密存储，只返回认证流程状态。</p>
-     */
+    /** 提交驾驶证认证申请。 */
     @Override
     @Transactional
     public CertificationVO submitCertification(CertificationRequest request) {
@@ -111,10 +110,78 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(409, "认证正在审核或已通过");
         }
         LocalDateTime now = LocalDateTime.now();
-        mapper.insertCertification(SnowflakeIdGenerator.nextId(), userId, encrypt(request.realName()), encrypt(request.idCardNo()),
-                request.drivingLicenseImageKey().trim(), request.faceImageKey().trim(), now);
+        validateDates(request);
+        mapper.insertCertification(SnowflakeIdGenerator.nextId(), userId,
+                encrypt(request.holderName().trim()), encrypt(request.licenseNo().trim()),
+                maskLicenseNo(request.licenseNo()), request.vehicleClass().trim(), request.firstIssueDate(),
+                request.validFrom(), request.validTo(), trimToEmpty(request.issuingAuthority()),
+                request.licenseFrontImageKey().trim(), trimToEmpty(request.licenseBackImageKey()),
+                request.recognitionSource().trim(), now);
         redis.delete(java.util.List.of(PROFILE_CACHE.formatted(userId), PUBLIC_CACHE.formatted(userId)));
         return certification(mapper.findLatestCertification(userId));
+    }
+
+    /** 查询当前用户最近一次驾驶证认证状态。 */
+    @Override
+    public CertificationVO getLatestCertification() {
+        long userId = currentUserContext.requireUserId();
+        UserQueryDTO latest = mapper.findLatestCertification(userId);
+        if (latest == null) {
+            return new CertificationVO(null, userId, "UNSUBMITTED", null, null, null, true);
+        }
+        return certification(latest);
+    }
+
+    /** 后台分页查询驾驶证认证申请。 */
+    @Override
+    public PageResult<DrivingLicenseAuditSummaryVO> pageDrivingLicenseCertifications(
+            String status, String keyword, int page, int size) {
+        int normalizedPage = Math.max(page, 1);
+        int normalizedSize = Math.min(Math.max(size, 1), 100);
+        String normalizedStatus = normalizeStatusFilter(status);
+        String normalizedKeyword = trimToEmpty(keyword);
+        List<DrivingLicenseAuditSummaryVO> records = mapper.pageCertifications(
+                        normalizedStatus, normalizedKeyword, (normalizedPage - 1) * normalizedSize, normalizedSize)
+                .stream()
+                .map(row -> new DrivingLicenseAuditSummaryVO(
+                        row.getId(), row.getUserId(), decrypt(row.getHolderNameCipher()), row.getLicenseNoMask(),
+                        row.getVehicleClass(), row.getValidTo(), row.getCertificationStatus(), row.getSubmittedAt()))
+                .toList();
+        long total = mapper.countCertifications(normalizedStatus, normalizedKeyword);
+        return new PageResult<>(records, total, normalizedPage, normalizedSize);
+    }
+
+    /** 后台查询驾驶证认证详情。 */
+    @Override
+    public DrivingLicenseAuditDetailVO getDrivingLicenseCertificationForAudit(Long certificationId) {
+        UserQueryDTO row = mapper.findCertificationById(certificationId);
+        if (row == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "驾驶证认证申请不存在");
+        }
+        return auditDetail(row);
+    }
+
+    /** 后台应用驾驶证人工审核结果。 */
+    @Override
+    @Transactional
+    public DrivingLicenseAuditDetailVO applyDrivingLicenseAuditResult(
+            Long certificationId, String auditResult, String rejectReason, Long operatorId) {
+        String normalizedResult = normalizeAuditResult(auditResult);
+        String normalizedReason = normalizeRejectReason(normalizedResult, rejectReason);
+        UserQueryDTO before = mapper.findCertificationById(certificationId);
+        if (before == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "驾驶证认证申请不存在");
+        }
+        if (!"PENDING".equals(before.getCertificationStatus())) {
+            throw new BusinessException(409, "驾驶证认证申请已审核");
+        }
+        int changed = mapper.updateCertificationAudit(
+                certificationId, normalizedResult, normalizedReason, operatorId, LocalDateTime.now());
+        if (changed != 1) {
+            throw new BusinessException(409, "驾驶证认证状态已发生变化，请刷新后重试");
+        }
+        redis.delete(List.of(PROFILE_CACHE.formatted(before.getUserId()), PUBLIC_CACHE.formatted(before.getUserId())));
+        return auditDetail(mapper.findCertificationById(certificationId));
     }
 
     /**
@@ -139,7 +206,7 @@ public class UserServiceImpl implements UserService {
         }
         UserProfileVO profile = profile(row);
         PublicProfileVO result = new PublicProfileVO(profile.userId(), profile.nickname(), profile.avatarImageKey(),
-                profile.cityName(), profile.bio(), profile.certificationStatus());
+                profile.cityName(), profile.bio(), profile.drivingLicenseCertificationStatus());
         cachePut(PUBLIC_CACHE.formatted(userId), result, Duration.ofMinutes(15));
         return result;
     }
@@ -195,11 +262,65 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
-     * 将实名认证查询结果转换为接口返回对象。
+     * 将驾驶证认证查询结果转换为接口返回对象。
      */
     private CertificationVO certification(UserQueryDTO row) {
-        return new CertificationVO(row.getId(), row.getUserId(), row.getCertificationStatus(),
-                row.getRejectReason(), row.getSubmittedAt(), row.getReviewedAt());
+        String status = row.getCertificationStatus();
+        return new CertificationVO(row.getId(), row.getUserId(), status,
+                row.getRejectReason(), row.getSubmittedAt(), row.getReviewedAt(),
+                "UNSUBMITTED".equals(status) || "REJECTED".equals(status));
+    }
+
+    /** 转换后台审核详情并解密授权字段。 */
+    private DrivingLicenseAuditDetailVO auditDetail(UserQueryDTO row) {
+        return new DrivingLicenseAuditDetailVO(
+                row.getId(), row.getUserId(), decrypt(row.getHolderNameCipher()), decrypt(row.getLicenseNoCipher()),
+                row.getVehicleClass(), row.getFirstIssueDate(), row.getValidFrom(), row.getValidTo(),
+                row.getIssuingAuthority(), row.getLicenseFrontImageKey(), row.getLicenseBackImageKey(),
+                row.getRecognitionSource(), row.getCertificationStatus(), row.getRejectReason(),
+                row.getSubmittedAt(), row.getReviewedAt());
+    }
+
+    private void validateDates(CertificationRequest request) {
+        if (request.validFrom() != null && request.validTo() != null
+                && request.validTo().isBefore(request.validFrom())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "驾驶证有效期结束日期不能早于开始日期");
+        }
+    }
+
+    private String normalizeStatusFilter(String status) {
+        String value = trimToEmpty(status).toUpperCase();
+        if (value.isEmpty()) {
+            return "";
+        }
+        if (!List.of("PENDING", "APPROVED", "REJECTED").contains(value)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "认证状态不合法");
+        }
+        return value;
+    }
+
+    private String normalizeAuditResult(String auditResult) {
+        String value = trimToEmpty(auditResult).toUpperCase();
+        if (!List.of("APPROVED", "REJECTED").contains(value)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "审核结果仅支持 APPROVED 或 REJECTED");
+        }
+        return value;
+    }
+
+    private String normalizeRejectReason(String auditResult, String rejectReason) {
+        String value = trimToEmpty(rejectReason);
+        if ("REJECTED".equals(auditResult) && (value.length() < 2 || value.length() > 255)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "驳回原因长度应为 2 到 255 个字符");
+        }
+        return "APPROVED".equals(auditResult) ? null : value;
+    }
+
+    private String maskLicenseNo(String licenseNo) {
+        String value = licenseNo.trim();
+        if (value.length() <= 6) {
+            return value.substring(0, 1) + "****" + value.substring(value.length() - 1);
+        }
+        return value.substring(0, 3) + "********" + value.substring(value.length() - 3);
     }
 
     /**
@@ -222,6 +343,24 @@ public class UserServiceImpl implements UserService {
             return Base64.getEncoder().encodeToString(result);
         } catch (Exception e) {
             throw new BusinessException(ResultCode.INTERNAL_SERVER_ERROR, "敏感数据加密失败");
+        }
+    }
+
+    /** 解密仅供后台授权审核详情使用的敏感字段。 */
+    private String decrypt(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        try {
+            byte[] key = MessageDigest.getInstance("SHA-256").digest(encryptionKey.getBytes(StandardCharsets.UTF_8));
+            byte[] payload = Base64.getDecoder().decode(value);
+            byte[] iv = java.util.Arrays.copyOfRange(payload, 0, 12);
+            byte[] encrypted = java.util.Arrays.copyOfRange(payload, 12, payload.length);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(128, iv));
+            return new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
+        } catch (Exception exception) {
+            throw new BusinessException(ResultCode.INTERNAL_SERVER_ERROR, "敏感数据解密失败");
         }
     }
 
@@ -257,5 +396,9 @@ public class UserServiceImpl implements UserService {
      */
     private String value(String candidate, String old) {
         return candidate == null ? old : candidate.trim();
+    }
+
+    private String trimToEmpty(String value) {
+        return value == null ? "" : value.trim();
     }
 }

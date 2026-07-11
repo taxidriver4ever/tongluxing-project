@@ -4,6 +4,9 @@ import com.tongluxing.vehicle.dto.CreateVehicleRequest;
 import com.tongluxing.vehicle.dto.SubmitVehicleCertificationRequest;
 import com.tongluxing.vehicle.dto.UpdateVehicleRequest;
 import com.tongluxing.vehicle.vo.PublicVehicleCardResponse;
+import com.tongluxing.vehicle.vo.PageResult;
+import com.tongluxing.vehicle.vo.VehicleCertificationAuditDetailVO;
+import com.tongluxing.vehicle.vo.VehicleCertificationAuditSummaryVO;
 import com.tongluxing.vehicle.vo.VehicleCertificationResponse;
 import com.tongluxing.vehicle.vo.VehicleListResponse;
 import com.tongluxing.vehicle.vo.VehicleResponse;
@@ -38,6 +41,17 @@ public interface VehicleService {
 
     /** 查询车辆最近一次认证记录；未提交时返回未认证状态。 */
     VehicleCertificationResponse getCertification(Long vehicleId);
+
+    /** 后台分页查询车辆认证申请。 */
+    PageResult<VehicleCertificationAuditSummaryVO> pageCertifications(
+            String status, String keyword, int page, int size);
+
+    /** 后台查询车辆认证详情。 */
+    VehicleCertificationAuditDetailVO getCertificationForAudit(Long certificationId);
+
+    /** 后台应用车辆认证人工审核结果。 */
+    VehicleCertificationAuditDetailVO applyCertificationAuditResult(
+            Long certificationId, String auditResult, String rejectReason, Long operatorId);
 
     /** 查询车辆公开卡片信息，不包含敏感明文字段。 */
     PublicVehicleCardResponse getPublicCard(Long vehicleId);

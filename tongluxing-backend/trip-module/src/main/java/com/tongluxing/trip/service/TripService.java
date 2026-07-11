@@ -34,6 +34,11 @@ public interface TripService {
     TripResponse updateTrip(Long tripId, UpdateTripRequest request);
 
     /**
+     * 开始驾驶行程。
+     */
+    TripResponse startTrip(Long tripId);
+
+    /**
      * 结束行程。
      */
     TripResponse endTrip(Long tripId);
@@ -47,6 +52,11 @@ public interface TripService {
      * 查询公开行程列表。
      */
     TripListResponse getPublicTrips(Integer limit);
+
+    /**
+     * 查询当前用户驾驶中的行程。
+     */
+    TripResponse getCurrentDrivingTrip();
 
     /**
      * 查询行程成员快照。

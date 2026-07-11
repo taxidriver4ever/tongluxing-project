@@ -25,6 +25,7 @@
         <module>team-module</module>
         <module>chat-module</module>
         <module>map-module</module>
+        <module>driver-track-module</module>
         <module>merchant-module</module>
         <module>groupbuy-module</module>
         <module>order-module</module>
@@ -119,6 +120,11 @@
             <dependency>
                 <groupId>com.tongluxing</groupId>
                 <artifactId>map-module</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tongluxing</groupId>
+                <artifactId>driver-track-module</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

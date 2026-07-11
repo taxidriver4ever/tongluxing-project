@@ -13,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 待支付订单超时关闭任务。
+ *
+ * <p>周期性扫描已过期且未支付的订单，并在关闭后写入必要的跨模块补偿任务。</p>
  */
 @Slf4j
 @Component
@@ -23,6 +25,9 @@ public class OrderTimeoutCloseJob {
     private final OrderService orderService;
     private final StringRedisTemplate redis;
 
+    /**
+     * 定时关闭过期待支付订单。
+     */
     @Scheduled(fixedDelayString = "${tongluxing.jobs.order-timeout-close-delay:60000}")
     public void closeExpiredOrders() {
         Boolean locked = redis.opsForValue().setIfAbsent(JOB_LOCK_KEY, "1", 55, TimeUnit.SECONDS);

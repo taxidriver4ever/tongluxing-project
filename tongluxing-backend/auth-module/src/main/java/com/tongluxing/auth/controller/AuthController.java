@@ -4,11 +4,14 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import com.tongluxing.auth.dto.LoginRequest;
+import com.tongluxing.auth.dto.AppBindByMiniTicketRequest;
+import com.tongluxing.auth.dto.AppLoginRequest;
 import com.tongluxing.auth.dto.RefreshTokenRequest;
 import com.tongluxing.auth.dto.SmsCodeRequest;
 import com.tongluxing.auth.dto.WxPhoneLoginRequest;
 import com.tongluxing.auth.service.AuthService;
 import com.tongluxing.auth.vo.CurrentUserResponse;
+import com.tongluxing.auth.vo.AppBindTicketResponse;
 import com.tongluxing.auth.vo.LoginResponse;
 import com.tongluxing.auth.vo.LogoutResponse;
 import com.tongluxing.auth.vo.RefreshTokenResponse;
@@ -48,6 +51,24 @@ public class AuthController {
     @PostMapping("/wx-phone-login")
     public Result<LoginResponse> wxPhoneLogin(@Valid @RequestBody WxPhoneLoginRequest request) {
         return Result.success(authService.wxPhoneLogin(request));
+    }
+
+    /** App 驾驶端手机号验证码登录；与小程序共用同一 userId。 */
+    @PostMapping("/app/login")
+    public Result<LoginResponse> appLogin(@Valid @RequestBody AppLoginRequest request) {
+        return Result.success(authService.appLogin(request));
+    }
+
+    /** 小程序端生成一次性 App 绑定 ticket。 */
+    @PostMapping("/app/bind-ticket")
+    public Result<AppBindTicketResponse> createAppBindTicket(@RequestHeader("Authorization") String authorization) {
+        return Result.success(authService.createAppBindTicket(authorization));
+    }
+
+    /** App 使用小程序端 ticket 绑定并登录。 */
+    @PostMapping("/app/bind-by-mini-ticket")
+    public Result<LoginResponse> bindAppByMiniTicket(@Valid @RequestBody AppBindByMiniTicketRequest request) {
+        return Result.success(authService.bindAppByMiniTicket(request));
     }
 
     /** 退出登录；清理当前 access token 在 Redis 中的登录态。 */

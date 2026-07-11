@@ -8,12 +8,12 @@ import lombok.Data;
 /**
  * 用户模块查询结果 DTO。
  *
- * <p>用于承接用户资料、实名认证和隐私设置相关 SQL 的查询结果。
+ * <p>用于承接用户资料、驾驶证认证和隐私设置相关 SQL 的查询结果。
  * 该对象只在数据访问和服务层之间流转，接口返回时会转换为对应 VO。</p>
  */
 @Data
 public class UserQueryDTO {
-    /** 通用主键 ID，可能来自用户资料或实名认证记录。 */
+    /** 通用主键 ID，可能来自用户资料或驾驶证认证记录。 */
     private Long id;
 
     /** 用户 ID。 */
@@ -43,10 +43,10 @@ public class UserQueryDTO {
     /** 用户资料状态，例如 ACTIVE。 */
     private String profileStatus;
 
-    /** 实名认证状态，例如 UNSUBMITTED、PENDING、APPROVED、REJECTED。 */
+    /** 驾驶证认证状态，例如 UNSUBMITTED、PENDING、APPROVED、REJECTED。 */
     private String certificationStatus;
 
-    /** 实名认证驳回原因。 */
+    /** 驾驶证认证驳回原因。 */
     private String rejectReason;
 
     /** 认证提交时间。 */
@@ -54,6 +54,34 @@ public class UserQueryDTO {
 
     /** 认证审核时间。 */
     private LocalDateTime reviewedAt;
+
+    /** 持证人姓名密文。 */
+    private String holderNameCipher;
+
+    /** 驾驶证号密文及脱敏值。 */
+    private String licenseNoCipher;
+    private String licenseNoMask;
+
+    /** 准驾车型。 */
+    private String vehicleClass;
+
+    /** 驾驶证日期字段。 */
+    private LocalDate firstIssueDate;
+    private LocalDate validFrom;
+    private LocalDate validTo;
+
+    /** 发证机关。 */
+    private String issuingAuthority;
+
+    /** 驾驶证原图 Key。 */
+    private String licenseFrontImageKey;
+    private String licenseBackImageKey;
+
+    /** 识别来源，当前固定为 MINIPROGRAM_OCR。 */
+    private String recognitionSource;
+
+    /** 后台审核人。 */
+    private Long reviewerId;
 
     /** 个人主页可见性，例如 PUBLIC、PRIVATE。 */
     private String profileVisibility;

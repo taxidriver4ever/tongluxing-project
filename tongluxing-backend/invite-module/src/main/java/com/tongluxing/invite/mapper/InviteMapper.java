@@ -139,7 +139,16 @@ public interface InviteMapper {
     /** 统计某个邀请人的邀请记录总数。 */
     long countRecords(@Param("userId") Long userId, @Param("status") String status);
 
-    /** 统计已经转为 VALID 的有效邀请数量。 */
+    /** 统计已绑定的邀请注册人数。 */
+    @Select("""
+            select count(*)
+            from invite_relation
+            where inviter_user_id = #{userId}
+              and deleted = 0
+            """)
+    int countInvitees(Long userId);
+
+    /** 统计已经转为 VALID 的有效邀请数量。保留给首次组队链路兼容使用。 */
     @Select("""
             select count(*)
             from invite_relation

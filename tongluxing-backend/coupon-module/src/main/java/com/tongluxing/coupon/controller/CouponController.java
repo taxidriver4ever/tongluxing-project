@@ -2,6 +2,8 @@ package com.tongluxing.coupon.controller;
 
 import java.math.BigDecimal;
 import java.util.List;
+
+import com.tongluxing.coupon.dto.CouponIssueRequest;
 import org.springframework.web.bind.annotation.*;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.coupon.integration.CouponFacade.CouponIssueResult;
@@ -73,7 +75,7 @@ public class CouponController {
      * <p>sourceType + sourceBizId 用于标记发券来源并保证幂等。</p>
      */
     @PostMapping("/internal/v1/coupons/issues")
-    public Result<CouponIssueResult> issue(@RequestBody IssueRequest request) {
+    public Result<CouponIssueResult> issue(@RequestBody CouponIssueRequest request) {
         return Result.success(service.issue(request.userId(), request.templateId(), request.sourceType(), request.sourceBizId()));
     }
 
@@ -94,14 +96,4 @@ public class CouponController {
         return Result.success();
     }
 
-    /**
-     * 内部发券请求。
-     *
-     * @param userId 领券用户 ID
-     * @param templateId 优惠券模板 ID
-     * @param sourceType 发券来源类型，例如领取、活动、邀请奖励
-     * @param sourceBizId 发券来源业务 ID，用于幂等控制
-     */
-    public record IssueRequest(Long userId, Long templateId, String sourceType, String sourceBizId) {
-    }
 }

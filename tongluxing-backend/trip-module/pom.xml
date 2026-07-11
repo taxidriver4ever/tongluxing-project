@@ -33,10 +33,6 @@
         </dependency>
         <dependency>
             <groupId>com.tongluxing</groupId>
-            <artifactId>growth-module</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.tongluxing</groupId>
             <artifactId>invite-module</artifactId>
         </dependency>
         <dependency>

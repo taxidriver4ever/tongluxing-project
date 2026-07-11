@@ -33,6 +33,7 @@ spring:
         - classpath:db/chat-schema.sql
         - classpath:db/match-schema.sql
         - classpath:db/storage-schema.sql
+        - classpath:db/driver-track-schema.sql
   data:
     redis:
       host: ${REDIS_HOST}

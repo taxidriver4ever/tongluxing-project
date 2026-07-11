@@ -10,8 +10,11 @@ import com.tongluxing.admin.vo.AdminAuditResultVO;
  */
 public interface AdminAuditService {
 
-    /** 审核用户认证申请。 */
+    /** 审核驾驶证认证申请。 */
     AdminAuditResultVO auditUserCertification(Long certificationId, AdminAuditRequest request);
+
+    /** 审核车辆认证申请。 */
+    AdminAuditResultVO auditVehicleCertification(Long certificationId, AdminAuditRequest request);
 
     /** 审核商家入驻申请。 */
     AdminAuditResultVO auditMerchantApplication(Long applicationId, AdminAuditRequest request);

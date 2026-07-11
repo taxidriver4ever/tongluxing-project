@@ -27,6 +27,7 @@ public interface TripMapper {
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
             where id = #{tripId} and deleted = 0
@@ -44,6 +45,7 @@ public interface TripMapper {
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
             where user_id = #{userId} and deleted = 0
@@ -62,6 +64,7 @@ public interface TripMapper {
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
             where user_id = #{userId} and deleted = 0
@@ -81,6 +84,7 @@ public interface TripMapper {
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
             where public_flag = 1 and deleted = 0
@@ -101,6 +105,7 @@ public interface TripMapper {
                  route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                  departure_time, estimated_days, total_distance_meters,
                  max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                 actual_start_time, actual_end_time,
                  created_at, updated_at, deleted)
             values
                 (#{id}, #{userId}, #{vehicleId}, #{startName}, #{startLat}, #{startLng},
@@ -109,6 +114,7 @@ public interface TripMapper {
                  #{routeSummary}, #{routePolylineKey}, #{routeDistance}, #{routeDuration}, #{routePolyline}, #{waypointsJson},
                  #{departureTime}, #{estimatedDays}, #{totalDistanceMeters},
                  #{maxVehicleCount}, #{joinedVehicleCount}, #{travelDepth}, #{publicFlag}, #{status}, #{remark},
+                 #{actualStartTime}, #{actualEndTime},
                  #{createdAt}, #{updatedAt}, 0)
             """)
     void insert(Trip trip);
@@ -160,4 +166,53 @@ public interface TripMapper {
             where id = #{tripId} and user_id = #{userId} and deleted = 0
             """)
     int updateStatus(@Param("tripId") Long tripId, @Param("userId") Long userId, @Param("status") String status, @Param("updatedAt") LocalDateTime updatedAt);
+
+    /**
+     * 开始行程，只允许 PUBLISHED -> ONGOING。
+     */
+    @Update("""
+            update trip
+            set status = 'ONGOING',
+                actual_start_time = #{actualStartTime},
+                updated_at = #{actualStartTime}
+            where id = #{tripId}
+              and user_id = #{userId}
+              and status = 'PUBLISHED'
+              and deleted = 0
+            """)
+    int startTrip(@Param("tripId") Long tripId, @Param("userId") Long userId, @Param("actualStartTime") LocalDateTime actualStartTime);
+
+    /**
+     * 结束行程，只允许 ONGOING -> ENDED。
+     */
+    @Update("""
+            update trip
+            set status = 'ENDED',
+                actual_end_time = #{actualEndTime},
+                updated_at = #{actualEndTime}
+            where id = #{tripId}
+              and user_id = #{userId}
+              and status = 'ONGOING'
+              and deleted = 0
+            """)
+    int endOngoingTrip(@Param("tripId") Long tripId, @Param("userId") Long userId, @Param("actualEndTime") LocalDateTime actualEndTime);
+
+    /**
+     * 查询当前用户正在驾驶中的行程。
+     */
+    @Select("""
+            select id, user_id, vehicle_id, start_name, start_lat, start_lng,
+                   start_location_name, start_location_address, start_latitude, start_longitude,
+                   end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
+                   route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                   departure_time, estimated_days, total_distance_meters,
+                   max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   actual_start_time, actual_end_time,
+                   created_at, updated_at, deleted
+            from trip
+            where user_id = #{userId} and status = 'ONGOING' and deleted = 0
+            order by actual_start_time desc, updated_at desc
+            limit 1
+            """)
+    Trip findCurrentDrivingByUserId(@Param("userId") Long userId);
 }

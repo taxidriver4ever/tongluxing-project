@@ -42,6 +42,8 @@ public class Trip {
     private Integer publicFlag;
     private String status;
     private String remark;
+    private LocalDateTime actualStartTime;
+    private LocalDateTime actualEndTime;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Integer deleted;

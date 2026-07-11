@@ -30,7 +30,12 @@ import lombok.RequiredArgsConstructor;
 /**
  * 商家考核服务实现。
  *
- * <p>MVP 阶段先提供本地可运行的考核快照，后续可替换为更精细的规则引擎。</p>
+ * <p>MVP 阶段采用“指标聚合 + 等级映射”的本地规则：从订单、退款、核销记录中汇总月度指标，
+ * 计算商家分数，再同步写入商家表中的等级、佣金率、排名权重和排他半径快照。
+ * 这些快照会被支付分账、商家展示和推荐排序复用。</p>
+ *
+ * <p>当前实现以 MySQL 为事实源，Redis 仅承担幂等结果缓存、快照缓存和月度任务锁。
+ * 因此 Redis 异常不会阻断考核结果落库，只会影响短期缓存命中率。</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -51,6 +56,7 @@ public class AssessmentServiceImpl implements AssessmentService {
 
     @Override
     public MerchantAssessmentResultVO currentMerchantAssessment() {
+        // 商家端查看自己的考核结果时，以当前登录用户反查商家，避免前端传入越权 merchantId。
         Long userId = currentUserContext.requireUserId();
         AssessmentQueryDTO merchant = assessmentMapper.findMerchantByUserId(userId);
         if (merchant == null) {
@@ -62,11 +68,13 @@ public class AssessmentServiceImpl implements AssessmentService {
     @Override
     @Transactional
     public MerchantAssessmentResultVO recalculate(Long merchantId, RecalculateMerchantAssessmentRequest request) {
+        // requestId 同时用于 Redis 短缓存和 MySQL 历史查询，保证重复重算请求返回同一份结果。
         String idemKey = IDEM_RECALCULATE_KEY.formatted(request.requestId().trim());
         MerchantAssessmentResultVO cached = readJson(idemKey, MerchantAssessmentResultVO.class);
         if (cached != null) {
             return cached;
         }
+        // Redis 过期后仍通过 request_id 回源 MySQL，避免运营重复点击导致重复计算。
         AssessmentQueryDTO existed = assessmentMapper.findScoreByRequestId(request.requestId().trim());
         if (existed != null) {
             MerchantAssessmentResultVO result = toResult(merchantId, existed, requireMerchant(merchantId));
@@ -82,6 +90,7 @@ public class AssessmentServiceImpl implements AssessmentService {
     @Override
     public MonthlyRunResultVO runMonthly(MonthlyAssessmentRunRequest request) {
         String period = request.period().trim();
+        // 月度批处理同一周期只允许一个执行者进入，避免多实例重复扫描商家。
         String lockKey = MONTHLY_LOCK_KEY.formatted(period);
         Boolean locked = redis.opsForValue().setIfAbsent(lockKey, request.requestId(), Duration.ofHours(2));
         if (!Boolean.TRUE.equals(locked)) {
@@ -90,6 +99,7 @@ public class AssessmentServiceImpl implements AssessmentService {
         int success = 0;
         var merchantIds = assessmentMapper.listActiveMerchantIds();
         for (Long merchantId : merchantIds) {
+            // 每个商家的 requestId 独立，便于某个商家失败后单独补偿。
             calculateAndSave(merchantId, period, "monthly:%s:%d".formatted(period, merchantId));
             success++;
         }
@@ -99,6 +109,7 @@ public class AssessmentServiceImpl implements AssessmentService {
     @Override
     public MerchantAssessmentSnapshotVO snapshot(Long merchantId) {
         String key = CACHE_SNAPSHOT_KEY.formatted(merchantId);
+        // 快照接口会被交易链路频繁调用，先读 Redis 可以减少商家表热点读取。
         MerchantAssessmentSnapshotVO cached = readJson(key, MerchantAssessmentSnapshotVO.class);
         if (cached != null) {
             return cached;
@@ -140,9 +151,15 @@ public class AssessmentServiceImpl implements AssessmentService {
         return toResult(merchantId, assessmentMapper.findLatestScore(merchantId), requireMerchant(merchantId));
     }
 
+    /**
+     * 汇总指定商家的月度指标并保存结果。
+     *
+     * <p>保存时会同时更新考核分表和商家资料快照，确保支付分账、推荐排序读取到的是最新等级配置。</p>
+     */
     private MerchantAssessmentResultVO calculateAndSave(Long merchantId, String period, String requestId) {
         AssessmentQueryDTO merchant = requireMerchant(merchantId);
         DateRange range = toRange(period);
+        // 当前评分模型只使用可以从本地交易闭环稳定获得的指标，避免依赖第三方实时数据。
         int paid = assessmentMapper.countPaidOrders(merchantId, range.startAt(), range.endAt());
         int completed = assessmentMapper.countCompletedOrders(merchantId, range.startAt(), range.endAt());
         int refunded = assessmentMapper.countRefundedOrders(merchantId, range.startAt(), range.endAt());
@@ -174,6 +191,9 @@ public class AssessmentServiceImpl implements AssessmentService {
         return toResult(merchantId, saved, merchant);
     }
 
+    /**
+     * 查询有效商家，不存在时抛出统一业务异常。
+     */
     private AssessmentQueryDTO requireMerchant(Long merchantId) {
         AssessmentQueryDTO merchant = assessmentMapper.findMerchantById(merchantId);
         if (merchant == null) {
@@ -182,12 +202,18 @@ public class AssessmentServiceImpl implements AssessmentService {
         return merchant;
     }
 
+    /**
+     * MVP 评分模型：基础分 50，正向指标加分，退款扣分，并限制在 0 到 100 分之间。
+     */
     private BigDecimal calculateScore(int paid, int completed, int refunded, int verified) {
         int rawScore = 50 + paid * 2 + completed * 5 + verified * 3 - refunded * 8;
         int limited = Math.max(0, Math.min(100, rawScore));
         return new BigDecimal(limited).setScale(2);
     }
 
+    /**
+     * 根据分数匹配等级配置；配置表缺失时使用保守默认值兜底，避免交易链路读取空佣金率。
+     */
     private AssessmentQueryDTO levelMapping(BigDecimal score) {
         AssessmentQueryDTO mapping = assessmentMapper.findLevelMapping(score);
         if (mapping != null) {
@@ -217,6 +243,9 @@ public class AssessmentServiceImpl implements AssessmentService {
         return "L1";
     }
 
+    /**
+     * 将分数记录和商家快照合并为前端展示模型。
+     */
     private MerchantAssessmentResultVO toResult(Long merchantId, AssessmentQueryDTO score, AssessmentQueryDTO merchant) {
         BigDecimal currentScore = score == null ? merchant.getScore() : score.getTotalScore();
         String level = score == null ? merchant.getMerchantLevel() : score.getMerchantLevel();
@@ -238,6 +267,9 @@ public class AssessmentServiceImpl implements AssessmentService {
                 score == null ? null : score.getCalculatedAt());
     }
 
+    /**
+     * 将 yyyy-MM 周期转换为左闭右开的自然月时间区间，避免跨月边界重复统计。
+     */
     private DateRange toRange(String period) {
         YearMonth yearMonth = YearMonth.parse(period);
         LocalDate start = yearMonth.atDay(1);

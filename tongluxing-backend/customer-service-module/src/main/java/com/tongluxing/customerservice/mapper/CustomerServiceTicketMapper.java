@@ -13,10 +13,16 @@ import com.tongluxing.customerservice.dto.CustomerServiceQueryDTO;
 
 /**
  * 客服工单数据库访问接口。
+ *
+ * <p>该 Mapper 负责维护客服工单和工单消息两张事实表。工单表保存状态、归属和处理人，
+ * 消息表保存用户、运营、系统三类发送方的时间线。</p>
  */
 @Mapper
 public interface CustomerServiceTicketMapper {
 
+    /**
+     * 按幂等请求号查询已创建工单，用于重复提交时返回原结果。
+     */
     @Select("""
             select id,
                    creator_type creatorType,
@@ -39,6 +45,9 @@ public interface CustomerServiceTicketMapper {
             """)
     CustomerServiceQueryDTO findTicketByRequestId(@Param("requestId") String requestId);
 
+    /**
+     * 按工单 ID 查询有效工单。
+     */
     @Select("""
             select id,
                    creator_type creatorType,
@@ -61,6 +70,9 @@ public interface CustomerServiceTicketMapper {
             """)
     CustomerServiceQueryDTO findTicketById(@Param("ticketId") Long ticketId);
 
+    /**
+     * 插入工单主记录，新工单初始状态固定为 OPEN，优先级固定为 NORMAL。
+     */
     @Insert("""
             insert into customer_service_ticket(
                 id, creator_type, creator_id, scene, target_type, target_id,
@@ -84,6 +96,9 @@ public interface CustomerServiceTicketMapper {
                      @Param("requestId") String requestId,
                      @Param("now") LocalDateTime now);
 
+    /**
+     * 插入工单消息，发送方可为 USER、ADMIN 或 SYSTEM。
+     */
     @Insert("""
             insert into customer_service_ticket_message(
                 id, ticket_id, sender_type, sender_id, message_type,
@@ -103,6 +118,9 @@ public interface CustomerServiceTicketMapper {
                       @Param("imageKeysJson") String imageKeysJson,
                       @Param("now") LocalDateTime now);
 
+    /**
+     * 查询工单消息时间线，按创建时间升序返回。
+     */
     @Select("""
             select id,
                    ticket_id targetId,
@@ -119,6 +137,9 @@ public interface CustomerServiceTicketMapper {
             """)
     List<CustomerServiceQueryDTO> findMessages(@Param("ticketId") Long ticketId);
 
+    /**
+     * 查询指定用户创建的工单列表。
+     */
     @Select("""
             select id,
                    creator_type creatorType,
@@ -146,6 +167,9 @@ public interface CustomerServiceTicketMapper {
                                                 @Param("offset") int offset,
                                                 @Param("size") int size);
 
+    /**
+     * 统计指定用户创建的工单数量。
+     */
     @Select("""
             select count(*)
             from customer_service_ticket
@@ -155,6 +179,9 @@ public interface CustomerServiceTicketMapper {
             """)
     long countMyTickets(@Param("creatorType") String creatorType, @Param("creatorId") Long creatorId);
 
+    /**
+     * 查询运营工单池，可按状态过滤。
+     */
     @Select("""
             <script>
             select id,
@@ -184,6 +211,9 @@ public interface CustomerServiceTicketMapper {
                                                    @Param("offset") int offset,
                                                    @Param("size") int size);
 
+    /**
+     * 统计运营工单池数量，可按状态过滤。
+     */
     @Select("""
             <script>
             select count(*)
@@ -196,6 +226,9 @@ public interface CustomerServiceTicketMapper {
             """)
     long countAdminTickets(@Param("status") String status);
 
+    /**
+     * 将工单推进到处理中，并记录当前处理人。
+     */
     @Update("""
             update customer_service_ticket
             set ticket_status = 'PROCESSING',
@@ -209,6 +242,9 @@ public interface CustomerServiceTicketMapper {
                        @Param("operatorId") Long operatorId,
                        @Param("now") LocalDateTime now);
 
+    /**
+     * 关闭工单并记录关闭时间，已关闭工单不会再次更新。
+     */
     @Update("""
             update customer_service_ticket
             set ticket_status = 'CLOSED',

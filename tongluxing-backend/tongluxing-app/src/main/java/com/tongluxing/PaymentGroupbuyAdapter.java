@@ -22,6 +22,12 @@ public class PaymentGroupbuyAdapter implements PaymentGroupbuyPort {
 
     /**
      * 将支付成功事件同步给拼团模块。
+     *
+     * @param activityId 拼团活动 ID
+     * @param orderId 订单 ID
+     * @param userId 支付用户 ID
+     * @param paidAt 支付成功时间
+     * @param requestId 幂等请求号
      */
     @Override
     public void addPaidParticipant(Long activityId, Long orderId, Long userId, LocalDateTime paidAt, String requestId) {

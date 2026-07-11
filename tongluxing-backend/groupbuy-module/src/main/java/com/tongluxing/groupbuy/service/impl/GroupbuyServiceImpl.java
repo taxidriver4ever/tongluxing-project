@@ -28,8 +28,11 @@ import com.tongluxing.groupbuy.vo.PageResult;
 import com.tongluxing.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
+
 /**
- * GroupbuyServiceImpl 业务服务实现。
+ * 拼团活动业务服务实现。
+ *
+ * <p>以 MySQL 作为事实数据源，Redis 仅用于幂等结果和详情短缓存；Redis 读写失败时不阻断主流程。</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -51,6 +54,7 @@ public class GroupbuyServiceImpl implements GroupbuyService {
             return cached;
         }
         LocalDateTime now = LocalDateTime.now();
+        // 创建活动时读取商品快照，避免后续商品配置变化影响已创建的拼团价格与规则。
         GroupbuyMerchantProductPort.MerchantProductSnapshot snapshot =
                 merchantProductPort.getSnapshot(request.productId());
         int targetPeople = request.targetPeople() == null ? snapshot.targetPeople() : request.targetPeople();
@@ -80,6 +84,7 @@ public class GroupbuyServiceImpl implements GroupbuyService {
 
     @Override
     public PageResult<GroupbuyActivityVO> list(String status, int page, int size) {
+        // 对分页参数做兜底，避免异常页码或超大 size 直接压到数据库。
         int normalizedPage = Math.max(page, 1);
         int normalizedSize = Math.min(Math.max(size, 1), 100);
         int offset = (normalizedPage - 1) * normalizedSize;
@@ -148,7 +153,9 @@ public class GroupbuyServiceImpl implements GroupbuyService {
     }
 
     /**
-     * 消费运营后台干预任务，真实推进拼团状态。
+     * 执行运营后台干预动作，直接推进拼团状态。
+     *
+     * <p>该方法由 admin-module 通过端口适配调用。干预请求使用 requestId 做幂等，避免重复点击或重试导致状态反复写入。</p>
      */
     @Override
     @Transactional
@@ -175,6 +182,9 @@ public class GroupbuyServiceImpl implements GroupbuyService {
         return result;
     }
 
+    /**
+     * 查询活动并统一处理不存在的业务异常。
+     */
     private GroupbuyActivity requireActivity(Long activityId) {
         GroupbuyActivity activity = activityMapper.findById(activityId);
         if (activity == null) {
@@ -183,6 +193,9 @@ public class GroupbuyServiceImpl implements GroupbuyService {
         return activity;
     }
 
+    /**
+     * 将活动实体组装为接口响应对象，并附带当前活动的参与人列表。
+     */
     private GroupbuyActivityVO toVO(GroupbuyActivity activity) {
         List<GroupbuyParticipantVO> participants = participantMapper.findByActivityId(activity.getId())
                 .stream()
@@ -195,6 +208,11 @@ public class GroupbuyServiceImpl implements GroupbuyService {
                 activity.getSuccessAt(), activity.getFailedAt(), participants);
     }
 
+    /**
+     * 从 Redis 读取 JSON 缓存。
+     *
+     * <p>缓存只作为性能和幂等优化，反序列化失败时返回 null，由调用方继续走数据库逻辑。</p>
+     */
     private <T> T readJson(String key, Class<T> type) {
         try {
             String value = redis.opsForValue().get(key);
@@ -204,6 +222,9 @@ public class GroupbuyServiceImpl implements GroupbuyService {
         }
     }
 
+    /**
+     * 将对象序列化后写入 Redis，并设置过期时间。
+     */
     private void writeJson(String key, Object value, Duration ttl) {
         try {
             redis.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl);

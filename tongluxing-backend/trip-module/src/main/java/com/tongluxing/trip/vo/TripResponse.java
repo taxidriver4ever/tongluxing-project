@@ -32,6 +32,8 @@ public record TripResponse(
         Boolean publicFlag,
         String status,
         String remark,
+        String actualStartTime,
+        String actualEndTime,
         List<WaypointLocationResponse> waypoints,
         String createdAt,
         String updatedAt

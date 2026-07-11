@@ -20,6 +20,8 @@ public class TripUserProfileAdapter implements TripUserProfilePort {
 
     /**
      * 查询当前用户资料，并转换为行程模块所需 DTO。
+     *
+     * @return 当前用户资料摘要；未登录或资料不存在时返回 null
      */
     @Override
     public TripUserProfileDTO getCurrentProfile() {

@@ -18,13 +18,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
-import com.tongluxing.growth.integration.GrowthFacade;
 import com.tongluxing.invite.integration.InviteFacade;
+import com.tongluxing.map.dto.LocationDto;
+import com.tongluxing.map.dto.RoutePlanRequest;
+import com.tongluxing.map.service.MapService;
+import com.tongluxing.map.vo.RoutePlanResponse;
 import com.tongluxing.trip.dto.CreateTripRequest;
 import com.tongluxing.trip.dto.LocationRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
 import com.tongluxing.trip.dto.WaypointLocationRequest;
 import com.tongluxing.trip.entity.Trip;
+import com.tongluxing.trip.entity.TripRoute;
 import com.tongluxing.trip.entity.TripMemberSnapshot;
 import com.tongluxing.trip.integration.TripUserProfilePort;
 import com.tongluxing.trip.integration.TripUserProfilePort.TripUserProfileDTO;
@@ -33,6 +37,7 @@ import com.tongluxing.trip.integration.TripVehiclePort.TripVehicleDTO;
 import com.tongluxing.trip.mapper.TripAuditLogMapper;
 import com.tongluxing.trip.mapper.TripMapper;
 import com.tongluxing.trip.mapper.TripMemberSnapshotMapper;
+import com.tongluxing.trip.mapper.TripRouteMapper;
 import com.tongluxing.trip.mapper.TripWaypointMapper;
 import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.vo.TripListResponse;
@@ -68,11 +73,12 @@ public class TripServiceImpl implements TripService {
     private final ObjectMapper objectMapper;
     private final TripMapper tripMapper;
     private final TripWaypointMapper waypointMapper;
+    private final TripRouteMapper routeMapper;
     private final TripMemberSnapshotMapper memberMapper;
     private final TripAuditLogMapper auditLogMapper;
     private final TripVehiclePort vehiclePort;
     private final TripUserProfilePort userProfilePort;
-    private final GrowthFacade growthFacade;
+    private final MapService mapService;
     private final InviteFacade inviteFacade;
 
     /**
@@ -96,7 +102,10 @@ public class TripServiceImpl implements TripService {
         trip.setUpdatedAt(now);
         trip.setDeleted(0);
         fillTrip(trip, request);
+        TripRoute route = buildRouteSnapshot(trip.getId(), request.startLocation(), request.endLocation(), request.waypoints(), now);
+        applyRouteToTrip(trip, route);
         tripMapper.insert(trip);
+        routeMapper.insert(route);
         insertOwnerSnapshot(trip, vehicle, now);
         insertAuditLog(trip.getId(), userId, "PUBLISH", null, trip, "发布行程");
         clearListCaches(userId);
@@ -153,8 +162,11 @@ public class TripServiceImpl implements TripService {
 
         Trip trip = copyTrip(before);
         fillTrip(trip, request);
+        TripRoute route = buildRouteSnapshot(trip.getId(), request.startLocation(), request.endLocation(), request.waypoints(), LocalDateTime.now());
+        applyRouteToTrip(trip, route);
         trip.setUpdatedAt(LocalDateTime.now());
         tripMapper.update(trip);
+        upsertRoute(route);
         insertAuditLog(tripId, userId, "UPDATE", before, trip, "编辑行程");
         clearTripCaches(userId, tripId);
         return buildResponse(tripId);
@@ -165,12 +177,46 @@ public class TripServiceImpl implements TripService {
      */
     @Override
     @Transactional
+    public TripResponse startTrip(Long tripId) {
+        Long userId = currentUserContext.requireUserId();
+        Trip before = requireOwnerTrip(tripId, userId);
+        if (!STATUS_PUBLISHED.equals(before.getStatus())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "只有已发布行程可以开始");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        int rows = tripMapper.startTrip(tripId, userId, now);
+        if (rows == 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "当前状态不允许开始行程");
+        }
+        Trip after = tripMapper.findById(tripId);
+        insertAuditLog(tripId, userId, "START", before, after, "开始行程");
+        clearTripCaches(userId, tripId);
+        return toResponse(after);
+    }
+
+    /**
+     * 结束行程，并触发邀请首队完成事件；里程成长由 driver-track 模块结算。
+     */
+    @Override
+    @Transactional
     public TripResponse endTrip(Long tripId) {
-        TripResponse response = changeStatus(tripId, STATUS_ENDED, "END", "结束行程");
+        Long userId = currentUserContext.requireUserId();
+        Trip before = requireOwnerTrip(tripId, userId);
+        if (!STATUS_ONGOING.equals(before.getStatus())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "只有行驶中行程可以结束");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        int rows = tripMapper.endOngoingTrip(tripId, userId, now);
+        if (rows == 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "当前状态不允许结束行程");
+        }
+        Trip after = tripMapper.findById(tripId);
+        insertAuditLog(tripId, userId, "END", before, after, "结束行程");
+        clearTripCaches(userId, tripId);
         memberMapper.findByTripId(tripId).stream()
                 .filter(member -> List.of("OWNER", "APPROVED").contains(member.getJoinStatus()))
                 .forEach(member -> handleTripCompleted(tripId, member.getUserId()));
-        return response;
+        return toResponse(after);
     }
 
     /**
@@ -178,7 +224,6 @@ public class TripServiceImpl implements TripService {
      */
     private void handleTripCompleted(Long tripId, Long userId) {
         String bizId = "trip-completed:" + tripId;
-        growthFacade.grant(userId, "TEAM_TRIP_COMPLETED", bizId + ":" + userId, 100, "完成有效同行");
         inviteFacade.completeFirstTeam(userId, tripId, bizId);
     }
 
@@ -214,6 +259,16 @@ public class TripServiceImpl implements TripService {
     public List<TripMemberSnapshotResponse> getMembers(Long tripId) {
         requireReadableTrip(tripId);
         return memberMapper.findByTripId(tripId).stream().map(this::toMemberResponse).toList();
+    }
+
+    @Override
+    public TripResponse getCurrentDrivingTrip() {
+        Long userId = currentUserContext.requireUserId();
+        Trip trip = tripMapper.findCurrentDrivingByUserId(userId);
+        if (trip == null) {
+            return null;
+        }
+        return toResponse(trip);
     }
 
     /**
@@ -293,6 +348,54 @@ public class TripServiceImpl implements TripService {
         trip.setEndName(displayName(endLocation.name(), endLocation.address()));
         trip.setEndLat(endLocation.latitude());
         trip.setEndLng(endLocation.longitude());
+    }
+
+    /**
+     * 调用地图模块生成规划路线快照。
+     */
+    private TripRoute buildRouteSnapshot(Long tripId, LocationRequest startLocation, LocationRequest endLocation,
+                                         List<WaypointLocationRequest> waypoints, LocalDateTime now) {
+        List<LocationDto> waypointDtos = sortWaypoints(waypoints).stream()
+                .map(waypoint -> new LocationDto(waypoint.name(), waypoint.address(), waypoint.latitude(), waypoint.longitude()))
+                .toList();
+        RoutePlanResponse plan = mapService.planRoute(new RoutePlanRequest(
+                new LocationDto(startLocation.name(), startLocation.address(), startLocation.latitude(), startLocation.longitude()),
+                new LocationDto(endLocation.name(), endLocation.address(), endLocation.latitude(), endLocation.longitude()),
+                waypointDtos
+        ));
+
+        TripRoute route = new TripRoute();
+        route.setId(SnowflakeIdGenerator.nextId());
+        route.setTripId(tripId);
+        route.setOrigin(toJson(startLocation));
+        route.setDestination(toJson(endLocation));
+        route.setWaypoints(toJson(sortWaypoints(waypoints)));
+        route.setPolyline(plan.routePolyline());
+        route.setPlanDistance(plan.routeDistance());
+        route.setPlanDuration(plan.routeDuration());
+        route.setCreatedAt(now);
+        route.setUpdatedAt(now);
+        route.setDeleted(0);
+        return route;
+    }
+
+    /**
+     * 将规划路线快照同步到 trip 主表兼容字段。
+     */
+    private void applyRouteToTrip(Trip trip, TripRoute route) {
+        trip.setRouteDistance(route.getPlanDistance());
+        trip.setRouteDuration(route.getPlanDuration());
+        trip.setRoutePolyline(route.getPolyline());
+        trip.setTotalDistanceMeters(route.getPlanDistance());
+    }
+
+    /**
+     * 新增或更新规划路线快照。
+     */
+    private void upsertRoute(TripRoute route) {
+        if (routeMapper.updateByTripId(route) == 0) {
+            routeMapper.insert(route);
+        }
     }
 
     /**
@@ -456,6 +559,8 @@ public class TripServiceImpl implements TripService {
                 trip.getPublicFlag() != null && trip.getPublicFlag() == 1,
                 trip.getStatus(),
                 trip.getRemark(),
+                formatTime(trip.getActualStartTime()),
+                formatTime(trip.getActualEndTime()),
                 waypoints,
                 formatTime(trip.getCreatedAt()),
                 formatTime(trip.getUpdatedAt())
@@ -514,6 +619,8 @@ public class TripServiceImpl implements TripService {
         trip.setPublicFlag(source.getPublicFlag());
         trip.setStatus(source.getStatus());
         trip.setRemark(source.getRemark());
+        trip.setActualStartTime(source.getActualStartTime());
+        trip.setActualEndTime(source.getActualEndTime());
         trip.setCreatedAt(source.getCreatedAt());
         trip.setUpdatedAt(source.getUpdatedAt());
         trip.setDeleted(source.getDeleted());

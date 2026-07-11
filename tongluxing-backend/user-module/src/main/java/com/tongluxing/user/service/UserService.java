@@ -2,6 +2,9 @@ package com.tongluxing.user.service;
 
 import com.tongluxing.user.model.UserModels.CertificationRequest;
 import com.tongluxing.user.model.UserModels.CertificationVO;
+import com.tongluxing.user.model.UserModels.DrivingLicenseAuditDetailVO;
+import com.tongluxing.user.model.UserModels.DrivingLicenseAuditSummaryVO;
+import com.tongluxing.user.model.UserModels.PageResult;
 import com.tongluxing.user.model.UserModels.PublicProfileVO;
 import com.tongluxing.user.model.UserModels.UpdateUserProfileRequest;
 import com.tongluxing.user.model.UserModels.UserProfileVO;
@@ -9,7 +12,7 @@ import com.tongluxing.user.model.UserModels.UserProfileVO;
 /**
  * 用户模块业务服务接口。
  *
- * <p>定义用户资料、实名认证和公开主页相关能力，供 Controller 调用。</p>
+ * <p>定义用户资料、驾驶证认证和公开主页相关能力，供 Controller 与后台模块调用。</p>
  */
 public interface UserService {
 
@@ -24,9 +27,23 @@ public interface UserService {
     UserProfileVO updateCurrentProfile(UpdateUserProfileRequest request);
 
     /**
-     * 提交当前登录用户的实名认证申请。
+     * 提交当前登录用户的驾驶证认证申请。
      */
     CertificationVO submitCertification(CertificationRequest request);
+
+    /** 查询当前用户最近一次驾驶证认证状态。 */
+    CertificationVO getLatestCertification();
+
+    /** 后台分页查询驾驶证认证申请。 */
+    PageResult<DrivingLicenseAuditSummaryVO> pageDrivingLicenseCertifications(
+            String status, String keyword, int page, int size);
+
+    /** 后台查询驾驶证认证详情。 */
+    DrivingLicenseAuditDetailVO getDrivingLicenseCertificationForAudit(Long certificationId);
+
+    /** 后台应用驾驶证人工审核结果。 */
+    DrivingLicenseAuditDetailVO applyDrivingLicenseAuditResult(
+            Long certificationId, String auditResult, String rejectReason, Long operatorId);
 
     /**
      * 查询指定用户的公开主页资料。

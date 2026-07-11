@@ -271,9 +271,10 @@ public class StorageServiceImpl implements StorageService {
             }
             return file;
         }
-        validateBucket(bucket);
+        String resolvedBucket = StringUtils.hasText(bucket) ? bucket : properties.bucket();
+        validateBucket(resolvedBucket);
         validateObjectKey(objectKey);
-        FileStorage file = mapper.findByObject(bucket, objectKey);
+        FileStorage file = mapper.findByObject(resolvedBucket, objectKey);
         if (file == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "文件不存在");
         }

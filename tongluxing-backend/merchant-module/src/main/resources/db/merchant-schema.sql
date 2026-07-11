@@ -118,8 +118,6 @@ CREATE TABLE IF NOT EXISTS merchant_promotion_stats (
   merchant_id BIGINT NOT NULL,
   promotion_code_id BIGINT NOT NULL,
   stat_date DATE NOT NULL,
-  exposure_count BIGINT NOT NULL DEFAULT 0,
-  click_count BIGINT NOT NULL DEFAULT 0,
   register_count BIGINT NOT NULL DEFAULT 0,
   coupon_claim_count BIGINT NOT NULL DEFAULT 0,
   coupon_verify_count BIGINT NOT NULL DEFAULT 0,
@@ -130,6 +128,24 @@ CREATE TABLE IF NOT EXISTS merchant_promotion_stats (
   PRIMARY KEY (id),
   UNIQUE KEY uk_promotion_stats_day (promotion_code_id, stat_date),
   KEY idx_stats_merchant_date (merchant_id, stat_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS merchant_user_relation (
+  id BIGINT NOT NULL,
+  merchant_id BIGINT NOT NULL,
+  promotion_code_id BIGINT NOT NULL,
+  promotion_code VARCHAR(64) NOT NULL,
+  user_id BIGINT NOT NULL,
+  registered_at DATETIME NOT NULL,
+  first_consumed_at DATETIME NULL,
+  relation_status VARCHAR(32) NOT NULL DEFAULT 'BOUND',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_merchant_user_relation (user_id, deleted),
+  KEY idx_merchant_relation (merchant_id, registered_at),
+  KEY idx_promotion_relation (promotion_code_id, registered_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS merchant_audit_log (

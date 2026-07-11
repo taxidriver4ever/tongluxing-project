@@ -79,7 +79,7 @@ public class VehicleController {
     }
 
     /** 提交当前用户名下指定车辆的认证资料。 */
-    @PostMapping("/{vehicleId}/certification")
+    @PostMapping({"/{vehicleId}/certification", "/{vehicleId}/certifications"})
     public Result<VehicleCertificationResponse> submitCertification(
             @PathVariable Long vehicleId,
             @Valid @RequestBody SubmitVehicleCertificationRequest request
@@ -88,7 +88,7 @@ public class VehicleController {
     }
 
     /** 查询当前用户名下指定车辆最近一次认证记录。 */
-    @GetMapping("/{vehicleId}/certification")
+    @GetMapping({"/{vehicleId}/certification", "/{vehicleId}/certifications"})
     public Result<VehicleCertificationResponse> getCertification(@PathVariable Long vehicleId) {
         return Result.success(vehicleService.getCertification(vehicleId));
     }

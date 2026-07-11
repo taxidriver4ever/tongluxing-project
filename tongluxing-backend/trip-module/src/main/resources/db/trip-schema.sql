@@ -31,12 +31,29 @@ create table if not exists trip (
     public_flag tinyint(1) not null default 1,
     status varchar(20) not null,
     remark varchar(255) null,
+    actual_start_time datetime null,
+    actual_end_time datetime null,
     created_at datetime not null,
     updated_at datetime not null,
     deleted tinyint(1) not null default 0,
     key idx_trip_user_status_time (user_id, status, departure_time),
     key idx_trip_public_status_time (public_flag, status, departure_time),
     key idx_trip_vehicle (vehicle_id)
+);
+
+create table if not exists trip_route (
+    id bigint primary key,
+    trip_id bigint not null,
+    origin json not null,
+    destination json not null,
+    waypoints json null,
+    polyline mediumtext null,
+    plan_distance int null,
+    plan_duration int null,
+    created_at datetime not null,
+    updated_at datetime not null,
+    deleted tinyint(1) not null default 0,
+    unique key uk_trip_route_trip (trip_id, deleted)
 );
 
 create table if not exists trip_waypoint (

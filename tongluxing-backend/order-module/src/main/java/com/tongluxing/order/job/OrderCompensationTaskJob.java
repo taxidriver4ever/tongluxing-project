@@ -13,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 订单补偿任务定时消费器。
+ *
+ * <p>通过 Redis 分布式锁避免多实例同时拉取同一批补偿任务。</p>
  */
 @Slf4j
 @Component
@@ -23,6 +25,9 @@ public class OrderCompensationTaskJob {
     private final OrderCompensationTaskService taskService;
     private final StringRedisTemplate redis;
 
+    /**
+     * 定时消费到期补偿任务。
+     */
     @Scheduled(fixedDelayString = "${tongluxing.jobs.order-compensation-delay:30000}")
     public void processDueTasks() {
         Boolean locked = redis.opsForValue().setIfAbsent(JOB_LOCK_KEY, "1", 25, TimeUnit.SECONDS);

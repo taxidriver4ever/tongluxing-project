@@ -10,14 +10,19 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import com.tongluxing.order.entity.OrderCompensationTask;
+
 /**
  * 订单补偿任务 Mapper。
+ *
+ * <p>封装 order_compensation_task 表的写入、到期任务拉取和任务结果更新。</p>
  */
 @Mapper
 public interface OrderCompensationTaskMapper {
 
     /**
      * 新增一条待处理补偿任务。
+     *
+     * @param task 补偿任务实体
      */
     @Insert("""
             insert into order_compensation_task
@@ -31,6 +36,10 @@ public interface OrderCompensationTaskMapper {
 
     /**
      * 查询到期补偿任务，供定时任务或内部接口消费。
+     *
+     * @param now 当前时间
+     * @param limit 单次最大查询数量
+     * @return 到期补偿任务列表
      */
     @Select("""
             select id, biz_type, biz_id, idempotent_key, target_module,
@@ -46,6 +55,10 @@ public interface OrderCompensationTaskMapper {
 
     /**
      * 标记补偿任务成功。
+     *
+     * @param taskId 任务 ID
+     * @param now 成功处理时间
+     * @return 受影响行数
      */
     @Update("""
             update order_compensation_task
@@ -58,6 +71,12 @@ public interface OrderCompensationTaskMapper {
 
     /**
      * 标记补偿任务失败并推迟下次重试时间。
+     *
+     * @param taskId 任务 ID
+     * @param error 失败原因
+     * @param nextRetryAt 下次重试时间
+     * @param now 更新时间
+     * @return 受影响行数
      */
     @Update("""
             update order_compensation_task

@@ -13,8 +13,10 @@ import com.tongluxing.admin.dto.AdminAuditRequest;
 import com.tongluxing.admin.service.AdminAuditService;
 import com.tongluxing.admin.service.AdminQueryService;
 import com.tongluxing.admin.vo.AdminAuditResultVO;
+import com.tongluxing.admin.vo.AdminDrivingLicenseDetailVO;
 import com.tongluxing.admin.vo.PageResult;
 import com.tongluxing.common.result.Result;
+import com.tongluxing.user.model.UserModels.DrivingLicenseAuditSummaryVO;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,16 +35,22 @@ public class AdminUserAuditController {
     /** 后台通用查询服务。 */
     private final AdminQueryService queryService;
 
-    /** 分页查询用户认证申请；当前返回空分页，后续可接入 user-module 查询端口。 */
+    /** 分页查询驾驶证认证申请。 */
     @GetMapping
-    public Result<PageResult<Object>> page(@RequestParam(required = false) String status,
+    public Result<PageResult<DrivingLicenseAuditSummaryVO>> page(@RequestParam(required = false) String status,
                                            @RequestParam(required = false) String keyword,
                                            @RequestParam(defaultValue = "1") int page,
                                            @RequestParam(defaultValue = "20") int size) {
-        return Result.success(queryService.emptyBusinessPage("user-module", status, keyword, null, null, page, size));
+        return Result.success(queryService.drivingLicenseCertifications(status, keyword, page, size));
     }
 
-    /** 审核指定用户认证申请。 */
+    /** 查询驾驶证认证审核详情。 */
+    @GetMapping("/{certificationId}")
+    public Result<AdminDrivingLicenseDetailVO> detail(@PathVariable Long certificationId) {
+        return Result.success(queryService.drivingLicenseCertificationDetail(certificationId));
+    }
+
+    /** 审核指定驾驶证认证申请。 */
     @PostMapping("/{certificationId}/audit")
     public Result<AdminAuditResultVO> audit(@PathVariable Long certificationId,
                                             @Valid @RequestBody AdminAuditRequest request) {

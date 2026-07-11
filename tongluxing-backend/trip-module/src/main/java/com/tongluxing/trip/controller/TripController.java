@@ -59,6 +59,14 @@ public class TripController {
     }
 
     /**
+     * 查询当前用户正在驾驶中的行程。
+     */
+    @GetMapping("/driving/current")
+    public Result<TripResponse> getCurrentDrivingTrip() {
+        return Result.success(tripService.getCurrentDrivingTrip());
+    }
+
+    /**
      * 查询行程详情。
      */
     @GetMapping("/{tripId}")
@@ -72,6 +80,14 @@ public class TripController {
     @PutMapping("/{tripId}")
     public Result<TripResponse> updateTrip(@PathVariable Long tripId, @Valid @RequestBody UpdateTripRequest request) {
         return Result.success(tripService.updateTrip(tripId, request));
+    }
+
+    /**
+     * 开始当前用户拥有的行程。
+     */
+    @PostMapping("/{tripId}/start")
+    public Result<TripResponse> startTrip(@PathVariable Long tripId) {
+        return Result.success(tripService.startTrip(tripId));
     }
 
     /**

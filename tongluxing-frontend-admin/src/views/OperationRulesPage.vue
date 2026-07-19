@@ -1,0 +1,19 @@
+<script setup>
+import { computed, ref } from 'vue'
+import { History, Ticket, TrendingUp, UserPlus } from 'lucide-vue-next'
+import { showToast } from '../utils.js'
+
+const active=ref('growth')
+const configs={
+  growth:{label:'成长规则',icon:TrendingUp,domain:'GROWTH',key:'growth.rules',version:'12',endpoint:'/v1/admin/growth-rules',request:'growth-rule-v13-20260713',reason:'暑期自驾季成长激励调整',json:'{\n  "tripCompleted": 100,\n  "firstTrip": 200,\n  "mileagePerKm": 1,\n  "teamJoined": 50,\n  "dailyLimit": 1000\n}'},
+  invite:{label:'邀请规则',icon:UserPlus,domain:'INVITE',key:'invite.rules',version:'8',endpoint:'/v1/admin/invite-rules',request:'invite-rule-v9-20260713',reason:'暑期邀请活动奖励调整',json:'{\n  "registerReward": 100,\n  "firstTeamReward": 200,\n  "validDays": 30\n}'},
+  coupon:{label:'优惠券预算',icon:Ticket,domain:'COUPON',key:'coupon.budgets',version:'6',endpoint:'/v1/admin/coupon-budgets',request:'coupon-budget-v7-20260713',reason:'暑期券预算调整',json:'{\n  "totalBudget": 200000,\n  "perUserLimit": 5,\n  "alertThreshold": 0.8\n}'},
+  history:{label:'版本记录',icon:History,domain:'CONFIG',key:'version.history',version:'-',endpoint:'/v1/admin/audit-logs?targetModule=CONFIG',request:'-',reason:'查询平台规则的历史发布记录',json:'{\n  "message": "版本记录由审计日志提供"\n}'},
+}
+const config=computed(()=>configs[active.value])
+</script>
+
+<template><div class="page"><div class="page-head"><div><h1>运营规则配置</h1><p>成长、邀请和优惠券预算配置的版本化管理</p></div><div class="head-actions"><button class="btn" @click="active='history'">查看版本历史</button><button class="btn primary" @click="showToast('配置草稿已保存')">保存草稿</button></div></div>
+  <div class="config-layout"><div class="panel config-nav"><div v-for="(item,id) in configs" :key="id" class="config-item" :class="{active:active===id}" @click="active=id"><component :is="item.icon" />{{item.label}}</div></div><div class="panel"><div class="panel-head"><div><h2>{{config.label}} · {{config.key}}</h2><p>当前版本 V{{config.version}} · ACTIVE</p></div><span class="endpoint">GET {{config.endpoint}}</span></div><div class="panel-body"><div class="notice-box">更新配置会生成新版本并写入审计日志；effectiveAt 为空时立即生效。</div><div class="form-grid" style="margin-top:16px"><div class="form-group"><label>配置域</label><input class="field" :value="config.domain" disabled></div><div class="form-group"><label>配置键</label><input class="field" :value="config.key"></div><div class="form-group"><label>当前版本</label><input class="field" :value="config.version" disabled></div><div class="form-group"><label>生效时间</label><input class="field" type="datetime-local" value="2026-07-14T00:00"></div><div class="form-group full"><label>配置值（JSON 字符串）</label><textarea class="field" :value="config.json"></textarea></div><div class="form-group"><label>操作人 ID</label><input class="field" value="10001"></div><div class="form-group"><label>请求幂等 ID</label><input class="field" :value="config.request"></div><div class="form-group full"><label>变更原因</label><input class="field" :value="config.reason"></div></div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn" @click="showToast('JSON 格式校验通过')">JSON 校验</button><button class="btn primary" @click="showToast(config.label+'新版本已提交（原型）')">发布新版本</button></div><div class="code-note" style="margin-top:14px">PUT {{config.endpoint}} · AdminConfigUpdateRequest</div></div></div></div>
+  <div class="grid cols-3" style="margin-top:16px"><div class="api-card"><div class="api-card-top"><b>邀请规则</b><span class="method put">PUT</span></div><div class="api-path">/v1/admin/invite-rules</div><p>注册奖励、首次组队奖励及邀请有效期。</p></div><div class="api-card"><div class="api-card-top"><b>优惠券预算</b><span class="method put">PUT</span></div><div class="api-path">/v1/admin/coupon-budgets</div><p>发券总预算、单用户上限与预算告警阈值。</p></div><div class="api-card"><div class="api-card-top"><b>配置审计</b><span class="method">GET</span></div><div class="api-path">/v1/admin/audit-logs?targetModule=CONFIG</div><p>追踪版本发布人、原因与操作结果。</p></div></div>
+</div></template>

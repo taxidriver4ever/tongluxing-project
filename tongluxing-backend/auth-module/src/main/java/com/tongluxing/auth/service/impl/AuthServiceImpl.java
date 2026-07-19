@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -16,15 +17,19 @@ import com.tongluxing.auth.client.WxMiniProgramClient;
 import com.tongluxing.auth.dto.AppBindByMiniTicketRequest;
 import com.tongluxing.auth.dto.AppLoginRequest;
 import com.tongluxing.auth.dto.LoginRequest;
+import com.tongluxing.auth.dto.PasswordLoginRequest;
 import com.tongluxing.auth.dto.RefreshTokenRequest;
 import com.tongluxing.auth.dto.RegisterSource;
 import com.tongluxing.auth.dto.SmsCodeRequest;
+import com.tongluxing.auth.dto.SetPasswordRequest;
 import com.tongluxing.auth.dto.WxPhoneLoginRequest;
 import com.tongluxing.auth.entity.AuthAccount;
 import com.tongluxing.auth.entity.AuthDeviceBinding;
+import com.tongluxing.auth.entity.AuthPasswordCredential;
 import com.tongluxing.auth.mapper.AuthAccountMapper;
 import com.tongluxing.auth.mapper.AuthDeviceBindingMapper;
 import com.tongluxing.auth.mapper.AuthLoginLogMapper;
+import com.tongluxing.auth.mapper.AuthPasswordCredentialMapper;
 import com.tongluxing.auth.mapper.AuthSmsLogMapper;
 import com.tongluxing.auth.security.AuthPrincipal;
 import com.tongluxing.auth.security.TokenStore;
@@ -76,6 +81,7 @@ public class AuthServiceImpl implements AuthService {
     private static final int APP_BIND_TICKET_EXPIRE_SECONDS = 300;
     private static final String CLIENT_MINI_PROGRAM = "MINI_PROGRAM";
     private static final String CLIENT_APP_DRIVER = "APP_DRIVER";
+    private static final String PASSWORD_VERSION_BCRYPT = "BCRYPT";
 
     /** Redis 模板，用于验证码、限流计数和登录失败计数。 */
     private final StringRedisTemplate redisTemplate;
@@ -89,6 +95,10 @@ public class AuthServiceImpl implements AuthService {
     private final AuthLoginLogMapper loginLogMapper;
     /** 设备绑定 Mapper。 */
     private final AuthDeviceBindingMapper deviceBindingMapper;
+    /** 密码凭证 Mapper。 */
+    private final AuthPasswordCredentialMapper passwordCredentialMapper;
+    /** 密码哈希器。 */
+    private final PasswordEncoder passwordEncoder;
     /** 微信小程序接口客户端。 */
     private final WxMiniProgramClient wxMiniProgramClient;
     /** Spring 事件发布器，用于首次注册成功后通知业务模块处理来源绑定。 */
@@ -131,17 +141,90 @@ public class AuthServiceImpl implements AuthService {
         validateLoginFailLimit(phone);
         validateSmsCode(phone, request.code());
 
-        LoginResponse response = doLoginByPhone(phone, request.deviceId(), null, null, CLIENT_MINI_PROGRAM, "login", request.registerSource());
+        LoginResponse response = doLoginByPhone(phone, request.deviceId(), null, null, CLIENT_MINI_PROGRAM, "login", request.password(), request.registerSource());
         redisTemplate.delete(key(SMS_CODE_KEY, DEFAULT_SCENE, phone));
         return response;
+    }
+
+    /** 手机号密码登录。 */
+    @Override
+    @Transactional
+    public LoginResponse passwordLogin(PasswordLoginRequest request) {
+        String phone = request.phone();
+        validateLoginFailLimit(phone);
+        AuthAccount account = accountMapper.findByPhone(phone);
+        if (account == null) {
+            increaseLoginFail(phone);
+            insertLoginLog(null, phone, "password_login", request.deviceId(), currentIp(), false, "account not found");
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "手机号或密码错误");
+        }
+        if (Integer.valueOf(2).equals(account.getAccountStatus())) {
+            insertLoginLog(account.getUserId(), phone, "password_login", request.deviceId(), currentIp(), false, "account disabled");
+            throw new BusinessException(ResultCode.FORBIDDEN, "账号已被禁用");
+        }
+        AuthPasswordCredential credential = passwordCredentialMapper.findByUserId(account.getUserId());
+        if (credential == null || !Integer.valueOf(1).equals(credential.getPasswordStatus())) {
+            insertLoginLog(account.getUserId(), phone, "password_login", request.deviceId(), currentIp(), false, "password credential missing");
+            throw new BusinessException(ResultCode.BAD_REQUEST, "账号未设置密码，请先使用验证码登录设置密码");
+        }
+        if (!passwordEncoder.matches(request.password(), credential.getPasswordHash())) {
+            increaseLoginFail(phone);
+            insertLoginLog(account.getUserId(), phone, "password_login", request.deviceId(), currentIp(), false, "password invalid");
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "手机号或密码错误");
+        }
+
+        String ip = currentIp();
+        updateLastLogin(account.getUserId(), ip);
+        upsertDeviceBinding(account, CLIENT_MINI_PROGRAM, request.deviceId(), null, null, ip);
+        redisTemplate.delete(loginFailKey(phone));
+
+        TokenStore.TokenPair tokenPair = tokenStore.create(account.getUserId(), phone, normalizeDeviceId(request.deviceId()));
+        insertLoginLog(account.getUserId(), phone, "password_login", request.deviceId(), ip, true, "password login success");
+        return new LoginResponse(
+                tokenPair.token(),
+                tokenPair.refreshToken(),
+                account.getUserId(),
+                false,
+                true,
+                tokenPair.expireSeconds()
+        );
     }
 
     /** 微信手机号授权登录。 */
     @Override
     @Transactional
     public LoginResponse wxPhoneLogin(WxPhoneLoginRequest request) {
-        String phone = wxMiniProgramClient.getPhoneNumber(request.code());
-        return doLoginByPhone(phone, request.deviceId(), null, null, CLIENT_MINI_PROGRAM, "wx_phone_login", request.registerSource());
+        String phone;
+        if (StringUtils.hasText(request.mockPhone())) {
+            phone = request.mockPhone().trim();
+        } else {
+            if (!StringUtils.hasText(request.code())) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "微信授权 code 或 mockPhone 至少传一个");
+            }
+            phone = wxMiniProgramClient.getPhoneNumber(request.code());
+        }
+        RegisterSource source = request.registerSource();
+        if (source == null && StringUtils.hasText(request.inviteCode())) {
+            source = new RegisterSource("INVITE", request.inviteCode().trim());
+        }
+        return doLoginByPhone(phone, request.deviceId(), null, null, CLIENT_MINI_PROGRAM,
+                "wx_phone_login", request.password(), source);
+    }
+
+    /** 当前登录用户首次设置密码；重复设置不会覆盖旧密码。 */
+    @Override
+    @Transactional
+    public void setPassword(String authorization, SetPasswordRequest request) {
+        AuthPrincipal principal = resolvePrincipal(authorization);
+        validateSetPassword(request.password());
+        AuthPasswordCredential existing = passwordCredentialMapper.findByUserId(principal.userId());
+        if (existing != null) {
+            if (passwordEncoder.matches(request.password(), existing.getPasswordHash())) {
+                return;
+            }
+            throw new BusinessException(409, "账号已经设置密码");
+        }
+        createPasswordCredential(principal.userId(), request.password());
     }
 
     /** App 驾驶端手机号验证码登录。 */
@@ -159,6 +242,7 @@ public class AuthServiceImpl implements AuthService {
                 request.platform(),
                 CLIENT_APP_DRIVER,
                 "app_login",
+                request.password(),
                 request.registerSource()
         );
         redisTemplate.delete(key(SMS_CODE_KEY, DEFAULT_SCENE, phone));
@@ -202,7 +286,14 @@ public class AuthServiceImpl implements AuthService {
         upsertDeviceBinding(account, CLIENT_APP_DRIVER, request.deviceId(), request.deviceName(), request.platform(), ip);
         TokenStore.TokenPair tokenPair = tokenStore.create(account.getUserId(), account.getPhone(), normalizeDeviceId(request.deviceId()));
         insertLoginLog(account.getUserId(), account.getPhone(), "app_bind_login", request.deviceId(), ip, true, "app bind by mini ticket success");
-        return new LoginResponse(tokenPair.token(), tokenPair.refreshToken(), account.getUserId(), false, tokenPair.expireSeconds());
+        return new LoginResponse(
+                tokenPair.token(),
+                tokenPair.refreshToken(),
+                account.getUserId(),
+                false,
+                hasPasswordCredential(account.getUserId()),
+                tokenPair.expireSeconds()
+        );
     }
 
     /**
@@ -211,16 +302,21 @@ public class AuthServiceImpl implements AuthService {
      * <p>手机号验证码登录和微信手机号登录最终都会走到这里：查账号、必要时创建账号、签发 Token、记录日志。</p>
      */
     private LoginResponse doLoginByPhone(String phone, String deviceId, String deviceName, String platform,
-                                         String clientType, String actionType, RegisterSource registerSource) {
+                                         String clientType, String actionType, String password, RegisterSource registerSource) {
         AuthAccount account = accountMapper.findByPhone(phone);
         boolean isNewUser = account == null;
         if (account == null) {
             account = createAccount(phone, currentIp());
+            if (StringUtils.hasText(password)) {
+                validateInitialPassword(password);
+                createPasswordCredential(account.getUserId(), password);
+            }
             publishUserRegistered(account, registerSource);
         }
         if (Integer.valueOf(2).equals(account.getAccountStatus())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "账号已被禁用");
         }
+        boolean passwordSet = hasPasswordCredential(account.getUserId());
 
         String ip = currentIp();
         updateLastLogin(account.getUserId(), ip);
@@ -235,8 +331,58 @@ public class AuthServiceImpl implements AuthService {
                 tokenPair.refreshToken(),
                 account.getUserId(),
                 isNewUser,
+                passwordSet,
                 tokenPair.expireSeconds()
         );
+    }
+
+    /** 首次注册时校验初始密码。 */
+    private void validateInitialPassword(String password) {
+        if (!StringUtils.hasText(password)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "首次注册需要设置密码");
+        }
+        if (!password.equals(password.trim())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "密码不能包含首尾空格");
+        }
+        if (password.length() < 8 || password.length() > 32) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "密码长度需为8-32位");
+        }
+        boolean hasLetter = password.chars().anyMatch(Character::isLetter);
+        boolean hasDigit = password.chars().anyMatch(Character::isDigit);
+        if (!hasLetter || !hasDigit) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "密码需至少包含字母和数字");
+        }
+    }
+
+    /** 联调初始化密码规则；允许需求示例中的纯数字六位密码。 */
+    private void validateSetPassword(String password) {
+        if (!StringUtils.hasText(password) || !password.equals(password.trim())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "密码不能为空且不能包含首尾空格");
+        }
+        if (password.length() < 6 || password.length() > 32) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "密码长度需为6-32位");
+        }
+    }
+
+    /** 创建密码凭证，只保存不可逆哈希。 */
+    private void createPasswordCredential(Long userId, String password) {
+        LocalDateTime now = LocalDateTime.now();
+        AuthPasswordCredential credential = new AuthPasswordCredential();
+        credential.setId(SnowflakeIdGenerator.nextId());
+        credential.setUserId(userId);
+        credential.setPasswordHash(passwordEncoder.encode(password));
+        credential.setPasswordVersion(PASSWORD_VERSION_BCRYPT);
+        credential.setPasswordStatus(1);
+        credential.setLastSetTime(now);
+        credential.setCreatedAt(now);
+        credential.setUpdatedAt(now);
+        credential.setDeleted(0);
+        passwordCredentialMapper.insert(credential);
+    }
+
+    /** 是否已有密码凭证。 */
+    private boolean hasPasswordCredential(Long userId) {
+        return passwordCredentialMapper.findByUserId(userId) != null;
     }
 
     /** 新增或刷新设备绑定关系。 */
@@ -373,7 +519,7 @@ public class AuthServiceImpl implements AuthService {
     private void validateLoginFailLimit(String phone) {
         String failCount = redisTemplate.opsForValue().get(loginFailKey(phone));
         if (StringUtils.hasText(failCount) && Integer.parseInt(failCount) >= LOGIN_FAIL_LIMIT) {
-            throw new BusinessException("验证码错误次数过多，请稍后再试");
+            throw new BusinessException("登录失败次数过多，请稍后再试");
         }
     }
 

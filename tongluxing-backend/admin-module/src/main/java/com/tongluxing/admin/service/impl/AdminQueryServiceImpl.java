@@ -98,7 +98,8 @@ public class AdminQueryServiceImpl implements AdminQueryService {
                 .toList();
         return new AdminVehicleCertificationDetailVO(
                 detail.certificationId(), detail.vehicleId(), detail.userId(), detail.ownerName(), detail.plateNo(),
-                detail.vehicleType(), detail.vin(), detail.engineNo(), detail.registerDate(), detail.issueDate(),
+                detail.vehicleBrand(), detail.vehicleModel(), detail.vehicleColor(), detail.vehicleType(),
+                detail.vin(), detail.engineNo(), detail.registerDate(), detail.issueDate(),
                 detail.issuingAuthority(), detail.licenseFrontImageKey(), presign(detail.licenseFrontImageKey()),
                 detail.licenseBackImageKey(), presign(detail.licenseBackImageKey()), images, detail.recognitionSource(),
                 detail.status(), detail.rejectReason(), detail.submittedAt(), detail.reviewedAt());

@@ -91,4 +91,9 @@ public class UserQueryDTO {
 
     /** 是否允许邀请相关能力。 */
     private Boolean inviteEnabledFlag;
+
+    private Integer totalTripCount;
+    private Long totalDistanceMeters;
+    private Long totalDurationMinutes;
+    private Integer completedWaypointCount;
 }

@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.tongluxing.admin.dto.AdminInterventionRequest;
 import com.tongluxing.admin.entity.AdminAuditLog;
 import com.tongluxing.admin.mapper.AdminAuditLogMapper;
+import com.tongluxing.admin.integration.AdminGroupbuyPort;
 import com.tongluxing.admin.service.AdminInterventionService;
 import com.tongluxing.admin.vo.AdminInterventionResultVO;
 import com.tongluxing.common.exception.BusinessException;
@@ -27,6 +28,7 @@ public class AdminInterventionServiceImpl implements AdminInterventionService {
     private final AdminAuditLogMapper auditLogMapper;
     /** 后台通用支撑组件。 */
     private final AdminSupport support;
+    private final AdminGroupbuyPort groupbuyPort;
 
     /** 对拼团活动执行人工干预。 */
     @Override
@@ -47,14 +49,14 @@ public class AdminInterventionServiceImpl implements AdminInterventionService {
         }
 
         String payload = """
-                {"activityId":%d,"action":"%s","reason":"%s"}
-                """.formatted(activityId, support.normalize(request.action()), escape(request.reason())).trim();
-        support.compensation("GROUPBUY_INTERVENE", String.valueOf(activityId), request.requestId(),
-                "groupbuy-module", payload);
+                {"activityId":%d,"action":"%s","reason":"%s","extendMinutes":%s}
+                """.formatted(activityId, support.normalize(request.action()), escape(request.reason()),
+                request.extendMinutes()==null?"null":request.extendMinutes()).trim();
+        groupbuyPort.applyIntervention(activityId,request.action(),request.reason(),request.requestId(),request.extendMinutes());
         AdminAuditLog log = support.audit("GROUPBUY_INTERVENE", "groupbuy-module", "GROUPBUY_ACTIVITY",
                 String.valueOf(activityId), request.requestId(), request.operatorId(), request.reason(),
                 AdminSupport.SUCCESS, null, payload);
-        AdminInterventionResultVO result = toResult(log, request.action(), "干预动作已记录，业务模块处理通过补偿任务承接");
+        AdminInterventionResultVO result = toResult(log, request.action(), "干预动作已同步生效并写入审计日志");
         support.writeJson(idemKey, result, Duration.ofHours(24));
         return result;
     }
@@ -62,8 +64,8 @@ public class AdminInterventionServiceImpl implements AdminInterventionService {
     /** 校验拼团干预动作枚举。 */
     private void validateAction(String action) {
         String value = support.normalize(action);
-        if (!"FORCE_SUCCESS".equals(value) && !"FORCE_FAILED".equals(value) && !"OFFLINE".equals(value)) {
-            throw new BusinessException("拼团干预动作仅支持 FORCE_SUCCESS、FORCE_FAILED、OFFLINE");
+        if (!java.util.List.of("FORCE_SUCCESS","FORCE_FAIL","EXTEND","SUSPEND","CLOSE").contains(value)) {
+            throw new BusinessException("拼单干预动作仅支持强制成功、强制失败、延长、暂停和关闭");
         }
     }
 

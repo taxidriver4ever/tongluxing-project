@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.groupbuy.dto.CreateGroupbuyRequest;
 import com.tongluxing.groupbuy.dto.PaidParticipantRequest;
+import com.tongluxing.groupbuy.dto.JoinGroupbuyRequest;
 import com.tongluxing.groupbuy.service.GroupbuyService;
 import com.tongluxing.groupbuy.vo.GroupbuyActivityVO;
 import com.tongluxing.groupbuy.vo.PageResult;
@@ -58,6 +59,20 @@ public class GroupbuyController {
         return Result.success(groupbuyService.list(status, page, size));
     }
 
+    @GetMapping("/me")
+    public Result<PageResult<GroupbuyActivityVO>> mine(@RequestParam(required = false) String status,
+                                                       @RequestParam(defaultValue = "1") int page,
+                                                       @RequestParam(defaultValue = "20") int size) {
+        return Result.success(groupbuyService.mine(status, page, size));
+    }
+
+    @GetMapping("/merchant/me")
+    public Result<PageResult<GroupbuyActivityVO>> merchantActivities(@RequestParam(required = false) String status,
+                                                                     @RequestParam(defaultValue = "1") int page,
+                                                                     @RequestParam(defaultValue = "20") int size) {
+        return Result.success(groupbuyService.merchantActivities(status,page,size));
+    }
+
     /**
      * 查询单个拼团活动详情。
      *
@@ -80,6 +95,12 @@ public class GroupbuyController {
     public Result<GroupbuyActivityVO> paidParticipant(@PathVariable Long activityId,
                                                       @Valid @RequestBody PaidParticipantRequest request) {
         return Result.success(groupbuyService.addPaidParticipant(activityId, request));
+    }
+
+    @PostMapping("/{activityId}/join")
+    public Result<GroupbuyActivityVO> join(@PathVariable Long activityId,
+                                           @Valid @RequestBody JoinGroupbuyRequest request) {
+        return Result.success(groupbuyService.join(activityId, request));
     }
 
     /**

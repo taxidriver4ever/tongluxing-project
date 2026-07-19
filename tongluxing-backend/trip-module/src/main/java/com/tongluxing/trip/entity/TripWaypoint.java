@@ -12,8 +12,11 @@ import lombok.Data;
 public class TripWaypoint {
     private Long id;
     private Long tripId;
+    private Long draftId;
     private Integer seqNo;
     private String placeName;
+    private String placeAddress;
+    private String waypointType;
     private BigDecimal lat;
     private BigDecimal lng;
     private Integer stayMinutes;

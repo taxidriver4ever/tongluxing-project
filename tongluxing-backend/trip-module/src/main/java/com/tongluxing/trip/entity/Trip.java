@@ -13,6 +13,9 @@ public class Trip {
     private Long id;
     private Long userId;
     private Long vehicleId;
+    private String title;
+    private String description;
+    private Integer expectedPeople;
     private String startName;
     private BigDecimal startLat;
     private BigDecimal startLng;

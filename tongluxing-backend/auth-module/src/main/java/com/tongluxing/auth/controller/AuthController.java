@@ -6,8 +6,10 @@ import org.springframework.web.bind.annotation.*;
 import com.tongluxing.auth.dto.LoginRequest;
 import com.tongluxing.auth.dto.AppBindByMiniTicketRequest;
 import com.tongluxing.auth.dto.AppLoginRequest;
+import com.tongluxing.auth.dto.PasswordLoginRequest;
 import com.tongluxing.auth.dto.RefreshTokenRequest;
 import com.tongluxing.auth.dto.SmsCodeRequest;
+import com.tongluxing.auth.dto.SetPasswordRequest;
 import com.tongluxing.auth.dto.WxPhoneLoginRequest;
 import com.tongluxing.auth.service.AuthService;
 import com.tongluxing.auth.vo.CurrentUserResponse;
@@ -47,10 +49,24 @@ public class AuthController {
         return Result.success(authService.login(request));
     }
 
+    /** 手机号 + 密码登录；不自动注册。 */
+    @PostMapping("/password-login")
+    public Result<LoginResponse> passwordLogin(@Valid @RequestBody PasswordLoginRequest request) {
+        return Result.success(authService.passwordLogin(request));
+    }
+
     /** 微信小程序手机号授权登录；服务端通过微信 code 换取手机号。 */
     @PostMapping("/wx-phone-login")
     public Result<LoginResponse> wxPhoneLogin(@Valid @RequestBody WxPhoneLoginRequest request) {
         return Result.success(authService.wxPhoneLogin(request));
+    }
+
+    /** 联调及正式账号初始化：当前登录用户首次设置密码。 */
+    @PostMapping("/set-password")
+    public Result<Void> setPassword(@RequestHeader("Authorization") String authorization,
+                                    @Valid @RequestBody SetPasswordRequest request) {
+        authService.setPassword(authorization, request);
+        return Result.success();
     }
 
     /** App 驾驶端手机号验证码登录；与小程序共用同一 userId。 */

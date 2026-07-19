@@ -41,6 +41,14 @@
         </dependency>
         <dependency>
             <groupId>com.tongluxing</groupId>
+            <artifactId>merchant-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongluxing</groupId>
+            <artifactId>groupbuy-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongluxing</groupId>
             <artifactId>team-module</artifactId>
         </dependency>
         <dependency>

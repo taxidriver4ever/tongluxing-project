@@ -16,6 +16,14 @@ public record ConversationMemberResponse(
         String memberStatus,
         /** 未读消息数。 */
         Integer unreadCount,
+        /** 公开昵称。 */
+        String nickname,
+        /** 公开头像。 */
+        String avatarImageKey,
+        /** 当前成员是否免打扰。 */
+        Boolean muted,
+        /** 当前成员是否置顶。 */
+        Boolean pinned,
         /** 加入时间。 */
         String joinedAt
 ) {

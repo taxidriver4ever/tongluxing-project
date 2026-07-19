@@ -1,0 +1,2 @@
+import { mockVehicles } from "../../../data/mock-core"
+Page({ data: { vehicles: mockVehicles }, back() { wx.navigateBack() }, detail(event: WechatMiniprogram.TouchEvent) { wx.navigateTo({ url: "/pages/vehicle/detail/detail?id=" + event.currentTarget.dataset.id }) }, setDefault(event: WechatMiniprogram.TouchEvent) { const id = event.currentTarget.dataset.id; this.setData({ vehicles: this.data.vehicles.map(item => ({ ...item, default: item.id === id })) }); wx.showToast({ title: "已设为主要车辆", icon: "success" }) }, add() { wx.navigateTo({ url: "/pages/vehicle/edit/edit" }) } })

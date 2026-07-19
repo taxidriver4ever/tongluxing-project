@@ -1,0 +1,6 @@
+<view class="nav-page">
+  <map class="map" latitude="30.80" longitude="103.90" scale="10" show-location/>
+  <view class="nav-top" style="padding-top:{{contentTop}}px"><image class="next-icon" src="/assets/icons/corner-up-left.svg"/><view><view class="distance">28 km 后</view><view class="instruction">进入都汶高速，向西北方向行驶</view></view></view>
+  <view class="tools"><view bindtap="waypoints"><image src="/assets/icons/route.svg"/><text>途经点</text></view><view bindtap="recenter"><image src="/assets/icons/locate-fixed.svg"/><text>定位</text></view></view>
+  <view class="bottom-card"><view class="progress"><view style="width:38%"></view></view><view class="summary"><view><text class="strong">2小时18分</text><text>剩余时间</text></view><view><text class="strong">142 km</text><text>剩余里程</text></view><view><text class="strong">12:18</text><text>预计到达</text></view></view><view class="actions"><view class="exit" bindtap="exit">退出导航</view><view class="sos">SOS</view></view></view>
+</view>

@@ -164,8 +164,13 @@ public final class UserModels {
      */
     public record PublicProfileVO(
             Long userId, String nickname, String avatarImageKey, String cityName, String bio,
-            String drivingLicenseCertificationStatus
+            String drivingLicenseCertificationStatus, Integer totalTripCount, Long totalDistanceMeters,
+            Long totalDurationMinutes, Integer completedWaypointCount
     ) {
+        public PublicProfileVO(Long userId, String nickname, String avatarImageKey, String cityName, String bio,
+                               String drivingLicenseCertificationStatus) {
+            this(userId, nickname, avatarImageKey, cityName, bio, drivingLicenseCertificationStatus, 0, 0L, 0L, 0);
+        }
     }
 
     /**

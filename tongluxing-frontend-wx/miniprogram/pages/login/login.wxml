@@ -1,0 +1,18 @@
+<view class="login-page">
+  <view class="status-space"></view>
+  <view class="page-content">
+    <view class="brand">同路行</view>
+    <view class="form-card">
+      <view class="welcome">欢迎回来</view>
+      <view class="welcome">开启下一段旅程</view>
+      <view class="field-label">手机号</view>
+      <input class="field" type="number" maxlength="11" placeholder="138****8888" value="{{phone}}" bindinput="onPhoneInput" />
+      <view class="field-label">密码</view>
+      <input class="field" password placeholder="••••••••" value="{{password}}" bindinput="onPasswordInput" />
+      <button class="action primary" loading="{{loading}}" disabled="{{loading}}" bindtap="onLogin">登录</button>
+      <view class="divider"><view></view><text>或</text><view></view></view>
+      <button class="action secondary" loading="{{loading}}" disabled="{{loading}}" bindtap="onWechatLogin">微信手机号一键登录</button>
+    </view>
+  </view>
+  <view class="footer">还没有账号？微信登录自动创建<view class="dev-entry" bindtap="goInviteGrowthTest">邀请增长联调测试</view></view>
+</view>

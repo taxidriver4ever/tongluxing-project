@@ -7,7 +7,8 @@ import java.util.List;
 /** 后台车辆认证审核详情。 */
 public record AdminVehicleCertificationDetailVO(
         Long certificationId, Long vehicleId, Long userId, String ownerName, String plateNo,
-        String vehicleType, String vin, String engineNo, LocalDate registerDate, LocalDate issueDate,
+        String vehicleBrand, String vehicleModel, String vehicleColor, String vehicleType,
+        String vin, String engineNo, LocalDate registerDate, LocalDate issueDate,
         String issuingAuthority, String licenseFrontImageKey, String licenseFrontImageUrl,
         String licenseBackImageKey, String licenseBackImageUrl,
         List<AdminVehicleCertificationImageVO> vehicleImages, String recognitionSource,

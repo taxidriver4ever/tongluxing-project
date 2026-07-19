@@ -19,7 +19,7 @@ public interface ChatConversationMemberMapper {
 
     /** 查询指定会话中的指定用户成员记录。 */
     @Select("""
-            select id, conversation_id, user_id, member_role, member_status, unread_count,
+            select id, conversation_id, user_id, member_role, member_status, unread_count, muted_flag, pinned_flag,
                    last_read_message_id, joined_at, exited_at, created_at, updated_at, deleted
             from chat_conversation_member
             where conversation_id = #{conversationId} and user_id = #{userId} and deleted = 0
@@ -29,7 +29,7 @@ public interface ChatConversationMemberMapper {
 
     /** 查询指定会话的有效成员列表。 */
     @Select("""
-            select id, conversation_id, user_id, member_role, member_status, unread_count,
+            select id, conversation_id, user_id, member_role, member_status, unread_count, muted_flag, pinned_flag,
                    last_read_message_id, joined_at, exited_at, created_at, updated_at, deleted
             from chat_conversation_member
             where conversation_id = #{conversationId} and member_status = 'ACTIVE' and deleted = 0
@@ -39,10 +39,10 @@ public interface ChatConversationMemberMapper {
     /** 新增会话成员。 */
     @Insert("""
             insert into chat_conversation_member
-                (id, conversation_id, user_id, member_role, member_status, unread_count,
+                (id, conversation_id, user_id, member_role, member_status, unread_count, muted_flag, pinned_flag,
                  last_read_message_id, joined_at, exited_at, created_at, updated_at, deleted)
             values
-                (#{id}, #{conversationId}, #{userId}, #{memberRole}, #{memberStatus}, #{unreadCount},
+                (#{id}, #{conversationId}, #{userId}, #{memberRole}, #{memberStatus}, #{unreadCount}, 0, 0,
                  #{lastReadMessageId}, #{joinedAt}, #{exitedAt}, #{createdAt}, #{updatedAt}, 0)
             """)
     void insert(ChatConversationMember member);
@@ -65,6 +65,17 @@ public interface ChatConversationMemberMapper {
             """)
     void incrementUnread(@Param("conversationId") Long conversationId, @Param("senderUserId") Long senderUserId, @Param("now") LocalDateTime now);
 
+    /** 更新当前成员自己的免打扰与置顶设置。 */
+    @Update("""
+            update chat_conversation_member
+            set muted_flag=#{muted}, pinned_flag=#{pinned}, updated_at=#{now}
+            where conversation_id=#{conversationId} and user_id=#{userId}
+              and member_status='ACTIVE' and deleted=0
+            """)
+    int updateSettings(@Param("conversationId") Long conversationId, @Param("userId") Long userId,
+                       @Param("muted") boolean muted, @Param("pinned") boolean pinned,
+                       @Param("now") LocalDateTime now);
+
     /** 重新激活已退出的成员。 */
     @Update("""
             update chat_conversation_member
@@ -80,4 +91,12 @@ public interface ChatConversationMemberMapper {
                    @Param("userId") Long userId,
                    @Param("role") String role,
                    @Param("now") LocalDateTime now);
+
+    /** 行程结束时退出该会话的全部有效成员。 */
+    @Update("""
+            update chat_conversation_member
+            set member_status = 'EXITED', exited_at = #{now}, updated_at = #{now}
+            where conversation_id = #{conversationId} and member_status = 'ACTIVE' and deleted = 0
+            """)
+    int exitAll(@Param("conversationId") Long conversationId, @Param("now") LocalDateTime now);
 }

@@ -40,8 +40,9 @@ public interface GroupbuyMerchantProductPort {
      * @param stock 当前库存
      * @param validHours 默认活动有效小时数
      */
-    record MerchantProductSnapshot(Long productId, Long merchantId, String productName, String productType,
+    record MerchantProductSnapshot(Long productId, Long merchantId, String merchantName, String productName, String productType,
                                    BigDecimal originalPrice, BigDecimal groupPrice, String ladderPriceJson,
-                                   Integer targetPeople, Integer stock, Integer validHours) {
+                                   Integer targetPeople, Integer stock, Integer validHours,
+                                   Long storeId, String storeName, String storeAddress, boolean couponOffer, boolean available) {
     }
 }

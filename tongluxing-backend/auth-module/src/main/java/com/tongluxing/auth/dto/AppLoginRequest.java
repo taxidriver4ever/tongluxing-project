@@ -3,6 +3,7 @@ package com.tongluxing.auth.dto;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 /**
  * App 驾驶端手机号验证码登录请求。
@@ -22,6 +23,9 @@ public record AppLoginRequest(
         String deviceName,
 
         String platform,
+
+        @Size(max = 32, message = "密码长度不能超过32")
+        String password,
 
         @Valid
         RegisterSource registerSource

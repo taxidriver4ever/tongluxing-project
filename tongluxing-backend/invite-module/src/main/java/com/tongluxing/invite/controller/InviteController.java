@@ -4,9 +4,11 @@ import com.tongluxing.invite.dto.InviteRewardResult;
 import org.springframework.web.bind.annotation.*;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.invite.dto.CompleteRequest;
+import com.tongluxing.invite.dto.InviteBindRequest;
 import com.tongluxing.invite.model.InviteModels.*;
 import com.tongluxing.invite.service.InviteService;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 
 /**
  * 邀请模块接口控制器。
@@ -24,6 +26,18 @@ public class InviteController {
     @GetMapping("/v1/invites/me/code")
     public Result<InviteCodeVO> code() {
         return Result.success(service.currentCode());
+    }
+
+    /** 联调兼容路径：获取当前用户邀请码，不存在时自动生成。 */
+    @GetMapping("/v1/invites/code")
+    public Result<InviteCodeVO> simpleCode() {
+        return Result.success(service.currentCode());
+    }
+
+    /** 当前登录用户绑定邀请码；注册时已绑定则幂等返回原关系。 */
+    @PostMapping("/v1/invites/bind")
+    public Result<InviteBindVO> bind(@Valid @RequestBody InviteBindRequest request) {
+        return Result.success(service.bindCurrent(request.inviteCode()));
     }
 
     /** 查询当前登录用户的邀请奖励进度摘要。 */

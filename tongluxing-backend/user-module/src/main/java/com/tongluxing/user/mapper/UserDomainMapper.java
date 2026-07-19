@@ -27,9 +27,14 @@ public interface UserDomainMapper {
     @Select("""
             select p.id, p.user_id userId, p.nickname, p.avatar_image_key avatarImageKey, p.gender, p.birthday,
                    p.city_code cityCode, p.city_name cityName, p.bio, p.profile_status profileStatus,
+                   coalesce(s.total_trip_count,0) totalTripCount,
+                   coalesce(s.total_distance_meters,0) totalDistanceMeters,
+                   coalesce(s.total_duration_minutes,0) totalDurationMinutes,
+                   coalesce(s.completed_waypoint_count,0) completedWaypointCount,
                    coalesce((select c.certification_status from user_driving_license_certification c
                              where c.user_id=p.user_id and c.deleted=0 order by c.submitted_at desc limit 1), 'UNSUBMITTED') certificationStatus
-            from user_profile p where p.user_id=#{userId} and p.deleted=0 limit 1
+            from user_profile p left join user_statistics s on s.user_id=p.user_id
+            where p.user_id=#{userId} and p.deleted=0 limit 1
             """)
     UserQueryDTO findProfile(@Param("userId") Long userId);
 

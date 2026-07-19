@@ -1,0 +1,10 @@
+import { apiRequest } from './apiClient.js'
+export const getOverview = () => apiRequest('/v1/merchants/center/overview')
+export const getStores = () => apiRequest('/v1/merchants/stores')
+export const createStore = data => apiRequest('/v1/merchants/stores', { method: 'POST', body: JSON.stringify(data) })
+export const getCoupons = () => apiRequest('/v1/merchants/coupon-offers')
+export const createCoupon = data => apiRequest('/v1/merchants/coupon-offers', { method: 'POST', body: JSON.stringify(data) })
+export const resubmitCoupon = (id, data) => apiRequest(`/v1/merchants/coupon-offers/${id}/resubmit`, { method: 'PUT', body: JSON.stringify(data) })
+export const getApplication = () => apiRequest('/v1/merchants/applications/me/latest')
+export const saveSettlement = data => apiRequest('/v1/merchants/me/settlement-account', { method: 'PUT', body: JSON.stringify(data) })
+export const getGroupbuyActivities = (status = '') => apiRequest(`/v1/groupbuys/merchant/me?status=${encodeURIComponent(status)}&page=1&size=50`)

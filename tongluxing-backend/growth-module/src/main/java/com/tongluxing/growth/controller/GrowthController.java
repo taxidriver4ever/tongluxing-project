@@ -1,12 +1,14 @@
 package com.tongluxing.growth.controller;
 
 import com.tongluxing.growth.dto.GrantRequest;
+import com.tongluxing.growth.dto.GrowthAccountResponse;
 import org.springframework.web.bind.annotation.*;
 
 import com.tongluxing.common.result.Result;
 import com.tongluxing.growth.integration.GrowthFacade.GrowthGrantResult;
 import com.tongluxing.growth.service.GrowthService;
 import com.tongluxing.user.model.UserModels.*;
+import com.tongluxing.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
 
@@ -21,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 public class GrowthController {
 
     private final GrowthService service;
+    private final CurrentUserContext currentUser;
 
     /**
      * 查询当前登录用户的成长值概览。
@@ -28,6 +31,14 @@ public class GrowthController {
     @GetMapping("/v1/growth/me")
     public Result<GrowthSummaryVO> me() {
         return Result.success(service.getCurrentSummary());
+    }
+
+    /** 联调兼容路径：返回当前用户 ID 和累计成长值。 */
+    @GetMapping("/v1/growth/account")
+    public Result<GrowthAccountResponse> account() {
+        Long userId = currentUser.requireUserId();
+        GrowthSummaryVO summary = service.getSummary(userId);
+        return Result.success(new GrowthAccountResponse(userId, summary.totalPoints(), summary.levelCode()));
     }
 
     /**

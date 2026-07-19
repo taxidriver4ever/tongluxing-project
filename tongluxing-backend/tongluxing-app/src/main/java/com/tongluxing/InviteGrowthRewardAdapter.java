@@ -31,10 +31,15 @@ public class InviteGrowthRewardAdapter implements InviteRewardPort {
 
     @Override
     public void grantInviteReward(Long beneficiaryUserId, String rewardBizNo, String ruleCode) {
-        int points = REWARD_POINTS.getOrDefault(ruleCode, 0);
+        boolean registerReward = ruleCode != null && ruleCode.startsWith("INV_REG:");
+        int points = registerReward ? 100 : REWARD_POINTS.getOrDefault(ruleCode, 0);
         if (points <= 0) {
             return;
         }
-        growthFacade.grant(beneficiaryUserId, "INVITE", rewardBizNo, points, "邀请奖励");
+        growthFacade.grant(beneficiaryUserId,
+                registerReward ? "INVITE_USER_REGISTER" : "INVITE",
+                rewardBizNo,
+                points,
+                registerReward ? "邀请新用户注册奖励" : "邀请奖励");
     }
 }

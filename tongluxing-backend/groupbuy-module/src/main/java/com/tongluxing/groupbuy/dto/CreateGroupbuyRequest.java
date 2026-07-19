@@ -13,9 +13,10 @@ import jakarta.validation.constraints.NotNull;
  * @param requestId 客户端生成的幂等请求号
  */
 public record CreateGroupbuyRequest(
-        @NotNull Long productId,
-        @NotNull @Min(1) Integer targetPeople,
-        @NotNull @Min(1) Integer validHours,
+        Long productId,
+        Long couponId,
+        @Min(2) Integer targetPeople,
+        @Min(1) Integer validHours,
         @NotBlank String requestId
 ) {
 }

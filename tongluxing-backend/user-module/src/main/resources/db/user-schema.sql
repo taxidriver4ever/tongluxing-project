@@ -56,3 +56,23 @@ create table if not exists user_privacy_setting (
     primary key (id),
     unique key uk_user_privacy_user (user_id, deleted)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+
+create table if not exists user_statistics (
+    user_id bigint not null,
+    total_trip_count int not null default 0,
+    total_distance_meters bigint not null default 0,
+    total_duration_minutes bigint not null default 0,
+    completed_waypoint_count int not null default 0,
+    updated_at datetime not null default current_timestamp on update current_timestamp,
+    primary key (user_id)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+
+create table if not exists user_statistics (
+    user_id bigint not null,
+    total_trip_count int not null default 0,
+    total_distance_meters bigint not null default 0,
+    total_duration_minutes bigint not null default 0,
+    completed_waypoint_count int not null default 0,
+    updated_at datetime not null default current_timestamp on update current_timestamp,
+    primary key (user_id)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;

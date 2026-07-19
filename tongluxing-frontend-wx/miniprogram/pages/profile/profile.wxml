@@ -1,0 +1,22 @@
+<view class="profile-page">
+  <scroll-view scroll-y class="page">
+    <view class="header" style="padding-top:{{contentTop}}px">
+      <view class="title-row"><view class="title">我的</view><view class="notice" bindtap="goSettings"><image src="/assets/icons/bell.svg"/></view></view>
+      <view class="profile" bindtap="goEdit"><view class="avatar">用</view><view class="user"><view class="name">用户昵称</view><view class="level">Lv.5 自驾达人</view><view class="desc">探索更多自驾旅程</view></view></view>
+    </view>
+    <view class="stats"><view class="stat"><view class="num">3200</view><view class="label">累计公里</view></view><view class="stat"><view class="num">1280</view><view class="label">同路值</view></view><view class="stat" bindtap="goBadges"><view class="num">8</view><view class="label">勋章</view></view><view class="stat"><view class="num">12</view><view class="label">行程</view></view></view>
+    <view class="section"><view class="growth" bindtap="goGrowth"><view class="growth-title">当前等级</view><view class="growth-num">Lv.5</view><view class="progress"><view class="bar"></view></view></view></view>
+    <view class="section">
+      <view class="section-title">我的服务</view>
+      <view class="service-card">
+        <view class="item" bindtap="goVehicle"><view class="left"><view class="icon"><image src="/assets/icons/car-front.svg"/></view><view class="text">我的车辆</view></view><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+        <view class="item" bindtap="goBadges"><view class="left"><view class="icon"><image src="/assets/icons/award.svg"/></view><view class="text">我的勋章</view></view><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+        <view class="item" bindtap="goGrowth"><view class="left"><view class="icon"><image src="/assets/icons/chart.svg"/></view><view class="text">成长中心</view></view><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+        <view class="item" bindtap="goInvite"><view class="left"><view class="icon"><image src="/assets/icons/user-plus.svg"/></view><view class="text">邀请好友</view></view><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+        <view class="item" bindtap="goCoupon"><view class="left"><view class="icon"><image src="/assets/icons/ticket.svg"/></view><view class="text">我的券包</view></view><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+      </view>
+    </view>
+    <view class="tab-spacer"></view>
+  </scroll-view>
+  <td-tabbar active="profile"/>
+</view>

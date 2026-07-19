@@ -1,0 +1,18 @@
+<view class="trip-page">
+  <scroll-view scroll-y class="page">
+    <view class="header" style="padding-top:{{contentTop}}px">
+      <view class="header-title">行程</view>
+      <view class="header-desc">管理你的自驾旅程，寻找同行伙伴</view>
+    </view>
+    <view class="driving">
+      <view class="status">正在驾驶中</view>
+      <view class="route">广州</view><view class="route-arrow">↓</view><view class="route">成都</view>
+      <view class="info"><view>已行驶<text>320km</text></view><view>剩余<text>1280km</text></view><view>状态<text>正常</text></view></view>
+      <view class="continue" bindtap="goStart">继续导航</view>
+    </view>
+    <view class="section"><view class="section-head"><view class="title">我的行程</view><view class="all" bindtap="goList">查看全部</view></view><view class="trip-card" data-id="T1001" bindtap="goDetail"><view class="card-top"><view class="trip-name">川藏318自驾</view><view class="tag">招募中</view></view><view class="route-small">广州<text class="line">｜</text>成都</view><view class="info2"><view>出发时间：2026-07-15 08:00</view><view>预计距离：1600km</view><view>车辆：5 / 20</view></view></view></view>
+    <view class="section"><view class="title">发现同行</view><scroll-view scroll-x class="recommend"><view class="small">广州 → 成都<text>匹配度86%</text><view>距离你5km</view></view><view class="small">深圳 → 拉萨<text>匹配度72%</text><view>路线相似</view></view><view class="small">广州 → 重庆<text>匹配度65%</text></view></scroll-view></view>
+    <view class="tab-spacer"></view>
+  </scroll-view>
+  <td-tabbar active="trip" />
+</view>

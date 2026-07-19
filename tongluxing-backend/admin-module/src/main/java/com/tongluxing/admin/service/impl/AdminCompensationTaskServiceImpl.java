@@ -39,7 +39,8 @@ public class AdminCompensationTaskServiceImpl implements AdminCompensationTaskSe
                     JsonNode payload = objectMapper.readTree(task.getRequestPayload());
                     Long activityId = payload.path("activityId").asLong(Long.parseLong(task.getBizId()));
                     groupbuyPort.applyIntervention(activityId, payload.path("action").asText(),
-                            payload.path("reason").asText(), task.getIdempotentKey());
+                            payload.path("reason").asText(), task.getIdempotentKey(),
+                            payload.path("extendMinutes").isMissingNode()?null:payload.path("extendMinutes").asInt());
                 }
                 taskMapper.markSuccess(task.getId(), now);
                 processed++;

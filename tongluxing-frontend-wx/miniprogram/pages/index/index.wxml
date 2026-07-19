@@ -1,0 +1,14 @@
+<view class="map-page">
+  <map class="map" latitude="30.657" longitude="104.066" scale="12" markers="{{markers}}" show-location />
+  <view class="search" style="top:{{contentTop}}px" bindtap="goSearch"><image src="/assets/icons/search.svg"/><text>搜索目的地、路线或地点</text></view>
+  <view class="tools" style="top:{{contentTop + 66}}px"><view class="tool" data-sheet="location" bindtap="openSheet"><image src="/assets/icons/locate-fixed.svg"/><text>定位</text></view><view class="tool" data-sheet="layer" bindtap="openSheet"><image src="/assets/icons/layers.svg"/><text>图层</text></view><view class="tool sos" data-sheet="sos" bindtap="openSheet"><image src="/assets/icons/shield-alert.svg"/><text>SOS</text></view></view>
+  <view class="main-card"><view class="title">准备好下一段旅程了吗？</view><view class="desc">发现附近车队，或者创建你的自驾路线</view><view class="publish" data-sheet="trip" bindtap="openSheet">发布行程</view></view>
+  <view wx:if="{{sheetVisible}}" class="mask" bindtap="closeSheet"></view>
+  <view class="sheet {{sheetVisible ? 'show' : ''}}"><view class="handle" bindtap="closeSheet"></view><view class="sheet-title">{{sheetTitle}}</view>
+    <block wx:if="{{sheetType === 'trip'}}"><view class="item" bindtap="goSearch">搜索起点</view><view class="item" bindtap="goSearch">搜索终点</view><view class="sheet-btn" bindtap="goCreateTrip">下一步</view></block>
+    <block wx:elif="{{sheetType === 'location'}}"><view class="item">修改当前位置</view><view class="item" bindtap="locate">使用当前位置</view></block>
+    <block wx:elif="{{sheetType === 'layer'}}"><view wx:for="{{layers}}" wx:key="name" class="item" data-index="{{index}}" bindtap="toggleLayer"><text>{{item.name}}</text><view class="switch {{item.active ? 'active' : ''}}"><view></view></view></view></block>
+    <block wx:elif="{{sheetType === 'sos'}}"><view class="item">发送当前位置</view><view class="item">通知车队成员</view><view class="sheet-btn sos-btn">立即求助</view></block>
+  </view>
+  <td-tabbar active="map" />
+</view>

@@ -1,5 +1,7 @@
 package com.tongluxing.chat.service;
 
+import java.util.List;
+
 import com.tongluxing.chat.dto.SendMessageRequest;
 import com.tongluxing.chat.dto.TeamConversationRequest;
 import com.tongluxing.chat.vo.ConversationListResponse;
@@ -7,6 +9,8 @@ import com.tongluxing.chat.vo.ConversationMemberResponse;
 import com.tongluxing.chat.vo.ConversationResponse;
 import com.tongluxing.chat.vo.MessageListResponse;
 import com.tongluxing.chat.vo.MessageResponse;
+import com.tongluxing.chat.vo.ConversationSettingResponse;
+import com.tongluxing.chat.vo.JoinApplicationResponse;
 
 /**
  * 聊天业务服务。
@@ -17,6 +21,15 @@ public interface ChatService {
 
     /** 创建或查询车队对应的群聊会话。 */
     ConversationResponse createTeamConversation(TeamConversationRequest request);
+
+    /** 行程开始时创建或重新启用行程群聊。 */
+    ConversationResponse openTripConversation(Long tripId, String tripName, Long ownerUserId, List<Long> memberUserIds);
+
+    /** 查询当前成员可访问的行程群聊。 */
+    ConversationResponse getTripConversation(Long tripId);
+
+    /** 行程结束时写入系统消息并归档群聊。 */
+    void closeTripConversation(Long tripId);
 
     /** 查询当前登录用户参与的有效会话。 */
     ConversationListResponse getConversations();
@@ -32,4 +45,22 @@ public interface ChatService {
 
     /** 当前登录用户退出会话。 */
     void exitMe(Long conversationId);
+
+    /** 查询会话成员及公开资料摘要。 */
+    List<ConversationMemberResponse> getMembers(Long conversationId);
+
+    /** 查询当前成员的会话设置。 */
+    ConversationSettingResponse getSettings(Long conversationId);
+
+    /** 更新当前成员的会话设置。 */
+    ConversationSettingResponse updateSettings(Long conversationId, boolean muted, boolean pinned);
+
+    /** 当前用户申请加入群聊。 */
+    JoinApplicationResponse applyToJoin(Long conversationId, String message);
+
+    /** 队长查询待处理入群申请。 */
+    List<JoinApplicationResponse> getJoinApplications(String status);
+
+    /** 队长审批入群申请。 */
+    JoinApplicationResponse reviewJoinApplication(Long applicationId, String decision);
 }

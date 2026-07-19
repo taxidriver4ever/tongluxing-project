@@ -1,5 +1,8 @@
 package com.tongluxing.map.controller;
 
+import java.math.BigDecimal;
+import java.util.List;
+
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,6 +16,7 @@ import com.tongluxing.map.dto.LocationDto;
 import com.tongluxing.map.dto.RoutePlanRequest;
 import com.tongluxing.map.service.MapService;
 import com.tongluxing.map.vo.NearbyMapResponse;
+import com.tongluxing.map.vo.LocationSearchResponse;
 import com.tongluxing.map.vo.RoutePlanResponse;
 
 import jakarta.validation.Valid;
@@ -43,6 +47,25 @@ public class MapController {
     @PostMapping("/locations/resolve")
     public Result<LocationDto> resolveLocation(@Valid @RequestBody LocationDto location) {
         return Result.success(mapService.resolveLocation(location));
+    }
+
+    /** 从数据库地点目录搜索，空关键词返回热门地点。 */
+    @GetMapping("/locations/search")
+    public Result<List<LocationSearchResponse>> searchLocations(
+            @RequestParam(defaultValue = "") String keyword,
+            @RequestParam(defaultValue = "20") Integer limit,
+            @RequestParam(required = false) BigDecimal latitude,
+            @RequestParam(required = false) BigDecimal longitude) {
+        return Result.success(mapService.searchLocations(keyword, limit, latitude, longitude));
+    }
+
+    /** 查询当前登录用户的最近地点选择历史。 */
+    @GetMapping("/locations/history")
+    public Result<List<LocationSearchResponse>> locationHistory(
+            @RequestParam(defaultValue = "10") Integer limit,
+            @RequestParam(required = false) BigDecimal latitude,
+            @RequestParam(required = false) BigDecimal longitude) {
+        return Result.success(mapService.getLocationHistory(limit, latitude, longitude));
     }
 
     /** 查询指定经纬度附近的地图标记点。 */

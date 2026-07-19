@@ -47,6 +47,15 @@ public class TencentImServiceImpl implements TencentImService {
     /** JDK HTTP 客户端，用于调用腾讯云 IM REST API。 */
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
+    /** 判断云端必要配置是否完整；未配置时业务层使用本地同步模式。 */
+    @Override
+    public boolean isConfigured() {
+        return properties.getSdkAppId() != null && properties.getSdkAppId() > 0
+                && StringUtils.hasText(properties.getSecretKey())
+                && StringUtils.hasText(properties.getAdminUserId())
+                && properties.getExpireSeconds() != null && properties.getExpireSeconds() > 0;
+    }
+
     /** 为指定 IM 用户 ID 生成 UserSig。 */
     @Override
     public String generateUserSig(String userId) {
@@ -68,6 +77,7 @@ public class TencentImServiceImpl implements TencentImService {
     /** 在腾讯云 IM 创建公开群组。 */
     @Override
     public void createGroup(String groupId, String ownerUserId, String groupName) {
+        importAccount(ownerUserId);
         Map<String, Object> payload = Map.of(
                 "Owner_Account", ownerUserId,
                 "Type", "Public",
@@ -86,6 +96,7 @@ public class TencentImServiceImpl implements TencentImService {
     /** 添加腾讯云 IM 群成员。 */
     @Override
     public void addGroupMember(String groupId, String userId) {
+        importAccount(userId);
         Map<String, Object> payload = Map.of(
                 "GroupId", groupId,
                 "MemberList", List.of(Map.of("Member_Account", userId))
@@ -101,6 +112,31 @@ public class TencentImServiceImpl implements TencentImService {
                 "MemberToDel_Account", List.of(userId)
         );
         callRest("group_open_http_svc/delete_group_member", payload);
+    }
+
+    /** 通过腾讯 IM REST API 发送群文本，并返回本次请求随机号作为本地关联 key。 */
+    @Override
+    public String sendGroupText(String groupId, String senderUserId, String content) {
+        int random = ThreadLocalRandom.current().nextInt(100000, Integer.MAX_VALUE);
+        Map<String, Object> payload = Map.of(
+                "GroupId", groupId,
+                "Random", random,
+                "From_Account", senderUserId,
+                "MsgBody", List.of(Map.of(
+                        "MsgType", "TIMTextElem",
+                        "MsgContent", Map.of("Text", content)
+                ))
+        );
+        callRest("group_open_http_svc/send_group_msg", payload);
+        return "tencent-" + random;
+    }
+
+    /** 将业务用户幂等导入腾讯 IM，避免建群或加群时出现 invalid owner/member id。 */
+    private void importAccount(String userId) {
+        callRest("im_open_login_svc/account_import", Map.of(
+                "Identifier", userId,
+                "Nick", "同路行用户"
+        ));
     }
 
     /** 将业务用户 ID 转换为腾讯云 IM 用户 ID。 */
@@ -148,10 +184,7 @@ public class TencentImServiceImpl implements TencentImService {
 
     /** 校验腾讯云 IM 必要配置是否完整。 */
     private void validateConfig() {
-        if (properties.getSdkAppId() == null || properties.getSdkAppId() <= 0
-                || !StringUtils.hasText(properties.getSecretKey())
-                || !StringUtils.hasText(properties.getAdminUserId())
-                || properties.getExpireSeconds() == null || properties.getExpireSeconds() <= 0) {
+        if (!isConfigured()) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "腾讯云 IM 配置未完成");
         }
     }

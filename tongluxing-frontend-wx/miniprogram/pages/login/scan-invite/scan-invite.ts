@@ -1,0 +1,1 @@
+Page({ goBack() { wx.navigateBack() }, scan() { wx.scanCode({ success: () => wx.showToast({ title: "邀请已识别", icon: "success" }) }) }, inputCode() { wx.showModal({ title: "输入邀请码", editable: true, placeholderText: "请输入6位邀请码", success: result => { if (result.confirm) wx.showToast({ title: "邀请码已提交", icon: "success" }) } }) }, skip() { wx.reLaunch({ url: "/pages/index/index" }) } })

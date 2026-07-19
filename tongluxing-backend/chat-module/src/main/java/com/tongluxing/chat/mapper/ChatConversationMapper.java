@@ -48,7 +48,7 @@ public interface ChatConversationMapper {
             join chat_conversation_member m on m.conversation_id = c.id and m.deleted = 0
             where m.user_id = #{userId} and m.member_status = 'ACTIVE'
               and c.conversation_status = 'ACTIVE' and c.deleted = 0
-            order by c.last_message_at desc, c.created_at desc
+            order by m.pinned_flag desc, c.last_message_at desc, c.created_at desc
             """)
     List<ChatConversation> findActiveByUserId(@Param("userId") Long userId);
 
@@ -78,4 +78,12 @@ public interface ChatConversationMapper {
                            @Param("messageId") Long messageId,
                            @Param("preview") String preview,
                            @Param("messageAt") LocalDateTime messageAt);
+
+    /** 归档会话，历史消息仍保留用于安全审计。 */
+    @Update("""
+            update chat_conversation
+            set conversation_status = 'ARCHIVED', updated_at = #{now}
+            where id = #{conversationId} and conversation_status = 'ACTIVE' and deleted = 0
+            """)
+    int archive(@Param("conversationId") Long conversationId, @Param("now") LocalDateTime now);
 }

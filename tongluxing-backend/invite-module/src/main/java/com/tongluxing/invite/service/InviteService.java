@@ -13,6 +13,9 @@ public interface InviteService extends InviteFacade {
     /** 获取当前登录用户的邀请码。 */
     InviteCodeVO currentCode();
 
+    /** 当前登录用户绑定邀请码；重复提交返回原关系。 */
+    InviteBindVO bindCurrent(String inviteCode);
+
     /** 查询当前登录用户的邀请奖励进度。 */
     InviteRewardProgressVO currentProgress();
 

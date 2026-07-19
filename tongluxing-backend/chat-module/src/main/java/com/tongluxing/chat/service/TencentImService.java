@@ -9,6 +9,9 @@ import com.tongluxing.chat.vo.ImUserSigResponse;
  */
 public interface TencentImService {
 
+    /** 腾讯云 IM 必要配置是否完整。 */
+    boolean isConfigured();
+
     /** 为指定 IM 用户 ID 生成 UserSig。 */
     String generateUserSig(String userId);
 
@@ -26,4 +29,7 @@ public interface TencentImService {
 
     /** 删除腾讯云 IM 群成员。 */
     void removeGroupMember(String groupId, String userId);
+
+    /** 以群成员身份向腾讯 IM 群发送文本消息。 */
+    String sendGroupText(String groupId, String senderUserId, String content);
 }

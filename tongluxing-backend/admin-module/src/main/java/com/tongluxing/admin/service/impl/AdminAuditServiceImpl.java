@@ -19,6 +19,7 @@ import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.notify.dto.CreateNotificationEventRequest;
 import com.tongluxing.notify.service.NotificationService;
 import com.tongluxing.notify.service.NotificationEventTypes;
+import com.tongluxing.merchant.service.MerchantService;
 import com.tongluxing.user.model.UserModels.DrivingLicenseAuditDetailVO;
 import com.tongluxing.user.service.UserService;
 import com.tongluxing.user.support.CurrentUserContext;
@@ -40,6 +41,7 @@ public class AdminAuditServiceImpl implements AdminAuditService {
     private final UserService userService;
     private final VehicleService vehicleService;
     private final NotificationService notificationService;
+    private final MerchantService merchantService;
 
     /** 驾驶证人工审核，同步更新 user-module 事实状态。 */
     @Override
@@ -113,7 +115,29 @@ public class AdminAuditServiceImpl implements AdminAuditService {
     @Override
     @Transactional
     public AdminAuditResultVO auditMerchantApplication(Long applicationId, AdminAuditRequest request) {
-        return queuedAudit("MERCHANT_AUDIT", "merchant-module", "MERCHANT_APPLICATION", applicationId, request);
+        String auditResult = normalizeAuditResult(request.auditResult());
+        String rejectReason = normalizeRejectReason(auditResult, request.rejectReason());
+        Long operatorId = currentUserContext.requireUserId();
+        String type = "MERCHANT";
+        String idemKey = idemKey(type, request.requestId());
+        AdminAuditResultVO repeated = repeatedResult(idemKey, request.requestId());
+        if (repeated != null) return repeated;
+        String lockKey = "admin:lock:audit:%s:%d".formatted(type, applicationId);
+        String lockValue = operatorId + ":" + UUID.randomUUID();
+        lock(lockKey, lockValue);
+        try {
+            var before = merchantService.applicationForAdmin(applicationId);
+            var after = merchantService.auditApplication(applicationId, auditResult, rejectReason, operatorId);
+            AdminAuditLog log = support.audit("MERCHANT_AUDIT", "merchant-module", "MERCHANT_APPLICATION",
+                    String.valueOf(applicationId), request.requestId(), operatorId, rejectReason, SUCCESS,
+                    "{\"status\":\"%s\"}".formatted(before.auditStatus()),
+                    "{\"status\":\"%s\"}".formatted(after.auditStatus()));
+            AdminAuditResultVO result = completedResult(log, auditResult, rejectReason, operatorId, after.reviewedAt());
+            support.writeJson(idemKey, result, Duration.ofHours(24));
+            return result;
+        } finally {
+            unlock(lockKey, lockValue);
+        }
     }
 
     @Override

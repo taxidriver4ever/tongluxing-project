@@ -206,7 +206,9 @@ public class UserServiceImpl implements UserService {
         }
         UserProfileVO profile = profile(row);
         PublicProfileVO result = new PublicProfileVO(profile.userId(), profile.nickname(), profile.avatarImageKey(),
-                profile.cityName(), profile.bio(), profile.drivingLicenseCertificationStatus());
+                profile.cityName(), profile.bio(), profile.drivingLicenseCertificationStatus(),
+                row.getTotalTripCount(), row.getTotalDistanceMeters(), row.getTotalDurationMinutes(),
+                row.getCompletedWaypointCount());
         cachePut(PUBLIC_CACHE.formatted(userId), result, Duration.ofMinutes(15));
         return result;
     }

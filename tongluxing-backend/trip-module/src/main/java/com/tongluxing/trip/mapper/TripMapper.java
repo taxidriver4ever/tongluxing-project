@@ -21,7 +21,7 @@ public interface TripMapper {
      * 根据行程 ID 查询未删除行程。
      */
     @Select("""
-            select id, user_id, vehicle_id, start_name, start_lat, start_lng,
+            select id, user_id, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -39,7 +39,7 @@ public interface TripMapper {
      * 查询用户当前活跃行程。
      */
     @Select("""
-            select id, user_id, vehicle_id, start_name, start_lat, start_lng,
+            select id, user_id, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -49,7 +49,7 @@ public interface TripMapper {
                    created_at, updated_at, deleted
             from trip
             where user_id = #{userId} and deleted = 0
-              and status in ('PUBLISHED', 'ONGOING')
+              and status in ('PUBLISHED', 'RUNNING', 'ONGOING')
             order by departure_time asc
             """)
     List<Trip> findActiveByUserId(@Param("userId") Long userId);
@@ -58,7 +58,7 @@ public interface TripMapper {
      * 查询用户历史行程。
      */
     @Select("""
-            select id, user_id, vehicle_id, start_name, start_lat, start_lng,
+            select id, user_id, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -68,7 +68,7 @@ public interface TripMapper {
                    created_at, updated_at, deleted
             from trip
             where user_id = #{userId} and deleted = 0
-              and status in ('ENDED', 'CANCELLED', 'ARCHIVED')
+              and status in ('FINISHED', 'SETTLED', 'ENDED', 'CANCELLED', 'ARCHIVED')
             order by departure_time desc
             limit #{limit}
             """)
@@ -78,7 +78,7 @@ public interface TripMapper {
      * 查询公开且仍可参与的行程列表。
      */
     @Select("""
-            select id, user_id, vehicle_id, start_name, start_lat, start_lng,
+            select id, user_id, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -88,7 +88,7 @@ public interface TripMapper {
                    created_at, updated_at, deleted
             from trip
             where public_flag = 1 and deleted = 0
-              and status in ('PUBLISHED', 'ONGOING')
+              and status in ('PUBLISHED', 'RUNNING', 'ONGOING')
             order by departure_time asc
             limit #{limit}
             """)
@@ -99,7 +99,7 @@ public interface TripMapper {
      */
     @Insert("""
             insert into trip
-                (id, user_id, vehicle_id, start_name, start_lat, start_lng,
+                (id, user_id, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                  start_location_name, start_location_address, start_latitude, start_longitude,
                  end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                  route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -108,7 +108,7 @@ public interface TripMapper {
                  actual_start_time, actual_end_time,
                  created_at, updated_at, deleted)
             values
-                (#{id}, #{userId}, #{vehicleId}, #{startName}, #{startLat}, #{startLng},
+                (#{id}, #{userId}, #{vehicleId}, #{title}, #{description}, #{expectedPeople}, #{startName}, #{startLat}, #{startLng},
                  #{startLocationName}, #{startLocationAddress}, #{startLatitude}, #{startLongitude},
                  #{endName}, #{endLat}, #{endLng}, #{endLocationName}, #{endLocationAddress}, #{endLatitude}, #{endLongitude},
                  #{routeSummary}, #{routePolylineKey}, #{routeDistance}, #{routeDuration}, #{routePolyline}, #{waypointsJson},
@@ -125,6 +125,9 @@ public interface TripMapper {
     @Update("""
             update trip
             set vehicle_id = #{vehicleId},
+                title = #{title},
+                description = #{description},
+                expected_people = #{expectedPeople},
                 start_name = #{startName},
                 start_lat = #{startLat},
                 start_lng = #{startLng},
@@ -168,11 +171,11 @@ public interface TripMapper {
     int updateStatus(@Param("tripId") Long tripId, @Param("userId") Long userId, @Param("status") String status, @Param("updatedAt") LocalDateTime updatedAt);
 
     /**
-     * 开始行程，只允许 PUBLISHED -> ONGOING。
+     * 开始行程，只允许 PUBLISHED -> RUNNING。
      */
     @Update("""
             update trip
-            set status = 'ONGOING',
+            set status = 'RUNNING',
                 actual_start_time = #{actualStartTime},
                 updated_at = #{actualStartTime}
             where id = #{tripId}
@@ -183,25 +186,49 @@ public interface TripMapper {
     int startTrip(@Param("tripId") Long tripId, @Param("userId") Long userId, @Param("actualStartTime") LocalDateTime actualStartTime);
 
     /**
-     * 结束行程，只允许 ONGOING -> ENDED。
+     * 结束行程，只允许 RUNNING -> FINISHED；兼容迁移前的 ONGOING。
      */
     @Update("""
             update trip
-            set status = 'ENDED',
+            set status = 'FINISHED',
                 actual_end_time = #{actualEndTime},
                 updated_at = #{actualEndTime}
             where id = #{tripId}
               and user_id = #{userId}
-              and status = 'ONGOING'
+              and status in ('RUNNING', 'ONGOING')
               and deleted = 0
             """)
     int endOngoingTrip(@Param("tripId") Long tripId, @Param("userId") Long userId, @Param("actualEndTime") LocalDateTime actualEndTime);
+
+    /** 锁定当前用户的行程，供结束后的幂等结算使用。 */
+    @Select("""
+            select id, user_id, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
+                   start_location_name, start_location_address, start_latitude, start_longitude,
+                   end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
+                   route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                   departure_time, estimated_days, total_distance_meters,
+                   max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   actual_start_time, actual_end_time, created_at, updated_at, deleted
+            from trip
+            where id = #{tripId} and user_id = #{userId} and deleted = 0
+            for update
+            """)
+    Trip findOwnedForUpdate(@Param("tripId") Long tripId, @Param("userId") Long userId);
+
+    /** 完成结算，只允许 FINISHED -> SETTLED。 */
+    @Update("""
+            update trip
+            set status = 'SETTLED', updated_at = #{settledAt}
+            where id = #{tripId} and user_id = #{userId} and status = 'FINISHED' and deleted = 0
+            """)
+    int settleFinishedTrip(@Param("tripId") Long tripId, @Param("userId") Long userId,
+                           @Param("settledAt") LocalDateTime settledAt);
 
     /**
      * 查询当前用户正在驾驶中的行程。
      */
     @Select("""
-            select id, user_id, vehicle_id, start_name, start_lat, start_lng,
+            select id, user_id, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -210,7 +237,7 @@ public interface TripMapper {
                    actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
-            where user_id = #{userId} and status = 'ONGOING' and deleted = 0
+            where user_id = #{userId} and status in ('RUNNING', 'ONGOING') and deleted = 0
             order by actual_start_time desc, updated_at desc
             limit 1
             """)

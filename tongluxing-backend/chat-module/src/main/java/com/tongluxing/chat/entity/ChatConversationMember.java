@@ -21,6 +21,10 @@ public class ChatConversationMember {
     private String memberStatus;
     /** 未读消息数。 */
     private Integer unreadCount;
+    /** 是否开启消息免打扰。 */
+    private Boolean mutedFlag;
+    /** 是否将会话置顶。 */
+    private Boolean pinnedFlag;
     /** 最近已读消息 ID。 */
     private Long lastReadMessageId;
     /** 加入时间。 */

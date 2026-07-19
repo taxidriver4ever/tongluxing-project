@@ -1,0 +1,42 @@
+<view class="page-shell vehicle-cert-page">
+  <td-topbar title="车辆认证" placeholder="提交资料后由平台人工审核" action="证" />
+  <scroll-view scroll-y class="page-content">
+    <view class="status-card card">
+      <view><view class="status-title">车辆认证</view><view class="status-sub">{{submitTime || '尚未提交认证申请'}}</view></view>
+      <view class="pill {{status === 'PASS' ? 'green' : status === 'PENDING' ? 'orange' : status === 'REJECT' ? 'red' : ''}}">
+        {{status === 'PASS' ? '已通过' : status === 'PENDING' ? '审核中' : status === 'REJECT' ? '已拒绝' : '未提交'}}
+      </view>
+    </view>
+    <view wx:if="{{reason}}" class="notice reject"><view class="notice-title">未通过原因</view><view>{{reason}}</view></view>
+
+    <view class="section-title">车辆基础信息</view>
+    <view class="form-card card">
+      <view class="field"><view class="label">车辆品牌</view><input class="input" value="{{form.vehicleBrand}}" data-field="vehicleBrand" bindinput="onInput" placeholder="例如 BMW" disabled="{{status === 'PENDING' || status === 'PASS'}}" /></view>
+      <view class="field"><view class="label">车辆型号</view><input class="input" value="{{form.vehicleModel}}" data-field="vehicleModel" bindinput="onInput" placeholder="例如 3 Series" disabled="{{status === 'PENDING' || status === 'PASS'}}" /></view>
+      <view class="field"><view class="label">车牌号码</view><input class="input" value="{{form.plateNumber}}" data-field="plateNumber" bindinput="onInput" placeholder="例如 粤A12345" disabled="{{status === 'PENDING' || status === 'PASS'}}" /></view>
+      <view class="field"><view class="label">车辆颜色</view><input class="input" value="{{form.vehicleColor}}" data-field="vehicleColor" bindinput="onInput" placeholder="例如 黑色" disabled="{{status === 'PENDING' || status === 'PASS'}}" /></view>
+    </view>
+
+    <view class="section-title">驾驶证照片</view>
+    <view class="upload-grid card">
+      <view class="upload-box" data-group="driverLicenseImages" data-index="0" bindtap="chooseImage"><image wx:if="{{driverLicenseImages[0]}}" src="{{driverLicenseImages[0]}}" mode="aspectFill" /><view wx:else><view class="upload-plus">＋</view><view>驾驶证正面</view></view></view>
+      <view class="upload-box" data-group="driverLicenseImages" data-index="1" bindtap="chooseImage"><image wx:if="{{driverLicenseImages[1]}}" src="{{driverLicenseImages[1]}}" mode="aspectFill" /><view wx:else><view class="upload-plus">＋</view><view>驾驶证背面</view></view></view>
+    </view>
+
+    <view class="section-title">行驶证照片</view>
+    <view class="upload-grid card">
+      <view class="upload-box" data-group="registrationLicenseImages" data-index="0" bindtap="chooseImage"><image wx:if="{{registrationLicenseImages[0]}}" src="{{registrationLicenseImages[0]}}" mode="aspectFill" /><view wx:else><view class="upload-plus">＋</view><view>行驶证主页</view></view></view>
+      <view class="upload-box" data-group="registrationLicenseImages" data-index="1" bindtap="chooseImage"><image wx:if="{{registrationLicenseImages[1]}}" src="{{registrationLicenseImages[1]}}" mode="aspectFill" /><view wx:else><view class="upload-plus">＋</view><view>行驶证副页</view></view></view>
+    </view>
+
+    <view class="section-title">车辆照片</view>
+    <view class="upload-grid three card">
+      <view class="upload-box" data-group="vehicleImages" data-index="0" bindtap="chooseImage"><image wx:if="{{vehicleImages[0]}}" src="{{vehicleImages[0]}}" mode="aspectFill" /><view wx:else><view class="upload-plus">＋</view><view>车头照片</view><text>必填</text></view></view>
+      <view class="upload-box" data-group="vehicleImages" data-index="1" bindtap="chooseImage"><image wx:if="{{vehicleImages[1]}}" src="{{vehicleImages[1]}}" mode="aspectFill" /><view wx:else><view class="upload-plus">＋</view><view>车辆侧面</view><text>选填</text></view></view>
+      <view class="upload-box" data-group="vehicleImages" data-index="2" bindtap="chooseImage"><image wx:if="{{vehicleImages[2]}}" src="{{vehicleImages[2]}}" mode="aspectFill" /><view wx:else><view class="upload-plus">＋</view><view>车牌照片</view><text>选填</text></view></view>
+    </view>
+    <view class="notice"><view class="notice-title">当前验证阶段</view><view>图片按普通 URL 保存，暂不进行 OCR 识别；请保证资料清晰、完整。</view></view>
+    <view wx:if="{{status !== 'PENDING' && status !== 'PASS'}}" class="btn submit-btn {{loading ? 'gray' : ''}}" bindtap="onSubmit">{{loading ? '提交中...' : status === 'REJECT' ? '重新提交认证' : '提交车辆认证'}}</view>
+    <view class="bottom-safe"></view>
+  </scroll-view>
+</view>

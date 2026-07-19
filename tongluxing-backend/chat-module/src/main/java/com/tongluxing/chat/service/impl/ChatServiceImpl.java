@@ -4,8 +4,10 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashSet;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -19,6 +21,10 @@ import com.tongluxing.chat.entity.ChatMessage;
 import com.tongluxing.chat.mapper.ChatConversationMapper;
 import com.tongluxing.chat.mapper.ChatConversationMemberMapper;
 import com.tongluxing.chat.mapper.ChatMessageMapper;
+import com.tongluxing.chat.mapper.MessageRiskMapper;
+import com.tongluxing.chat.mapper.ChatJoinApplicationMapper;
+import com.tongluxing.chat.entity.ChatJoinApplication;
+import com.tongluxing.chat.entity.MessageRisk;
 import com.tongluxing.chat.service.ChatService;
 import com.tongluxing.chat.service.TencentImService;
 import com.tongluxing.chat.vo.ConversationListResponse;
@@ -26,10 +32,14 @@ import com.tongluxing.chat.vo.ConversationMemberResponse;
 import com.tongluxing.chat.vo.ConversationResponse;
 import com.tongluxing.chat.vo.MessageListResponse;
 import com.tongluxing.chat.vo.MessageResponse;
+import com.tongluxing.chat.vo.ConversationSettingResponse;
+import com.tongluxing.chat.vo.JoinApplicationResponse;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.user.support.CurrentUserContext;
+import com.tongluxing.user.service.UserService;
+import com.tongluxing.user.model.UserModels.PublicProfileVO;
 
 import lombok.RequiredArgsConstructor;
 
@@ -58,9 +68,16 @@ public class ChatServiceImpl implements ChatService {
     private final ObjectMapper objectMapper;
     /** 腾讯云 IM 集成服务。 */
     private final TencentImService tencentImService;
+    /** 风险命中记录，仅进入受控审核队列。 */
+    private final MessageRiskMapper riskMapper;
+    /** 入群申请事实表。 */
+    private final ChatJoinApplicationMapper joinApplicationMapper;
+    /** 只读取公开资料，用于成员和申请人展示。 */
+    private final UserService userService;
 
     /** 创建或复用车队群聊会话。 */
     @Override
+    @Transactional
     public ConversationResponse createTeamConversation(TeamConversationRequest request) {
         ChatConversation existed = conversationMapper.findByBiz("TEAM", request.teamId());
         if (existed != null) {
@@ -70,19 +87,95 @@ public class ChatServiceImpl implements ChatService {
         ChatConversation conversation = new ChatConversation();
         conversation.setId(SnowflakeIdGenerator.nextId());
         String groupId = groupId(request.teamId());
-        // 先在腾讯云 IM 创建群组，再落本地会话，确保本地 provider key 指向真实 IM 群组。
-        tencentImService.createGroup(groupId, TencentImServiceImpl.toImUserId(request.ownerUserId()), request.conversationName());
+        boolean cloudEnabled = tencentImService.isConfigured();
+        if (cloudEnabled) {
+            tencentImService.createGroup(groupId, TencentImServiceImpl.toImUserId(request.ownerUserId()), request.conversationName());
+        }
         conversation.setBizType("TEAM");
         conversation.setBizId(request.teamId());
         conversation.setConversationName(request.conversationName());
         conversation.setConversationStatus("ACTIVE");
-        conversation.setProviderType("TENCENT_IM");
+        conversation.setProviderType(cloudEnabled ? "TENCENT_IM" : "LOCAL");
         conversation.setProviderConversationKey(groupId);
         conversation.setCreatedAt(now);
         conversation.setUpdatedAt(now);
         conversationMapper.insert(conversation);
         addMemberInternal(conversation.getId(), request.ownerUserId(), "OWNER");
         return toConversationResponse(conversation);
+    }
+
+    /** 行程开启后自动创建群聊，并把车主和已通过成员加入群聊。 */
+    @Override
+    @Transactional
+    public ConversationResponse openTripConversation(Long tripId, String tripName, Long ownerUserId, List<Long> memberUserIds) {
+        ChatConversation existed = conversationMapper.findByBiz("TRIP", tripId);
+        if (existed != null) {
+            return toConversationResponse(existed);
+        }
+        LocalDateTime now = LocalDateTime.now();
+        String groupId = "trip_" + tripId;
+        boolean cloudEnabled = tencentImService.isConfigured();
+        String name = StringUtils.hasText(tripName) ? tripName.trim() + " · 行程群" : "行程车队群";
+        if (cloudEnabled) {
+            tencentImService.createGroup(groupId, TencentImServiceImpl.toImUserId(ownerUserId), name);
+        }
+        ChatConversation conversation = new ChatConversation();
+        conversation.setId(SnowflakeIdGenerator.nextId());
+        conversation.setBizType("TRIP");
+        conversation.setBizId(tripId);
+        conversation.setConversationName(name);
+        conversation.setConversationStatus("ACTIVE");
+        conversation.setProviderType(cloudEnabled ? "TENCENT_IM" : "LOCAL");
+        conversation.setProviderConversationKey(groupId);
+        conversation.setCreatedAt(now);
+        conversation.setUpdatedAt(now);
+        conversationMapper.insert(conversation);
+
+        LinkedHashSet<Long> users = new LinkedHashSet<>();
+        users.add(ownerUserId);
+        if (memberUserIds != null) {
+            users.addAll(memberUserIds);
+        }
+        for (Long userId : users) {
+            if (userId == null) {
+                continue;
+            }
+            addMemberInternal(conversation.getId(), userId, userId.equals(ownerUserId) ? "OWNER" : "MEMBER");
+            if (cloudEnabled && !userId.equals(ownerUserId)) {
+                tencentImService.addGroupMember(groupId, TencentImServiceImpl.toImUserId(userId));
+            }
+        }
+        persistSystemMessage(conversation.getId(), "行程已开启，群聊已创建，请注意行车安全");
+        return toConversationResponse(conversationMapper.findById(conversation.getId()));
+    }
+
+    /** 只允许当前有效群成员按行程 ID 获取会话。 */
+    @Override
+    public ConversationResponse getTripConversation(Long tripId) {
+        Long userId = currentUserContext.requireUserId();
+        ChatConversation conversation = conversationMapper.findByBiz("TRIP", tripId);
+        if (conversation == null || !"ACTIVE".equals(conversation.getConversationStatus())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "行程群聊尚未创建或已结束");
+        }
+        requireActiveMember(conversation.getId(), userId);
+        return toConversationResponse(conversation);
+    }
+
+    /** 行程结束后先保留结束通知，再退出成员、归档本地会话并按配置销毁云群组。 */
+    @Override
+    @Transactional
+    public void closeTripConversation(Long tripId) {
+        ChatConversation conversation = conversationMapper.findByBiz("TRIP", tripId);
+        if (conversation == null || !"ACTIVE".equals(conversation.getConversationStatus())) {
+            return;
+        }
+        persistSystemMessage(conversation.getId(), "行程已结束，群聊已归档，历史风险记录将按安全策略保留");
+        if ("TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()) {
+            tencentImService.destroyGroup(conversation.getProviderConversationKey());
+        }
+        LocalDateTime now = LocalDateTime.now();
+        memberMapper.exitAll(conversation.getId(), now);
+        conversationMapper.archive(conversation.getId(), now);
     }
 
     /** 查询当前用户参与的有效会话列表。 */
@@ -108,9 +201,14 @@ public class ChatServiceImpl implements ChatService {
 
     /** 发送消息并刷新会话最后一条消息摘要。 */
     @Override
+    @Transactional
     public MessageResponse sendMessage(Long conversationId, SendMessageRequest request) {
         Long userId = currentUserContext.requireUserId();
         requireActiveMember(conversationId, userId);
+        ChatConversation conversation = conversationMapper.findById(conversationId);
+        if (conversation == null || !"ACTIVE".equals(conversation.getConversationStatus())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "会话不存在或已归档");
+        }
         if (!StringUtils.hasText(request.content())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "消息内容不能为空");
         }
@@ -121,12 +219,27 @@ public class ChatServiceImpl implements ChatService {
         message.setSenderUserId(userId);
         message.setMessageType(request.messageType());
         message.setMessagePayloadJson(toJson(Map.of("content", request.content())));
-        message.setMessageStatus("NORMAL");
-        message.setProviderMessageKey("mock-msg-" + message.getId());
+        RiskDecision risk = detectRisk(request.content());
+        message.setMessageStatus(risk == null ? "NORMAL" : (risk.blocked() ? "BLOCKED" : "RISK_REVIEW"));
+        message.setProviderMessageKey("local-msg-" + message.getId());
         message.setSentAt(now);
         message.setCreatedAt(now);
         message.setUpdatedAt(now);
+        if ((risk == null || !risk.blocked())
+                && "TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()) {
+            message.setProviderMessageKey(tencentImService.sendGroupText(
+                    conversation.getProviderConversationKey(),
+                    TencentImServiceImpl.toImUserId(userId),
+                    request.content()
+            ));
+        }
         messageMapper.insert(message);
+        if (risk != null) {
+            persistRisk(message.getId(), risk, now);
+        }
+        if (risk != null && risk.blocked()) {
+            return toMessageResponse(message);
+        }
         conversationMapper.updateLastMessage(conversationId, message.getId(), preview(request.content()), now);
         // 给除发送者之外的有效成员增加未读数。
         memberMapper.incrementUnread(conversationId, userId, now);
@@ -140,7 +253,8 @@ public class ChatServiceImpl implements ChatService {
         if (conversation == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "会话不存在");
         }
-        if (StringUtils.hasText(conversation.getProviderConversationKey())) {
+        if ("TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()
+                && StringUtils.hasText(conversation.getProviderConversationKey())) {
             tencentImService.addGroupMember(conversation.getProviderConversationKey(), TencentImServiceImpl.toImUserId(userId));
         }
         return toMemberResponse(addMemberInternal(conversationId, userId, "MEMBER"));
@@ -151,7 +265,8 @@ public class ChatServiceImpl implements ChatService {
     public void exitMe(Long conversationId) {
         Long userId = currentUserContext.requireUserId();
         ChatConversation conversation = conversationMapper.findById(conversationId);
-        if (conversation != null && StringUtils.hasText(conversation.getProviderConversationKey())) {
+        if (conversation != null && "TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()
+                && StringUtils.hasText(conversation.getProviderConversationKey())) {
             tencentImService.removeGroupMember(conversation.getProviderConversationKey(), TencentImServiceImpl.toImUserId(userId));
         }
         int changed = memberMapper.exit(conversationId, userId, LocalDateTime.now());
@@ -160,9 +275,156 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
+    @Override
+    public List<ConversationMemberResponse> getMembers(Long conversationId) {
+        Long userId = currentUserContext.requireUserId();
+        requireActiveMember(conversationId, userId);
+        return memberMapper.findActiveByConversationId(conversationId).stream()
+                .map(this::toMemberResponse).toList();
+    }
+
+    @Override
+    public ConversationSettingResponse getSettings(Long conversationId) {
+        ChatConversationMember member = requireActiveMember(conversationId, currentUserContext.requireUserId());
+        return toSettingResponse(member);
+    }
+
+    @Override
+    public ConversationSettingResponse updateSettings(Long conversationId, boolean muted, boolean pinned) {
+        Long userId = currentUserContext.requireUserId();
+        requireActiveMember(conversationId, userId);
+        memberMapper.updateSettings(conversationId, userId, muted, pinned, LocalDateTime.now());
+        return new ConversationSettingResponse(String.valueOf(conversationId), muted, pinned);
+    }
+
+    @Override
+    @Transactional
+    public JoinApplicationResponse applyToJoin(Long conversationId, String message) {
+        Long userId = currentUserContext.requireUserId();
+        ChatConversation conversation = conversationMapper.findById(conversationId);
+        if (conversation == null || !"ACTIVE".equals(conversation.getConversationStatus())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "群聊不存在或已结束");
+        }
+        ChatConversationMember member = memberMapper.findByConversationAndUser(conversationId, userId);
+        if (member != null && "ACTIVE".equals(member.getMemberStatus())) {
+            throw new BusinessException(409, "你已经是群成员");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        ChatJoinApplication row = new ChatJoinApplication();
+        row.setId(SnowflakeIdGenerator.nextId());
+        row.setConversationId(conversationId);
+        row.setApplicantUserId(userId);
+        row.setApplicationMessage(message == null ? "" : message.trim());
+        row.setApplicationStatus("PENDING");
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        joinApplicationMapper.insert(row);
+        return toJoinApplicationResponse(row);
+    }
+
+    @Override
+    public List<JoinApplicationResponse> getJoinApplications(String status) {
+        String normalized = StringUtils.hasText(status) ? status.trim().toUpperCase() : "PENDING";
+        if (!List.of("PENDING", "APPROVED", "REJECTED").contains(normalized)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "申请状态不合法");
+        }
+        return joinApplicationMapper.findOwnerQueue(currentUserContext.requireUserId(), normalized)
+                .stream().map(this::toJoinApplicationResponse).toList();
+    }
+
+    @Override
+    @Transactional
+    public JoinApplicationResponse reviewJoinApplication(Long applicationId, String decision) {
+        Long reviewerId = currentUserContext.requireUserId();
+        ChatJoinApplication row = joinApplicationMapper.findById(applicationId);
+        if (row == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "入群申请不存在");
+        }
+        ChatConversationMember owner = requireActiveMember(row.getConversationId(), reviewerId);
+        if (!"OWNER".equals(owner.getMemberRole())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "只有队长可以审核入群申请");
+        }
+        String normalized = decision.trim().toUpperCase();
+        if (joinApplicationMapper.review(applicationId, normalized, reviewerId, LocalDateTime.now()) != 1) {
+            throw new BusinessException(409, "该申请已经处理");
+        }
+        if ("APPROVED".equals(normalized)) {
+            addMember(row.getConversationId(), row.getApplicantUserId());
+            persistSystemMessage(row.getConversationId(), publicName(row.getApplicantUserId()) + " 已加入群聊");
+        }
+        row.setApplicationStatus(normalized);
+        return toJoinApplicationResponse(row);
+    }
+
     /** 生成车队群聊在腾讯云 IM 中的群组 ID。 */
     private String groupId(Long teamId) {
         return "team_" + teamId;
+    }
+
+    /** 写入行程生命周期系统消息。 */
+    private void persistSystemMessage(Long conversationId, String content) {
+        LocalDateTime now = LocalDateTime.now();
+        ChatMessage message = new ChatMessage();
+        message.setId(SnowflakeIdGenerator.nextId());
+        message.setConversationId(conversationId);
+        message.setSenderUserId(null);
+        message.setMessageType("SYSTEM");
+        message.setMessagePayloadJson(toJson(Map.of("content", content)));
+        message.setMessageStatus("NORMAL");
+        message.setProviderMessageKey("system-" + message.getId());
+        message.setSentAt(now);
+        message.setCreatedAt(now);
+        message.setUpdatedAt(now);
+        messageMapper.insert(message);
+        conversationMapper.updateLastMessage(conversationId, message.getId(), content, now);
+    }
+
+    /** 保存风险命中事实，后续管理端只能通过风险审核权限访问。 */
+    private void persistRisk(Long messageId, RiskDecision decision, LocalDateTime now) {
+        MessageRisk risk = new MessageRisk();
+        risk.setId(SnowflakeIdGenerator.nextId());
+        risk.setMessageId(messageId);
+        risk.setRiskLevel(decision.level());
+        risk.setRiskType(decision.type());
+        risk.setConfidence(decision.confidence());
+        risk.setStatus("PENDING");
+        risk.setMatchedRule(decision.rule());
+        risk.setCreatedAt(now);
+        risk.setUpdatedAt(now);
+        riskMapper.insert(risk);
+    }
+
+    /** 第一阶段本地规则：高风险拦截，中低风险正常送达并进入审核队列。 */
+    private RiskDecision detectRisk(String content) {
+        String text = content.toLowerCase();
+        if (containsAny(text, "转账", "银行卡", "验证码", "保证金")) {
+            return new RiskDecision("HIGH", "FRAUD", 95, "fraud-keyword", true);
+        }
+        if (containsAny(text, "毒品", "枪支", "买枪")) {
+            return new RiskDecision("HIGH", "ILLEGAL", 98, "illegal-keyword", true);
+        }
+        if (containsAny(text, "加微信", "兼职", "扫码", "返利")) {
+            return new RiskDecision("MEDIUM", "AD", 82, "ad-keyword", false);
+        }
+        if (containsAny(text, "傻逼", "垃圾", "滚开")) {
+            return new RiskDecision("MEDIUM", "ABUSE", 88, "abuse-keyword", false);
+        }
+        if (containsAny(text, "色情", "裸聊")) {
+            return new RiskDecision("MEDIUM", "SEX", 90, "sex-keyword", false);
+        }
+        return null;
+    }
+
+    private boolean containsAny(String content, String... keywords) {
+        for (String keyword : keywords) {
+            if (content.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private record RiskDecision(String level, String type, int confidence, String rule, boolean blocked) {
     }
 
     /** 添加或重新激活会话成员。 */
@@ -187,6 +449,8 @@ public class ChatServiceImpl implements ChatService {
         member.setMemberRole(role);
         member.setMemberStatus("ACTIVE");
         member.setUnreadCount(0);
+        member.setMutedFlag(false);
+        member.setPinnedFlag(false);
         member.setJoinedAt(now);
         member.setCreatedAt(now);
         member.setUpdatedAt(now);
@@ -219,6 +483,7 @@ public class ChatServiceImpl implements ChatService {
 
     /** 转换会话成员响应。 */
     private ConversationMemberResponse toMemberResponse(ChatConversationMember member) {
+        PublicProfileVO profile = safePublicProfile(member.getUserId());
         return new ConversationMemberResponse(
                 String.valueOf(member.getId()),
                 String.valueOf(member.getConversationId()),
@@ -226,8 +491,44 @@ public class ChatServiceImpl implements ChatService {
                 member.getMemberRole(),
                 member.getMemberStatus(),
                 member.getUnreadCount(),
+                profile.nickname(),
+                profile.avatarImageKey(),
+                Boolean.TRUE.equals(member.getMutedFlag()),
+                Boolean.TRUE.equals(member.getPinnedFlag()),
                 format(member.getJoinedAt())
         );
+    }
+
+    private ConversationSettingResponse toSettingResponse(ChatConversationMember member) {
+        return new ConversationSettingResponse(String.valueOf(member.getConversationId()),
+                Boolean.TRUE.equals(member.getMutedFlag()), Boolean.TRUE.equals(member.getPinnedFlag()));
+    }
+
+    private JoinApplicationResponse toJoinApplicationResponse(ChatJoinApplication row) {
+        PublicProfileVO profile = safePublicProfile(row.getApplicantUserId());
+        ChatConversation conversation = conversationMapper.findById(row.getConversationId());
+        return new JoinApplicationResponse(String.valueOf(row.getId()), String.valueOf(row.getConversationId()),
+                conversation == null ? "车队群聊" : conversation.getConversationName(),
+                String.valueOf(row.getApplicantUserId()), profile.nickname(), profile.avatarImageKey(),
+                row.getApplicationMessage(), row.getApplicationStatus(), format(row.getCreatedAt()));
+    }
+
+    private String publicName(Long userId) {
+        String name = safePublicProfile(userId).nickname();
+        return StringUtils.hasText(name) ? name : "新成员";
+    }
+
+    private PublicProfileVO safePublicProfile(Long userId) {
+        try {
+            PublicProfileVO profile = userService.getPublicProfile(userId);
+            String nickname = StringUtils.hasText(profile.nickname()) ? profile.nickname() : "同路行用户";
+            return new PublicProfileVO(profile.userId(), nickname, profile.avatarImageKey(), profile.cityName(),
+                    profile.bio(), profile.drivingLicenseCertificationStatus(), profile.totalTripCount(),
+                    profile.totalDistanceMeters(), profile.totalDurationMinutes(), profile.completedWaypointCount());
+        } catch (RuntimeException ignored) {
+            return new PublicProfileVO(userId, "同路行用户", "", "", "一起安全出发",
+                    "UNSUBMITTED");
+        }
     }
 
     /** 转换消息响应。 */

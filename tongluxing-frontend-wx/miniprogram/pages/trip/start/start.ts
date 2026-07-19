@@ -1,0 +1,1 @@
+Page({ data: { checks: [{ label: "车辆状态正常", desc: "理想 L7 · 川A·8X6P2" }, { label: "定位共享已开启", desc: "车队成员可查看实时位置" }, { label: "路线与途经点已确认", desc: "共 2 个休息点" }] }, start() { wx.showToast({ title: "行程已开启", icon: "success" }); setTimeout(() => wx.redirectTo({ url: "/pages/trip/navigation/navigation" }), 500) }, back() { wx.navigateBack() } })

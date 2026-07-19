@@ -28,7 +28,11 @@ public class MerchantQueryDTO {
     private BigDecimal latitude;
     private String coverImageKey;
     private String description;
+    private String licenseImageKey;
+    private String qualificationJson;
     private String auditStatus;
+    private String rejectReason;
+    private LocalDateTime reviewedAt;
     private String merchantLevel;
     private BigDecimal score;
     private BigDecimal commissionRate;

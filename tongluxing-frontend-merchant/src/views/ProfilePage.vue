@@ -1,0 +1,10 @@
+<script setup>
+import { onMounted, ref } from 'vue'
+import { BadgeCheck, Building2, Clock3, RefreshCw, XCircle } from 'lucide-vue-next'
+import { getApplication } from '../services/merchant.js'
+const data = ref(null); const loading = ref(false); const error = ref('')
+const status = s => ({ PENDING: ['审核中', Clock3, 'warning'], APPROVED: ['已通过', BadgeCheck, 'success'], REJECTED: ['已拒绝', XCircle, 'danger'] }[s] || [s, Building2, ''])
+async function load() { loading.value = true; try { data.value = await getApplication() } catch (e) { error.value = e.message } finally { loading.value = false } }
+onMounted(load)
+</script>
+<template><div class="page"><div class="page-head"><div><small class="eyebrow">BUSINESS PROFILE</small><h1>商家资料</h1><p>入驻资料由 App 提交，本页用于查看审核结果与平台合作身份。</p></div><button class="btn" @click="load"><RefreshCw :class="{ spin: loading }" />刷新</button></div><div v-if="error" class="notice danger">{{ error }}</div><section v-if="data" class="profile-hero"><div class="profile-logo"><Building2 /></div><div><span class="tag" :class="status(data.auditStatus)[2]"><component :is="status(data.auditStatus)[1]" />{{ status(data.auditStatus)[0] }}</span><h1>{{ data.merchantName }}</h1><p>{{ data.category }} · {{ data.merchantLevel || 'STARTER' }} 合作伙伴</p></div></section><div v-if="data" class="dashboard-grid"><section class="panel profile-panel"><div class="panel-head"><h2>合作信息</h2></div><dl><div><dt>商家 ID</dt><dd>{{ data.merchantId }}</dd></div><div><dt>经营类目</dt><dd>{{ data.category }}</dd></div><div><dt>佣金比例</dt><dd>{{ data.commissionRate }}%</dd></div><div><dt>排序权重</dt><dd>{{ data.rankWeight }}</dd></div><div><dt>推荐排他半径</dt><dd>{{ data.exclusionRadiusKm }} km</dd></div><div><dt>提交时间</dt><dd>{{ data.submittedAt || '—' }}</dd></div></dl></section><section class="panel profile-panel"><div class="panel-head"><h2>审核记录</h2></div><div v-if="data.rejectReason" class="notice danger">{{ data.rejectReason }}</div><p class="profile-copy">商家名称、营业执照、法人资料等完整入驻内容由 App 端管理。需要变更主体资料时，请重新从 App 发起变更申请。</p></section></div></div></template>

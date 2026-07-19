@@ -1,0 +1,7 @@
+<scroll-view scroll-y class="page">
+  <view class="tip">仅用于本地前后端联调，不调用微信手机号 SDK。</view>
+  <view class="card"><view class="label">用户A手机号</view><input data-field="aPhone" bindinput="input" value="{{aPhone}}"/><view class="label">用户B手机号</view><input data-field="bPhone" bindinput="input" value="{{bPhone}}"/><view class="label">用户B初始化密码</view><input data-field="password" bindinput="input" value="{{password}}" password/><view class="label">邀请码</view><input data-field="inviteCode" bindinput="input" value="{{inviteCode}}" placeholder="登录A后自动生成"/></view>
+  <button class="primary" loading="{{running}}" disabled="{{running}}" bindtap="runAll">一键跑通完整链路</button>
+  <view class="steps"><button bindtap="loginA">1. A登录并取邀请码</button><button bindtap="loginB">2. B带邀请码注册</button><button bindtap="setBPassword">3. B设置密码</button><button bindtap="bindBInvite">4. B扫码绑定</button><button bindtap="verifyA">5. 验证A成长值</button></view>
+  <view class="result"><view class="result-title">联调日志</view><view wx:for="{{logs}}" wx:key="index" class="log">{{item}}</view><view wx:if="{{!logs.length}}" class="empty">尚未执行</view></view>
+</scroll-view>

@@ -15,6 +15,9 @@ import jakarta.validation.constraints.Size;
  */
 public record CreateTripRequest(
         @NotNull Long vehicleId,
+        @Size(max = 128) String title,
+        @Size(max = 1000) String description,
+        @Min(1) @Max(20) Integer expectedPeople,
         @Valid @NotNull LocationRequest startLocation,
         @Valid @NotNull LocationRequest endLocation,
         @Size(max = 255) String routeSummary,

@@ -16,6 +16,7 @@
         from chat_message
         where conversation_id = #{conversationId}
           and deleted = 0
+          and message_status &lt;&gt; 'BLOCKED'
         <if test="beforeMessageId != null">
             and id &lt; #{beforeMessageId}
         </if>

@@ -1,0 +1,12 @@
+<view class="message-page">
+  <scroll-view scroll-y class="page">
+    <view class="header" style="padding-top:{{contentTop}}px"><view class="title">消息</view><view class="actions"><view class="circle" bindtap="friendRequests"><image src="/assets/icons/users-round.svg"/><view class="notice">2</view></view></view></view>
+    <view class="search"><image src="/assets/icons/search.svg"/><text>搜索聊天记录</text></view>
+    <view class="list">
+      <view wx:for="{{chats}}" wx:key="id" class="item" data-id="{{item.id}}" bindtap="open"><view class="avatar">{{item.avatar}}</view><view class="content"><view class="name">{{item.title}}</view><view class="preview">{{item.preview}}</view></view><view class="right"><view class="time">{{item.time}}</view><view wx:if="{{item.unread}}" class="badge">{{item.unread}}</view></view></view>
+      <view class="item" bindtap="friendRequests"><view class="avatar"><image src="/assets/icons/users-round.svg"/></view><view class="content"><view class="name">好友申请</view><view class="preview">张三请求添加你为好友</view></view><view class="right"><view class="badge">2</view></view></view>
+    </view>
+    <view class="tab-spacer"></view>
+  </scroll-view>
+  <td-tabbar active="message"/>
+</view>

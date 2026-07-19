@@ -11,12 +11,16 @@ import lombok.Data;
 public class TripRoute {
     private Long id;
     private Long tripId;
+    private Long draftId;
+    private Long routePlanId;
     private String origin;
     private String destination;
     private String waypoints;
     private String polyline;
     private Integer planDistance;
     private Integer planDuration;
+    private String providerType;
+    private String routeStatus;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Integer deleted;

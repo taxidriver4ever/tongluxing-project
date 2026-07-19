@@ -8,6 +8,7 @@ import java.util.Comparator;
 import java.util.List;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -18,7 +19,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
-import com.tongluxing.invite.integration.InviteFacade;
 import com.tongluxing.map.dto.LocationDto;
 import com.tongluxing.map.dto.RoutePlanRequest;
 import com.tongluxing.map.service.MapService;
@@ -40,6 +40,8 @@ import com.tongluxing.trip.mapper.TripMemberSnapshotMapper;
 import com.tongluxing.trip.mapper.TripRouteMapper;
 import com.tongluxing.trip.mapper.TripWaypointMapper;
 import com.tongluxing.trip.service.TripService;
+import com.tongluxing.trip.service.TripFinishedEvent;
+import com.tongluxing.trip.service.TripStartedEvent;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
 import com.tongluxing.trip.vo.TripResponse;
@@ -58,8 +60,8 @@ public class TripServiceImpl implements TripService {
 
     private static final int PUBLISH_LIMIT = 10;
     private static final String STATUS_PUBLISHED = "PUBLISHED";
-    private static final String STATUS_ONGOING = "ONGOING";
-    private static final String STATUS_ENDED = "ENDED";
+    private static final String STATUS_RUNNING = "RUNNING";
+    private static final String STATUS_LEGACY_ONGOING = "ONGOING";
     private static final String STATUS_CANCELLED = "CANCELLED";
     private static final String CERT_APPROVED = "APPROVED";
 
@@ -79,7 +81,7 @@ public class TripServiceImpl implements TripService {
     private final TripVehiclePort vehiclePort;
     private final TripUserProfilePort userProfilePort;
     private final MapService mapService;
-    private final InviteFacade inviteFacade;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 创建行程：校验发布频率、路线参数、车辆认证后写入行程和车主成员快照。
@@ -172,9 +174,7 @@ public class TripServiceImpl implements TripService {
         return buildResponse(tripId);
     }
 
-    /**
-     * 结束行程，并对有效同行成员发放成长值和触发邀请首队完成事件。
-     */
+    /** 开启行程，严格执行 PUBLISHED -> RUNNING。 */
     @Override
     @Transactional
     public TripResponse startTrip(Long tripId) {
@@ -190,19 +190,28 @@ public class TripServiceImpl implements TripService {
         }
         Trip after = tripMapper.findById(tripId);
         insertAuditLog(tripId, userId, "START", before, after, "开始行程");
+        List<Long> chatMemberIds = memberMapper.findByTripId(tripId).stream()
+                .filter(member -> "OWNER".equals(member.getJoinStatus()) || "APPROVED".equals(member.getJoinStatus()))
+                .map(TripMemberSnapshot::getUserId)
+                .distinct()
+                .toList();
+        eventPublisher.publishEvent(new TripStartedEvent(
+                tripId,
+                StringUtils.hasText(after.getTitle()) ? after.getTitle() : "行程车队群",
+                userId,
+                chatMemberIds
+        ));
         clearTripCaches(userId, tripId);
         return toResponse(after);
     }
 
-    /**
-     * 结束行程，并触发邀请首队完成事件；里程成长由 driver-track 模块结算。
-     */
+    /** 结束行程，只执行 RUNNING -> FINISHED；成长值由独立结算接口产生。 */
     @Override
     @Transactional
     public TripResponse endTrip(Long tripId) {
         Long userId = currentUserContext.requireUserId();
         Trip before = requireOwnerTrip(tripId, userId);
-        if (!STATUS_ONGOING.equals(before.getStatus())) {
+        if (!STATUS_RUNNING.equals(before.getStatus()) && !STATUS_LEGACY_ONGOING.equals(before.getStatus())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "只有行驶中行程可以结束");
         }
         LocalDateTime now = LocalDateTime.now();
@@ -212,19 +221,9 @@ public class TripServiceImpl implements TripService {
         }
         Trip after = tripMapper.findById(tripId);
         insertAuditLog(tripId, userId, "END", before, after, "结束行程");
+        eventPublisher.publishEvent(new TripFinishedEvent(tripId));
         clearTripCaches(userId, tripId);
-        memberMapper.findByTripId(tripId).stream()
-                .filter(member -> List.of("OWNER", "APPROVED").contains(member.getJoinStatus()))
-                .forEach(member -> handleTripCompleted(tripId, member.getUserId()));
         return toResponse(after);
-    }
-
-    /**
-     * 完成行程后的跨模块奖励和邀请进度处理。
-     */
-    private void handleTripCompleted(Long tripId, Long userId) {
-        String bizId = "trip-completed:" + tripId;
-        inviteFacade.completeFirstTeam(userId, tripId, bizId);
     }
 
     /**
@@ -293,6 +292,11 @@ public class TripServiceImpl implements TripService {
      */
     private void fillTrip(Trip trip, CreateTripRequest request) {
         trip.setVehicleId(request.vehicleId());
+        trip.setTitle(StringUtils.hasText(request.title()) ? normalize(request.title())
+                : displayName(request.startLocation().name(), request.startLocation().address()) + "到"
+                + displayName(request.endLocation().name(), request.endLocation().address()));
+        trip.setDescription(StringUtils.hasText(request.description()) ? normalize(request.description()) : normalize(request.remark()));
+        trip.setExpectedPeople(request.expectedPeople() == null ? request.maxVehicleCount() : request.expectedPeople());
         fillLocations(trip, request.startLocation(), request.endLocation());
         trip.setRouteSummary(normalize(request.routeSummary()));
         trip.setRoutePolylineKey("");
@@ -314,6 +318,11 @@ public class TripServiceImpl implements TripService {
      */
     private void fillTrip(Trip trip, UpdateTripRequest request) {
         trip.setVehicleId(request.vehicleId());
+        trip.setTitle(StringUtils.hasText(request.title()) ? normalize(request.title())
+                : displayName(request.startLocation().name(), request.startLocation().address()) + "到"
+                + displayName(request.endLocation().name(), request.endLocation().address()));
+        trip.setDescription(StringUtils.hasText(request.description()) ? normalize(request.description()) : normalize(request.remark()));
+        trip.setExpectedPeople(request.expectedPeople() == null ? request.maxVehicleCount() : request.expectedPeople());
         fillLocations(trip, request.startLocation(), request.endLocation());
         trip.setRouteSummary(normalize(request.routeSummary()));
         trip.setRoutePolylineKey("");
@@ -367,12 +376,15 @@ public class TripServiceImpl implements TripService {
         TripRoute route = new TripRoute();
         route.setId(SnowflakeIdGenerator.nextId());
         route.setTripId(tripId);
+        route.setRoutePlanId(Long.valueOf(plan.routePlanId()));
         route.setOrigin(toJson(startLocation));
         route.setDestination(toJson(endLocation));
         route.setWaypoints(toJson(sortWaypoints(waypoints)));
         route.setPolyline(plan.routePolyline());
         route.setPlanDistance(plan.routeDistance());
         route.setPlanDuration(plan.routeDuration());
+        route.setProviderType(plan.providerType());
+        route.setRouteStatus("VALID");
         route.setCreatedAt(now);
         route.setUpdatedAt(now);
         route.setDeleted(0);
@@ -465,7 +477,9 @@ public class TripServiceImpl implements TripService {
      * 校验当前行程状态是否允许修改。
      */
     private void ensureMutable(Trip trip) {
-        if (!STATUS_PUBLISHED.equals(trip.getStatus()) && !STATUS_ONGOING.equals(trip.getStatus())) {
+        if (!STATUS_PUBLISHED.equals(trip.getStatus())
+                && !STATUS_RUNNING.equals(trip.getStatus())
+                && !STATUS_LEGACY_ONGOING.equals(trip.getStatus())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "当前状态不允许操作");
         }
     }
@@ -537,6 +551,9 @@ public class TripServiceImpl implements TripService {
                 String.valueOf(trip.getId()),
                 String.valueOf(trip.getUserId()),
                 String.valueOf(trip.getVehicleId()),
+                trip.getTitle(),
+                trip.getDescription(),
+                trip.getExpectedPeople(),
                 trip.getStartName(),
                 trip.getStartLat(),
                 trip.getStartLng(),
@@ -590,6 +607,9 @@ public class TripServiceImpl implements TripService {
         trip.setId(source.getId());
         trip.setUserId(source.getUserId());
         trip.setVehicleId(source.getVehicleId());
+        trip.setTitle(source.getTitle());
+        trip.setDescription(source.getDescription());
+        trip.setExpectedPeople(source.getExpectedPeople());
         trip.setStartName(source.getStartName());
         trip.setStartLat(source.getStartLat());
         trip.setStartLng(source.getStartLng());

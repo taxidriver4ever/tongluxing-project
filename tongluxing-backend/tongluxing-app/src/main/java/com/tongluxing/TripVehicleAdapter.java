@@ -1,5 +1,7 @@
 package com.tongluxing;
 
+import java.util.Comparator;
+
 import org.springframework.stereotype.Component;
 
 import com.tongluxing.trip.integration.TripVehiclePort;
@@ -33,5 +35,15 @@ public class TripVehicleAdapter implements TripVehiclePort {
         }
         return new TripVehicleDTO(vehicle.getId(), vehicle.getBrand(), vehicle.getModel(),
                 vehicle.getCertificationStatus());
+    }
+
+    @Override
+    public TripVehicleDTO getDefaultCertifiedVehicle(Long userId) {
+        return vehicleProfileMapper.findByUserId(userId).stream()
+                .filter(vehicle -> "APPROVED".equals(vehicle.getCertificationStatus()))
+                .min(Comparator.comparing(vehicle -> vehicle.getDefaultFlag() == null || vehicle.getDefaultFlag() != 1))
+                .map(vehicle -> new TripVehicleDTO(vehicle.getId(), vehicle.getBrand(), vehicle.getModel(),
+                        vehicle.getCertificationStatus()))
+                .orElse(null);
     }
 }

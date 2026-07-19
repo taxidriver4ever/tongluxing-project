@@ -1,0 +1,5 @@
+<view class="chat-page">
+  <view class="header" style="padding-top:{{contentTop}}px"><view class="back" bindtap="back"><image src="/assets/icons/chevron-left.svg"/></view><view class="head-avatar">318</view><view class="head-info"><view class="head-name">川藏318自驾车队</view><view class="head-sub">18名成员 · 广州 → 成都</view></view><view class="more" bindtap="detail"><image src="/assets/icons/ellipsis.svg"/></view></view>
+  <scroll-view scroll-y class="chat" scroll-into-view="bottom" style="top:{{contentTop + 70}}px"><view class="system">车队已创建，欢迎大家加入同行</view><view wx:for="{{messages}}" wx:key="id" class="message {{item.mine ? 'mine' : ''}}"><view wx:if="{{!item.mine}}" class="user-avatar">{{item.avatar}}</view><view class="bubble">{{item.content}}</view></view><view id="bottom"></view></scroll-view>
+  <view class="composer"><input class="box" placeholder="输入消息..." value="{{draft}}" bindinput="input" confirm-type="send" bindconfirm="send"/><view class="send" bindtap="send"><image src="/assets/icons/send.svg"/></view></view>
+</view>

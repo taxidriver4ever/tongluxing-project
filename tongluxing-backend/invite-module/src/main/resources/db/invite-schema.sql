@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS invite_code (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS invite_relation (
   id BIGINT NOT NULL, inviter_user_id BIGINT NOT NULL, invitee_user_id BIGINT NOT NULL,
-  invite_code VARCHAR(16) NULL, relation_status VARCHAR(16) NOT NULL DEFAULT 'BOUND',
+  invite_code VARCHAR(16) NULL, relation_status VARCHAR(16) NOT NULL DEFAULT 'REGISTERED',
   bind_source VARCHAR(32) NOT NULL DEFAULT 'LINK',
   bind_source_value VARCHAR(64) NULL,
   invitee_registered_at DATETIME NULL,

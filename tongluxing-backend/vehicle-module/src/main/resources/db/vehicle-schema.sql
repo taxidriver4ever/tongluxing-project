@@ -75,3 +75,100 @@ create table if not exists vehicle_audit_log (
     key idx_vehicle_audit_user (user_id),
     key idx_vehicle_audit_type (operation_type)
 );
+
+-- Compatibility migration for databases created by the early prototype schema.
+-- MySQL does not offer a portable ADD COLUMN IF NOT EXISTS across all supported
+-- versions, therefore each addition is guarded through information_schema.
+set @ddl = if(
+    (select count(*) from information_schema.columns
+     where table_schema = database() and table_name = 'vehicle_certification' and column_name = 'vehicle_type') = 0,
+    'alter table vehicle_certification add column vehicle_type varchar(32) not null default '''' after plate_no_mask',
+    'select 1'
+);
+prepare vehicle_schema_stmt from @ddl;
+execute vehicle_schema_stmt;
+deallocate prepare vehicle_schema_stmt;
+
+-- The prototype schema used one mandatory license_image_key column. The
+-- current model stores front/back URLs separately, so keep the legacy column
+-- readable while allowing new rows to omit it.
+set @ddl = if(
+    (select count(*) from information_schema.columns
+     where table_schema = database() and table_name = 'vehicle_certification'
+       and column_name = 'license_image_key' and is_nullable = 'NO') > 0,
+    'alter table vehicle_certification modify column license_image_key varchar(512) null',
+    'select 1'
+);
+prepare vehicle_schema_stmt from @ddl;
+execute vehicle_schema_stmt;
+deallocate prepare vehicle_schema_stmt;
+
+set @ddl = if(
+    (select count(*) from information_schema.columns
+     where table_schema = database() and table_name = 'vehicle_certification' and column_name = 'engine_no_cipher') = 0,
+    'alter table vehicle_certification add column engine_no_cipher varchar(256) null after vin_mask',
+    'select 1'
+);
+prepare vehicle_schema_stmt from @ddl;
+execute vehicle_schema_stmt;
+deallocate prepare vehicle_schema_stmt;
+
+set @ddl = if(
+    (select count(*) from information_schema.columns
+     where table_schema = database() and table_name = 'vehicle_certification' and column_name = 'register_date') = 0,
+    'alter table vehicle_certification add column register_date date null after engine_no_mask',
+    'select 1'
+);
+prepare vehicle_schema_stmt from @ddl;
+execute vehicle_schema_stmt;
+deallocate prepare vehicle_schema_stmt;
+
+set @ddl = if(
+    (select count(*) from information_schema.columns
+     where table_schema = database() and table_name = 'vehicle_certification' and column_name = 'issue_date') = 0,
+    'alter table vehicle_certification add column issue_date date null after register_date',
+    'select 1'
+);
+prepare vehicle_schema_stmt from @ddl;
+execute vehicle_schema_stmt;
+deallocate prepare vehicle_schema_stmt;
+
+set @ddl = if(
+    (select count(*) from information_schema.columns
+     where table_schema = database() and table_name = 'vehicle_certification' and column_name = 'issuing_authority') = 0,
+    'alter table vehicle_certification add column issuing_authority varchar(128) null after issue_date',
+    'select 1'
+);
+prepare vehicle_schema_stmt from @ddl;
+execute vehicle_schema_stmt;
+deallocate prepare vehicle_schema_stmt;
+
+set @ddl = if(
+    (select count(*) from information_schema.columns
+     where table_schema = database() and table_name = 'vehicle_certification' and column_name = 'license_front_image_key') = 0,
+    'alter table vehicle_certification add column license_front_image_key varchar(512) not null default '''' after issuing_authority',
+    'select 1'
+);
+prepare vehicle_schema_stmt from @ddl;
+execute vehicle_schema_stmt;
+deallocate prepare vehicle_schema_stmt;
+
+set @ddl = if(
+    (select count(*) from information_schema.columns
+     where table_schema = database() and table_name = 'vehicle_certification' and column_name = 'license_back_image_key') = 0,
+    'alter table vehicle_certification add column license_back_image_key varchar(512) null after license_front_image_key',
+    'select 1'
+);
+prepare vehicle_schema_stmt from @ddl;
+execute vehicle_schema_stmt;
+deallocate prepare vehicle_schema_stmt;
+
+set @ddl = if(
+    (select count(*) from information_schema.columns
+     where table_schema = database() and table_name = 'vehicle_certification' and column_name = 'recognition_source') = 0,
+    'alter table vehicle_certification add column recognition_source varchar(32) not null default ''MINIPROGRAM_OCR'' after license_back_image_key',
+    'select 1'
+);
+prepare vehicle_schema_stmt from @ddl;
+execute vehicle_schema_stmt;
+deallocate prepare vehicle_schema_stmt;

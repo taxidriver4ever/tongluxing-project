@@ -16,6 +16,7 @@ import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.groupbuy.dto.CreateGroupbuyRequest;
 import com.tongluxing.groupbuy.dto.PaidParticipantRequest;
+import com.tongluxing.groupbuy.dto.JoinGroupbuyRequest;
 import com.tongluxing.groupbuy.entity.GroupbuyActivity;
 import com.tongluxing.groupbuy.entity.GroupbuyParticipant;
 import com.tongluxing.groupbuy.integration.GroupbuyMerchantProductPort;
@@ -26,6 +27,8 @@ import com.tongluxing.groupbuy.vo.GroupbuyActivityVO;
 import com.tongluxing.groupbuy.vo.GroupbuyParticipantVO;
 import com.tongluxing.groupbuy.vo.PageResult;
 import com.tongluxing.user.support.CurrentUserContext;
+import com.tongluxing.merchant.mapper.MerchantProfileMapper;
+import com.tongluxing.merchant.dto.MerchantQueryDTO;
 
 import lombok.RequiredArgsConstructor;
 
@@ -43,6 +46,7 @@ public class GroupbuyServiceImpl implements GroupbuyService {
     private final GroupbuyParticipantMapper participantMapper;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
+    private final MerchantProfileMapper merchantProfileMapper;
 
     @Override
     @Transactional
@@ -55,28 +59,32 @@ public class GroupbuyServiceImpl implements GroupbuyService {
         }
         LocalDateTime now = LocalDateTime.now();
         // 创建活动时读取商品快照，避免后续商品配置变化影响已创建的拼团价格与规则。
-        GroupbuyMerchantProductPort.MerchantProductSnapshot snapshot =
-                merchantProductPort.getSnapshot(request.productId());
-        int targetPeople = request.targetPeople() == null ? snapshot.targetPeople() : request.targetPeople();
-        int validHours = request.validHours() == null ? snapshot.validHours() : request.validHours();
-        merchantProductPort.decreaseStock(request.productId(), 1, "groupbuy:create:" + request.requestId());
+        Long sourceId = request.couponId() != null ? request.couponId() : request.productId();
+        if (sourceId == null) throw new BusinessException(ResultCode.BAD_REQUEST, "couponId 不能为空");
+        GroupbuyMerchantProductPort.MerchantProductSnapshot snapshot = merchantProductPort.getSnapshot(sourceId);
+        if (!snapshot.available()) throw new BusinessException(409, "拼单优惠未通过审核、已下线或库存不足");
+        Integer targetPeople = request.targetPeople() == null ? snapshot.targetPeople() : request.targetPeople();
+        Integer validHours = request.validHours() == null ? snapshot.validHours() : request.validHours();
+        if (targetPeople == null || targetPeople < 2 || validHours == null || validHours < 1) throw new BusinessException(ResultCode.BAD_REQUEST,"拼单规则不完整");
+        merchantProductPort.decreaseStock(sourceId, 1, "groupbuy:create:" + request.requestId());
 
         GroupbuyActivity activity = new GroupbuyActivity();
         activity.setId(SnowflakeIdGenerator.nextId());
         activity.setMerchantId(snapshot.merchantId());
-        activity.setProductId(request.productId());
+        activity.setProductId(sourceId);
         activity.setInitiatorUserId(userId);
         activity.setTargetPeople(targetPeople);
-        activity.setCurrentPeople(0);
+        activity.setCurrentPeople(1);
         activity.setGroupPrice(snapshot.groupPrice());
         activity.setLadderPriceJson(StringUtils.hasText(snapshot.ladderPriceJson()) ? snapshot.ladderPriceJson() : "[]");
-        activity.setActivityStatus("ONGOING");
+        activity.setActivityStatus("WAITING");
         activity.setStartAt(now);
         activity.setExpireAt(now.plusHours(validHours));
         activity.setCreatedAt(now);
         activity.setUpdatedAt(now);
         activity.setDeleted(0);
         activityMapper.insert(activity);
+        insertParticipant(activity.getId(), SnowflakeIdGenerator.nextId(), userId, now);
         GroupbuyActivityVO result = toVO(activityMapper.findById(activity.getId()));
         writeJson(idemKey, result, Duration.ofHours(24));
         return result;
@@ -94,6 +102,22 @@ public class GroupbuyServiceImpl implements GroupbuyService {
                 .map(this::toVO)
                 .toList();
         return new PageResult<>(records, activityMapper.count(normalizedStatus), normalizedPage, normalizedSize);
+    }
+
+    @Override
+    public PageResult<GroupbuyActivityVO> mine(String status,int page,int size){
+        int p=Math.max(page,1),z=Math.min(Math.max(size,1),100),offset=(p-1)*z;
+        String s=StringUtils.hasText(status)?status.trim().toUpperCase():null;
+        Long userId=currentUserContext.requireUserId();
+        return new PageResult<>(activityMapper.listMine(userId,s,offset,z).stream().map(this::toVO).toList(),activityMapper.countMine(userId,s),p,z);
+    }
+
+    @Override
+    public PageResult<GroupbuyActivityVO> merchantActivities(String status,int page,int size){
+        Long userId=currentUserContext.requireUserId();MerchantQueryDTO merchant=merchantProfileMapper.findByUserId(userId);
+        if(merchant==null||!"APPROVED".equals(merchant.getAuditStatus())) throw new BusinessException(403,"仅审核通过的商家可查看拼单活动");
+        int p=Math.max(page,1),z=Math.min(Math.max(size,1),100),offset=(p-1)*z;String s=StringUtils.hasText(status)?status.trim().toUpperCase():null;
+        return new PageResult<>(activityMapper.listByMerchant(merchant.getMerchantId(),s,offset,z).stream().map(this::toVO).toList(),activityMapper.countByMerchant(merchant.getMerchantId(),s),p,z);
     }
 
     @Override
@@ -117,7 +141,7 @@ public class GroupbuyServiceImpl implements GroupbuyService {
             return cached;
         }
         GroupbuyActivity activity = requireActivity(activityId);
-        if (!"ONGOING".equals(activity.getActivityStatus())) {
+        if (!List.of("ONGOING","WAITING").contains(activity.getActivityStatus())) {
             return toVO(activity);
         }
         if (participantMapper.findByActivityAndUser(activityId, request.userId()) == null) {
@@ -159,7 +183,7 @@ public class GroupbuyServiceImpl implements GroupbuyService {
      */
     @Override
     @Transactional
-    public GroupbuyActivityVO applyAdminIntervention(Long activityId, String action, String reason, String requestId) {
+    public GroupbuyActivityVO applyAdminIntervention(Long activityId, String action, String reason, String requestId, Integer extendMinutes) {
         String idemKey = "groupbuy:idem:admin-intervention:%s".formatted(requestId);
         GroupbuyActivityVO cached = readJson(idemKey, GroupbuyActivityVO.class);
         if (cached != null) {
@@ -169,10 +193,16 @@ public class GroupbuyServiceImpl implements GroupbuyService {
         LocalDateTime now = LocalDateTime.now();
         if ("FORCE_SUCCESS".equals(normalizedAction)) {
             activityMapper.forceSuccess(activityId, now);
-        } else if ("FORCE_FAILED".equals(normalizedAction)) {
-            activityMapper.forceEnd(activityId, "FAILED", now);
-        } else if ("OFFLINE".equals(normalizedAction)) {
-            activityMapper.forceEnd(activityId, "OFFLINE", now);
+        } else if (List.of("FORCE_FAIL","FORCE_FAILED").contains(normalizedAction)) {
+            activityMapper.forceEnd(activityId, "FORCE_FAIL", now);
+        } else if (List.of("CLOSE","OFFLINE").contains(normalizedAction)) {
+            activityMapper.forceEnd(activityId, "CANCEL", now);
+        } else if ("SUSPEND".equals(normalizedAction)) {
+            activityMapper.suspend(activityId,now);
+        } else if ("EXTEND".equals(normalizedAction)) {
+            int minutes=extendMinutes==null?30:extendMinutes;
+            if(minutes<1||minutes>1440) throw new BusinessException(ResultCode.BAD_REQUEST,"延长时间必须为1至1440分钟");
+            activityMapper.extend(activityId,minutes,now);
         } else {
             throw new BusinessException("拼团干预动作不支持");
         }
@@ -180,6 +210,13 @@ public class GroupbuyServiceImpl implements GroupbuyService {
         GroupbuyActivityVO result = toVO(requireActivity(activityId));
         writeJson(idemKey, result, Duration.ofDays(7));
         return result;
+    }
+
+    @Override
+    @Transactional
+    public GroupbuyActivityVO join(Long activityId,JoinGroupbuyRequest request){
+        Long userId=currentUserContext.requireUserId();
+        return addPaidParticipant(activityId,new PaidParticipantRequest(SnowflakeIdGenerator.nextId(),userId,LocalDateTime.now(),request.requestId()));
     }
 
     /**
@@ -202,10 +239,20 @@ public class GroupbuyServiceImpl implements GroupbuyService {
                 .map(p -> new GroupbuyParticipantVO(p.getId(), p.getActivityId(), p.getOrderId(), p.getUserId(),
                         p.getParticipantStatus(), p.getJoinedAt(), p.getPaidAt(), p.getRefundedAt()))
                 .toList();
+        GroupbuyMerchantProductPort.MerchantProductSnapshot snapshot=merchantProductPort.getSnapshot(activity.getProductId());
         return new GroupbuyActivityVO(activity.getId(), activity.getMerchantId(), activity.getProductId(),
+                snapshot.couponOffer()?activity.getProductId():null,snapshot.productName(),snapshot.merchantName(),
+                snapshot.storeId(),snapshot.storeName(),snapshot.storeAddress(),snapshot.originalPrice(),
                 activity.getInitiatorUserId(), activity.getTargetPeople(), activity.getCurrentPeople(),
                 activity.getGroupPrice(), activity.getActivityStatus(), activity.getStartAt(), activity.getExpireAt(),
                 activity.getSuccessAt(), activity.getFailedAt(), participants);
+    }
+
+    private void insertParticipant(Long activityId,Long orderId,Long userId,LocalDateTime now){
+        GroupbuyParticipant participant=new GroupbuyParticipant();
+        participant.setId(SnowflakeIdGenerator.nextId());participant.setActivityId(activityId);participant.setOrderId(orderId);
+        participant.setUserId(userId);participant.setParticipantStatus("PAID");participant.setJoinedAt(now);participant.setPaidAt(now);
+        participant.setCreatedAt(now);participant.setUpdatedAt(now);participant.setDeleted(0);participantMapper.insert(participant);
     }
 
     /**

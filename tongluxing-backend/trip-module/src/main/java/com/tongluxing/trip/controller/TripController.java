@@ -16,9 +16,11 @@ import com.tongluxing.common.result.Result;
 import com.tongluxing.trip.dto.CreateTripRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
 import com.tongluxing.trip.service.TripService;
+import com.tongluxing.trip.service.TripSettlementService;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
 import com.tongluxing.trip.vo.TripResponse;
+import com.tongluxing.trip.vo.TripSettlementResponse;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +35,7 @@ import lombok.RequiredArgsConstructor;
 public class TripController {
 
     private final TripService tripService;
+    private final TripSettlementService tripSettlementService;
 
     /**
      * 创建并发布一条行程。
@@ -96,6 +99,12 @@ public class TripController {
     @PostMapping("/{tripId}/end")
     public Result<TripResponse> endTrip(@PathVariable Long tripId) {
         return Result.success(tripService.endTrip(tripId));
+    }
+
+    /** 对已结束行程执行幂等成长值结算，并推进到 SETTLED。 */
+    @PostMapping("/{tripId}/settle")
+    public Result<TripSettlementResponse> settleTrip(@PathVariable Long tripId) {
+        return Result.success(tripSettlementService.settle(tripId));
     }
 
     /**

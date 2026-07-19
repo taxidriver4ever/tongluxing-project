@@ -12,6 +12,8 @@ public record LoginResponse(
         Long userId,
         /** 是否为本次登录自动创建的新用户。 */
         Boolean isNewUser,
+        /** 当前账号是否已经设置密码。 */
+        Boolean passwordSet,
         /** access token 有效期，单位秒。 */
         Integer expireSeconds
 ) {

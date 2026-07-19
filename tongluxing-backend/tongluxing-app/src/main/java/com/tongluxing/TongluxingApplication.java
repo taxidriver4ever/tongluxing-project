@@ -22,6 +22,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.tongluxing.team.mapper",
         "com.tongluxing.chat.mapper",
         "com.tongluxing.map.mapper",
+        "com.tongluxing.drivertrack.mapper",
         "com.tongluxing.merchant.mapper",
         "com.tongluxing.groupbuy.mapper",
         "com.tongluxing.order.mapper",

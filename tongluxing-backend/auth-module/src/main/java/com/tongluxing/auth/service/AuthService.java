@@ -3,8 +3,10 @@ package com.tongluxing.auth.service;
 import com.tongluxing.auth.dto.LoginRequest;
 import com.tongluxing.auth.dto.AppBindByMiniTicketRequest;
 import com.tongluxing.auth.dto.AppLoginRequest;
+import com.tongluxing.auth.dto.PasswordLoginRequest;
 import com.tongluxing.auth.dto.RefreshTokenRequest;
 import com.tongluxing.auth.dto.SmsCodeRequest;
+import com.tongluxing.auth.dto.SetPasswordRequest;
 import com.tongluxing.auth.dto.WxPhoneLoginRequest;
 import com.tongluxing.auth.vo.CurrentUserResponse;
 import com.tongluxing.auth.vo.AppBindTicketResponse;
@@ -26,8 +28,14 @@ public interface AuthService {
     /** 手机号验证码登录。 */
     LoginResponse login(LoginRequest request);
 
+    /** 手机号密码登录。 */
+    LoginResponse passwordLogin(PasswordLoginRequest request);
+
     /** 微信小程序手机号授权登录。 */
     LoginResponse wxPhoneLogin(WxPhoneLoginRequest request);
+
+    /** 当前登录用户首次设置密码。 */
+    void setPassword(String authorization, SetPasswordRequest request);
 
     /** App 驾驶端手机号验证码登录。 */
     LoginResponse appLogin(AppLoginRequest request);

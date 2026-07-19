@@ -1,0 +1,8 @@
+<script setup>
+import { reactive, ref } from 'vue'
+import { CircleDollarSign, ShieldCheck } from 'lucide-vue-next'
+import { saveSettlement } from '../services/merchant.js'
+const form = reactive({ accountType: 'CORPORATE', accountName: '', accountNo: '', bankName: '' }); const message = ref(''); const success = ref(false); const loading = ref(false)
+async function submit() { loading.value = true; message.value = ''; try { await saveSettlement(form); success.value = true; message.value = '收款账户已安全保存' } catch (e) { success.value = false; message.value = e.message } finally { loading.value = false } }
+</script>
+<template><div class="page narrow-page"><div class="page-head"><div><small class="eyebrow">SETTLEMENT SECURITY</small><h1>收款设置</h1><p>仅审核通过的商家可维护结算账户，敏感信息不会在页面回显。</p></div></div><section class="panel settlement-card"><div class="settlement-icon"><CircleDollarSign /></div><h2>结算账户</h2><p>用于后续优惠活动补贴和订单结算。本功能只保存账户，不在当前首期闭环发起真实打款。</p><div v-if="message" class="notice" :class="success ? 'success' : 'danger'">{{ message }}</div><form class="form-grid" @submit.prevent="submit"><label><span>账户类型</span><select v-model="form.accountType"><option value="CORPORATE">对公账户</option><option value="LEGAL_PERSON">法人银行卡</option></select></label><label><span>开户名称</span><input v-model="form.accountName" required></label><label class="full"><span>开户行</span><input v-model="form.bankName" required></label><label class="full"><span>收款账号</span><input v-model="form.accountNo" required autocomplete="off"></label><div class="security-note full"><ShieldCheck />账号仅用于平台结算，提交后按敏感数据处理。</div><button class="btn primary full submit" :disabled="loading">{{ loading ? '正在保存…' : '保存收款账户' }}</button></form></section></div></template>

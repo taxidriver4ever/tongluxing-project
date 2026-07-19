@@ -11,10 +11,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.tongluxing.admin.dto.AdminAuditRequest;
 import com.tongluxing.admin.service.AdminAuditService;
-import com.tongluxing.admin.service.AdminQueryService;
 import com.tongluxing.admin.vo.AdminAuditResultVO;
 import com.tongluxing.admin.vo.PageResult;
 import com.tongluxing.common.result.Result;
+import com.tongluxing.merchant.service.MerchantService;
+import com.tongluxing.merchant.vo.MerchantProfileVO;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -32,15 +33,21 @@ public class AdminMerchantAuditController {
 
     /** 后台审核服务。 */
     private final AdminAuditService auditService;
-    /** 后台通用查询服务。 */
-    private final AdminQueryService queryService;
+    private final MerchantService merchantService;
 
     /** 分页查询商家入驻申请；当前返回空分页，后续可接入 merchant-module 查询端口。 */
     @GetMapping
-    public Result<PageResult<Object>> page(@RequestParam(required = false) String status,
+    public Result<PageResult<MerchantProfileVO>> page(@RequestParam(required = false) String status,
                                            @RequestParam(defaultValue = "1") int page,
                                            @RequestParam(defaultValue = "20") int size) {
-        return Result.success(queryService.emptyBusinessPage("merchant-module", status, null, null, null, page, size));
+        var result = merchantService.applicationsForAdmin(status, page, size);
+        return Result.success(new PageResult<>(result.records(), result.total(), result.page(), result.size()));
+    }
+
+    /** 查看入驻申请完整资料。 */
+    @GetMapping("/{applicationId}")
+    public Result<MerchantProfileVO> detail(@PathVariable Long applicationId) {
+        return Result.success(merchantService.applicationForAdmin(applicationId));
     }
 
     /** 审核指定商家入驻申请。 */

@@ -3,11 +3,13 @@ package com.tongluxing.vehicle.service;
 import com.tongluxing.vehicle.dto.CreateVehicleRequest;
 import com.tongluxing.vehicle.dto.SubmitVehicleCertificationRequest;
 import com.tongluxing.vehicle.dto.UpdateVehicleRequest;
+import com.tongluxing.vehicle.dto.VehicleAuthSubmitRequest;
 import com.tongluxing.vehicle.vo.PublicVehicleCardResponse;
 import com.tongluxing.vehicle.vo.PageResult;
 import com.tongluxing.vehicle.vo.VehicleCertificationAuditDetailVO;
 import com.tongluxing.vehicle.vo.VehicleCertificationAuditSummaryVO;
 import com.tongluxing.vehicle.vo.VehicleCertificationResponse;
+import com.tongluxing.vehicle.vo.VehicleAuthStatusResponse;
 import com.tongluxing.vehicle.vo.VehicleListResponse;
 import com.tongluxing.vehicle.vo.VehicleResponse;
 
@@ -41,6 +43,12 @@ public interface VehicleService {
 
     /** 查询车辆最近一次认证记录；未提交时返回未认证状态。 */
     VehicleCertificationResponse getCertification(Long vehicleId);
+
+    /** 按车辆认证闭环请求创建或复用车辆并提交认证资料。 */
+    VehicleAuthStatusResponse submitVehicleAuth(VehicleAuthSubmitRequest request);
+
+    /** 查询当前用户最近一次车辆认证申请状态。 */
+    VehicleAuthStatusResponse getMyVehicleAuthStatus();
 
     /** 后台分页查询车辆认证申请。 */
     PageResult<VehicleCertificationAuditSummaryVO> pageCertifications(

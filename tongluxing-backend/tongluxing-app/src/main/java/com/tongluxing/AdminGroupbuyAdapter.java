@@ -27,7 +27,7 @@ public class AdminGroupbuyAdapter implements AdminGroupbuyPort {
      * @param requestId 幂等请求号
      */
     @Override
-    public void applyIntervention(Long activityId, String action, String reason, String requestId) {
-        groupbuyService.applyAdminIntervention(activityId, action, reason, requestId);
+    public void applyIntervention(Long activityId, String action, String reason, String requestId, Integer extendMinutes) {
+        groupbuyService.applyAdminIntervention(activityId, action, reason, requestId, extendMinutes);
     }
 }

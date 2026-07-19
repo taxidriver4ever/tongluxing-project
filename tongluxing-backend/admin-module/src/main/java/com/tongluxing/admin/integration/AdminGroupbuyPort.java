@@ -5,5 +5,5 @@ package com.tongluxing.admin.integration;
  */
 public interface AdminGroupbuyPort {
 
-    void applyIntervention(Long activityId, String action, String reason, String requestId);
+    void applyIntervention(Long activityId, String action, String reason, String requestId, Integer extendMinutes);
 }

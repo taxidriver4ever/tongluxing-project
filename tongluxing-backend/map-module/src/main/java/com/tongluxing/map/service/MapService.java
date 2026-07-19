@@ -1,8 +1,12 @@
 package com.tongluxing.map.service;
 
+import java.math.BigDecimal;
+import java.util.List;
+
 import com.tongluxing.map.dto.LocationDto;
 import com.tongluxing.map.dto.RoutePlanRequest;
 import com.tongluxing.map.vo.NearbyMapResponse;
+import com.tongluxing.map.vo.LocationSearchResponse;
 import com.tongluxing.map.vo.RoutePlanResponse;
 
 /**
@@ -15,6 +19,14 @@ public interface MapService {
 
     /** 解析地点并记录搜索/选择日志。 */
     LocationDto resolveLocation(LocationDto location);
+
+    /** 从 MySQL 地点目录搜索地点。 */
+    List<LocationSearchResponse> searchLocations(
+            String keyword, Integer limit, BigDecimal latitude, BigDecimal longitude);
+
+    /** 查询当前用户最近选择的地点。 */
+    List<LocationSearchResponse> getLocationHistory(
+            Integer limit, BigDecimal latitude, BigDecimal longitude);
 
     /** 查询附近地图点位。 */
     NearbyMapResponse getNearby(String latitude, String longitude, Integer radiusMeters);

@@ -2,6 +2,7 @@ package com.tongluxing.groupbuy.service;
 
 import com.tongluxing.groupbuy.dto.CreateGroupbuyRequest;
 import com.tongluxing.groupbuy.dto.PaidParticipantRequest;
+import com.tongluxing.groupbuy.dto.JoinGroupbuyRequest;
 import com.tongluxing.groupbuy.vo.GroupbuyActivityVO;
 import com.tongluxing.groupbuy.vo.PageResult;
 
@@ -28,6 +29,8 @@ public interface GroupbuyService {
      * @return 分页结果
      */
     PageResult<GroupbuyActivityVO> list(String status, int page, int size);
+    PageResult<GroupbuyActivityVO> mine(String status, int page, int size);
+    PageResult<GroupbuyActivityVO> merchantActivities(String status, int page, int size);
 
     /**
      * 查询活动详情。
@@ -45,6 +48,7 @@ public interface GroupbuyService {
      * @return 更新后的活动详情
      */
     GroupbuyActivityVO addPaidParticipant(Long activityId, PaidParticipantRequest request);
+    GroupbuyActivityVO join(Long activityId, JoinGroupbuyRequest request);
 
     /**
      * 将已过期且未成团的活动标记为失败。
@@ -58,10 +62,10 @@ public interface GroupbuyService {
      * 应用运营后台干预动作。
      *
      * @param activityId 活动 ID
-     * @param action 干预动作，支持 FORCE_SUCCESS、FORCE_FAILED、OFFLINE
+     * @param action 干预动作，支持 FORCE_SUCCESS、FORCE_FAIL、EXTEND、SUSPEND、CLOSE
      * @param reason 干预原因，供上游审计记录使用
      * @param requestId 幂等请求号
      * @return 干预后的活动详情
      */
-    GroupbuyActivityVO applyAdminIntervention(Long activityId, String action, String reason, String requestId);
+    GroupbuyActivityVO applyAdminIntervention(Long activityId, String action, String reason, String requestId, Integer extendMinutes);
 }

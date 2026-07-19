@@ -10,6 +10,9 @@ public interface TripVehiclePort {
      */
     TripVehicleDTO getCertifiedVehicle(Long vehicleId, Long userId);
 
+    /** 查询当前用户默认或最先认证通过的车辆。 */
+    TripVehicleDTO getDefaultCertifiedVehicle(Long userId);
+
     /**
      * 行程发布需要的车辆最小字段集合。
      */

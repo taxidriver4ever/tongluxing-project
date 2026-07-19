@@ -20,6 +20,7 @@ import com.tongluxing.user.support.CurrentUserContext;
 import com.tongluxing.vehicle.dto.CreateVehicleRequest;
 import com.tongluxing.vehicle.dto.SubmitVehicleCertificationRequest;
 import com.tongluxing.vehicle.dto.UpdateVehicleRequest;
+import com.tongluxing.vehicle.dto.VehicleAuthSubmitRequest;
 import com.tongluxing.vehicle.entity.VehicleCertification;
 import com.tongluxing.vehicle.entity.VehicleCertificationImage;
 import com.tongluxing.vehicle.entity.VehicleProfile;
@@ -34,6 +35,7 @@ import com.tongluxing.vehicle.vo.VehicleCertificationAuditDetailVO;
 import com.tongluxing.vehicle.vo.VehicleCertificationAuditSummaryVO;
 import com.tongluxing.vehicle.vo.VehicleCertificationImageVO;
 import com.tongluxing.vehicle.vo.VehicleCertificationResponse;
+import com.tongluxing.vehicle.vo.VehicleAuthStatusResponse;
 import com.tongluxing.vehicle.vo.VehicleListResponse;
 import com.tongluxing.vehicle.vo.VehicleResponse;
 
@@ -221,7 +223,7 @@ public class VehicleServiceImpl implements VehicleService {
         certification.setLicenseBackImageKey(normalize(request.licenseBackImageKey()));
         certification.setRecognitionSource(normalize(request.recognitionSource()));
         certification.setStatus(CERTIFICATION_PENDING);
-        certification.setRejectReason(null);
+        certification.setRejectReason("");
         certification.setSubmittedAt(now);
         certificationMapper.insert(certification);
         int sortNo = 0;
@@ -254,6 +256,59 @@ public class VehicleServiceImpl implements VehicleService {
                     CERTIFICATION_UNSUBMITTED, "", null, null, true);
         }
         return toCertificationResponse(certification);
+    }
+
+    /**
+     * 适配产品定义的车辆认证闭环接口。相同用户和车牌优先复用车辆档案，
+     * 图片仅按 URL/资源标识保存，不触发 OCR。
+     */
+    @Override
+    @Transactional
+    public VehicleAuthStatusResponse submitVehicleAuth(VehicleAuthSubmitRequest request) {
+        Long userId = currentUserContext.requireUserId();
+        String plateCipher = cipher(request.plateNumber());
+        VehicleProfile vehicle = vehicleProfileMapper.findByUserIdAndPlateNoCipher(userId, plateCipher);
+        if (vehicle == null) {
+            VehicleResponse created = createVehicle(new CreateVehicleRequest(
+                    request.plateNumber(), request.vehicleBrand(), request.vehicleModel(), "轿车",
+                    request.vehicleColor(), 5, "", request.vehicleImages().get(0)));
+            vehicle = vehicleProfileMapper.findByIdAndUserId(created.vehicleId(), userId);
+        } else {
+            VehicleProfile before = copyVehicle(vehicle);
+            vehicle.setBrand(normalize(request.vehicleBrand()));
+            vehicle.setModel(normalize(request.vehicleModel()));
+            vehicle.setColor(normalize(request.vehicleColor()));
+            vehicle.setVehiclePhotoImageKey(normalize(request.vehicleImages().get(0)));
+            vehicle.setUpdatedAt(LocalDateTime.now());
+            vehicleProfileMapper.update(vehicle);
+            clearVehicleCaches(userId, vehicle.getId());
+            insertAuditLog(vehicle.getId(), userId, "UPDATE", before, vehicle, "车辆认证同步基础资料");
+        }
+
+        List<SubmitVehicleCertificationRequest.VehicleImageRequest> images = new java.util.ArrayList<>();
+        request.driverLicenseImages().forEach(url -> images.add(
+                new SubmitVehicleCertificationRequest.VehicleImageRequest("DRIVER_LICENSE", url)));
+        request.registrationLicenseImages().forEach(url -> images.add(
+                new SubmitVehicleCertificationRequest.VehicleImageRequest("REGISTRATION_LICENSE", url)));
+        request.vehicleImages().forEach(url -> images.add(
+                new SubmitVehicleCertificationRequest.VehicleImageRequest("VEHICLE", url)));
+
+        submitCertification(vehicle.getId(), new SubmitVehicleCertificationRequest(
+                "", request.plateNumber(), "轿车", "", "", null, null, "",
+                request.registrationLicenseImages().get(0), request.registrationLicenseImages().get(1),
+                images, "MANUAL_UPLOAD"));
+        return toVehicleAuthStatus(certificationMapper.findLatestByVehicleId(vehicle.getId()));
+    }
+
+    /** 查询当前用户最近一次车辆认证申请，并转换为产品约定状态。 */
+    @Override
+    public VehicleAuthStatusResponse getMyVehicleAuthStatus() {
+        Long userId = currentUserContext.requireUserId();
+        VehicleCertification certification = certificationMapper.findLatestByUserId(userId);
+        if (certification == null) {
+            return new VehicleAuthStatusResponse(null, null, CERTIFICATION_UNSUBMITTED, null, null, null);
+        }
+        return toVehicleAuthStatus(certification);
     }
 
     /** 后台分页查询车辆认证申请。 */
@@ -401,13 +456,27 @@ public class VehicleServiceImpl implements VehicleService {
 
     /** 转换后台审核详情并解码授权字段。 */
     private VehicleCertificationAuditDetailVO toAuditDetail(VehicleCertification certification) {
+        VehicleProfile vehicle = vehicleProfileMapper.findById(certification.getVehicleId());
         return new VehicleCertificationAuditDetailVO(
                 certification.getId(), certification.getVehicleId(), certification.getUserId(),
-                certification.getOwnerName(), decipher(certification.getPlateNoCipher()), certification.getVehicleType(),
+                certification.getOwnerName(), decipher(certification.getPlateNoCipher()),
+                vehicle == null ? "" : vehicle.getBrand(), vehicle == null ? "" : vehicle.getModel(),
+                vehicle == null ? "" : vehicle.getColor(), certification.getVehicleType(),
                 decipher(certification.getVinCipher()), decipher(certification.getEngineNoCipher()),
                 certification.getRegisterDate(), certification.getIssueDate(), certification.getIssuingAuthority(),
                 certification.getLicenseFrontImageKey(), certification.getLicenseBackImageKey(),
                 certificationImages(certification.getId()), certification.getRecognitionSource(), certification.getStatus(),
+                certification.getRejectReason(), certification.getSubmittedAt(), certification.getReviewedAt());
+    }
+
+    /** 将内部 APPROVED/REJECTED 状态映射为产品接口 PASS/REJECT。 */
+    private VehicleAuthStatusResponse toVehicleAuthStatus(VehicleCertification certification) {
+        String status = switch (certification.getStatus()) {
+            case "APPROVED" -> "PASS";
+            case "REJECTED" -> "REJECT";
+            default -> certification.getStatus();
+        };
+        return new VehicleAuthStatusResponse(certification.getId(), certification.getVehicleId(), status,
                 certification.getRejectReason(), certification.getSubmittedAt(), certification.getReviewedAt());
     }
 

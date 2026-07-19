@@ -9,6 +9,8 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
@@ -51,12 +53,18 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 认证链路入口放行，避免未登录用户无法登录。
                         .requestMatchers(
+                                "/v1/admin/auth/login",
                                 "/v1/auth/sms-code",
                                 "/v1/auth/login",
+                                "/v1/auth/password-login",
                                 "/v1/auth/wx-phone-login",
+                                "/v1/auth/app/login",
+                                "/v1/auth/app/bind-by-mini-ticket",
                                 "/v1/auth/refresh-token",
                                 "/actuator/health"
                         ).permitAll()
+                        // Web Admin 与普通用户登录态隔离，后台接口仅允许 ROLE_ADMIN。
+                        .requestMatchers("/v1/admin/**", "/admin/**").hasRole("ADMIN")
                         // 用户模块中明确属于公开展示的读取接口放行。
                         .requestMatchers(HttpMethod.GET,
                                 "/v1/users/*/public-profile",
@@ -77,14 +85,20 @@ public class SecurityConfig {
     }
 
     /**
-     * 禁用传统用户名密码登录。
+     * 禁用 Spring Security 默认表单用户名密码登录。
      *
-     * <p>保留该 Bean 是为了满足 Spring Security 自动配置依赖，但任何调用都会直接失败。</p>
+     * <p>业务密码登录由 `/v1/auth/password-login` 接口自行校验并签发 JWT。</p>
      */
     @Bean
     public UserDetailsService userDetailsService() {
         return username -> {
             throw new UsernameNotFoundException("Password login is disabled");
         };
+    }
+
+    /** 密码哈希器，当前仅用于首次注册设置密码。 */
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
     }
 }

@@ -52,6 +52,18 @@ public interface VehicleProfileMapper {
             """)
     VehicleProfile findById(@Param("vehicleId") Long vehicleId);
 
+    /** 按用户与车牌密文复用已有车辆档案，避免认证提交重复建车。 */
+    @Select("""
+            select id, user_id, plate_no_cipher, plate_no_mask, brand, model, vehicle_type, color,
+                   seat_count, energy_type, vehicle_photo_image_key, certification_status, is_default as default_flag,
+                   created_at, updated_at, deleted
+            from vehicle_profile
+            where user_id=#{userId} and plate_no_cipher=#{plateNoCipher} and deleted=0
+            order by created_at desc limit 1
+            """)
+    VehicleProfile findByUserIdAndPlateNoCipher(@Param("userId") Long userId,
+                                                @Param("plateNoCipher") String plateNoCipher);
+
     /** 统计用户未删除车辆数量，用于创建首辆车时自动设置默认车辆。 */
     @Select("""
             select count(1)

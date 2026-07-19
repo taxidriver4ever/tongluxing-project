@@ -20,11 +20,14 @@ import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.map.dto.LocationDto;
 import com.tongluxing.map.dto.RoutePlanRequest;
 import com.tongluxing.map.entity.MapLocationSearchLog;
+import com.tongluxing.map.entity.MapLocationCatalog;
 import com.tongluxing.map.entity.MapRoutePlan;
 import com.tongluxing.map.mapper.MapLocationSearchLogMapper;
+import com.tongluxing.map.mapper.MapLocationCatalogMapper;
 import com.tongluxing.map.mapper.MapRoutePlanMapper;
 import com.tongluxing.map.service.MapService;
 import com.tongluxing.map.vo.MapMarkerResponse;
+import com.tongluxing.map.vo.LocationSearchResponse;
 import com.tongluxing.map.vo.NearbyMapResponse;
 import com.tongluxing.map.vo.RoutePlanResponse;
 import com.tongluxing.user.support.CurrentUserContext;
@@ -48,6 +51,8 @@ public class MapServiceImpl implements MapService {
     private final MapRoutePlanMapper routePlanMapper;
     /** 地点搜索日志 Mapper。 */
     private final MapLocationSearchLogMapper searchLogMapper;
+    /** 可搜索地点目录 Mapper。 */
+    private final MapLocationCatalogMapper locationCatalogMapper;
     /** 当前登录用户上下文。 */
     private final CurrentUserContext currentUserContext;
     /** JSON 工具，用于路线点和路线结果序列化。 */
@@ -113,6 +118,58 @@ public class MapServiceImpl implements MapService {
         log.setUpdatedAt(log.getCreatedAt());
         searchLogMapper.insert(log);
         return normalized;
+    }
+
+    /** 在数据库预置地点目录中搜索；空关键词返回热门地点。 */
+    @Override
+    public List<LocationSearchResponse> searchLocations(
+            String keyword, Integer limit, BigDecimal latitude, BigDecimal longitude) {
+        int normalizedLimit = normalizeLimit(limit);
+        List<MapLocationCatalog> locations = StringUtils.hasText(keyword)
+                ? locationCatalogMapper.search(keyword.trim(), normalizedLimit)
+                : locationCatalogMapper.findPopular(normalizedLimit);
+        return locations.stream()
+                .map(location -> toSearchResponse(toLocationDto(location), latitude, longitude))
+                .toList();
+    }
+
+    /** 返回当前用户最近选择并成功落库的地点。 */
+    @Override
+    public List<LocationSearchResponse> getLocationHistory(
+            Integer limit, BigDecimal latitude, BigDecimal longitude) {
+        Long userId = currentUserContext.requireUserId();
+        return searchLogMapper.findRecent(userId, normalizeLimit(limit)).stream()
+                .map(log -> new LocationDto(
+                        log.getSelectedName(),
+                        log.getSelectedAddress(),
+                        log.getSelectedLatitude(),
+                        log.getSelectedLongitude()))
+                .map(location -> toSearchResponse(location, latitude, longitude))
+                .toList();
+    }
+
+    private LocationSearchResponse toSearchResponse(
+            LocationDto location, BigDecimal latitude, BigDecimal longitude) {
+        Integer distanceMeters = null;
+        if (latitude != null && longitude != null) {
+            distanceMeters = haversineMeters(
+                    new LocationDto("当前位置", "", latitude, longitude), location);
+        }
+        return new LocationSearchResponse(
+                location.name(), location.address(), location.latitude(),
+                location.longitude(), distanceMeters);
+    }
+
+    private LocationDto toLocationDto(MapLocationCatalog location) {
+        return new LocationDto(
+                location.getName(),
+                location.getAddress(),
+                location.getLatitude(),
+                location.getLongitude());
+    }
+
+    private int normalizeLimit(Integer limit) {
+        return limit == null ? 20 : Math.max(1, Math.min(limit, 50));
     }
 
     /** 查询附近地图标记；当前返回当前位置模拟点。 */

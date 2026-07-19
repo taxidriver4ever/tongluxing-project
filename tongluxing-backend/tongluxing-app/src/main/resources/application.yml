@@ -34,6 +34,9 @@ spring:
         - classpath:db/match-schema.sql
         - classpath:db/storage-schema.sql
         - classpath:db/driver-track-schema.sql
+        - classpath:db/merchant-schema.sql
+        - classpath:db/groupbuy-schema.sql
+        - classpath:db/admin-schema.sql
   data:
     redis:
       host: ${REDIS_HOST}
@@ -73,6 +76,16 @@ auth:
     issuer: ${AUTH_JWT_ISSUER}
     access-expire-seconds: ${AUTH_JWT_ACCESS_EXPIRE_SECONDS}
     refresh-expire-seconds: ${AUTH_JWT_REFRESH_EXPIRE_SECONDS}
+
+admin:
+  auth:
+    username: ${ADMIN_AUTH_USERNAME:admin}
+    password: ${ADMIN_AUTH_PASSWORD:Admin@123456}
+    operator-id: ${ADMIN_AUTH_OPERATOR_ID:10001}
+    display-name: ${ADMIN_AUTH_DISPLAY_NAME:运营管理员}
+    session-expire-seconds: ${ADMIN_AUTH_SESSION_EXPIRE_SECONDS:7200}
+    max-failures: ${ADMIN_AUTH_MAX_FAILURES:5}
+    failure-window-seconds: ${ADMIN_AUTH_FAILURE_WINDOW_SECONDS:3600}
 
 tencent:
   im:

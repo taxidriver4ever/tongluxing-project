@@ -18,6 +18,7 @@ import com.tongluxing.merchant.dto.CreateMerchantCouponPoolRequest;
 import com.tongluxing.merchant.dto.CreateMerchantProductRequest;
 import com.tongluxing.merchant.dto.CreatePromotionCodeRequest;
 import com.tongluxing.merchant.dto.MerchantApplicationRequest;
+import com.tongluxing.merchant.dto.MerchantSettlementRequest;
 import com.tongluxing.merchant.dto.UpdateMerchantProductRequest;
 import com.tongluxing.merchant.dto.UpdateMerchantProfileRequest;
 import com.tongluxing.merchant.dto.UpdateRewardPoolRequest;
@@ -53,6 +54,19 @@ public class MerchantController {
             @RequestHeader(value = "X-Request-Id", required = false) String requestId,
             @Valid @RequestBody MerchantApplicationRequest request) {
         return Result.success(merchantService.submitApplication(request, requestId));
+    }
+
+    /** 查询当前用户最近一次入驻申请（待审核、已通过、已驳回均可查）。 */
+    @GetMapping("/applications/me/latest")
+    public Result<MerchantProfileVO> latestApplication() {
+        return Result.success(merchantService.currentProfile());
+    }
+
+    /** 审核通过后补充收款账户。 */
+    @PutMapping("/me/settlement-account")
+    public Result<Void> saveSettlement(@Valid @RequestBody MerchantSettlementRequest request) {
+        merchantService.saveSettlementAccount(request);
+        return Result.success();
     }
 
     /** 查询当前商家资料。 */

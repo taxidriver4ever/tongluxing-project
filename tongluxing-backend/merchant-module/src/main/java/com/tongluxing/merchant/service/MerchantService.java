@@ -6,6 +6,7 @@ import com.tongluxing.merchant.dto.CreateMerchantCouponPoolRequest;
 import com.tongluxing.merchant.dto.CreateMerchantProductRequest;
 import com.tongluxing.merchant.dto.CreatePromotionCodeRequest;
 import com.tongluxing.merchant.dto.MerchantApplicationRequest;
+import com.tongluxing.merchant.dto.MerchantSettlementRequest;
 import com.tongluxing.merchant.dto.UpdateMerchantProductRequest;
 import com.tongluxing.merchant.dto.UpdateMerchantProfileRequest;
 import com.tongluxing.merchant.dto.UpdateRewardPoolRequest;
@@ -24,6 +25,14 @@ import com.tongluxing.merchant.vo.PageResult;
 public interface MerchantService {
 
     MerchantProfileVO submitApplication(MerchantApplicationRequest request, String requestId);
+
+    PageResult<MerchantProfileVO> applicationsForAdmin(String status, int page, int size);
+
+    MerchantProfileVO applicationForAdmin(Long applicationId);
+
+    MerchantProfileVO auditApplication(Long applicationId, String result, String reason, Long reviewerId);
+
+    void saveSettlementAccount(MerchantSettlementRequest request);
 
     MerchantProfileVO currentProfile();
 

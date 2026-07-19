@@ -1,0 +1,9 @@
+<view class="topbar {{dark ? 'topbar-dark' : ''}}" style="{{topbarStyle}}">
+  <view wx:if="{{showBack}}" class="back-btn" bindtap="goBack"><image src="/assets/icons/chevron-left.svg" /></view>
+  <block wx:if="{{placeholder}}">
+    <view class="city">{{title}}</view>
+    <view class="search">{{placeholder}}</view>
+  </block>
+  <view wx:else class="page-title">{{title}}</view>
+  <view wx:if="{{action}}" class="icon-btn">{{action}}</view>
+</view>

@@ -57,10 +57,11 @@ public class TripDraftPublishAdapter implements TripDraftPublishPort {
                 .orElseThrow(() -> new BusinessException(ResultCode.FORBIDDEN, "USER_CERTIFICATION_REQUIRED"));
 
         TripResponse trip = tripService.createTrip(new CreateTripRequest(
-                vehicle.vehicleId(), location(draft.startLocation()), location(draft.endLocation()),
+                vehicle.vehicleId(), draft.startLocation().name() + "到" + draft.endLocation().name(), draft.remark(),
+                draft.peopleCount(), location(draft.startLocation()), location(draft.endLocation()),
                 draft.startLocation().name() + " - " + draft.endLocation().name(), draft.departureTime().toString(),
                 draft.durationDays(), 0, 0, "", Math.max(2, Math.min(20, draft.peopleCount())),
-                "RELAXED", true, draft.remark(), waypoints(draft.waypoints())));
+                "MIDDLE", true, draft.remark(), waypoints(draft.waypoints())));
         long tripId = Long.parseLong(trip.tripId());
         if ("TRIP".equals(publishType)) {
             return new PublishOutcome(tripId, tripId);

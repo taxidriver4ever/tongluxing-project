@@ -2,6 +2,9 @@ create table if not exists trip (
     id bigint primary key,
     user_id bigint not null,
     vehicle_id bigint not null,
+    title varchar(128) not null default '',
+    description varchar(1000) not null default '',
+    expected_people int null,
     start_name varchar(128) not null,
     start_lat decimal(10,6) null,
     start_lng decimal(10,6) null,
@@ -43,31 +46,40 @@ create table if not exists trip (
 
 create table if not exists trip_route (
     id bigint primary key,
-    trip_id bigint not null,
+    trip_id bigint null,
+    draft_id bigint null,
+    route_plan_id bigint null,
     origin json not null,
     destination json not null,
     waypoints json null,
     polyline mediumtext null,
     plan_distance int null,
     plan_duration int null,
+    provider_type varchar(32) not null default 'MOCK',
+    route_status varchar(16) not null default 'VALID',
     created_at datetime not null,
     updated_at datetime not null,
     deleted tinyint(1) not null default 0,
-    unique key uk_trip_route_trip (trip_id, deleted)
+    unique key uk_trip_route_trip (trip_id, deleted),
+    unique key uk_trip_route_draft (draft_id, deleted)
 );
 
 create table if not exists trip_waypoint (
     id bigint primary key,
-    trip_id bigint not null,
+    trip_id bigint null,
+    draft_id bigint null,
     seq_no int not null,
     place_name varchar(128) not null,
+    place_address varchar(255) not null default '',
+    waypoint_type varchar(16) not null default 'REST',
     lat decimal(10,6) null,
     lng decimal(10,6) null,
     stay_minutes int null,
     created_at datetime not null,
     updated_at datetime not null,
     deleted tinyint(1) not null default 0,
-    key idx_waypoint_trip_seq (trip_id, seq_no)
+    key idx_waypoint_trip_seq (trip_id, seq_no),
+    key idx_waypoint_draft_seq (draft_id, seq_no)
 );
 
 create table if not exists trip_member_snapshot (
@@ -100,12 +112,14 @@ create table if not exists trip_audit_log (
 create table if not exists trip_draft (
     id bigint primary key,
     user_id bigint not null,
-    start_location_json json not null,
-    end_location_json json not null,
+    title varchar(128) not null default '',
+    description varchar(1000) not null default '',
+    start_location_json json null,
+    end_location_json json null,
     waypoint_json json not null,
-    departure_time datetime not null,
-    duration_days int not null,
-    people_count int not null,
+    departure_time datetime null,
+    duration_days int null,
+    people_count int null,
     remark varchar(255) not null default '',
     draft_status varchar(16) not null default 'DRAFT',
     published_trip_id bigint null,

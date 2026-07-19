@@ -10,6 +10,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
@@ -39,8 +40,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class InviteServiceImpl implements InviteService {
 
-    /** 邀请关系初始状态：已绑定，但尚未完成有效行为。 */
-    private static final String STATUS_BOUND = "BOUND";
+    /** 邀请关系初始状态：被邀请人已完成注册并绑定来源。 */
+    private static final String STATUS_REGISTERED = "REGISTERED";
 
     /** 注册来源类型：用户邀请。 */
     private static final String SOURCE_INVITE = "INVITE";
@@ -51,12 +52,14 @@ public class InviteServiceImpl implements InviteService {
     /** 邀请奖励业务幂等号前缀。 */
     private static final String REWARD_BIZ_PREFIX = "INVITE_FIRST_TEAM";
 
+    /** 邀请新用户注册奖励，每条邀请关系只发一次。 */
+    private static final String RULE_REGISTER = "INVITE_USER_REGISTER";
+
     /** V1 首次组队奖励快照；实际发放由 InviteRewardPort 适配。 */
     private static final String FIRST_TEAM_REWARD_SNAPSHOT = "{\"growthPoints\":100}";
 
     /** MVP 邀请注册人数阶梯奖励，value 为同路值。 */
     private static final Map<Integer, Integer> STAGE_REWARDS = Map.of(
-            1, 50,
             3, 200,
             10, 500,
             30, 2000,
@@ -79,6 +82,13 @@ public class InviteServiceImpl implements InviteService {
     @Override
     public InviteCodeVO currentCode() {
         return getCode(currentUser.requireUserId());
+    }
+
+    /** 手动扫码/输入邀请码绑定；与注册来源自动绑定共用同一幂等实现。 */
+    @Override
+    @Transactional
+    public InviteBindVO bindCurrent(String inviteCode) {
+        return bindFromRegistration(currentUser.requireUserId(), inviteCode, LocalDateTime.now());
     }
 
     /** 查询当前登录用户的邀请奖励进度。 */
@@ -115,7 +125,7 @@ public class InviteServiceImpl implements InviteService {
     }
 
     /** 监听首次注册成功事件，只处理 INVITE 来源。 */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleUserRegistered(UserRegisteredEvent event) {
         if (event == null || !event.hasSource(SOURCE_INVITE)) {
@@ -133,6 +143,7 @@ public class InviteServiceImpl implements InviteService {
      *
      * <p>该方法只服务 UserRegisteredEvent，不作为登录主流程或前端手填入口。</p>
      */
+    @Transactional
     public InviteBindVO bindFromRegistration(Long invitee, String sourceCode, LocalDateTime registeredAt) {
         if (invitee == null || sourceCode == null || sourceCode.isBlank()) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "邀请来源不能为空");
@@ -148,6 +159,7 @@ public class InviteServiceImpl implements InviteService {
         }
         InviteQueryDTO existing = mapper.findRelationByInvitee(invitee);
         if (existing != null) {
+            issueRegistrationReward(existing.getInviterUserId(), existing.getRelationId(), LocalDateTime.now());
             return relationResult(existing);
         }
         if (mapper.createsCycle(inviter, invitee) > 0) {
@@ -160,14 +172,16 @@ public class InviteServiceImpl implements InviteService {
         } catch (DuplicateKeyException e) {
             InviteQueryDTO duplicate = mapper.findRelationByInvitee(invitee);
             if (duplicate != null) {
+                issueRegistrationReward(duplicate.getInviterUserId(), duplicate.getRelationId(), LocalDateTime.now());
                 return relationResult(duplicate);
             }
             throw new BusinessException(409, "邀请关系已绑定");
         }
         InviteQueryDTO relation = mapper.findRelationByInvitee(invitee);
         Long relationId = relation == null ? null : relation.getRelationId();
+        issueRegistrationReward(inviter, relationId, now);
         issueStageRewards(inviter, relationId, now);
-        return new InviteBindVO(inviter, invitee, STATUS_BOUND, now);
+        return new InviteBindVO(inviter, invitee, STATUS_REGISTERED, now);
     }
 
     /** 查询指定用户的邀请奖励进度。 */
@@ -246,6 +260,33 @@ public class InviteServiceImpl implements InviteService {
             if (inviteCount >= stage) {
                 issueStageReward(inviter, relationId, stage, STAGE_REWARDS.get(stage), now);
             }
+        }
+    }
+
+    /** 发放“邀请新用户注册”100 成长值，奖励业务号和成长流水均具备幂等性。 */
+    private void issueRegistrationReward(Long inviter, Long relationId, LocalDateTime now) {
+        if (relationId == null) {
+            throw new BusinessException(ResultCode.INTERNAL_SERVER_ERROR, "邀请关系创建失败");
+        }
+        String ruleCode = "INV_REG:" + Long.toUnsignedString(relationId, 36).toUpperCase(Locale.ROOT);
+        String rewardBizNo = RULE_REGISTER + ":" + relationId;
+        String snapshot = "{\"rewardType\":\"GROWTH\",\"rewardValue\":100}";
+        try {
+            mapper.insertReward(SnowflakeIdGenerator.nextId(), relationId, inviter, ruleCode,
+                    rewardBizNo, snapshot, now);
+        } catch (DuplicateKeyException e) {
+            return;
+        }
+        try {
+            InviteRewardPort port = rewardPort.getIfAvailable();
+            if (port == null) {
+                throw new IllegalStateException("reward port unavailable");
+            }
+            port.grantInviteReward(inviter, rewardBizNo, ruleCode);
+            mapper.updateReward(rewardBizNo, "GRANTED", null, now, now);
+        } catch (RuntimeException e) {
+            mapper.updateReward(rewardBizNo, "FAILED", e.getMessage(), null, now);
+            throw e;
         }
     }
 

@@ -86,6 +86,37 @@ public interface GroupbuyActivityMapper {
             """)
     long count(@Param("status") String status);
 
+    @Select("""
+            select distinct a.id,a.merchant_id,a.product_id,a.initiator_user_id,a.target_people,a.current_people,
+                   a.group_price,a.ladder_price_json,a.activity_status,a.start_at,a.expire_at,
+                   a.success_at,a.failed_at,a.created_at,a.updated_at,a.deleted
+            from groupbuy_activity a left join groupbuy_participant p on p.activity_id=a.id and p.deleted=0
+            where a.deleted=0 and (a.initiator_user_id=#{userId} or p.user_id=#{userId})
+              and (#{status} is null or #{status}='' or a.activity_status=#{status})
+            order by a.created_at desc limit #{offset},#{size}
+            """)
+    List<GroupbuyActivity> listMine(@Param("userId") Long userId,@Param("status") String status,@Param("offset") int offset,@Param("size") int size);
+
+    @Select("""
+            select count(distinct a.id) from groupbuy_activity a
+            left join groupbuy_participant p on p.activity_id=a.id and p.deleted=0
+            where a.deleted=0 and (a.initiator_user_id=#{userId} or p.user_id=#{userId})
+              and (#{status} is null or #{status}='' or a.activity_status=#{status})
+            """)
+    long countMine(@Param("userId") Long userId,@Param("status") String status);
+
+    @Select("""
+            select id,merchant_id,product_id,initiator_user_id,target_people,current_people,group_price,
+                   ladder_price_json,activity_status,start_at,expire_at,success_at,failed_at,created_at,updated_at,deleted
+            from groupbuy_activity where deleted=0 and merchant_id=#{merchantId}
+              and (#{status} is null or #{status}='' or activity_status=#{status})
+            order by created_at desc limit #{offset},#{size}
+            """)
+    List<GroupbuyActivity> listByMerchant(@Param("merchantId") Long merchantId,@Param("status") String status,@Param("offset") int offset,@Param("size") int size);
+
+    @Select("select count(*) from groupbuy_activity where deleted=0 and merchant_id=#{merchantId} and (#{status} is null or #{status}='' or activity_status=#{status})")
+    long countByMerchant(@Param("merchantId") Long merchantId,@Param("status") String status);
+
     /**
      * 为进行中的活动增加已支付参团人数。
      *
@@ -98,7 +129,7 @@ public interface GroupbuyActivityMapper {
             set current_people = current_people + 1,
                 updated_at = #{now}
             where id = #{activityId}
-              and activity_status = 'ONGOING'
+              and activity_status in ('ONGOING','WAITING')
               and deleted = 0
             """)
     int increasePeople(@Param("activityId") Long activityId, @Param("now") LocalDateTime now);
@@ -116,7 +147,7 @@ public interface GroupbuyActivityMapper {
                 success_at = #{now},
                 updated_at = #{now}
             where id = #{activityId}
-              and activity_status = 'ONGOING'
+              and activity_status in ('ONGOING','WAITING')
               and current_people >= target_people
               and deleted = 0
             """)
@@ -131,11 +162,11 @@ public interface GroupbuyActivityMapper {
      */
     @Update("""
             update groupbuy_activity
-            set activity_status = 'FAILED',
+            set activity_status = 'TIMEOUT',
                 failed_at = #{now},
                 updated_at = #{now}
             where id = #{activityId}
-              and activity_status = 'ONGOING'
+              and activity_status in ('ONGOING','WAITING')
               and expire_at <= #{now}
               and current_people < target_people
               and deleted = 0
@@ -151,11 +182,11 @@ public interface GroupbuyActivityMapper {
      */
     @Update("""
             update groupbuy_activity
-            set activity_status = 'SUCCESS',
+            set activity_status = 'FORCE_SUCCESS',
                 success_at = #{now},
                 updated_at = #{now}
             where id = #{activityId}
-              and activity_status = 'ONGOING'
+              and activity_status in ('ONGOING','WAITING','SUSPEND')
               and deleted = 0
             """)
     int forceSuccess(@Param("activityId") Long activityId, @Param("now") LocalDateTime now);
@@ -174,10 +205,22 @@ public interface GroupbuyActivityMapper {
                 failed_at = #{now},
                 updated_at = #{now}
             where id = #{activityId}
-              and activity_status = 'ONGOING'
+              and activity_status in ('ONGOING','WAITING','SUSPEND')
               and deleted = 0
             """)
     int forceEnd(@Param("activityId") Long activityId,
                  @Param("status") String status,
                  @Param("now") LocalDateTime now);
+
+    @Update("""
+            update groupbuy_activity set activity_status='SUSPEND',updated_at=#{now}
+            where id=#{activityId} and activity_status in ('ONGOING','WAITING') and deleted=0
+            """)
+    int suspend(@Param("activityId") Long activityId,@Param("now") LocalDateTime now);
+
+    @Update("""
+            update groupbuy_activity set expire_at=date_add(expire_at,interval #{minutes} minute),updated_at=#{now}
+            where id=#{activityId} and activity_status in ('ONGOING','WAITING','SUSPEND') and deleted=0
+            """)
+    int extend(@Param("activityId") Long activityId,@Param("minutes") Integer minutes,@Param("now") LocalDateTime now);
 }

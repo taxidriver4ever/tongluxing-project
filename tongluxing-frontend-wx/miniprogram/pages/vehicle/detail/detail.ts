@@ -1,0 +1,2 @@
+import { mockVehicles } from "../../../data/mock-core"
+Page({ data: { vehicle: mockVehicles[0] }, onLoad(options: Record<string, string>) { this.setData({ vehicle: mockVehicles.find(item => item.id === options.id) || mockVehicles[0] }) }, certify() { wx.navigateTo({ url: "/pages/vehicle/certification/certification" }) }, edit() { wx.navigateTo({ url: "/pages/vehicle/edit/edit?id=" + this.data.vehicle.id }) } })

@@ -52,12 +52,12 @@ public record SubmitVehicleCertificationRequest(
         @Valid @NotEmpty(message = "至少上传一张车辆图片") @Size(max = 8, message = "车辆图片不能超过8张")
         List<VehicleImageRequest> vehicleImages,
         /** 字段识别来源。 */
-        @NotBlank @Pattern(regexp = "MINIPROGRAM_OCR", message = "识别来源必须为MINIPROGRAM_OCR")
+        @NotBlank @Pattern(regexp = "MINIPROGRAM_OCR|MANUAL_UPLOAD", message = "识别来源仅支持MINIPROGRAM_OCR或MANUAL_UPLOAD")
         String recognitionSource
 ) {
     /** 单张车辆审核图片。 */
     public record VehicleImageRequest(
-            @NotBlank @Pattern(regexp = "VEHICLE_FRONT|VEHICLE_REAR|VEHICLE_SIDE|VEHICLE_OTHER") String imageType,
+            @NotBlank @Pattern(regexp = "DRIVER_LICENSE|REGISTRATION_LICENSE|VEHICLE|VEHICLE_FRONT|VEHICLE_REAR|VEHICLE_SIDE|VEHICLE_OTHER") String imageType,
             @NotBlank @Size(max = 512) String imageKey
     ) {
     }

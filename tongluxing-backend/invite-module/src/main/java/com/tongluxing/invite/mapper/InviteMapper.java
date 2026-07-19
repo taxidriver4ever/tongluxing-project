@@ -112,7 +112,7 @@ public interface InviteMapper {
             """)
     int createsCycle(@Param("inviterId") Long inviterId, @Param("inviteeId") Long inviteeId);
 
-    /** 新增邀请关系，初始状态为 BOUND，等待被邀请人完成有效行为。 */
+    /** 新增邀请关系，初始状态为 REGISTERED，表示被邀请人已完成注册绑定。 */
     @Insert("""
             insert into invite_relation(
                 id, inviter_user_id, invitee_user_id, invite_code, relation_status,
@@ -120,7 +120,7 @@ public interface InviteMapper {
                 bound_at, first_team_completed_at, created_at, updated_at, deleted
             )
             values (
-                #{id}, #{inviterId}, #{inviteeId}, #{code}, 'BOUND',
+                #{id}, #{inviterId}, #{inviteeId}, #{code}, 'REGISTERED',
                 #{bindSource}, #{bindSourceValue}, #{registeredAt},
                 #{now}, null, #{now}, #{now}, 0
             )
@@ -180,14 +180,14 @@ public interface InviteMapper {
             """)
     InviteQueryDTO findRelationForUpdate(Long userId);
 
-    /** 将邀请关系从 BOUND 标记为 VALID，并记录首次完成组队时间。 */
+    /** 将邀请关系从 REGISTERED/BOUND 标记为 VALID，并记录首次完成组队时间。 */
     @Update("""
             update invite_relation
             set relation_status = 'VALID',
                 first_team_completed_at = #{now},
                 updated_at = #{now}
             where id = #{id}
-              and relation_status = 'BOUND'
+              and relation_status in ('REGISTERED', 'BOUND')
               and deleted = 0
             """)
     int markValid(@Param("id") Long id, @Param("now") LocalDateTime now);

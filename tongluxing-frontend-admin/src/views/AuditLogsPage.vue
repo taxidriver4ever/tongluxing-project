@@ -1,0 +1,18 @@
+<script setup>
+import { computed, ref } from 'vue'
+import BaseModal from '../components/BaseModal.vue'
+import { showToast } from '../utils.js'
+
+const operator=ref(''), action=ref(''), module=ref(''), target=ref(''), modal=ref(false), modalTitle=ref('审计详情')
+const rows=[['AL-98421','10001 · 运营管理员','USER_CERT_AUDIT','USER','DRIVING_LICENSE / 821','audit-...-021','资料一致','SUCCESS','success','14:42:18'],['AL-98418','10001 · 运营管理员','GROUPBUY_INTERVENE','GROUPBUY','ACTIVITY / 108','groupbuy-...-108','即将超时','PROCESSING','info','14:36:02'],['AL-98406','10003 · 财务运营','REFUND_AUDIT','PAYMENT','REFUND / 031','refund-...-031','商家无法履约','SUCCESS','success','13:58:44'],['AL-98392','10001 · 运营管理员','CONFIG_UPDATE','CONFIG','GROWTH / growth.rules','growth-...-v12','活动配置','SUCCESS','success','12:20:11']]
+const filtered=computed(()=>rows.filter(r=>(!operator.value||r[1].includes(operator.value))&&(!action.value||r[2]===action.value)&&(!module.value||r[3]===module.value)&&(!target.value||r[4].toLowerCase().includes(target.value.toLowerCase()))))
+function reset(){operator.value='';action.value='';module.value='';target.value=''} function open(id){modalTitle.value='审计详情 · '+id;modal.value=true}
+</script>
+
+<template><div class="page"><div class="page-head"><div><h1>审计日志</h1><p>按操作人、动作、目标模块和时间范围追踪后台操作</p></div><div class="head-actions"><span class="endpoint">GET /v1/admin/audit-logs</span><button class="btn" @click="showToast('审计日志导出任务已创建（原型）')">导出日志</button></div></div>
+  <div class="panel"><div class="toolbar" style="flex-wrap:wrap"><input v-model="operator" class="field" placeholder="操作人 ID"><select v-model="action" class="field"><option value="">全部动作</option><option>AUDIT</option><option>USER_CERT_AUDIT</option><option>GROUPBUY_INTERVENE</option><option>REFUND_AUDIT</option><option>CONFIG_UPDATE</option></select><select v-model="module" class="field"><option value="">全部模块</option><option>USER</option><option>VEHICLE</option><option>MERCHANT</option><option>PAYMENT</option><option>GROUPBUY</option><option>CONFIG</option></select><input v-model="target" class="field" placeholder="目标 ID"><input class="field" type="datetime-local"><input class="field" type="datetime-local"><button class="btn primary">查询</button><button class="btn" @click="reset">重置</button></div><div class="table-wrap"><table><thead><tr><th>日志 ID</th><th>操作人</th><th>动作</th><th>目标模块</th><th>目标类型 / ID</th><th>请求 ID</th><th>原因</th><th>结果</th><th>时间</th><th>操作</th></tr></thead><tbody><tr v-for="row in filtered" :key="row[0]"><td v-for="cell in row.slice(0,7)" :key="cell">{{cell}}</td><td><span class="status" :class="row[8]">{{row[7]}}</span></td><td>{{row[9]}}</td><td><button class="btn sm" @click="open(row[0])">详情</button></td></tr></tbody></table></div><div class="pagination"><span>共 286 条 · 每页 20 条</span><div class="pages"><span class="page-no active">1</span><span class="page-no">2</span><span class="page-no">3</span></div></div></div>
+  <BaseModal :open="modal" :title="modalTitle" @close="modal=false"><div class="detail-grid"><div class="detail-item"><small>operatorId</small><b>10001</b></div><div class="detail-item"><small>operatorName</small><b>运营管理员</b></div><div class="detail-item"><small>actionType</small><b>USER_CERT_AUDIT</b></div><div class="detail-item"><small>targetModule</small><b>USER</b></div><div class="detail-item"><small>targetType</small><b>DRIVING_LICENSE</b></div><div class="detail-item"><small>targetId</small><b>821</b></div></div><div class="code-note" style="margin-top:14px">requestId: audit-20260713-021
+operationReason: 资料一致
+operationResult: SUCCESS
+createdAt: 2026-07-13 14:42:18</div><template #footer><button class="btn primary" @click="modal=false">关闭</button></template></BaseModal>
+</div></template>

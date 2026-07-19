@@ -7,7 +7,9 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import javax.crypto.Cipher;
@@ -19,6 +21,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.util.StringUtils;
@@ -34,6 +37,7 @@ import com.tongluxing.merchant.dto.CreateMerchantProductRequest;
 import com.tongluxing.merchant.dto.CreatePromotionCodeRequest;
 import com.tongluxing.merchant.dto.MerchantApplicationRequest;
 import com.tongluxing.merchant.dto.MerchantQueryDTO;
+import com.tongluxing.merchant.dto.MerchantSettlementRequest;
 import com.tongluxing.merchant.dto.UpdateMerchantProductRequest;
 import com.tongluxing.merchant.dto.UpdateMerchantProfileRequest;
 import com.tongluxing.merchant.dto.UpdateRewardPoolRequest;
@@ -106,12 +110,25 @@ public class MerchantServiceImpl implements MerchantService {
         if (cached != null) {
             return cached;
         }
-        if (profileMapper.findByUserId(userId) != null) {
-            throw new BusinessException(409, "当前账号已提交或已拥有商家资料");
+        MerchantQueryDTO existing = profileMapper.findByUserId(userId);
+        if (existing != null && !"REJECTED".equals(existing.getAuditStatus())) {
+            throw new BusinessException(409, "当前账号已有待审核或已通过的商家申请");
         }
 
         LocalDateTime now = LocalDateTime.now();
-        long merchantId = SnowflakeIdGenerator.nextId();
+        long merchantId = existing == null ? SnowflakeIdGenerator.nextId() : existing.getMerchantId();
+        String detailsJson = writeJson(applicationDetails(request));
+        if (existing != null) {
+            profileMapper.resubmitApplication(merchantId, userId, trim(request.merchantName()), trim(request.category()),
+                    trim(request.contactName()), encrypt(request.contactPhone()), maskPhone(request.contactPhone()),
+                    trim(request.storeAddress()), request.longitude(), request.latitude(), trim(request.logoImageKey()),
+                    trim(request.introduction()), trim(request.businessLicenseImageKey()), detailsJson, now);
+            profileMapper.saveReview(merchantId, "", null, now);
+            MerchantProfileVO result = profile(profileMapper.findById(merchantId));
+            audit(merchantId, userId, "APPLICATION_RESUBMIT", "MERCHANT", merchantId, profile(existing), result, "商家入驻重新提交");
+            idemPut(idemKey, result);
+            return result;
+        }
         profileMapper.insertApplication(
                 merchantId,
                 userId,
@@ -120,20 +137,70 @@ public class MerchantServiceImpl implements MerchantService {
                 trim(request.contactName()),
                 encrypt(request.contactPhone()),
                 maskPhone(request.contactPhone()),
-                trimToEmpty(request.provinceCode()),
-                trimToEmpty(request.cityCode()),
-                trim(request.address()),
+                "",
+                "",
+                trim(request.storeAddress()),
                 request.longitude(),
                 request.latitude(),
-                trim(request.licenseImageKey()),
-                writeJson(request.qualificationImageKeys() == null ? List.of() : request.qualificationImageKeys()),
-                StringUtils.hasText(request.bankAccountNo()) ? encrypt(request.bankAccountNo()) : "",
-                trimToEmpty(request.bankName()),
+                trim(request.businessLicenseImageKey()),
+                detailsJson,
+                "",
+                "",
                 now);
         MerchantProfileVO result = profile(profileMapper.findById(merchantId));
         audit(merchantId, userId, "APPLICATION_SUBMIT", "MERCHANT", merchantId, null, result, "商家入驻申请");
         idemPut(idemKey, result);
         return result;
+    }
+
+    @Override
+    public PageResult<MerchantProfileVO> applicationsForAdmin(String status, int page, int size) {
+        String normalized = trimToEmpty(status).toUpperCase();
+        if (!normalized.isEmpty() && !List.of("PENDING", "APPROVED", "REJECTED").contains(normalized)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "申请状态不合法");
+        }
+        int p = Math.max(1, page);
+        int s = Math.min(100, Math.max(1, size));
+        List<MerchantProfileVO> records = profileMapper.findApplications(normalized, (p - 1) * s, s)
+                .stream().map(this::profile).toList();
+        return new PageResult<>(records, profileMapper.countApplications(normalized), p, s);
+    }
+
+    @Override
+    public MerchantProfileVO applicationForAdmin(Long applicationId) {
+        MerchantQueryDTO row = profileMapper.findById(applicationId);
+        if (row == null) throw new BusinessException(ResultCode.NOT_FOUND, "商家入驻申请不存在");
+        return profile(row);
+    }
+
+    @Override
+    @Transactional
+    public MerchantProfileVO auditApplication(Long applicationId, String result, String reason, Long reviewerId) {
+        MerchantQueryDTO before = profileMapper.findById(applicationId);
+        if (before == null) throw new BusinessException(ResultCode.NOT_FOUND, "商家入驻申请不存在");
+        if (!AUDIT_PENDING.equals(before.getAuditStatus())) throw new BusinessException(409, "该申请已完成审核");
+        LocalDateTime now = LocalDateTime.now();
+        if (profileMapper.updateAuditStatus(applicationId, result, now) != 1) {
+            throw new BusinessException(409, "申请状态已变化，请刷新后重试");
+        }
+        profileMapper.saveReview(applicationId, "REJECTED".equals(result) ? trim(reason) : "", reviewerId, now);
+        if (AUDIT_APPROVED.equals(result)) profileMapper.grantMerchantRole(before.getUserId(), now);
+        MerchantProfileVO after = profile(profileMapper.findById(applicationId));
+        audit(applicationId, reviewerId, "APPLICATION_AUDIT", "MERCHANT", applicationId, profile(before), after,
+                AUDIT_APPROVED.equals(result) ? "商家入驻审核通过" : "商家入驻审核驳回");
+        evictMerchantCaches(applicationId);
+        return after;
+    }
+
+    @Override
+    @Transactional
+    public void saveSettlementAccount(MerchantSettlementRequest request) {
+        MerchantQueryDTO merchant = requireApprovedMerchant();
+        profileMapper.saveSettlement(merchant.getMerchantId(), request.accountType(), trim(request.accountName()),
+                encrypt(request.accountNo()), trim(request.bankName()), LocalDateTime.now());
+        audit(merchant.getMerchantId(), currentUser.requireUserId(), "SETTLEMENT_ACCOUNT_SAVE", "MERCHANT",
+                merchant.getMerchantId(), null, Map.of("accountType", request.accountType(), "bankName", request.bankName()),
+                "审核通过后补充收款账户");
     }
 
     /** 查询当前商家资料。 */
@@ -424,7 +491,7 @@ public class MerchantServiceImpl implements MerchantService {
     }
 
     /** 首次注册成功后，只处理 MERCHANT 来源，建立商家推广用户关系。 */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleUserRegistered(UserRegisteredEvent event) {
         if (event == null || !event.hasSource(SOURCE_MERCHANT)) {
@@ -489,7 +556,41 @@ public class MerchantServiceImpl implements MerchantService {
     private MerchantProfileVO profile(MerchantQueryDTO row) {
         return new MerchantProfileVO(row.getMerchantId(), row.getMerchantName(), row.getCategory(),
                 row.getAuditStatus(), row.getMerchantLevel(), row.getCommissionRate(),
-                row.getRankWeight(), row.getExclusionRadiusKm());
+                row.getRankWeight(), row.getExclusionRadiusKm(), row.getRejectReason(),
+                readMap(row.getQualificationJson()), row.getCreatedAt(), row.getReviewedAt());
+    }
+
+    private Map<String, Object> applicationDetails(MerchantApplicationRequest request) {
+        Map<String, Object> v = new LinkedHashMap<>();
+        v.put("merchantShortName", trim(request.merchantShortName()));
+        v.put("logoImageKey", trim(request.logoImageKey()));
+        v.put("introduction", trim(request.introduction()));
+        v.put("businessLicenseImageKey", trim(request.businessLicenseImageKey()));
+        v.put("contactName", trim(request.contactName()));
+        v.put("contactPhoneMask", maskPhone(request.contactPhone()));
+        v.put("contactEmail", trim(request.contactEmail()));
+        v.put("contactWechat", trimToEmpty(request.contactWechat()));
+        v.put("storeName", trim(request.storeName()));
+        v.put("storeAddress", trim(request.storeAddress()));
+        v.put("longitude", request.longitude());
+        v.put("latitude", request.latitude());
+        v.put("storefrontImageKey", trim(request.storefrontImageKey()));
+        v.put("interiorImageKeys", request.interiorImageKeys() == null ? List.of() : request.interiorImageKeys());
+        v.put("legalRepresentativeName", trim(request.legalRepresentativeName()));
+        v.put("legalIdFrontImageKey", trim(request.legalIdFrontImageKey()));
+        v.put("legalIdBackImageKey", trim(request.legalIdBackImageKey()));
+        v.put("qualificationImageKeys", request.qualificationImageKeys() == null ? List.of() : request.qualificationImageKeys());
+        return v;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> readMap(String json) {
+        if (!StringUtils.hasText(json)) return Map.of();
+        try {
+            return objectMapper.readValue(json, Map.class);
+        } catch (Exception ignored) {
+            return Map.of();
+        }
     }
 
     private MerchantProductVO product(MerchantQueryDTO row) {

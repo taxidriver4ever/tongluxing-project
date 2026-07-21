@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -20,12 +21,14 @@ import com.tongluxing.customerservice.dto.CloseTicketRequest;
 import com.tongluxing.customerservice.dto.CreateTicketRequest;
 import com.tongluxing.customerservice.dto.CustomerServiceQueryDTO;
 import com.tongluxing.customerservice.dto.ReplyTicketRequest;
+import com.tongluxing.customerservice.integration.CustomerServiceNotificationPort;
 import com.tongluxing.customerservice.mapper.CustomerServiceTicketMapper;
 import com.tongluxing.customerservice.service.CustomerServiceTicketService;
 import com.tongluxing.customerservice.vo.PageResult;
 import com.tongluxing.customerservice.vo.TicketMessageVO;
 import com.tongluxing.customerservice.vo.TicketVO;
 import com.tongluxing.user.support.CurrentUserContext;
+import com.tongluxing.order.service.OrderService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -54,6 +57,8 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
     private final CustomerServiceTicketMapper ticketMapper;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
+    private final OrderService orderService;
+    private final ObjectProvider<CustomerServiceNotificationPort> notificationPort;
 
     @Override
     @Transactional
@@ -61,6 +66,7 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
         // 工单归属必须来自当前登录用户，不能信任前端传入用户 ID。
         Long userId = currentUserContext.requireUserId();
         String requestId = request.requestId().trim();
+        validateTarget(request.targetType(), request.targetId());
 
         // 先读 Redis 幂等缓存，重复点击时直接返回上一次创建结果。
         TicketVO cached = readJson(IDEM_TICKET_KEY.formatted(requestId), TicketVO.class);
@@ -99,8 +105,9 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
                 MESSAGE_TEXT,
                 request.content().trim(),
                 writeImageKeys(request.imageKeys()),
+                requestId + ":user",
                 now);
-        insertAutoReply(ticketId, request.scene(), now);
+        insertAutoReply(ticketId, request.scene(), requestId + ":auto", now);
         TicketVO result = ticketDetail(ticketId);
         writeJson(IDEM_TICKET_KEY.formatted(requestId), result, Duration.ofHours(24));
         return result;
@@ -148,10 +155,15 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
     @Override
     @Transactional
     public TicketVO reply(Long ticketId, ReplyTicketRequest request) {
-        requireTicket(ticketId);
+        CustomerServiceQueryDTO ticket = requireTicket(ticketId);
+        Long operatorId = currentUserContext.requireUserId();
+        if (ticketMapper.countMessageByRequestId(request.requestId().trim()) > 0) {
+            return toTicketVO(ticket);
+        }
+        requireAssignedTo(ticket, operatorId);
         LocalDateTime now = LocalDateTime.now();
         // 回复前先把工单推进到处理中，关闭状态会被 Mapper 拒绝，避免关闭后继续写消息。
-        int changed = ticketMapper.markProcessing(ticketId, request.operatorId(), now);
+        int changed = ticketMapper.markProcessing(ticketId, operatorId, now);
         if (changed == 0) {
             throw new BusinessException("工单状态不允许回复");
         }
@@ -159,11 +171,14 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
                 SnowflakeIdGenerator.nextId(),
                 ticketId,
                 SENDER_ADMIN,
-                request.operatorId(),
+                operatorId,
                 MESSAGE_TEXT,
                 request.content().trim(),
                 writeImageKeys(request.imageKeys()),
+                request.requestId().trim(),
                 now);
+        notifyUser(ticket, "CUSTOMER_SERVICE_REPLY", "客服已回复",
+                request.content().trim(), request.requestId().trim() + ":notify");
         return toTicketVO(requireTicket(ticketId));
     }
 
@@ -171,8 +186,9 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
     @Transactional
     public TicketVO assign(Long ticketId, AssignTicketRequest request) {
         requireTicket(ticketId);
+        Long operatorId = currentUserContext.requireUserId();
         // 分配和回复共用 PROCESSING 状态，assigned_admin_id 记录当前处理人。
-        int changed = ticketMapper.markProcessing(ticketId, request.operatorId(), LocalDateTime.now());
+        int changed = ticketMapper.markProcessing(ticketId, operatorId, LocalDateTime.now());
         if (changed == 0) {
             throw new BusinessException("工单状态不允许分配");
         }
@@ -182,11 +198,19 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
     @Override
     @Transactional
     public TicketVO close(Long ticketId, CloseTicketRequest request) {
-        requireTicket(ticketId);
-        int changed = ticketMapper.closeTicket(ticketId, request.operatorId(), LocalDateTime.now());
+        CustomerServiceQueryDTO ticket = requireTicket(ticketId);
+        Long operatorId = currentUserContext.requireUserId();
+        if ("CLOSED".equals(ticket.getTicketStatus())) {
+            return toTicketVO(ticket);
+        }
+        requireAssignedTo(ticket, operatorId);
+        int changed = ticketMapper.closeTicket(ticketId, operatorId, LocalDateTime.now());
         if (changed == 0) {
             throw new BusinessException("工单已关闭或不存在");
         }
+        notifyUser(ticket, "CUSTOMER_SERVICE_CLOSED", "客服工单已关闭",
+                StringUtils.hasText(request.remark()) ? request.remark().trim() : "问题已处理完成",
+                request.requestId().trim() + ":notify");
         return toTicketVO(requireTicket(ticketId));
     }
 
@@ -195,7 +219,7 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
      *
      * <p>微信客服未接入前，先用系统消息承接用户预期；后续可替换为规则表匹配。</p>
      */
-    private void insertAutoReply(Long ticketId, String scene, LocalDateTime now) {
+    private void insertAutoReply(Long ticketId, String scene, String requestId, LocalDateTime now) {
         ticketMapper.insertMessage(
                 SnowflakeIdGenerator.nextId(),
                 ticketId,
@@ -204,7 +228,33 @@ public class CustomerServiceTicketServiceImpl implements CustomerServiceTicketSe
                 MESSAGE_TEXT,
                 autoReplyContent(scene),
                 "[]",
+                requestId,
                 now);
+    }
+
+    /** ORDER 引用通过订单详情接口复用当前用户归属校验。 */
+    private void validateTarget(String targetType, String targetId) {
+        if ("ORDER".equals(normalize(targetType))) {
+            try {
+                orderService.detail(Long.valueOf(targetId));
+            } catch (NumberFormatException e) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "订单引用格式不正确");
+            }
+        }
+    }
+
+    private void requireAssignedTo(CustomerServiceQueryDTO ticket, Long operatorId) {
+        if (!"PROCESSING".equals(ticket.getTicketStatus()) || !operatorId.equals(ticket.getAssignedAdminId())) {
+            throw new BusinessException(409, "请先领取该工单再处理");
+        }
+    }
+
+    private void notifyUser(CustomerServiceQueryDTO ticket, String eventType, String title,
+                            String content, String requestId) {
+        CustomerServiceNotificationPort port = notificationPort.getIfAvailable();
+        if (port != null && CREATOR_USER.equals(ticket.getCreatorType())) {
+            port.notifyUser(ticket.getCreatorId(), eventType, ticket.getId(), title, content, requestId);
+        }
     }
 
     /**

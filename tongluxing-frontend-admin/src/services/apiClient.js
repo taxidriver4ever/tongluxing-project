@@ -1,7 +1,8 @@
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 const TOKEN_KEY = 'tongluxing_admin_token'
 const OPERATOR_KEY = 'tongluxing_admin_operator'
-const LONG_FIELDS = ['applyId', 'certificationId', 'userId', 'vehicleId', 'auditUserId', 'auditLogId', 'operatorId']
+const LONG_FIELDS = ['id', 'applyId', 'certificationId', 'userId', 'creatorId', 'assignedAdminId', 'receiverId', 'vehicleId', 'auditUserId', 'auditLogId', 'operatorId',
+  'orderId', 'refundId', 'settlementId', 'verificationId', 'transactionId', 'merchantId', 'productId', 'bizId']
 
 export class ApiError extends Error {
   constructor(message, { status = 0, code = 0, payload = null } = {}) {

@@ -67,7 +67,7 @@ public final class UserModels {
             @Size(max = 128) String issuingAuthority,
             @NotBlank @Size(max = 512) String licenseFrontImageKey,
             @Size(max = 512) String licenseBackImageKey,
-            @NotBlank @Pattern(regexp = "MINIPROGRAM_OCR") String recognitionSource
+            @NotBlank @Pattern(regexp = "MINIPROGRAM_OCR|MANUAL_UPLOAD") String recognitionSource
     ) {
     }
 
@@ -191,7 +191,11 @@ public final class UserModels {
     /**
      * 单个徽章展示对象。
      */
-    public record BadgeVO(Long badgeId, String badgeCode, String badgeName, String badgeImageKey, LocalDateTime awardedAt) {
+    public record BadgeVO(
+            Long badgeId, String badgeCode, String badgeName, String badgeImageKey,
+            String conditionDescription, String eventType, Integer currentValue, Integer threshold,
+            LocalDateTime awardedAt
+    ) {
     }
 
     /**

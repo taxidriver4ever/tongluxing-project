@@ -40,6 +40,8 @@ import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.user.support.CurrentUserContext;
 import com.tongluxing.user.service.UserService;
 import com.tongluxing.user.model.UserModels.PublicProfileVO;
+import com.tongluxing.trip.service.TripService;
+import com.tongluxing.trip.vo.TripResponse;
 
 import lombok.RequiredArgsConstructor;
 
@@ -74,6 +76,8 @@ public class ChatServiceImpl implements ChatService {
     private final ChatJoinApplicationMapper joinApplicationMapper;
     /** 只读取公开资料，用于成员和申请人展示。 */
     private final UserService userService;
+    /** 用于兼容升级前已发布行程：首次进入时惰性补建行程群。 */
+    private final TripService tripService;
 
     /** 创建或复用车队群聊会话。 */
     @Override
@@ -110,8 +114,27 @@ public class ChatServiceImpl implements ChatService {
     public ConversationResponse openTripConversation(Long tripId, String tripName, Long ownerUserId, List<Long> memberUserIds) {
         ChatConversation existed = conversationMapper.findByBiz("TRIP", tripId);
         if (existed != null) {
+            syncTripMembers(existed, ownerUserId, memberUserIds);
+            persistSystemMessage(existed.getId(), "行程已开启，请注意行车安全");
+            return toConversationResponse(conversationMapper.findById(existed.getId()));
+        }
+        return createTripConversation(tripId, tripName, ownerUserId, memberUserIds, "行程已开启，群聊已创建，请注意行车安全");
+    }
+
+    /** 发布后即建立行程群，确保开启前的成员确认有可用会话承载。 */
+    @Override
+    @Transactional
+    public ConversationResponse prepareTripConversation(Long tripId, String tripName, Long ownerUserId, List<Long> memberUserIds) {
+        ChatConversation existed = conversationMapper.findByBiz("TRIP", tripId);
+        if (existed != null) {
+            syncTripMembers(existed, ownerUserId, memberUserIds);
             return toConversationResponse(existed);
         }
+        return createTripConversation(tripId, tripName, ownerUserId, memberUserIds, "行程已发布，可在群内沟通并完成出发确认");
+    }
+
+    private ConversationResponse createTripConversation(Long tripId, String tripName, Long ownerUserId,
+                                                        List<Long> memberUserIds, String initialMessage) {
         LocalDateTime now = LocalDateTime.now();
         String groupId = "trip_" + tripId;
         boolean cloudEnabled = tencentImService.isConfigured();
@@ -131,6 +154,12 @@ public class ChatServiceImpl implements ChatService {
         conversation.setUpdatedAt(now);
         conversationMapper.insert(conversation);
 
+        syncTripMembers(conversation, ownerUserId, memberUserIds);
+        persistSystemMessage(conversation.getId(), initialMessage);
+        return toConversationResponse(conversationMapper.findById(conversation.getId()));
+    }
+
+    private void syncTripMembers(ChatConversation conversation, Long ownerUserId, List<Long> memberUserIds) {
         LinkedHashSet<Long> users = new LinkedHashSet<>();
         users.add(ownerUserId);
         if (memberUserIds != null) {
@@ -140,13 +169,14 @@ public class ChatServiceImpl implements ChatService {
             if (userId == null) {
                 continue;
             }
+            ChatConversationMember before = memberMapper.findByConversationAndUser(conversation.getId(), userId);
+            boolean needsCloudSync = before == null || !"ACTIVE".equals(before.getMemberStatus());
             addMemberInternal(conversation.getId(), userId, userId.equals(ownerUserId) ? "OWNER" : "MEMBER");
-            if (cloudEnabled && !userId.equals(ownerUserId)) {
-                tencentImService.addGroupMember(groupId, TencentImServiceImpl.toImUserId(userId));
+            if (needsCloudSync && "TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()
+                    && !userId.equals(ownerUserId)) {
+                tencentImService.addGroupMember(conversation.getProviderConversationKey(), TencentImServiceImpl.toImUserId(userId));
             }
         }
-        persistSystemMessage(conversation.getId(), "行程已开启，群聊已创建，请注意行车安全");
-        return toConversationResponse(conversationMapper.findById(conversation.getId()));
     }
 
     /** 只允许当前有效群成员按行程 ID 获取会话。 */
@@ -154,6 +184,21 @@ public class ChatServiceImpl implements ChatService {
     public ConversationResponse getTripConversation(Long tripId) {
         Long userId = currentUserContext.requireUserId();
         ChatConversation conversation = conversationMapper.findByBiz("TRIP", tripId);
+        if (conversation == null) {
+            TripResponse trip = tripService.getTrip(tripId);
+            List<Long> tripMembers = tripService.getMembers(tripId).stream()
+                    .filter(member -> "OWNER".equals(member.joinStatus()) || "APPROVED".equals(member.joinStatus()))
+                    .map(member -> Long.valueOf(member.userId()))
+                    .distinct()
+                    .toList();
+            Long ownerId = Long.valueOf(trip.userId());
+            if (List.of("RUNNING", "ONGOING").contains(trip.status())) {
+                openTripConversation(tripId, trip.title(), ownerId, tripMembers);
+            } else {
+                prepareTripConversation(tripId, trip.title(), ownerId, tripMembers);
+            }
+            conversation = conversationMapper.findByBiz("TRIP", tripId);
+        }
         if (conversation == null || !"ACTIVE".equals(conversation.getConversationStatus())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "行程群聊尚未创建或已结束");
         }
@@ -183,7 +228,8 @@ public class ChatServiceImpl implements ChatService {
     public ConversationListResponse getConversations() {
         Long userId = currentUserContext.requireUserId();
         return new ConversationListResponse(conversationMapper.findActiveByUserId(userId).stream()
-                .map(this::toConversationResponse)
+                .map(conversation -> toConversationResponse(conversation,
+                        memberMapper.findByConversationAndUser(conversation.getId(), userId)))
                 .toList());
     }
 
@@ -212,13 +258,19 @@ public class ChatServiceImpl implements ChatService {
         if (!StringUtils.hasText(request.content())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "消息内容不能为空");
         }
+        if ("FILE".equalsIgnoreCase(request.messageType())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "当前群聊仅支持发送图片，暂不支持普通文件");
+        }
         LocalDateTime now = LocalDateTime.now();
         ChatMessage message = new ChatMessage();
         message.setId(SnowflakeIdGenerator.nextId());
         message.setConversationId(conversationId);
         message.setSenderUserId(userId);
         message.setMessageType(request.messageType());
-        message.setMessagePayloadJson(toJson(Map.of("content", request.content())));
+        Map<String, Object> messagePayload = new java.util.LinkedHashMap<>();
+        messagePayload.put("content", request.content());
+        if (request.payload() != null) messagePayload.putAll(request.payload());
+        message.setMessagePayloadJson(toJson(messagePayload));
         RiskDecision risk = detectRisk(request.content());
         message.setMessageStatus(risk == null ? "NORMAL" : (risk.blocked() ? "BLOCKED" : "RISK_REVIEW"));
         message.setProviderMessageKey("local-msg-" + message.getId());
@@ -248,7 +300,12 @@ public class ChatServiceImpl implements ChatService {
 
     /** 添加会话成员，并同步到腾讯云 IM 群组。 */
     @Override
+    @Transactional
     public ConversationMemberResponse addMember(Long conversationId, Long userId) {
+        ChatConversationMember operator = requireActiveMember(conversationId, currentUserContext.requireUserId());
+        if (!"OWNER".equals(operator.getMemberRole())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "只有队长可以添加群成员");
+        }
         ChatConversation conversation = conversationMapper.findById(conversationId);
         if (conversation == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "会话不存在");
@@ -262,8 +319,13 @@ public class ChatServiceImpl implements ChatService {
 
     /** 当前用户退出会话，并同步移除腾讯云 IM 群成员。 */
     @Override
+    @Transactional
     public void exitMe(Long conversationId) {
         Long userId = currentUserContext.requireUserId();
+        ChatConversationMember member = requireActiveMember(conversationId, userId);
+        if ("OWNER".equals(member.getMemberRole())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "队长不能直接退出群聊");
+        }
         ChatConversation conversation = conversationMapper.findById(conversationId);
         if (conversation != null && "TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()
                 && StringUtils.hasText(conversation.getProviderConversationKey())) {
@@ -308,6 +370,9 @@ public class ChatServiceImpl implements ChatService {
         ChatConversationMember member = memberMapper.findByConversationAndUser(conversationId, userId);
         if (member != null && "ACTIVE".equals(member.getMemberStatus())) {
             throw new BusinessException(409, "你已经是群成员");
+        }
+        if (joinApplicationMapper.findPending(conversationId, userId) != null) {
+            throw new BusinessException(409, "你已有待审核的入群申请");
         }
         LocalDateTime now = LocalDateTime.now();
         ChatJoinApplication row = new ChatJoinApplication();
@@ -469,6 +534,10 @@ public class ChatServiceImpl implements ChatService {
 
     /** 转换会话响应。 */
     private ConversationResponse toConversationResponse(ChatConversation conversation) {
+        return toConversationResponse(conversation, null);
+    }
+
+    private ConversationResponse toConversationResponse(ChatConversation conversation, ChatConversationMember member) {
         return new ConversationResponse(
                 String.valueOf(conversation.getId()),
                 conversation.getBizType(),
@@ -477,7 +546,9 @@ public class ChatServiceImpl implements ChatService {
                 conversation.getConversationStatus(),
                 conversation.getProviderType(),
                 conversation.getLastMessagePreview(),
-                format(conversation.getLastMessageAt())
+                format(conversation.getLastMessageAt()),
+                member != null && Boolean.TRUE.equals(member.getPinnedFlag()),
+                member != null && Boolean.TRUE.equals(member.getMutedFlag())
         );
     }
 
@@ -493,6 +564,9 @@ public class ChatServiceImpl implements ChatService {
                 member.getUnreadCount(),
                 profile.nickname(),
                 profile.avatarImageKey(),
+                profile.totalTripCount(),
+                profile.totalDistanceMeters(),
+                profile.completedWaypointCount(),
                 Boolean.TRUE.equals(member.getMutedFlag()),
                 Boolean.TRUE.equals(member.getPinnedFlag()),
                 format(member.getJoinedAt())
@@ -533,12 +607,16 @@ public class ChatServiceImpl implements ChatService {
 
     /** 转换消息响应。 */
     private MessageResponse toMessageResponse(ChatMessage message) {
+        PublicProfileVO sender = message.getSenderUserId() == null ? null : safePublicProfile(message.getSenderUserId());
         return new MessageResponse(
                 String.valueOf(message.getId()),
                 String.valueOf(message.getConversationId()),
                 message.getSenderUserId() == null ? null : String.valueOf(message.getSenderUserId()),
                 message.getMessageType(),
                 readContent(message.getMessagePayloadJson()),
+                sender == null ? null : sender.nickname(),
+                sender == null ? null : sender.avatarImageKey(),
+                readPayload(message.getMessagePayloadJson()),
                 message.getMessageStatus(),
                 format(message.getSentAt())
         );
@@ -561,6 +639,14 @@ public class ChatServiceImpl implements ChatService {
             return map.get("content");
         } catch (JsonProcessingException exception) {
             return "";
+        }
+    }
+
+    private Map<String, Object> readPayload(String value) {
+        try {
+            return objectMapper.readValue(value, new TypeReference<>() {});
+        } catch (JsonProcessingException exception) {
+            return Map.of();
         }
     }
 

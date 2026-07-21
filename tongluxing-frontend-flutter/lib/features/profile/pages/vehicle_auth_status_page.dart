@@ -63,7 +63,7 @@ class _VehicleAuthStatusPageState extends State<VehicleAuthStatusPage> {
     final meta = switch (value) {
       'PENDING' => (
         '资料办理中',
-        '管理员正在核对驾驶证、行驶证和车辆照片',
+        '管理员正在核对行驶证和车辆照片',
         LucideIcons.clock3,
         AppColors.warning,
       ),

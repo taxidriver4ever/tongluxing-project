@@ -27,6 +27,7 @@ import com.tongluxing.map.mapper.MapLocationCatalogMapper;
 import com.tongluxing.map.mapper.MapRoutePlanMapper;
 import com.tongluxing.map.service.MapService;
 import com.tongluxing.map.vo.MapMarkerResponse;
+import com.tongluxing.map.vo.LocationHistoryResponse;
 import com.tongluxing.map.vo.LocationSearchResponse;
 import com.tongluxing.map.vo.NearbyMapResponse;
 import com.tongluxing.map.vo.RoutePlanResponse;
@@ -116,7 +117,9 @@ public class MapServiceImpl implements MapService {
         log.setProviderType(PROVIDER_TYPE);
         log.setCreatedAt(LocalDateTime.now());
         log.setUpdatedAt(log.getCreatedAt());
-        searchLogMapper.insert(log);
+        if (searchLogMapper.touchExisting(log) == 0) {
+            searchLogMapper.insert(log);
+        }
         return normalized;
     }
 
@@ -135,17 +138,47 @@ public class MapServiceImpl implements MapService {
 
     /** 返回当前用户最近选择并成功落库的地点。 */
     @Override
-    public List<LocationSearchResponse> getLocationHistory(
+    public List<LocationHistoryResponse> getLocationHistory(
             Integer limit, BigDecimal latitude, BigDecimal longitude) {
         Long userId = currentUserContext.requireUserId();
         return searchLogMapper.findRecent(userId, normalizeLimit(limit)).stream()
-                .map(log -> new LocationDto(
-                        log.getSelectedName(),
-                        log.getSelectedAddress(),
-                        log.getSelectedLatitude(),
-                        log.getSelectedLongitude()))
-                .map(location -> toSearchResponse(location, latitude, longitude))
+                .map(log -> toHistoryResponse(log, latitude, longitude))
                 .toList();
+    }
+
+    /** 删除操作同时匹配 historyId 与当前 userId，避免越权删除。 */
+    @Override
+    public int deleteLocationHistory(Long historyId) {
+        if (historyId == null || historyId <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "搜索历史ID不合法");
+        }
+        int affected = searchLogMapper.softDeleteByIdAndUser(
+                historyId, currentUserContext.requireUserId());
+        if (affected == 0) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "搜索历史不存在或不属于当前用户");
+        }
+        return affected;
+    }
+
+    /** 清空操作只影响当前登录用户且保持幂等。 */
+    @Override
+    public int clearLocationHistory() {
+        return searchLogMapper.softDeleteAllByUser(currentUserContext.requireUserId());
+    }
+
+    private LocationHistoryResponse toHistoryResponse(
+            MapLocationSearchLog log, BigDecimal latitude, BigDecimal longitude) {
+        LocationDto location = new LocationDto(
+                log.getSelectedName(), log.getSelectedAddress(),
+                log.getSelectedLatitude(), log.getSelectedLongitude());
+        Integer distanceMeters = null;
+        if (latitude != null && longitude != null) {
+            distanceMeters = haversineMeters(
+                    new LocationDto("当前位置", "", latitude, longitude), location);
+        }
+        return new LocationHistoryResponse(
+                String.valueOf(log.getId()), location.name(), location.address(),
+                location.latitude(), location.longitude(), distanceMeters);
     }
 
     private LocationSearchResponse toSearchResponse(
@@ -203,6 +236,12 @@ public class MapServiceImpl implements MapService {
         }
         if (!StringUtils.hasText(location.name()) && !StringUtils.hasText(location.address())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "地点名称或地址不能为空");
+        }
+        if (location.latitude().compareTo(BigDecimal.valueOf(-90)) < 0
+                || location.latitude().compareTo(BigDecimal.valueOf(90)) > 0
+                || location.longitude().compareTo(BigDecimal.valueOf(-180)) < 0
+                || location.longitude().compareTo(BigDecimal.valueOf(180)) > 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "地点经纬度超出有效范围");
         }
         return location;
     }

@@ -225,6 +225,7 @@ public interface AssessmentMapper {
                 exclusion_radius_km = values(exclusion_radius_km),
                 calculate_status = values(calculate_status),
                 calculated_at = values(calculated_at),
+                request_id = values(request_id),
                 updated_at = values(updated_at)
             """)
     int upsertScore(@Param("id") Long id,
@@ -280,6 +281,9 @@ public interface AssessmentMapper {
                                @Param("operatorId") Long operatorId,
                                @Param("requestId") String requestId,
                                @Param("now") LocalDateTime now);
+
+    @Select("select count(*) from assessment_manual_adjustment where request_id=#{requestId} and deleted=0")
+    int countManualAdjustmentByRequestId(@Param("requestId") String requestId);
 
     /**
      * 扫描所有已审核且启用的商家，作为月度批处理对象。

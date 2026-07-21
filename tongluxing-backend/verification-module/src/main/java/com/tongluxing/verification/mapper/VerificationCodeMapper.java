@@ -104,4 +104,12 @@ public interface VerificationCodeMapper {
               and deleted = 0
             """)
     int markExpired(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    @Update("""
+            update verification_code vc
+            join verification_record vr on vr.verification_code_id=vc.id
+            set vc.code_status='CANCELLED', vc.updated_at=#{now}, vc.deleted=1
+            where vr.id=#{verificationId} and vc.code_status='VERIFIED' and vc.deleted=0
+            """)
+    int cancelForReversal(@Param("verificationId") Long verificationId, @Param("now") LocalDateTime now);
 }

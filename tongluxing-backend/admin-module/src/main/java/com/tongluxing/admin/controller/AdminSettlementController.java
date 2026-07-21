@@ -10,8 +10,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.tongluxing.admin.dto.AdminAuditRequest;
-import com.tongluxing.admin.service.AdminAuditService;
-import com.tongluxing.admin.service.AdminQueryService;
+import com.tongluxing.admin.service.AdminTradeService;
+import com.tongluxing.admin.vo.AdminSettlementVO;
 import com.tongluxing.admin.vo.AdminAuditResultVO;
 import com.tongluxing.admin.vo.PageResult;
 import com.tongluxing.common.result.Result;
@@ -29,22 +29,20 @@ import lombok.RequiredArgsConstructor;
 public class AdminSettlementController {
 
     /** 后台审核/触发类动作服务。 */
-    private final AdminAuditService auditService;
-    /** 后台通用查询服务。 */
-    private final AdminQueryService queryService;
+    private final AdminTradeService tradeService;
 
     /** 分页查询结算单；当前返回空分页，后续可接入 payment-module 查询端口。 */
     @GetMapping
-    public Result<PageResult<Object>> page(@RequestParam(required = false) String status,
+    public Result<PageResult<AdminSettlementVO>> page(@RequestParam(required = false) String status,
                                            @RequestParam(defaultValue = "1") int page,
                                            @RequestParam(defaultValue = "20") int size) {
-        return Result.success(queryService.emptyBusinessPage("payment-module", status, null, null, null, page, size));
+        return Result.success(tradeService.settlements(status,page,size));
     }
 
     /** 触发指定结算单处理。 */
     @PostMapping("/{settlementId}/trigger")
     public Result<AdminAuditResultVO> trigger(@PathVariable Long settlementId,
                                               @Valid @RequestBody AdminAuditRequest request) {
-        return Result.success(auditService.triggerSettlement(settlementId, request));
+        return Result.success(tradeService.triggerSettlement(settlementId, request));
     }
 }

@@ -130,6 +130,7 @@ public interface GroupbuyActivityMapper {
                 updated_at = #{now}
             where id = #{activityId}
               and activity_status in ('ONGOING','WAITING')
+              and current_people < target_people
               and deleted = 0
             """)
     int increasePeople(@Param("activityId") Long activityId, @Param("now") LocalDateTime now);

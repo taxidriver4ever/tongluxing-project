@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -21,7 +22,7 @@ public record MerchantApplicationRequest(
         @NotBlank @Size(max = 512) String businessLicenseImageKey,
         @NotBlank @Size(max = 64) String contactName,
         @NotBlank @Pattern(regexp = "^1[3-9]\\d{9}$") String contactPhone,
-        @NotBlank @Size(max = 128) String contactEmail,
+        @NotBlank @Email @Size(max = 128) String contactEmail,
         @Size(max = 64) String contactWechat,
         @NotBlank @Size(max = 128) String storeName,
         @NotBlank @Size(max = 255) String storeAddress,

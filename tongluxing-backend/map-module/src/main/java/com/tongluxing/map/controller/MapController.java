@@ -5,6 +5,8 @@ import java.util.List;
 
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,6 +18,7 @@ import com.tongluxing.map.dto.LocationDto;
 import com.tongluxing.map.dto.RoutePlanRequest;
 import com.tongluxing.map.service.MapService;
 import com.tongluxing.map.vo.NearbyMapResponse;
+import com.tongluxing.map.vo.LocationHistoryResponse;
 import com.tongluxing.map.vo.LocationSearchResponse;
 import com.tongluxing.map.vo.RoutePlanResponse;
 
@@ -61,11 +64,23 @@ public class MapController {
 
     /** 查询当前登录用户的最近地点选择历史。 */
     @GetMapping("/locations/history")
-    public Result<List<LocationSearchResponse>> locationHistory(
+    public Result<List<LocationHistoryResponse>> locationHistory(
             @RequestParam(defaultValue = "10") Integer limit,
             @RequestParam(required = false) BigDecimal latitude,
             @RequestParam(required = false) BigDecimal longitude) {
         return Result.success(mapService.getLocationHistory(limit, latitude, longitude));
+    }
+
+    /** 删除当前登录用户的一条地点搜索历史。 */
+    @DeleteMapping("/locations/history/{historyId}")
+    public Result<Integer> deleteLocationHistory(@PathVariable Long historyId) {
+        return Result.success(mapService.deleteLocationHistory(historyId));
+    }
+
+    /** 清空当前登录用户的全部地点搜索历史。 */
+    @DeleteMapping("/locations/history")
+    public Result<Integer> clearLocationHistory() {
+        return Result.success(mapService.clearLocationHistory());
     }
 
     /** 查询指定经纬度附近的地图标记点。 */

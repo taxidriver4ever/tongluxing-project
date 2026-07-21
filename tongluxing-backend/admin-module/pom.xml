@@ -49,6 +49,10 @@
         </dependency>
         <dependency>
             <groupId>com.tongluxing</groupId>
+            <artifactId>verification-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongluxing</groupId>
             <artifactId>team-module</artifactId>
         </dependency>
         <dependency>

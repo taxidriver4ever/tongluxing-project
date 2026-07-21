@@ -15,6 +15,8 @@ import '../../shop/pages/shop_home_page.dart';
 import '../../../data/services/app_services.dart';
 import 'profile_system_pages.dart';
 import 'merchant_onboarding_page.dart';
+import 'customer_support_page.dart';
+import 'driving_license_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -165,6 +167,14 @@ class _ProfilePageState extends State<ProfilePage> {
             title: '驾驶与成长',
             items: [
               _Menu(
+                LucideIcons.contact,
+                '驾驶证认证',
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DrivingLicensePage()),
+                ).then((_) => load()),
+              ),
+              _Menu(
                 LucideIcons.carFront,
                 '我的车辆',
                 () => Navigator.push(
@@ -269,6 +279,16 @@ class _ProfilePageState extends State<ProfilePage> {
                 () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const SettingsPage()),
+                ),
+              ),
+              _Menu(
+                LucideIcons.headphones,
+                '客服与投诉',
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const CustomerSupportPage(),
+                  ),
                 ),
               ),
               _Menu(LucideIcons.logOut, '退出登录', () async {

@@ -29,6 +29,6 @@ public class VerificationPaymentAdapter implements VerificationPaymentPort {
      */
     @Override
     public void shareAfterVerification(Long orderId, Long merchantId, Long verificationId, String requestId) {
-        paymentService.shareAfterVerification(new ProfitSharingRequest(orderId, merchantId, verificationId, requestId));
+        paymentService.shareAfterVerification(new ProfitSharingRequest(orderId, verificationId, merchantId, requestId));
     }
 }

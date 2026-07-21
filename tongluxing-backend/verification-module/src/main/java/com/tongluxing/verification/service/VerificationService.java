@@ -46,5 +46,11 @@ public interface VerificationService {
      */
     VerificationReversalVO applyReversal(Long verificationId, ReversalApplyRequest request);
 
+    /** 运营审核冲正申请；由 Admin 补偿任务调用。 */
+    VerificationReversalVO auditReversal(Long reversalId, String auditResult, String rejectReason,
+                                         Long reviewerId, String requestId);
+
+    PageResult<VerificationReversalVO> adminReversals(String status, int page, int size);
+
     int processCompensationTasks(int limit);
 }

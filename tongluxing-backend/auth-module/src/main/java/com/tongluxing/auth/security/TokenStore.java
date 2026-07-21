@@ -61,7 +61,13 @@ public class TokenStore {
         }
         redisTemplate.opsForValue().set(accessKey(accessToken.jti()), "1", Duration.ofSeconds(accessExpireSeconds));
         redisTemplate.opsForValue().set(refreshKey(refreshToken.jti()), accessToken.jti(), Duration.ofSeconds(refreshExpireSeconds));
-        redisTemplate.opsForValue().set(phoneLoginKey(phone, normalizedDeviceId), accessToken.jti(), Duration.ofSeconds(accessExpireSeconds));
+        // 设备当前会话索引必须覆盖 refresh token 的完整生命周期；否则 access token
+        // 到期时索引会同时消失，仍在有效期内的 refresh token 也无法完成轮换。
+        redisTemplate.opsForValue().set(
+                phoneLoginKey(phone, normalizedDeviceId),
+                accessToken.jti(),
+                Duration.ofSeconds(refreshExpireSeconds)
+        );
 
         return new TokenPair(accessToken.token(), refreshToken.token(), accessExpireSeconds);
     }

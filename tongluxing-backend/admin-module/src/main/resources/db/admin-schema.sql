@@ -140,3 +140,33 @@ create table if not exists admin_compensation_task
   default charset = utf8mb4
   collate = utf8mb4_unicode_ci
   comment = '运营后台跨模块补偿任务表';
+
+create table if not exists sos_event
+(
+    id                       bigint         not null comment 'SOS事件ID',
+    user_id                  bigint         not null comment '发起用户ID',
+    request_id               varchar(128)   not null comment '客户端幂等请求号',
+    latitude                 decimal(10, 7) not null comment 'WGS/GCJ定位纬度',
+    longitude                decimal(10, 7) not null comment 'WGS/GCJ定位经度',
+    location_accuracy_meters decimal(10, 2) null comment '定位精度（米）',
+    address                  varchar(255)   not null comment '位置描述',
+    message                  varchar(500)   null comment '求助说明',
+    alarm_mode               varchar(32)    not null default 'MOCK' comment '外部报警模式，MVP固定MOCK',
+    event_status             varchar(32)    not null comment 'PENDING/PROCESSING/RESOLVED/CANCELLED',
+    accepted_by              bigint         null comment '受理运营人员ID',
+    accepted_at              datetime       null comment '受理时间',
+    resolved_by              bigint         null comment '结案运营人员ID',
+    resolved_at              datetime       null comment '结案时间',
+    resolution_note          varchar(500)   null comment '结案说明',
+    occurred_at              datetime       not null comment '用户确认发生时间',
+    created_at               datetime       not null comment '创建时间',
+    updated_at               datetime       not null comment '更新时间',
+    deleted                  tinyint        not null default 0 comment '逻辑删除',
+    primary key (id),
+    unique key uk_sos_user_request (user_id, request_id),
+    key idx_sos_status_time (event_status, occurred_at),
+    key idx_sos_user_time (user_id, occurred_at)
+) engine = InnoDB
+  default charset = utf8mb4
+  collate = utf8mb4_unicode_ci
+  comment = '用户SOS平台内上报与运营处置表';

@@ -38,6 +38,13 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
     if (mounted) setState(() => loading = false);
   }
 
+  Future<void> togglePin(ConversationModel row) async {
+    await ChatService(
+      context.read<AppSession>().api,
+    ).updateSettings(row.id, muted: row.muted, pinned: !row.pinned);
+    await load();
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -101,57 +108,27 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
                             ScrollViewKeyboardDismissBehavior.onDrag,
                         padding: const EdgeInsets.fromLTRB(22, 12, 22, 24),
                         itemCount: rows.length,
-                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        separatorBuilder: (_, _) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final row = rows[index];
                           final time = row.time.length > 10
                               ? row.time.substring(0, 10)
                               : row.time;
-                          return ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                              vertical: 8,
-                            ),
-                            leading: CircleAvatar(
-                              radius: 28,
-                              backgroundColor: AppColors.primarySoft,
-                              child: Text(
-                                row.name.isEmpty
-                                    ? '聊'
-                                    : row.name.characters.first,
-                                style: const TextStyle(
-                                  color: AppColors.primary,
-                                  fontWeight: FontWeight.w700,
+                          return _SwipeConversationTile(
+                            key: ValueKey('conversation-${row.id}'),
+                            row: row,
+                            time: time,
+                            onPin: () => togglePin(row),
+                            onOpen: () async {
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      ChatSessionPage(conversation: row),
                                 ),
-                              ),
-                            ),
-                            title: Text(
-                              row.name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            subtitle: Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(
-                                row.preview,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            trailing: Text(
-                              time,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: AppColors.muted,
-                              ),
-                            ),
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    ChatSessionPage(conversation: row),
-                              ),
-                            ),
+                              );
+                              await load();
+                            },
                           );
                         },
                       ),
@@ -162,4 +139,160 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
       ),
     );
   }
+}
+
+class _SwipeConversationTile extends StatefulWidget {
+  const _SwipeConversationTile({
+    required this.row,
+    required this.time,
+    required this.onPin,
+    required this.onOpen,
+    super.key,
+  });
+  final ConversationModel row;
+  final String time;
+  final Future<void> Function() onPin;
+  final Future<void> Function() onOpen;
+
+  @override
+  State<_SwipeConversationTile> createState() => _SwipeConversationTileState();
+}
+
+class _SwipeConversationTileState extends State<_SwipeConversationTile> {
+  static const actionWidth = 108.0;
+  double offset = 0;
+
+  void settle() => setState(() => offset = offset < -46 ? -actionWidth : 0);
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 96,
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: SizedBox(
+              width: actionWidth,
+              height: double.infinity,
+              child: Material(
+                color: widget.row.pinned
+                    ? const Color(0xFF87909F)
+                    : AppColors.primary,
+                child: InkWell(
+                  onTap: () async {
+                    await widget.onPin();
+                    if (mounted) setState(() => offset = 0);
+                  },
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        widget.row.pinned
+                            ? LucideIcons.pinOff
+                            : LucideIcons.pin,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        widget.row.pinned ? '取消置顶' : '置顶',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            transform: Matrix4.translationValues(offset, 0, 0),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragUpdate: (details) {
+                setState(
+                  () => offset = (offset + details.delta.dx).clamp(
+                    -actionWidth,
+                    0,
+                  ),
+                );
+              },
+              onHorizontalDragEnd: (_) => settle(),
+              child: Material(
+                color: widget.row.pinned
+                    ? const Color(0xFFF0F2F5)
+                    : Colors.white,
+                child: ListTile(
+                  minVerticalPadding: 0,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                  leading: CircleAvatar(
+                    radius: 26,
+                    backgroundColor: AppColors.primarySoft,
+                    child: Text(
+                      widget.row.name.isEmpty
+                          ? '聊'
+                          : widget.row.name.characters.first,
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  title: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.row.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      if (widget.row.pinned)
+                        const Padding(
+                          padding: EdgeInsets.only(left: 6),
+                          child: Icon(
+                            LucideIcons.pin,
+                            size: 14,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                    ],
+                  ),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      widget.row.preview,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  trailing: Text(
+                    widget.time,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                  onTap: () {
+                    if (offset < 0) {
+                      setState(() => offset = 0);
+                    } else {
+                      widget.onOpen();
+                    }
+                  },
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }

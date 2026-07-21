@@ -7,6 +7,11 @@ import '../data/services/api_client.dart';
 import '../data/services/app_services.dart';
 
 class AppSession extends ChangeNotifier {
+  static const _accessTokenKey = 'tlx_access_token';
+  static const _refreshTokenKey = 'tlx_refresh_token';
+  static const _userIdKey = 'tlx_user_id';
+  static const _deviceIdKey = 'tlx_device_id';
+
   AppSession(this.api);
   final ApiClient api;
   String? userId;
@@ -15,17 +20,58 @@ class AppSession extends ChangeNotifier {
 
   Future<void> initialize() async {
     final storage = await SharedPreferences.getInstance();
-    final storedToken = storage.getString('tlx_access_token');
-    if (api.useDemo || _isUsableAccessToken(storedToken)) {
+    final storedToken = storage.getString(_accessTokenKey);
+    final storedRefreshToken = storage.getString(_refreshTokenKey);
+    if (api.useDemo) {
       api.token = storedToken;
-      userId = storage.getString('tlx_user_id');
+      userId = storage.getString(_userIdKey);
     } else {
-      // 清理早期 Mock Token 和已过期 JWT，避免显示已登录但接口持续返回 401。
-      await storage.remove('tlx_access_token');
-      await storage.remove('tlx_user_id');
+      final restored = await _restoreServerSession(
+        storage,
+        storedToken,
+        storedRefreshToken,
+      );
+      if (!restored) await _clearStoredSession(storage);
     }
     initialized = true;
     notifyListeners();
+  }
+
+  Future<bool> _restoreServerSession(
+    SharedPreferences storage,
+    String? accessToken,
+    String? refreshToken,
+  ) async {
+    final locallyValid = _isUsableAccessToken(accessToken);
+    if (locallyValid) {
+      api.token = accessToken;
+      try {
+        await AuthService(api).currentUser();
+        userId = storage.getString(_userIdKey);
+        return true;
+      } on ApiException catch (error) {
+        // 网络暂时不可达时保留未过期会话；401/403 才视为服务端已撤销。
+        if (error.statusCode == null) {
+          userId = storage.getString(_userIdKey);
+          return true;
+        }
+      }
+    }
+    if (refreshToken?.isNotEmpty != true) return false;
+    api.token = null;
+    try {
+      final refreshed = await AuthService(api).refresh(refreshToken!);
+      if (refreshed.token.isEmpty || refreshed.refreshToken.isEmpty) {
+        return false;
+      }
+      api.token = refreshed.token;
+      await storage.setString(_accessTokenKey, refreshed.token);
+      await storage.setString(_refreshTokenKey, refreshed.refreshToken);
+      userId = storage.getString(_userIdKey);
+      return true;
+    } on ApiException {
+      return false;
+    }
   }
 
   bool _isUsableAccessToken(String? token) {
@@ -45,13 +91,25 @@ class AppSession extends ChangeNotifier {
   }
 
   Future<void> login(String phone, String password) async {
-    final session = await AuthService(api).passwordLogin(phone, password);
+    final storage = await SharedPreferences.getInstance();
+    var deviceId = storage.getString(_deviceIdKey);
+    if (deviceId == null || deviceId.isEmpty) {
+      deviceId = 'flutter-${DateTime.now().microsecondsSinceEpoch}';
+      await storage.setString(_deviceIdKey, deviceId);
+    }
+    final session = await AuthService(
+      api,
+    ).passwordLogin(phone, password, deviceId: deviceId);
     api.token = session.token;
     userId = session.userId;
-    final storage = await SharedPreferences.getInstance();
-    await storage.setString('tlx_access_token', session.token);
+    await storage.setString(_accessTokenKey, session.token);
+    if (session.refreshToken?.isNotEmpty == true) {
+      await storage.setString(_refreshTokenKey, session.refreshToken!);
+    } else {
+      await storage.remove(_refreshTokenKey);
+    }
     if (session.userId != null) {
-      await storage.setString('tlx_user_id', session.userId!);
+      await storage.setString(_userIdKey, session.userId!);
     }
     notifyListeners();
   }
@@ -63,8 +121,15 @@ class AppSession extends ChangeNotifier {
     api.token = null;
     userId = null;
     final storage = await SharedPreferences.getInstance();
-    await storage.remove('tlx_access_token');
-    await storage.remove('tlx_user_id');
+    await _clearStoredSession(storage);
     notifyListeners();
+  }
+
+  Future<void> _clearStoredSession(SharedPreferences storage) async {
+    api.token = null;
+    userId = null;
+    await storage.remove(_accessTokenKey);
+    await storage.remove(_refreshTokenKey);
+    await storage.remove(_userIdKey);
   }
 }

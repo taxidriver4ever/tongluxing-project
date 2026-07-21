@@ -3,7 +3,6 @@ package com.tongluxing.customerservice.dto;
 import java.util.List;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -14,7 +13,8 @@ import jakarta.validation.constraints.Size;
  * @param imageKeys 图片附件对象存储 Key 列表
  */
 public record ReplyTicketRequest(
-        @NotNull Long operatorId,
+        Long operatorId,
         @NotBlank @Size(max = 2048) String content,
-        List<@Size(max = 512) String> imageKeys) {
+        List<@Size(max = 512) String> imageKeys,
+        @NotBlank @Size(max = 128) String requestId) {
 }

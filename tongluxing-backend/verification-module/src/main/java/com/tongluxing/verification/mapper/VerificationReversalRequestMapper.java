@@ -4,6 +4,9 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+import java.time.LocalDateTime;
+import java.util.List;
 
 import com.tongluxing.verification.entity.VerificationReversalRequest;
 
@@ -56,4 +59,28 @@ public interface VerificationReversalRequestMapper {
             limit 1
             """)
     VerificationReversalRequest findLatestByVerificationId(@Param("verificationId") Long verificationId);
+
+    @Update("""
+            update verification_reversal_request
+            set audit_status=#{auditStatus}, reviewer_id=#{reviewerId}, reviewed_at=#{now},
+                reject_reason=#{rejectReason}, updated_at=#{now}
+            where id=#{id} and audit_status='PENDING' and deleted=0
+            """)
+    int audit(@Param("id") Long id, @Param("auditStatus") String auditStatus,
+              @Param("reviewerId") Long reviewerId, @Param("rejectReason") String rejectReason,
+              @Param("now") LocalDateTime now);
+
+    @Select("""
+            select id, verification_id, merchant_id, applicant_id, reason,
+                   audit_status, reviewer_id, reviewed_at, reject_reason,
+                   created_at, updated_at, deleted
+            from verification_reversal_request
+            where deleted=0 and (#{status} is null or #{status}='' or audit_status=#{status})
+            order by created_at desc limit #{offset},#{size}
+            """)
+    List<VerificationReversalRequest> page(@Param("status") String status, @Param("offset") int offset,
+                                           @Param("size") int size);
+
+    @Select("select count(*) from verification_reversal_request where deleted=0 and (#{status} is null or #{status}='' or audit_status=#{status})")
+    long count(@Param("status") String status);
 }

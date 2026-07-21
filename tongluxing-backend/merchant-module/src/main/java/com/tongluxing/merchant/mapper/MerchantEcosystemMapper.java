@@ -86,6 +86,22 @@ public interface MerchantEcosystemMapper {
     int auditOffer(@Param("couponId") Long couponId,@Param("status") String status,@Param("reason") String reason,
                    @Param("reviewerId") Long reviewerId,@Param("now") LocalDateTime now);
 
+    /** 审核通过后用同一业务 ID 激活用户可领取模板，避免市场券与券包模板断链。 */
+    @Insert("""
+        insert into coupon_template(id,coupon_name,coupon_type,issuer_id,threshold_amount,discount_amount,
+          scope_json,validity_type,valid_days,valid_start_at,valid_end_at,total_quantity,claimed_quantity,
+          per_user_limit,template_status,created_at,updated_at,deleted)
+        select id,left(coupon_name,64),'CASH',merchant_id,0,greatest(original_price-sale_price,0.01),
+          json_object('orderTypes',json_array('MERCHANT'),'merchantId',merchant_id,'storeId',store_id),
+          'FIXED',null,use_start_time,use_end_time,stock,0,1,'ACTIVE',#{now},#{now},0
+        from merchant_coupon_offer where id=#{couponId} and audit_status='APPROVED' and deleted=0
+        on duplicate key update coupon_name=values(coupon_name),issuer_id=values(issuer_id),
+          discount_amount=values(discount_amount),scope_json=values(scope_json),
+          valid_start_at=values(valid_start_at),valid_end_at=values(valid_end_at),
+          total_quantity=values(total_quantity),template_status='ACTIVE',updated_at=values(updated_at),deleted=0
+        """)
+    int activateClaimTemplate(@Param("couponId") Long couponId,@Param("now") LocalDateTime now);
+
     @Update("""
         update merchant_coupon_offer set coupon_name=#{couponName},cover_image_key=#{coverImageKey},description=#{description},
           category=#{category},original_price=#{originalPrice},sale_price=#{salePrice},stock=#{stock},limit_count=#{limitCount},

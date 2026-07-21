@@ -10,8 +10,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.tongluxing.admin.dto.AdminAuditRequest;
-import com.tongluxing.admin.service.AdminAuditService;
-import com.tongluxing.admin.service.AdminQueryService;
+import com.tongluxing.admin.service.AdminTradeService;
+import com.tongluxing.admin.vo.AdminRefundVO;
 import com.tongluxing.admin.vo.AdminAuditResultVO;
 import com.tongluxing.admin.vo.PageResult;
 import com.tongluxing.common.result.Result;
@@ -29,22 +29,22 @@ import lombok.RequiredArgsConstructor;
 public class AdminRefundController {
 
     /** 后台审核服务。 */
-    private final AdminAuditService auditService;
-    /** 后台通用查询服务。 */
-    private final AdminQueryService queryService;
+    private final AdminTradeService tradeService;
 
     /** 分页查询退款单；当前返回空分页，后续可接入 payment-module 查询端口。 */
     @GetMapping
-    public Result<PageResult<Object>> page(@RequestParam(required = false) String status,
+    public Result<PageResult<AdminRefundVO>> page(@RequestParam(required = false) String status,
                                            @RequestParam(defaultValue = "1") int page,
                                            @RequestParam(defaultValue = "20") int size) {
-        return Result.success(queryService.emptyBusinessPage("payment-module", status, null, null, null, page, size));
+        return Result.success(tradeService.refunds(status,page,size));
     }
+
+    @GetMapping("/{refundId}") public Result<AdminRefundVO> detail(@PathVariable Long refundId){return Result.success(tradeService.refund(refundId));}
 
     /** 审核指定退款申请。 */
     @PostMapping("/{refundId}/audit")
     public Result<AdminAuditResultVO> audit(@PathVariable Long refundId,
                                             @Valid @RequestBody AdminAuditRequest request) {
-        return Result.success(auditService.auditRefund(refundId, request));
+        return Result.success(tradeService.auditRefund(refundId, request));
     }
 }

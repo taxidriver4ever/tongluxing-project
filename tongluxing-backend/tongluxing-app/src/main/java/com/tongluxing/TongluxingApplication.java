@@ -21,6 +21,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.tongluxing.match.mapper",
         "com.tongluxing.team.mapper",
         "com.tongluxing.chat.mapper",
+        "com.tongluxing.chat.group",
         "com.tongluxing.map.mapper",
         "com.tongluxing.drivertrack.mapper",
         "com.tongluxing.merchant.mapper",
@@ -32,6 +33,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.tongluxing.customerservice.mapper",
         "com.tongluxing.notify.mapper",
         "com.tongluxing.admin.mapper",
+        "com.tongluxing.admin.sos",
         "com.tongluxing.storage.mapper"
 })
 @EnableScheduling

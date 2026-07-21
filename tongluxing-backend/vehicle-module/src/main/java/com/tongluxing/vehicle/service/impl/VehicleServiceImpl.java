@@ -1,9 +1,7 @@
 package com.tongluxing.vehicle.service.impl;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Base64;
 import java.util.List;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -29,6 +27,7 @@ import com.tongluxing.vehicle.mapper.VehicleCertificationMapper;
 import com.tongluxing.vehicle.mapper.VehicleCertificationImageMapper;
 import com.tongluxing.vehicle.mapper.VehicleProfileMapper;
 import com.tongluxing.vehicle.service.VehicleService;
+import com.tongluxing.vehicle.support.VehicleDataCipher;
 import com.tongluxing.vehicle.vo.PublicVehicleCardResponse;
 import com.tongluxing.vehicle.vo.PageResult;
 import com.tongluxing.vehicle.vo.VehicleCertificationAuditDetailVO;
@@ -59,6 +58,8 @@ public class VehicleServiceImpl implements VehicleService {
     private static final String CERTIFICATION_UNSUBMITTED = "UNSUBMITTED";
     /** 认证待审核状态。 */
     private static final String CERTIFICATION_PENDING = "PENDING";
+    /** 认证通过状态。 */
+    private static final String CERTIFICATION_APPROVED = "APPROVED";
 
     /** 当前用户车辆列表缓存 key。 */
     private static final String LIST_CACHE_KEY = "vehicle:cache:list:%d";
@@ -85,6 +86,8 @@ public class VehicleServiceImpl implements VehicleService {
     private final VehicleCertificationImageMapper certificationImageMapper;
     /** 车辆审计日志 Mapper。 */
     private final VehicleAuditLogMapper auditLogMapper;
+    /** 车牌、VIN 和发动机号的版本化 AES-GCM 加密组件。 */
+    private final VehicleDataCipher vehicleDataCipher;
 
     /** 查询当前用户车辆列表，优先读缓存。 */
     @Override
@@ -105,7 +108,7 @@ public class VehicleServiceImpl implements VehicleService {
         return response;
     }
 
-    /** 创建车辆档案；首辆车自动成为默认车辆。 */
+    /** 创建车辆档案；认证通过前不允许自动成为默认车辆。 */
     @Override
     @Transactional
     public VehicleResponse createVehicle(CreateVehicleRequest request) {
@@ -119,7 +122,7 @@ public class VehicleServiceImpl implements VehicleService {
         vehicle.setPlateNoCipher(cipher(request.plateNo()));
         vehicle.setPlateNoMask(maskPlateNo(request.plateNo()));
         vehicle.setCertificationStatus(CERTIFICATION_UNSUBMITTED);
-        vehicle.setDefaultFlag(vehicleProfileMapper.countByUserId(userId) == 0 ? 1 : 0);
+        vehicle.setDefaultFlag(0);
         vehicle.setCreatedAt(now);
         vehicle.setUpdatedAt(now);
         vehicle.setDeleted(0);
@@ -181,6 +184,9 @@ public class VehicleServiceImpl implements VehicleService {
     public VehicleResponse setDefaultVehicle(Long vehicleId) {
         Long userId = currentUserContext.requireUserId();
         VehicleProfile before = requireOwnedVehicle(vehicleId, userId);
+        if (!CERTIFICATION_APPROVED.equals(before.getCertificationStatus())) {
+            throw new BusinessException(409, "只有认证通过的车辆才能设为主要车辆");
+        }
         LocalDateTime now = LocalDateTime.now();
         vehicleProfileMapper.clearDefault(userId, now);
         vehicleProfileMapper.setDefault(vehicleId, userId, now);
@@ -269,6 +275,10 @@ public class VehicleServiceImpl implements VehicleService {
         String plateCipher = cipher(request.plateNumber());
         VehicleProfile vehicle = vehicleProfileMapper.findByUserIdAndPlateNoCipher(userId, plateCipher);
         if (vehicle == null) {
+            vehicle = vehicleProfileMapper.findByUserIdAndPlateNoCipher(
+                    userId, vehicleDataCipher.legacyEncoded(request.plateNumber()));
+        }
+        if (vehicle == null) {
             VehicleResponse created = createVehicle(new CreateVehicleRequest(
                     request.plateNumber(), request.vehicleBrand(), request.vehicleModel(), "轿车",
                     request.vehicleColor(), 5, "", request.vehicleImages().get(0)));
@@ -286,8 +296,6 @@ public class VehicleServiceImpl implements VehicleService {
         }
 
         List<SubmitVehicleCertificationRequest.VehicleImageRequest> images = new java.util.ArrayList<>();
-        request.driverLicenseImages().forEach(url -> images.add(
-                new SubmitVehicleCertificationRequest.VehicleImageRequest("DRIVER_LICENSE", url)));
         request.registrationLicenseImages().forEach(url -> images.add(
                 new SubmitVehicleCertificationRequest.VehicleImageRequest("REGISTRATION_LICENSE", url)));
         request.vehicleImages().forEach(url -> images.add(
@@ -589,20 +597,14 @@ public class VehicleServiceImpl implements VehicleService {
         }
     }
 
-    /** 简易密文存储工具，当前使用 Base64 保持字段不以明文直接落库。 */
+    /** 使用版本化 AES-GCM 加密车辆敏感字段。 */
     private String cipher(String value) {
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
-        return Base64.getEncoder().encodeToString(value.trim().getBytes(StandardCharsets.UTF_8));
+        return vehicleDataCipher.encrypt(value);
     }
 
-    /** 解码后台审核详情需要的敏感字段。 */
+    /** 解密后台审核详情需要的敏感字段，并兼容旧 Base64 数据。 */
     private String decipher(String value) {
-        if (!StringUtils.hasText(value)) {
-            return "";
-        }
-        return new String(Base64.getDecoder().decode(value), StandardCharsets.UTF_8);
+        return vehicleDataCipher.decrypt(value);
     }
 
     private String normalizeStatusFilter(String status) {

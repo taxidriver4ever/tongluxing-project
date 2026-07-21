@@ -3,6 +3,7 @@ package com.tongluxing.chat.service;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import com.tongluxing.trip.service.TripFinishedEvent;
+import com.tongluxing.trip.service.TripPublishedEvent;
 import com.tongluxing.trip.service.TripStartedEvent;
 import lombok.RequiredArgsConstructor;
 
@@ -11,6 +12,11 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class TripChatLifecycleListener {
     private final ChatService chatService;
+
+    @EventListener
+    public void onTripPublished(TripPublishedEvent event) {
+        chatService.prepareTripConversation(event.tripId(), event.tripName(), event.ownerUserId(), event.memberUserIds());
+    }
 
     @EventListener
     public void onTripStarted(TripStartedEvent event) {

@@ -29,6 +29,7 @@ import com.tongluxing.verification.entity.VerificationReversalRequest;
 import com.tongluxing.verification.mapper.VerificationCodeMapper;
 import com.tongluxing.verification.mapper.VerificationCompensationTaskMapper;
 import com.tongluxing.verification.mapper.VerificationRecordMapper;
+import com.tongluxing.verification.mapper.VerificationMerchantMapper;
 import com.tongluxing.verification.integration.VerificationPaymentPort;
 import com.tongluxing.verification.mapper.VerificationReversalRequestMapper;
 import com.tongluxing.verification.service.VerificationService;
@@ -37,6 +38,7 @@ import com.tongluxing.verification.vo.VerificationCodeVO;
 import com.tongluxing.verification.vo.VerificationParseVO;
 import com.tongluxing.verification.vo.VerificationRecordVO;
 import com.tongluxing.verification.vo.VerificationReversalVO;
+import com.tongluxing.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
 
@@ -60,11 +62,13 @@ public class VerificationServiceImpl implements VerificationService {
 
     private final VerificationCodeMapper codeMapper;
     private final VerificationRecordMapper recordMapper;
+    private final VerificationMerchantMapper merchantMapper;
     private final VerificationReversalRequestMapper reversalMapper;
     private final VerificationCompensationTaskMapper compensationTaskMapper;
     private final VerificationPaymentPort paymentPort;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
+    private final CurrentUserContext currentUserContext;
 
     /**
      * 创建核销码；通过 requestId 做幂等，业务对象已有核销码时直接复用。
@@ -72,6 +76,10 @@ public class VerificationServiceImpl implements VerificationService {
     @Override
     @Transactional
     public VerificationCodeVO createCode(CreateVerificationCodeRequest request) {
+        Long currentUserId = currentUserContext.requireUserId();
+        if (!currentUserId.equals(request.userId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "只能为当前用户生成核销码");
+        }
         String bizType = normalizeBizType(request.bizType());
         validateBizRequest(bizType, request.orderId(), request.userCouponId());
 
@@ -137,6 +145,10 @@ public class VerificationServiceImpl implements VerificationService {
     @Override
     @Transactional
     public VerificationRecordVO confirm(ConfirmVerificationRequest request) {
+        Long merchantId = requireCurrentMerchantId();
+        if (!merchantId.equals(request.merchantId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "请求商家与当前登录商家不一致");
+        }
         String codeValue = normalizeCode(request.verificationCode());
         String idemKey = "verification:idem:confirm:%s".formatted(request.requestId());
         VerificationRecordVO cached = readJson(idemKey, VerificationRecordVO.class);
@@ -159,9 +171,9 @@ public class VerificationServiceImpl implements VerificationService {
                 return result;
             }
 
-            validateCanConfirm(code, request.merchantId());
+            validateCanConfirm(code, merchantId);
             LocalDateTime now = LocalDateTime.now();
-            int updated = codeMapper.markVerified(code.getId(), request.merchantId(), now);
+            int updated = codeMapper.markVerified(code.getId(), merchantId, now);
             if (updated == 0) {
                 VerificationRecord concurrent = recordMapper.findByCodeId(code.getId());
                 if (concurrent != null) {
@@ -192,6 +204,7 @@ public class VerificationServiceImpl implements VerificationService {
      */
     @Override
     public PageResult<VerificationRecordVO> pageQuery(VerificationQueryRequest request) {
+        Long merchantId = requireCurrentMerchantId();
         int page = Math.max(request.page(), 1);
         int size = Math.min(Math.max(request.size(), 1), 100);
         int offset = (page - 1) * size;
@@ -199,12 +212,12 @@ public class VerificationServiceImpl implements VerificationService {
         String status = StringUtils.hasText(request.verificationStatus())
                 ? request.verificationStatus().trim().toUpperCase(Locale.ROOT)
                 : null;
-        var records = recordMapper.pageQuery(request.merchantId(), bizType, status, request.startTime(),
+        var records = recordMapper.pageQuery(merchantId, bizType, status, request.startTime(),
                         request.endTime(), offset, size)
                 .stream()
                 .map(this::toRecordVO)
                 .toList();
-        long total = recordMapper.countQuery(request.merchantId(), bizType, status, request.startTime(), request.endTime());
+        long total = recordMapper.countQuery(merchantId, bizType, status, request.startTime(), request.endTime());
         return new PageResult<>(records, total, page, size);
     }
 
@@ -214,7 +227,8 @@ public class VerificationServiceImpl implements VerificationService {
     @Override
     public VerificationRecordVO detail(Long verificationId, Long merchantId) {
         VerificationRecord record = requireRecord(verificationId);
-        if (merchantId != null && !merchantId.equals(record.getMerchantId())) {
+        Long currentMerchantId = requireCurrentMerchantId();
+        if (!currentMerchantId.equals(record.getMerchantId())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "无权查看该核销记录");
         }
         return toRecordVO(record);
@@ -233,6 +247,9 @@ public class VerificationServiceImpl implements VerificationService {
         }
 
         VerificationRecord record = requireRecord(verificationId);
+        if (!requireCurrentMerchantId().equals(record.getMerchantId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "无权为其他商家的核销记录申请冲正");
+        }
         VerificationReversalRequest existed = reversalMapper.findLatestByVerificationId(verificationId);
         if (existed != null && PENDING.equals(existed.getAuditStatus())) {
             VerificationReversalVO result = toReversalVO(existed);
@@ -259,6 +276,61 @@ public class VerificationServiceImpl implements VerificationService {
         return result;
     }
 
+    /** 运营审核冲正：审核、核销记录、原核销码和用户券在同一事务中同步。 */
+    @Override
+    @Transactional
+    public VerificationReversalVO auditReversal(Long reversalId, String auditResult, String rejectReason,
+                                                Long reviewerId, String requestId) {
+        String normalized = auditResult == null ? "" : auditResult.trim().toUpperCase(Locale.ROOT);
+        if (!java.util.List.of("APPROVED", "REJECTED").contains(normalized)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "冲正审核结果仅支持 APPROVED 或 REJECTED");
+        }
+        String idemKey = "verification:idem:reversal-audit:%s".formatted(requestId);
+        VerificationReversalVO cached = readJson(idemKey, VerificationReversalVO.class);
+        if (cached != null) {
+            return cached;
+        }
+        VerificationReversalRequest reversal = reversalMapper.findById(reversalId);
+        if (reversal == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "冲正申请不存在");
+        }
+        if (!PENDING.equals(reversal.getAuditStatus())) {
+            VerificationReversalVO result = toReversalVO(reversal);
+            writeJson(idemKey, result, Duration.ofDays(7));
+            return result;
+        }
+        String reason = "REJECTED".equals(normalized) ? trimToNull(rejectReason) : null;
+        if ("REJECTED".equals(normalized) && reason == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "拒绝冲正必须填写原因");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (reversalMapper.audit(reversalId, normalized, reviewerId, reason, now) != 1) {
+            throw new BusinessException(409, "冲正申请状态已变化");
+        }
+        if ("APPROVED".equals(normalized)) {
+            if (recordMapper.approveReversal(reversal.getVerificationId(), now) != 1) {
+                throw new BusinessException(409, "核销记录不允许冲正");
+            }
+            codeMapper.cancelForReversal(reversal.getVerificationId(), now);
+            recordMapper.restoreCoupon(reversal.getVerificationId(), now);
+        } else {
+            recordMapper.updateReversalStatus(reversal.getVerificationId(), "REJECTED", now);
+        }
+        VerificationReversalVO result = toReversalVO(reversalMapper.findById(reversalId));
+        writeJson(idemKey, result, Duration.ofDays(7));
+        return result;
+    }
+
+    @Override
+    public PageResult<VerificationReversalVO> adminReversals(String status, int page, int size) {
+        int normalizedPage = Math.max(1, page);
+        int normalizedSize = Math.min(100, Math.max(1, size));
+        String normalizedStatus = StringUtils.hasText(status) ? status.trim().toUpperCase(Locale.ROOT) : null;
+        var records = reversalMapper.page(normalizedStatus, (normalizedPage - 1) * normalizedSize, normalizedSize)
+                .stream().map(this::toReversalVO).toList();
+        return new PageResult<>(records, reversalMapper.count(normalizedStatus), normalizedPage, normalizedSize);
+    }
+
     /**
      * 消费核销补偿任务。未接入第三方时仍会推进本地分账/券同步状态。
      */
@@ -276,9 +348,19 @@ public class VerificationServiceImpl implements VerificationService {
                         throw new BusinessException("核销补偿任务缺少订单 ID");
                     }
                     Long verificationId = payload.path("verificationId").asLong(task.getId());
-                    Long merchantId = Long.valueOf(task.getBizId());
+                    Long merchantId = payload.path("merchantId").asLong();
+                    if (merchantId == 0L) {
+                        throw new BusinessException("核销补偿任务缺少商家 ID");
+                    }
                     paymentPort.shareAfterVerification(orderId, merchantId, verificationId,
                             "verification-task:" + task.getId());
+                } else if ("COUPON_VERIFIED".equals(task.getBizType())) {
+                    JsonNode payload = objectMapper.readTree(task.getRequestPayload());
+                    long verificationId = payload.path("verificationId").asLong();
+                    if (verificationId == 0L) {
+                        throw new BusinessException("券核销补偿任务缺少核销记录 ID");
+                    }
+                    recordMapper.markCouponUsed(verificationId, now);
                 }
                 compensationTaskMapper.markSuccess(task.getId(), now);
                 processed++;
@@ -303,7 +385,8 @@ public class VerificationServiceImpl implements VerificationService {
         record.setUserCouponId(code.getUserCouponId());
         record.setUserId(code.getUserId());
         record.setMerchantId(code.getMerchantId());
-        record.setOperatorId(request.operatorId());
+        // 操作员只能来自当前已认证商家账号，忽略客户端可伪造的 operatorId。
+        record.setOperatorId(currentUserContext.requireUserId());
         record.setAmount(code.getAmount());
         record.setVerificationStatus(SUCCESS);
         record.setLocationName(trimToNull(request.locationName()));
@@ -324,8 +407,8 @@ public class VerificationServiceImpl implements VerificationService {
         String target = ORDER.equals(record.getBizType()) ? "payment-module" : "coupon-module";
         String type = ORDER.equals(record.getBizType()) ? "PAYMENT_PROFIT_SHARING" : "COUPON_VERIFIED";
         String payload = """
-                {"verificationId":%d,"bizType":"%s","bizId":%d,"orderId":%s,"userCouponId":%s}
-                """.formatted(record.getId(), record.getBizType(), record.getBizId(),
+                {"verificationId":%d,"bizType":"%s","bizId":%d,"merchantId":%d,"orderId":%s,"userCouponId":%s}
+                """.formatted(record.getId(), record.getBizType(), record.getBizId(), record.getMerchantId(),
                 nullableNumber(record.getOrderId()), nullableNumber(record.getUserCouponId())).trim();
 
         VerificationCompensationTask task = new VerificationCompensationTask();
@@ -558,6 +641,15 @@ public class VerificationServiceImpl implements VerificationService {
         } catch (Exception ignored) {
             // Redis 删除失败不影响主流程。
         }
+    }
+
+    /** 当前商家身份只从登录用户映射，绝不信任请求体或查询参数中的 merchantId。 */
+    private Long requireCurrentMerchantId() {
+        Long merchantId = merchantMapper.findApprovedMerchantId(currentUserContext.requireUserId());
+        if (merchantId == null) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "当前账号不是审核通过且启用的商家");
+        }
+        return merchantId;
     }
 
     /**

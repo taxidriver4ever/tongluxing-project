@@ -61,16 +61,29 @@ public class SecurityConfig {
                                 "/v1/auth/app/login",
                                 "/v1/auth/app/bind-by-mini-ticket",
                                 "/v1/auth/refresh-token",
+                                "/v1/invites/qr/validate",
                                 "/actuator/health"
                         ).permitAll()
                         // Web Admin 与普通用户登录态隔离，后台接口仅允许 ROLE_ADMIN。
                         .requestMatchers("/v1/admin/**", "/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/internal/**").hasRole("ADMIN")
+                        // 订单补偿与超时关闭属于内部运维能力，普通 App 用户不得调用。
+                        .requestMatchers("/v1/orders/internal/**").hasRole("ADMIN")
+                        .requestMatchers("/v1/verifications/internal/**").hasRole("ADMIN")
+                        // App 用户只负责生成自己的展码；解析、确认、记录与冲正属于审核通过的商家能力。
+                        .requestMatchers(HttpMethod.POST, "/v1/verifications/codes").hasRole("USER")
+                        .requestMatchers("/v1/verifications/**").hasRole("MERCHANT")
+                        .requestMatchers("/v1/assessments/merchants/me").hasRole("MERCHANT")
                         // 用户模块中明确属于公开展示的读取接口放行。
                         .requestMatchers(HttpMethod.GET,
                                 "/v1/users/*/public-profile",
                                 "/v1/users/*/homepage",
                                 "/v1/customer-service/entry"
                         ).permitAll()
+                        // 入驻申请属于普通用户能力；其余商家经营接口必须拥有审核后授予的 MERCHANT 角色。
+                        .requestMatchers(HttpMethod.POST, "/v1/merchants/applications").hasRole("USER")
+                        .requestMatchers(HttpMethod.GET, "/v1/merchants/applications/me/latest").hasRole("USER")
+                        .requestMatchers("/v1/merchants/**").hasRole("MERCHANT")
                         // 除上述白名单外，所有接口都必须携带有效 Token。
                         .anyRequest().authenticated()
                 )

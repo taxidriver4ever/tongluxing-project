@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
   Bell, Boxes, ChartNoAxesCombined, ChevronRight, FileClock, LayoutDashboard,
-  LogOut, Network, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Store, TicketCheck, UsersRound,
+  Compass, Headphones, LogOut, Network, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Store, TicketCheck, UsersRound, Siren, MessageSquareWarning,
 } from 'lucide-vue-next'
 import { adminAuthState, logoutAdmin } from '../services/adminAuth.js'
 
@@ -12,11 +12,15 @@ const router = useRouter()
 const navGroups = [
   { label: '运营中心', items: [
     { to: '/', name: 'dashboard', label: '运营总览', icon: LayoutDashboard },
-    { to: '/certification-audit', name: 'audit', label: '认证审核', icon: ShieldCheck, badge: '15' },
+    { to: '/certification-audit', name: 'audit', label: '认证审核', icon: ShieldCheck },
     { to: '/merchant-audit', name: 'merchant-audit', label: '商家入驻审核', icon: Store },
     { to: '/merchant-coupon-audit', name: 'merchant-coupon-audit', label: '商家优惠审核', icon: TicketCheck },
     { to: '/trade-management', name: 'trade', label: '交易管理', icon: ShoppingBag },
-    { to: '/groupbuy-intervention', name: 'groupbuy', label: '拼团干预', icon: UsersRound, badge: '4' },
+    { to: '/groupbuy-intervention', name: 'groupbuy', label: '拼团干预', icon: UsersRound },
+    { to: '/match-recommendations', name: 'matches', label: '同行推荐', icon: Compass },
+    { to: '/customer-service', name: 'customer-service', label: '客服工单', icon: Headphones },
+    { to: '/sos-events', name: 'sos-events', label: 'SOS 事件', icon: Siren },
+    { to: '/chat-risk', name: 'chat-risk', label: '聊天风控', icon: MessageSquareWarning },
   ] },
   { label: '平台配置', items: [
     { to: '/operation-rules', name: 'rules', label: '运营规则', icon: SlidersHorizontal },
@@ -42,7 +46,7 @@ async function logout() {
     <template v-for="group in navGroups" :key="group.label">
       <div class="nav-section">{{ group.label }}</div>
       <RouterLink v-for="item in group.items" :key="item.name" :to="item.to" class="nav-item" :class="{ active: route.name === item.name }">
-        <component :is="item.icon" />{{ item.label }}<span v-if="item.badge" class="badge-dot">{{ item.badge }}</span>
+        <component :is="item.icon" />{{ item.label }}
       </RouterLink>
     </template>
     <div class="sidebar-note"><b>原型接口说明</b><br>页面字段与现有 Admin Controller、内部接口及审计模型保持一致。</div>

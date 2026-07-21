@@ -7,6 +7,9 @@ package com.tongluxing.invite.integration;
  */
 public interface InviteRewardPort {
 
+    /** 读取当前生效规则分值，用于在奖励记录中固化快照。 */
+    int rewardPoints(String ruleCode);
+
     /**
      * 发放邀请奖励。
      *

@@ -61,6 +61,7 @@ mybatis:
   mapper-locations:
     - classpath*:/mapper/**/*.xml
     - classpath*:/db/*Mapper.xml
+    - classpath*:/com/**/mapper/*.xml
   type-aliases-package: com.tongluxing.*.entity
   configuration:
     map-underscore-to-camel-case: true
@@ -76,6 +77,11 @@ auth:
     issuer: ${AUTH_JWT_ISSUER}
     access-expire-seconds: ${AUTH_JWT_ACCESS_EXPIRE_SECONDS}
     refresh-expire-seconds: ${AUTH_JWT_REFRESH_EXPIRE_SECONDS}
+
+vehicle:
+  security:
+    # 生产环境必须配置独立密钥；dev 未配置时复用已有高强度 JWT 密钥以兼容本地启动。
+    data-encryption-key: ${VEHICLE_DATA_ENCRYPTION_KEY:${AUTH_JWT_SECRET}}
 
 admin:
   auth:

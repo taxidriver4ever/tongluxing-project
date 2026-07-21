@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.tongluxing.admin.mapper.AdminTradeMapper">
+  <sql id="orderColumns">
+    o.id orderId,o.order_no orderNo,o.user_id userId,coalesce(nullif(u.nickname,''),concat('用户',right(o.user_id,4))) userName,
+    o.merchant_id merchantId,coalesce(m.merchant_name,'未绑定商家') merchantName,o.product_id productId,
+    coalesce(i.product_name,concat('商品',o.product_id)) productName,o.original_amount originalAmount,
+    (o.groupbuy_discount_amount+o.coupon_deduction_amount) discountAmount,o.payable_amount payableAmount,
+    o.paid_amount paidAmount,o.order_status orderStatus,o.payment_status paymentStatus,
+    o.verification_status verificationStatus,o.refund_status refundStatus,o.created_at createdAt,o.paid_at paidAt,o.completed_at completedAt
+  </sql>
+  <sql id="orderFrom">
+    from order_trade o left join user_profile u on u.user_id=o.user_id and u.deleted=0
+    left join merchant_profile m on m.id=o.merchant_id and m.deleted=0
+    left join order_item i on i.id=(select min(i2.id) from order_item i2 where i2.order_id=o.id)
+  </sql>
+  <sql id="orderFilters">
+    where o.deleted=0
+    <if test="status != null and status != ''">and o.order_status=#{status}</if>
+    <if test="keyword != null and keyword != ''">
+      and (o.order_no like concat('%',#{keyword},'%') or u.nickname like concat('%',#{keyword},'%')
+        or m.merchant_name like concat('%',#{keyword},'%') or i.product_name like concat('%',#{keyword},'%'))
+    </if>
+    <if test="startTime != null">and o.created_at &gt;= #{startTime}</if>
+    <if test="endTime != null">and o.created_at &lt;= #{endTime}</if>
+  </sql>
+  <select id="pageOrders" resultType="com.tongluxing.admin.vo.AdminOrderVO">
+    select <include refid="orderColumns"/><include refid="orderFrom"/><include refid="orderFilters"/>
+    order by o.created_at desc limit #{offset},#{size}
+  </select>
+  <select id="countOrders" resultType="long">select count(1)<include refid="orderFrom"/><include refid="orderFilters"/></select>
+  <select id="findOrder" resultType="com.tongluxing.admin.vo.AdminOrderVO">
+    select <include refid="orderColumns"/><include refid="orderFrom"/> where o.id=#{id} and o.deleted=0 limit 1
+  </select>
+
+  <sql id="refundFrom">
+    from payment_refund_record r join order_trade o on o.id=r.order_id
+    left join user_profile u on u.user_id=r.user_id and u.deleted=0
+    left join merchant_profile m on m.id=o.merchant_id and m.deleted=0
+  </sql>
+  <sql id="refundColumns">
+    r.id refundId,r.refund_no refundNo,r.order_id orderId,o.order_no orderNo,r.user_id userId,
+    coalesce(nullif(u.nickname,''),concat('用户',right(r.user_id,4))) userName,o.merchant_id merchantId,
+    coalesce(m.merchant_name,'未绑定商家') merchantName,r.refund_amount refundAmount,r.refund_reason refundReason,
+    r.refund_type refundType,r.refund_status refundStatus,r.audit_status auditStatus,r.requested_at requestedAt,r.refunded_at refundedAt
+  </sql>
+  <select id="pageRefunds" resultType="com.tongluxing.admin.vo.AdminRefundVO">
+    select <include refid="refundColumns"/><include refid="refundFrom"/> where r.deleted=0
+    <if test="status != null and status != ''">and r.audit_status=#{status}</if>
+    order by r.requested_at desc limit #{offset},#{size}
+  </select>
+  <select id="countRefunds" resultType="long">
+    select count(1) from payment_refund_record where deleted=0
+    <if test="status != null and status != ''">and audit_status=#{status}</if>
+  </select>
+  <select id="findRefund" resultType="com.tongluxing.admin.vo.AdminRefundVO">
+    select <include refid="refundColumns"/><include refid="refundFrom"/> where r.id=#{id} and r.deleted=0 limit 1
+  </select>
+  <update id="auditRefund">
+    update payment_refund_record set audit_status=#{auditStatus},refund_status=#{refundStatus},refunded_at=#{refundedAt},updated_at=#{now}
+    where id=#{id} and audit_status='PENDING' and deleted=0
+  </update>
+  <update id="updateOrderRefund">
+    update order_trade set refund_status=#{refundStatus},order_status=#{orderStatus},updated_at=#{now} where id=#{orderId} and deleted=0
+  </update>
+
+  <select id="pageSettlements" resultType="com.tongluxing.admin.vo.AdminSettlementVO">
+    select s.id settlementId,s.sharing_no settlementNo,s.order_id orderId,o.order_no orderNo,
+      s.merchant_id merchantId,coalesce(m.merchant_name,'未知商家') merchantName,s.total_amount totalAmount,
+      s.platform_commission_amount commissionAmount,s.merchant_amount merchantAmount,s.commission_rate commissionRate,
+      s.sharing_status settlementStatus,s.created_at createdAt,s.shared_at settledAt
+    from payment_profit_sharing_record s join order_trade o on o.id=s.order_id
+    left join merchant_profile m on m.id=s.merchant_id and m.deleted=0 where s.deleted=0
+    <if test="status != null and status != ''">and s.sharing_status=#{status}</if>
+    order by s.created_at desc limit #{offset},#{size}
+  </select>
+  <select id="countSettlements" resultType="long">
+    select count(1) from payment_profit_sharing_record where deleted=0
+    <if test="status != null and status != ''">and sharing_status=#{status}</if>
+  </select>
+  <update id="triggerSettlement">
+    update payment_profit_sharing_record set sharing_status='SUCCESS',shared_at=#{now},updated_at=#{now}
+    where id=#{id} and sharing_status in ('WAIT_SHARING','PENDING','FAILED') and deleted=0
+  </update>
+  <select id="settlementOrderId" resultType="long">select order_id from payment_profit_sharing_record where id=#{id} and deleted=0</select>
+  <update id="completeOrder">
+    update order_trade set profit_sharing_status='SUCCESS',order_status='COMPLETED',completed_at=#{now},updated_at=#{now}
+    where id=#{orderId} and deleted=0
+  </update>
+
+  <select id="pageVerifications" resultType="com.tongluxing.admin.vo.AdminVerificationRecordVO">
+    select v.id verificationId,v.verification_code verificationCode,v.biz_type bizType,v.biz_id bizId,
+      v.order_id orderId,v.user_id userId,coalesce(nullif(u.nickname,''),concat('用户',right(v.user_id,4))) userName,
+      v.merchant_id merchantId,coalesce(m.merchant_name,'未知商家') merchantName,v.amount amount,
+      v.verification_status verificationStatus,v.location_name locationName,v.verified_at verifiedAt,v.reversal_status reversalStatus
+    from verification_record v left join user_profile u on u.user_id=v.user_id and u.deleted=0
+    left join merchant_profile m on m.id=v.merchant_id and m.deleted=0 where v.deleted=0
+    <if test="status != null and status != ''">and v.verification_status=#{status}</if>
+    order by coalesce(v.verified_at,v.created_at) desc limit #{offset},#{size}
+  </select>
+  <select id="countVerifications" resultType="long">
+    select count(1) from verification_record where deleted=0
+    <if test="status != null and status != ''">and verification_status=#{status}</if>
+  </select>
+  <select id="pageTransactions" resultType="com.tongluxing.admin.vo.AdminTransactionVO">
+    select * from (
+      select 'PAYMENT' transactionType,p.id transactionId,p.payment_no transactionNo,p.order_id orderId,p.order_no orderNo,
+        p.pay_amount amount,p.payment_status status,p.pay_channel channel,coalesce(p.paid_at,p.created_at) occurredAt
+      from payment_record p where p.deleted=0
+      union all
+      select 'REFUND',r.id,r.refund_no,r.order_id,o.order_no,-r.refund_amount,r.refund_status,'REFUND',r.requested_at
+      from payment_refund_record r join order_trade o on o.id=r.order_id where r.deleted=0
+    ) x <where><if test="type != null and type != ''">x.transactionType=#{type}</if></where>
+    order by x.occurredAt desc limit #{offset},#{size}
+  </select>
+  <select id="countTransactions" resultType="long">
+    select (select count(1) from payment_record where deleted=0)+(select count(1) from payment_refund_record where deleted=0)
+  </select>
+
+  <select id="registeredUsers" resultType="long">select count(1) from auth_account where deleted=0</select>
+  <select id="activeUsers" resultType="long">select count(1) from user_profile where profile_status='ACTIVE' and deleted=0</select>
+  <select id="newUsers" resultType="long">select count(1) from auth_account where deleted=0 and created_at between #{start} and #{end}</select>
+  <select id="certifiedVehicles" resultType="long">select count(1) from vehicle_profile where certification_status='APPROVED' and deleted=0</select>
+  <select id="merchants" resultType="long">select count(1) from merchant_profile where audit_status='APPROVED' and deleted=0</select>
+  <select id="pendingMerchants" resultType="long">select count(1) from merchant_profile where audit_status='PENDING' and deleted=0</select>
+  <select id="activeMerchants" resultType="long">select count(1) from merchant_profile where audit_status='APPROVED' and status='ACTIVE' and deleted=0</select>
+  <select id="groupbuys" resultType="long">select count(1) from groupbuy_activity where deleted=0</select>
+  <select id="orders" resultType="long">select count(1) from order_trade where deleted=0</select>
+  <select id="ordersBetween" resultType="long">select count(1) from order_trade where deleted=0 and created_at between #{start} and #{end}</select>
+  <select id="paidAmount" resultType="java.math.BigDecimal">select coalesce(sum(paid_amount),0) from order_trade where payment_status='SUCCESS' and deleted=0</select>
+  <select id="paidBetween" resultType="java.math.BigDecimal">select coalesce(sum(paid_amount),0) from order_trade where payment_status='SUCCESS' and deleted=0 and paid_at between #{start} and #{end}</select>
+  <select id="verifications" resultType="long">select count(1) from verification_record where deleted=0</select>
+  <select id="commission" resultType="java.math.BigDecimal">select coalesce(sum(platform_commission_amount),0) from payment_profit_sharing_record where sharing_status='SUCCESS' and deleted=0</select>
+  <select id="couponOffers" resultType="long">select count(1) from merchant_coupon_offer where deleted=0</select>
+  <select id="pendingRefunds" resultType="long">select count(1) from payment_refund_record where audit_status='PENDING' and deleted=0</select>
+  <select id="pendingSettlements" resultType="long">select count(1) from payment_profit_sharing_record where sharing_status in ('WAIT_SHARING','PENDING','FAILED') and deleted=0</select>
+  <select id="trends" resultType="com.tongluxing.admin.vo.AdminTrendPointVO">
+    select d.day date,
+      (select count(1) from auth_account a where a.deleted=0 and date(a.created_at)=d.day) newUsers,
+      (select count(1) from order_trade o where o.deleted=0 and date(o.created_at)=d.day) orders,
+      (select count(1) from verification_record v where v.deleted=0 and date(v.verified_at)=d.day) verifications,
+      (select coalesce(sum(o2.paid_amount),0) from order_trade o2 where o2.payment_status='SUCCESS' and o2.deleted=0 and date(o2.paid_at)=d.day) gmv
+    from (select date_sub(current_date, interval 6 day) day union all select date_sub(current_date, interval 5 day)
+      union all select date_sub(current_date, interval 4 day) union all select date_sub(current_date, interval 3 day)
+      union all select date_sub(current_date, interval 2 day) union all select date_sub(current_date, interval 1 day)
+      union all select current_date) d order by d.day
+  </select>
+</mapper>

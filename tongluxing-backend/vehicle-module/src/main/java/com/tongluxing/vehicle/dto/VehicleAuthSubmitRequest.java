@@ -12,7 +12,11 @@ public record VehicleAuthSubmitRequest(
         @NotBlank @Size(max = 64) String vehicleModel,
         @NotBlank @Size(max = 16) String plateNumber,
         @NotBlank @Size(max = 32) String vehicleColor,
-        @NotEmpty @Size(min = 2, max = 2) List<@NotBlank @Size(max = 512) String> driverLicenseImages,
+        /**
+         * 旧版兼容字段，车辆认证不再要求也不会处理驾驶证图片。
+         * 驾驶证请通过 /v1/users/me/certifications 独立提交。
+         */
+        @Size(max = 2) List<@NotBlank @Size(max = 512) String> driverLicenseImages,
         @NotEmpty @Size(min = 2, max = 2) List<@NotBlank @Size(max = 512) String> registrationLicenseImages,
         @NotEmpty @Size(min = 1, max = 3) List<@NotBlank @Size(max = 512) String> vehicleImages
 ) {

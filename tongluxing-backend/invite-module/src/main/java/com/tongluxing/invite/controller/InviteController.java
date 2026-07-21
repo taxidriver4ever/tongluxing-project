@@ -34,6 +34,18 @@ public class InviteController {
         return Result.success(service.currentCode());
     }
 
+    /** 获取当前登录用户七天轮换的邀请二维码。 */
+    @GetMapping("/v1/invites/me/qr")
+    public Result<InviteQrVO> qr() {
+        return Result.success(service.currentQr());
+    }
+
+    /** 匿名校验扫码令牌是否真实、启用且未过期。 */
+    @GetMapping("/v1/invites/qr/validate")
+    public Result<InviteQrValidationVO> validateQr(@RequestParam String token) {
+        return Result.success(service.validateQr(token));
+    }
+
     /** 当前登录用户绑定邀请码；注册时已绑定则幂等返回原关系。 */
     @PostMapping("/v1/invites/bind")
     public Result<InviteBindVO> bind(@Valid @RequestBody InviteBindRequest request) {

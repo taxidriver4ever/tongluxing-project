@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 import com.tongluxing.match.integration.MatchTeamPort;
 import com.tongluxing.team.entity.Team;
 import com.tongluxing.team.mapper.TeamMapper;
+import com.tongluxing.team.dto.JoinTeamApplicationRequest;
+import com.tongluxing.team.service.TeamService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -19,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class MatchTeamAdapter implements MatchTeamPort {
     private final TeamMapper teamMapper;
+    private final TeamService teamService;
 
     /**
      * 查询公开活跃车队，作为匹配推荐候选池。
@@ -31,6 +34,18 @@ public class MatchTeamAdapter implements MatchTeamPort {
         return teamMapper.findPublicActive(limit).stream()
                 .map(this::toDTO)
                 .toList();
+    }
+
+    @Override
+    public MatchTeamDTO findActiveTeamByTripId(Long tripId) {
+        Team team = teamMapper.findActiveByTripId(tripId);
+        return team == null ? null : toDTO(team);
+    }
+
+    @Override
+    public Long apply(Long teamId, String message) {
+        return Long.valueOf(teamService.apply(teamId,
+                new JoinTeamApplicationRequest(null, message, null)).applicationId());
     }
 
     /**

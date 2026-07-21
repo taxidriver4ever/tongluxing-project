@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -17,7 +20,9 @@ class _InvitePageState extends State<InvitePage> {
   bool loading = true;
   String? error;
   Map<String, dynamic> code = {};
+  Map<String, dynamic> qr = {};
   Map<String, dynamic> summary = {};
+  static const _mediaChannel = MethodChannel('com.tongluxing/media');
 
   @override
   void initState() {
@@ -29,9 +34,14 @@ class _InvitePageState extends State<InvitePage> {
     setState(() => loading = true);
     try {
       final service = InviteService(context.read<AppSession>().api);
-      final values = await Future.wait([service.code(), service.summary()]);
+      final values = await Future.wait([
+        service.code(),
+        service.qr(),
+        service.summary(),
+      ]);
       code = values[0];
-      summary = values[1];
+      qr = values[1];
+      summary = values[2];
       error = null;
     } catch (e) {
       error = '$e';
@@ -41,6 +51,49 @@ class _InvitePageState extends State<InvitePage> {
 
   String get inviteCode =>
       code['inviteCode']?.toString() ?? code['code']?.toString() ?? '—';
+
+  Uint8List? get qrBytes {
+    final source = qr['qrImageBase64']?.toString();
+    if (source == null || source.isEmpty) return null;
+    try {
+      return base64Decode(source);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> saveQr() async {
+    final bytes = qrBytes;
+    if (bytes == null) return;
+    try {
+      await _mediaChannel.invokeMethod<String>('savePngToGallery', {
+        'bytes': bytes,
+        'fileName': '同路行邀请码_$inviteCode.png',
+      });
+      if (mounted) _message('二维码已保存到相册 Pictures/Tongluxing');
+    } on PlatformException catch (exception) {
+      if (mounted) _message(exception.message ?? '保存失败');
+    }
+  }
+
+  Future<void> validateCurrentQr() async {
+    final token = qr['qrToken']?.toString() ?? '';
+    if (token.isEmpty) return;
+    try {
+      final result = await InviteService(
+        context.read<AppSession>().api,
+      ).validateQr(token);
+      final status = result['status']?.toString() ?? 'INVALID';
+      if (mounted) {
+        _message(status == 'VALID' ? '二维码有效，可正常绑定邀请关系' : '二维码状态：$status');
+      }
+    } catch (exception) {
+      if (mounted) _message('$exception');
+    }
+  }
+
+  void _message(String text) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -60,12 +113,6 @@ class _InvitePageState extends State<InvitePage> {
             ),
             child: Column(
               children: [
-                const Icon(
-                  LucideIcons.usersRound,
-                  color: Colors.white,
-                  size: 56,
-                ),
-                const SizedBox(height: 14),
                 const Text(
                   '邀请好友一起出发',
                   style: TextStyle(
@@ -81,22 +128,33 @@ class _InvitePageState extends State<InvitePage> {
                 ),
                 const SizedBox(height: 22),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 14,
-                  ),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Text(
-                    inviteCode,
-                    style: const TextStyle(
-                      fontSize: 26,
-                      letterSpacing: 4,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  child: qrBytes == null
+                      ? const SizedBox(
+                          width: 190,
+                          height: 190,
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      : Image.memory(qrBytes!, width: 190, height: 190),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  '邀请码  $inviteCode',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    letterSpacing: 2,
+                    fontWeight: FontWeight.w800,
                   ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '有效至 ${_displayTime(qr['expiresAt'])} · 每 7 天自动更换',
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
                 ),
               ],
             ),
@@ -108,35 +166,70 @@ class _InvitePageState extends State<InvitePage> {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _Metric(
-                  label: '已邀请',
-                  value:
-                      '${summary['inviteCount'] ?? summary['invitedCount'] ?? summary['totalCount'] ?? 0}',
+                  label: '有效邀请',
+                  value: '${summary['validInviteCount'] ?? 0}',
                 ),
                 _Metric(
-                  label: '已生效',
-                  value:
-                      '${summary['effectiveCount'] ?? summary['completedCount'] ?? 0}',
+                  label: '下一档还差',
+                  value: '${summary['nextRewardNeed'] ?? 0}',
                 ),
                 _Metric(
-                  label: '成长奖励',
+                  label: '已获规则',
                   value:
-                      '${summary['rewardAmount'] ?? summary['rewardExperience'] ?? summary['rewardValue'] ?? 0}',
+                      '${(summary['grantedRuleCodes'] as List? ?? const []).length}',
                 ),
               ],
             ),
           ),
           const SizedBox(height: 18),
-          FilledButton.icon(
-            onPressed: () => ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text('邀请码 $inviteCode 已准备分享'))),
-            icon: const Icon(LucideIcons.share2),
-            label: const Text('分享给好友'),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: saveQr,
+                  icon: const Icon(LucideIcons.download),
+                  label: const Text('保存二维码'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    await Clipboard.setData(
+                      ClipboardData(
+                        text: qr['qrContent']?.toString() ?? inviteCode,
+                      ),
+                    );
+                    if (mounted) _message('邀请链接已复制');
+                  },
+                  icon: const Icon(LucideIcons.copy),
+                  label: const Text('复制邀请链接'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextButton.icon(
+            onPressed: validateCurrentQr,
+            icon: const Icon(LucideIcons.shieldCheck),
+            label: const Text('验证当前二维码是否有效'),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '安全提示：二维码带有服务端签名。过期、被篡改或已停用的邀请码都会被拒绝。',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.muted, fontSize: 11),
           ),
         ],
       ),
     ),
   );
+
+  String _displayTime(Object? value) {
+    final text = value?.toString() ?? '';
+    if (text.length >= 16) return text.substring(0, 16).replaceFirst('T', ' ');
+    return text.isEmpty ? '—' : text;
+  }
 }
 
 class _Metric extends StatelessWidget {

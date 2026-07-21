@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
@@ -47,7 +48,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class DriverTrackServiceImpl implements DriverTrackService {
 
-    private static final String STATUS_ONGOING = "ONGOING";
+    /** 与 trip-module 的“行驶中”持久状态保持一致。 */
+    private static final String STATUS_RUNNING = "RUNNING";
     private static final int MILD_DEVIATION_METERS = 100;
     private static final int SEVERE_DEVIATION_METERS = 500;
 
@@ -101,10 +103,17 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     @Override
     @Transactional
     public DriverTrackListResponse uploadBatch(DriverTrackBatchRequest request) {
+        Long tripId = request.points().get(0).tripId();
+        if (request.points().stream().anyMatch(point -> !tripId.equals(point.tripId()))) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "一次批量上传只能包含同一行程的轨迹点");
+        }
+        HashSet<LocalDateTime> recordTimes = new HashSet<>();
+        if (request.points().stream().anyMatch(point -> !recordTimes.add(point.recordTime()))) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "同一批次不能包含重复时间的轨迹点");
+        }
         request.points().stream()
                 .sorted(Comparator.comparing(DriverTrackPointRequest::recordTime))
                 .forEach(this::uploadPoint);
-        Long tripId = request.points().get(0).tripId();
         return getTrack(tripId);
     }
 
@@ -156,7 +165,7 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         if (!trip.getUserId().equals(userId)) {
             throw new BusinessException(ResultCode.FORBIDDEN, "只有司机可以上传轨迹");
         }
-        if (!STATUS_ONGOING.equals(trip.getStatus())) {
+        if (!STATUS_RUNNING.equals(trip.getStatus())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "行程未开始，不能上传轨迹");
         }
         return trip;

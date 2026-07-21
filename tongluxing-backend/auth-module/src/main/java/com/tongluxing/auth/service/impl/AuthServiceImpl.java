@@ -466,7 +466,11 @@ public class AuthServiceImpl implements AuthService {
         tokenStore.deleteRefreshToken(request.refreshToken());
         TokenStore.TokenPair tokenPair = tokenStore.create(refreshPrincipal.userId(), account.getPhone(), refreshPrincipal.deviceId());
         insertLoginLog(refreshPrincipal.userId(), account.getPhone(), "refresh", null, currentIp(), true, "refresh token success");
-        return new RefreshTokenResponse(tokenPair.token(), tokenPair.expireSeconds());
+        return new RefreshTokenResponse(
+                tokenPair.token(),
+                tokenPair.refreshToken(),
+                tokenPair.expireSeconds()
+        );
     }
 
     /** 校验短信验证码；过期或错误都会累计登录失败次数。 */

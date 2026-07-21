@@ -54,11 +54,17 @@ public class GrowthQueryDTO {
     /** 徽章图片资源标识。 */
     private String badgeImageKey;
 
+    /** 勋章达成条件的人类可读描述。 */
+    private String conditionDescription;
+
     /** 触发徽章的事件类型。 */
     private String eventType;
 
     /** 触发徽章所需的事件次数阈值。 */
     private Integer threshold;
+
+    /** 当前用户在该规则上的已完成指标。 */
+    private Integer currentValue;
 
     /** 用户获得徽章的时间；未获得徽章时为空。 */
     private LocalDateTime awardedAt;

@@ -121,4 +121,29 @@ public interface VerificationRecordMapper {
             """)
     int updateReversalStatus(@Param("id") Long id, @Param("reversalStatus") String reversalStatus,
                              @Param("now") LocalDateTime now);
+
+    @Update("""
+            update verification_record
+            set verification_status='REVERSED', reversal_status='APPROVED', updated_at=#{now}
+            where id=#{id} and verification_status='SUCCESS' and reversal_status='APPLYING' and deleted=0
+            """)
+    int approveReversal(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    @Update("""
+            update coupon_user cu
+            join verification_record vr on vr.user_coupon_id=cu.id
+            set cu.coupon_status='AVAILABLE', cu.used_order_id=null, cu.used_at=null, cu.updated_at=#{now}
+            where vr.id=#{verificationId} and vr.biz_type='COUPON' and cu.coupon_status='USED'
+              and cu.deleted=0 and vr.deleted=0
+            """)
+    int restoreCoupon(@Param("verificationId") Long verificationId, @Param("now") LocalDateTime now);
+
+    @Update("""
+            update coupon_user cu
+            join verification_record vr on vr.user_coupon_id=cu.id
+            set cu.coupon_status='USED', cu.used_at=#{now}, cu.updated_at=#{now}
+            where vr.id=#{verificationId} and vr.biz_type='COUPON' and cu.coupon_status='AVAILABLE'
+              and cu.deleted=0 and vr.deleted=0
+            """)
+    int markCouponUsed(@Param("verificationId") Long verificationId, @Param("now") LocalDateTime now);
 }

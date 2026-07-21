@@ -25,7 +25,7 @@ public interface VehicleCertificationMapper {
                    submitted_at,reviewed_at,reviewer_id
             from vehicle_certification
             where vehicle_id = #{vehicleId}
-            order by submitted_at desc
+            order by submitted_at desc, id desc
             limit 1
             """)
     VehicleCertification findLatestByVehicleId(@Param("vehicleId") Long vehicleId);
@@ -38,7 +38,7 @@ public interface VehicleCertificationMapper {
                    submitted_at,reviewed_at,reviewer_id
             from vehicle_certification
             where user_id=#{userId}
-            order by submitted_at desc
+            order by submitted_at desc, id desc
             limit 1
             """)
     VehicleCertification findLatestByUserId(@Param("userId") Long userId);
@@ -69,7 +69,7 @@ public interface VehicleCertificationMapper {
                 and (cast(user_id as char)=#{keyword} or cast(vehicle_id as char)=#{keyword}
                      or plate_no_mask like concat('%',#{keyword},'%'))
             </if>
-            order by submitted_at desc
+            order by submitted_at desc, id desc
             limit #{offset},#{size}
             </script>
             """)

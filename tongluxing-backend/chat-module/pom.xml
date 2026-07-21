@@ -25,6 +25,10 @@
         </dependency>
         <dependency>
             <groupId>com.tongluxing</groupId>
+            <artifactId>trip-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongluxing</groupId>
             <artifactId>user-module</artifactId>
         </dependency>
         <dependency>

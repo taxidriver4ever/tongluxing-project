@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -157,8 +158,16 @@ public class GroupbuyServiceImpl implements GroupbuyService {
             participant.setCreatedAt(now);
             participant.setUpdatedAt(now);
             participant.setDeleted(0);
-            participantMapper.insert(participant);
-            activityMapper.increasePeople(activityId, now);
+            try {
+                participantMapper.insert(participant);
+            } catch (DuplicateKeyException duplicate) {
+                return toVO(requireActivity(activityId));
+            }
+            merchantProductPort.decreaseStock(activity.getProductId(), 1,
+                    "groupbuy:join:" + request.requestId());
+            if (activityMapper.increasePeople(activityId, now) != 1) {
+                throw new BusinessException(409, "拼单名额已满或活动状态已变化");
+            }
             activityMapper.markSuccessIfReached(activityId, now);
             redis.delete("groupbuy:cache:activity:%d".formatted(activityId));
         }

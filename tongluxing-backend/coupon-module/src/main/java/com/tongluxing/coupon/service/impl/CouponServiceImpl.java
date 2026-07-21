@@ -125,15 +125,19 @@ public class CouponServiceImpl implements CouponService {
         if (end == null || !end.isAfter(now)) {
             throw new BusinessException(409, "优惠券模板已过期");
         }
-        if (mapper.increaseClaimed(templateId, now) == 0) {
-            throw new BusinessException(409, "优惠券已领完");
-        }
         long id = SnowflakeIdGenerator.nextId();
         try {
             mapper.insertCoupon(id, userId, templateId, sourceType, sourceBizId, start, end, now);
         } catch (DuplicateKeyException e) {
-            existing = mapper.findBySource(userId, templateId, sourceType, sourceBizId);
+            existing = mapper.findBySourceForUpdate(userId, templateId, sourceType, sourceBizId);
             return new CouponIssueResult(existing.getId(), existing.getCouponStatus(), true);
+        }
+        if (mapper.increaseClaimed(templateId, now) == 0) {
+            throw new BusinessException(409, "优惠券已领完");
+        }
+        if (mapper.isMerchantOfferTemplate(templateId) > 0
+                && mapper.consumeMerchantOfferStock(templateId, now) == 0) {
+            throw new BusinessException(409, "商家优惠券库存不足或未到领取时间");
         }
         return new CouponIssueResult(id, "AVAILABLE", false);
     }

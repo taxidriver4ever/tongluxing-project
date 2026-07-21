@@ -33,6 +33,17 @@ public interface ChatJoinApplicationMapper {
         """)
     ChatJoinApplication findById(@Param("id") Long id);
 
+    @Select("""
+        select id,conversation_id conversationId,applicant_user_id applicantUserId,
+          application_message applicationMessage,application_status applicationStatus,
+          reviewer_user_id reviewerUserId,reviewed_at reviewedAt,created_at createdAt,updated_at updatedAt
+        from chat_join_application
+        where conversation_id=#{conversationId} and applicant_user_id=#{applicantUserId}
+          and application_status='PENDING' and deleted=0 limit 1
+        """)
+    ChatJoinApplication findPending(@Param("conversationId") Long conversationId,
+                                    @Param("applicantUserId") Long applicantUserId);
+
     @Update("""
         update chat_join_application set application_status=#{decision},reviewer_user_id=#{reviewerId},
           reviewed_at=#{now},updated_at=#{now}

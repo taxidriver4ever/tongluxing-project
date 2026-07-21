@@ -4,6 +4,8 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.tongluxing.common.exception.BusinessException;
@@ -22,6 +24,7 @@ import com.tongluxing.team.mapper.TeamJoinApplicationMapper;
 import com.tongluxing.team.mapper.TeamMapper;
 import com.tongluxing.team.mapper.TeamMemberMapper;
 import com.tongluxing.team.service.TeamService;
+import com.tongluxing.team.service.TeamApplicationReviewedEvent;
 import com.tongluxing.team.vo.TeamApplicationResponse;
 import com.tongluxing.team.vo.TeamMemberListResponse;
 import com.tongluxing.team.vo.TeamMemberResponse;
@@ -45,11 +48,13 @@ public class TeamServiceImpl implements TeamService {
     private final TeamAuditLogMapper auditLogMapper;
     private final TeamTripPort tripPort;
     private final CurrentUserContext currentUserContext;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 创建车队：校验用户无活跃车队、行程归属后写入车队和队长成员。
      */
     @Override
+    @Transactional
     public TeamResponse createTeam(CreateTeamRequest request) {
         Long userId = currentUserContext.requireUserId();
         if (memberMapper.findActiveByUserId(userId) != null || teamMapper.findActiveOwnedByUser(userId) != null) {
@@ -108,6 +113,7 @@ public class TeamServiceImpl implements TeamService {
      * 提交入队申请：禁止队长重复申请、禁止一个用户同时加入多个活跃车队。
      */
     @Override
+    @Transactional
     public TeamApplicationResponse apply(Long teamId, JoinTeamApplicationRequest request) {
         Long userId = currentUserContext.requireUserId();
         Team team = requireTeam(teamId);
@@ -141,6 +147,7 @@ public class TeamServiceImpl implements TeamService {
      * 队长审批入队申请；审批通过时同步增加车队人数并写入成员记录。
      */
     @Override
+    @Transactional
     public TeamApplicationResponse review(Long applicationId, ReviewTeamApplicationRequest request) {
         Long reviewerId = currentUserContext.requireUserId();
         TeamJoinApplication application = applicationMapper.findById(applicationId);
@@ -175,6 +182,8 @@ public class TeamServiceImpl implements TeamService {
             addMember(team.getId(), application.getApplicantUserId(), application.getApplicantVehicleId(), "MEMBER");
         }
         audit(team.getId(), reviewerId, "REVIEW_TEAM_APPLICATION", status);
+        eventPublisher.publishEvent(new TeamApplicationReviewedEvent(team.getId(), team.getTripId(),
+                application.getApplicantUserId(), status));
         return toApplicationResponse(application);
     }
 
@@ -182,6 +191,7 @@ public class TeamServiceImpl implements TeamService {
      * 普通成员退出车队，并同步扣减车队人数。
      */
     @Override
+    @Transactional
     public TeamResponse exit(Long teamId) {
         Long userId = currentUserContext.requireUserId();
         Team team = requireTeam(teamId);

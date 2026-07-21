@@ -35,6 +35,19 @@ public final class InviteModels {
     public record InviteCodeVO(String inviteCode, String scene, Boolean enabled) {
     }
 
+    /** 七天轮换的邀请二维码。二维码令牌经过服务端签名，不保存敏感明文。 */
+    public record InviteQrVO(
+            String inviteCode, String qrToken, String qrContent, String qrImageBase64,
+            LocalDateTime generatedAt, LocalDateTime expiresAt, Long remainingSeconds
+    ) {
+    }
+
+    /** 邀请二维码验签与过期校验结果。 */
+    public record InviteQrValidationVO(
+            Boolean valid, String status, String inviteCode, LocalDateTime expiresAt
+    ) {
+    }
+
     /**
      * 邀请码绑定结果。
      *

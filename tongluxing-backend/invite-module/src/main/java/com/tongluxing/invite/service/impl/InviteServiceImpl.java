@@ -1,12 +1,23 @@
 package com.tongluxing.invite.service.impl;
 
 import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.nio.charset.StandardCharsets;
+import java.io.ByteArrayOutputStream;
+import java.security.MessageDigest;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Base64;
+import java.util.UUID;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 import com.tongluxing.invite.dto.InviteRewardResult;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,11 +36,16 @@ import com.tongluxing.invite.model.InviteModels.InvitationVO;
 import com.tongluxing.invite.model.InviteModels.InviteBindVO;
 import com.tongluxing.invite.model.InviteModels.InviteCodeVO;
 import com.tongluxing.invite.model.InviteModels.InviteRewardProgressVO;
+import com.tongluxing.invite.model.InviteModels.InviteQrVO;
+import com.tongluxing.invite.model.InviteModels.InviteQrValidationVO;
 import com.tongluxing.invite.model.InviteModels.PageResult;
 import com.tongluxing.invite.service.InviteService;
 import com.tongluxing.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.MultiFormatWriter;
+import com.google.zxing.client.j2se.MatrixToImageWriter;
 
 /**
  * 邀请业务服务实现。
@@ -50,13 +66,10 @@ public class InviteServiceImpl implements InviteService {
     private static final String RULE_FIRST_TEAM = "FIRST_TEAM";
 
     /** 邀请奖励业务幂等号前缀。 */
-    private static final String REWARD_BIZ_PREFIX = "INVITE_FIRST_TEAM";
+    private static final String REWARD_BIZ_PREFIX = "IFT";
 
     /** 邀请新用户注册奖励，每条邀请关系只发一次。 */
     private static final String RULE_REGISTER = "INVITE_USER_REGISTER";
-
-    /** V1 首次组队奖励快照；实际发放由 InviteRewardPort 适配。 */
-    private static final String FIRST_TEAM_REWARD_SNAPSHOT = "{\"growthPoints\":100}";
 
     /** MVP 邀请注册人数阶梯奖励，value 为同路值。 */
     private static final Map<Integer, Integer> STAGE_REWARDS = Map.of(
@@ -69,6 +82,9 @@ public class InviteServiceImpl implements InviteService {
     /** 邀请码最多生成尝试次数，用于处理极小概率的唯一键碰撞。 */
     private static final int MAX_CODE_GENERATE_ATTEMPTS = 5;
 
+    /** 二维码签名周期：七天。 */
+    private static final long QR_PERIOD_SECONDS = 7L * 24 * 60 * 60;
+
     /** 邀请模块数据访问对象。 */
     private final InviteMapper mapper;
 
@@ -78,10 +94,65 @@ public class InviteServiceImpl implements InviteService {
     /** 奖励发放端口；使用 ObjectProvider 允许没有实现时模块仍可启动。 */
     private final ObjectProvider<InviteRewardPort> rewardPort;
 
+    /** 复用部署环境中的高强度 JWT 密钥进行 HMAC；生产环境不会落库二维码明文令牌。 */
+    @Value("${auth.jwt.secret}")
+    private String qrSecret;
+
     /** 获取当前登录用户的邀请码。 */
     @Override
     public InviteCodeVO currentCode() {
         return getCode(currentUser.requireUserId());
+    }
+
+    /** 生成当前七天时间窗的确定性签名令牌及可直接展示的 PNG 二维码。 */
+    @Override
+    public InviteQrVO currentQr() {
+        long userId = currentUser.requireUserId();
+        InviteCodeVO code = getCode(userId);
+        long now = Instant.now().getEpochSecond();
+        long issued = now - Math.floorMod(now, QR_PERIOD_SECONDS);
+        long expires = issued + QR_PERIOD_SECONDS;
+        String payload = userId + "|" + code.inviteCode() + "|" + issued + "|" + expires;
+        String token = encode(payload.getBytes(StandardCharsets.UTF_8)) + "." + sign(payload);
+        String content = "tongluxing://invite?token=" + token;
+        return new InviteQrVO(code.inviteCode(), token, content, qrPng(content),
+                local(issued), local(expires), Math.max(0, expires - now));
+    }
+
+    /** 先做常量时间验签，再校验时间窗和邀请码状态，明确区分过期与伪造。 */
+    @Override
+    public InviteQrValidationVO validateQr(String token) {
+        try {
+            if (token == null || token.isBlank() || token.length() > 1024) {
+                return invalid("INVALID");
+            }
+            String[] segments = token.split("\\.", -1);
+            if (segments.length != 2) {
+                return invalid("INVALID");
+            }
+            String payload = new String(Base64.getUrlDecoder().decode(segments[0]), StandardCharsets.UTF_8);
+            if (!MessageDigest.isEqual(sign(payload).getBytes(StandardCharsets.US_ASCII),
+                    segments[1].getBytes(StandardCharsets.US_ASCII))) {
+                return invalid("INVALID");
+            }
+            String[] fields = payload.split("\\|", -1);
+            if (fields.length != 4) {
+                return invalid("INVALID");
+            }
+            long userId = Long.parseLong(fields[0]);
+            String inviteCode = fields[1];
+            long expires = Long.parseLong(fields[3]);
+            if (Instant.now().getEpochSecond() >= expires) {
+                return new InviteQrValidationVO(false, "EXPIRED", inviteCode, local(expires));
+            }
+            InviteQueryDTO owner = mapper.findCode(inviteCode);
+            if (owner == null || !Long.valueOf(userId).equals(owner.getUserId())) {
+                return new InviteQrValidationVO(false, "DISABLED", inviteCode, local(expires));
+            }
+            return new InviteQrValidationVO(true, "VALID", inviteCode, local(expires));
+        } catch (RuntimeException exception) {
+            return invalid("INVALID");
+        }
     }
 
     /** 手动扫码/输入邀请码绑定；与注册来源自动绑定共用同一幂等实现。 */
@@ -220,16 +291,21 @@ public class InviteServiceImpl implements InviteService {
         long inviter = relation.getInviterUserId();
         LocalDateTime now = LocalDateTime.now();
         mapper.markValid(relationId, now);
-        String rewardBizNo = REWARD_BIZ_PREFIX + ":" + relationId + ":" + bizId;
+        // 外部 bizId 可能很长；将其稳定散列后再拼接，避免超过 reward_biz_no 的 64 字符限制。
+        String eventDigest = UUID.nameUUIDFromBytes(bizId.getBytes(StandardCharsets.UTF_8))
+                .toString().replace("-", "");
+        String rewardBizNo = REWARD_BIZ_PREFIX + ":" + relationId + ":" + eventDigest;
+        InviteRewardPort port = rewardPort.getIfAvailable();
+        int configuredPoints = port == null ? 100 : port.rewardPoints(RULE_FIRST_TEAM);
+        String rewardSnapshot = "{\"growthPoints\":" + configuredPoints + "}";
         try {
             mapper.insertReward(SnowflakeIdGenerator.nextId(), relationId, inviter, RULE_FIRST_TEAM,
-                    rewardBizNo, FIRST_TEAM_REWARD_SNAPSHOT, now);
+                    rewardBizNo, rewardSnapshot, now);
         } catch (DuplicateKeyException e) {
             // reward_biz_no 有唯一约束，重复事件直接返回 DUPLICATE，保证幂等。
             return new InviteRewardResult(relationId, inviter, rewardBizNo, "DUPLICATE");
         }
         try {
-            InviteRewardPort port = rewardPort.getIfAvailable();
             if (port == null) {
                 throw new IllegalStateException("reward port unavailable");
             }
@@ -270,7 +346,9 @@ public class InviteServiceImpl implements InviteService {
         }
         String ruleCode = "INV_REG:" + Long.toUnsignedString(relationId, 36).toUpperCase(Locale.ROOT);
         String rewardBizNo = RULE_REGISTER + ":" + relationId;
-        String snapshot = "{\"rewardType\":\"GROWTH\",\"rewardValue\":100}";
+        InviteRewardPort port = rewardPort.getIfAvailable();
+        int configuredPoints = port == null ? 100 : port.rewardPoints(ruleCode);
+        String snapshot = "{\"rewardType\":\"GROWTH\",\"rewardValue\":" + configuredPoints + "}";
         try {
             mapper.insertReward(SnowflakeIdGenerator.nextId(), relationId, inviter, ruleCode,
                     rewardBizNo, snapshot, now);
@@ -278,7 +356,6 @@ public class InviteServiceImpl implements InviteService {
             return;
         }
         try {
-            InviteRewardPort port = rewardPort.getIfAvailable();
             if (port == null) {
                 throw new IllegalStateException("reward port unavailable");
             }
@@ -294,14 +371,15 @@ public class InviteServiceImpl implements InviteService {
     private void issueStageReward(Long inviter, Long relationId, int stage, int points, LocalDateTime now) {
         String ruleCode = "INVITE_STAGE_" + stage;
         String rewardBizNo = "INVITE_STAGE:" + inviter + ":" + stage;
-        String snapshot = "{\"rewardType\":\"GROWTH\",\"rewardStage\":" + stage + ",\"rewardValue\":" + points + "}";
+        InviteRewardPort port = rewardPort.getIfAvailable();
+        int configuredPoints = port == null ? points : port.rewardPoints(ruleCode);
+        String snapshot = "{\"rewardType\":\"GROWTH\",\"rewardStage\":" + stage + ",\"rewardValue\":" + configuredPoints + "}";
         try {
             mapper.insertReward(SnowflakeIdGenerator.nextId(), relationId, inviter, ruleCode, rewardBizNo, snapshot, now);
         } catch (DuplicateKeyException e) {
             return;
         }
         try {
-            InviteRewardPort port = rewardPort.getIfAvailable();
             if (port == null) {
                 throw new IllegalStateException("reward port unavailable");
             }
@@ -326,5 +404,38 @@ public class InviteServiceImpl implements InviteService {
             }
         }
         return 0;
+    }
+
+    private InviteQrValidationVO invalid(String status) {
+        return new InviteQrValidationVO(false, status, null, null);
+    }
+
+    private String sign(String payload) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(qrSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return encode(mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException("邀请二维码签名失败", exception);
+        }
+    }
+
+    private String encode(byte[] value) {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(value);
+    }
+
+    private String qrPng(String content) {
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            MatrixToImageWriter.writeToStream(
+                    new MultiFormatWriter().encode(content, BarcodeFormat.QR_CODE, 720, 720),
+                    "PNG", output);
+            return Base64.getEncoder().encodeToString(output.toByteArray());
+        } catch (Exception exception) {
+            throw new IllegalStateException("邀请二维码生成失败", exception);
+        }
+    }
+
+    private LocalDateTime local(long epochSecond) {
+        return LocalDateTime.ofInstant(Instant.ofEpochSecond(epochSecond), ZoneId.systemDefault());
     }
 }

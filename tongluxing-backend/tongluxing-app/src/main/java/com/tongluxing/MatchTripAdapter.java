@@ -52,7 +52,12 @@ public class MatchTripAdapter implements MatchTripPort {
      * @return 匹配模块行程 DTO
      */
     private MatchTripDTO toDTO(Trip trip) {
-        return new MatchTripDTO(trip.getId(), trip.getUserId(), trip.getStartName(), trip.getEndName(),
-                trip.getDepartureTime(), trip.getTravelDepth());
+        return new MatchTripDTO(trip.getId(), trip.getUserId(), trip.getTitle(), trip.getStartName(), trip.getEndName(),
+                decimal(trip.getStartLat()), decimal(trip.getStartLng()), decimal(trip.getEndLat()), decimal(trip.getEndLng()),
+                trip.getDepartureTime(), trip.getTravelDepth(), trip.getExpectedPeople(), trip.getStatus(), trip.getPublicFlag());
+    }
+
+    private Double decimal(java.math.BigDecimal value) {
+        return value == null ? null : value.doubleValue();
     }
 }

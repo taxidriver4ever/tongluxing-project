@@ -1,13 +1,13 @@
 package com.tongluxing.admin.service.impl;
 
-import java.math.BigDecimal;
-import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import org.springframework.stereotype.Service;
 
 import com.tongluxing.admin.service.AdminOverviewService;
 import com.tongluxing.admin.vo.AdminOperationOverviewVO;
+import com.tongluxing.admin.mapper.AdminTradeMapper;
 
 import lombok.RequiredArgsConstructor;
 
@@ -20,22 +20,16 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class AdminOverviewServiceImpl implements AdminOverviewService {
 
-    /** 后台通用支撑组件。 */
-    private final AdminSupport support;
+    private final AdminTradeMapper mapper;
 
     /** 查询运营概览；相同时间范围结果缓存 5 分钟。 */
     @Override
     public AdminOperationOverviewVO overview(LocalDateTime startTime, LocalDateTime endTime) {
-        String key = "admin:overview:%s:%s".formatted(startTime == null ? "all" : startTime,
-                endTime == null ? "all" : endTime);
-        AdminOperationOverviewVO cached = support.readJson(key, AdminOperationOverviewVO.class);
-        if (cached != null) {
-            return cached;
-        }
-        // 目前统计口径尚未接入各业务模块，先返回结构完整的零值结果，保证接口可用。
-        AdminOperationOverviewVO result = new AdminOperationOverviewVO(0L, 0L, 0L, 0L, 0L,
-                BigDecimal.ZERO, 0L, BigDecimal.ZERO, 0L, 0L, 0L);
-        support.writeJson(key, result, Duration.ofMinutes(5));
-        return result;
+        LocalDateTime start = startTime == null ? LocalDate.now().atStartOfDay() : startTime;
+        LocalDateTime end = endTime == null ? start.toLocalDate().plusDays(1).atStartOfDay().minusNanos(1) : endTime;
+        return new AdminOperationOverviewVO(mapper.registeredUsers(), mapper.activeUsers(), mapper.newUsers(start,end),
+                mapper.certifiedVehicles(), mapper.merchants(), mapper.pendingMerchants(), mapper.activeMerchants(),
+                mapper.groupbuys(), mapper.orders(), mapper.ordersBetween(start,end), mapper.paidAmount(), mapper.paidBetween(start,end),
+                mapper.verifications(), mapper.commission(), mapper.couponOffers(), mapper.pendingRefunds(), mapper.pendingSettlements(), mapper.trends());
     }
 }

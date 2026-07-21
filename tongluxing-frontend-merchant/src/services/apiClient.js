@@ -1,6 +1,7 @@
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 const TOKEN_KEY = 'tongluxing_merchant_token'
 const USER_KEY = 'tongluxing_merchant_user'
+const DEVICE_KEY = 'tongluxing_merchant_device_id'
 const LONG_FIELDS = ['userId', 'merchantId', 'storeId', 'couponId', 'applicationId', 'activityId', 'productId']
 
 export class ApiError extends Error {
@@ -15,6 +16,15 @@ function parseLosslessly(text) {
 }
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || ''
+export function getOrCreateDeviceId() {
+  let id = localStorage.getItem(DEVICE_KEY)
+  if (!id) {
+    const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    id = `merchant-web-${random}`
+    localStorage.setItem(DEVICE_KEY, id)
+  }
+  return id
+}
 export function getStoredUser() {
   const storage = localStorage.getItem(TOKEN_KEY) ? localStorage : sessionStorage
   try { return JSON.parse(storage.getItem(USER_KEY) || 'null') } catch { return null }

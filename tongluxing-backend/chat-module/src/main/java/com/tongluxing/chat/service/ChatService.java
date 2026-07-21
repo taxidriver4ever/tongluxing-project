@@ -25,6 +25,9 @@ public interface ChatService {
     /** 行程开始时创建或重新启用行程群聊。 */
     ConversationResponse openTripConversation(Long tripId, String tripName, Long ownerUserId, List<Long> memberUserIds);
 
+    /** 行程发布时建立出发前群聊，用于讨论和行程确认。 */
+    ConversationResponse prepareTripConversation(Long tripId, String tripName, Long ownerUserId, List<Long> memberUserIds);
+
     /** 查询当前成员可访问的行程群聊。 */
     ConversationResponse getTripConversation(Long tripId);
 

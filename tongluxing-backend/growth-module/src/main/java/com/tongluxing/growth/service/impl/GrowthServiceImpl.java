@@ -117,8 +117,8 @@ public class GrowthServiceImpl implements GrowthService {
         if (mapper.updateAccount(account.getId(), balance, level, account.getVersion(), now) == 0) {
             throw new BusinessException(ResultCode.INTERNAL_SERVER_ERROR, "成长账户并发更新失败");
         }
-        int count = mapper.countEvents(userId, bizType);
-        for (Long badgeId : mapper.findEligibleBadges(bizType, count)) {
+        int metric = mapper.metricValue(userId, bizType);
+        for (Long badgeId : mapper.findEligibleBadges(bizType, metric)) {
             mapper.insertUserBadge(SnowflakeIdGenerator.nextId(), userId, badgeId, bizId, now);
         }
         return new GrowthGrantResult(userId, points, balance, level, false);
@@ -171,6 +171,7 @@ public class GrowthServiceImpl implements GrowthService {
      */
     private BadgeVO badge(GrowthQueryDTO row) {
         return new BadgeVO(row.getBadgeId(), row.getBadgeCode(), row.getBadgeName(),
-                row.getBadgeImageKey(), row.getAwardedAt());
+                row.getBadgeImageKey(), row.getConditionDescription(), row.getEventType(),
+                row.getCurrentValue(), row.getThreshold(), row.getAwardedAt());
     }
 }

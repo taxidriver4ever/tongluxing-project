@@ -1,59 +1,256 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
+import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../common/widgets/app_widgets.dart';
+import '../../../data/services/app_services.dart';
 
-class BadgePage extends StatelessWidget {
+class BadgePage extends StatefulWidget {
   const BadgePage({super.key});
-  static const badges = [
-    ('初次启程', '完成首次自驾行程', '🧭', true),
-    ('千里同行', '累计驾驶 1000 公里', '🏔️', true),
-    ('车队核心', '参与 10 次车队活动', '🚙', true),
-    ('高原探索者', '完成海拔 3000 米路线', '🏕️', false),
-    ('邀请达人', '成功邀请 20 位好友', '🤝', false),
-    ('环国旅行家', '点亮 20 个省份', '🗺️', false),
-  ];
+  @override
+  State<BadgePage> createState() => _BadgePageState();
+}
+
+class _BadgePageState extends State<BadgePage> {
+  bool loading = true;
+  String? error;
+  List<Map<String, dynamic>> earned = [];
+  List<Map<String, dynamic>> locked = [];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => load());
+  }
+
+  Future<void> load() async {
+    if (mounted) setState(() => loading = true);
+    try {
+      final data = await GrowthService(context.read<AppSession>().api).badges();
+      earned = _maps(data['earned']);
+      locked = _maps(data['locked']);
+      error = null;
+    } catch (exception) {
+      error = '$exception';
+    }
+    if (mounted) setState(() => loading = false);
+  }
+
+  List<Map<String, dynamic>> _maps(Object? source) =>
+      (source as List? ?? const [])
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('我的勋章')),
-    body: GridView.builder(
-      padding: const EdgeInsets.all(22),
-      itemCount: badges.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: .92,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-      ),
-      itemBuilder: (_, i) => Opacity(
-        opacity: badges[i].$4 ? 1 : .48,
-        child: TlxCard(
-          color: badges[i].$4
-              ? const Color(0xFFFFF7E8)
-              : const Color(0xFFF0F2F5),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(badges[i].$3, style: const TextStyle(fontSize: 42)),
+    body: AsyncPanel(
+      loading: loading,
+      error: error,
+      onRetry: load,
+      child: RefreshIndicator(
+        onRefresh: load,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+          children: [
+            _BadgeSummary(
+              earned: earned.length,
+              total: earned.length + locked.length,
+            ),
+            const SizedBox(height: 22),
+            if (earned.isNotEmpty) ...[
+              const _BadgeSectionTitle(title: '已经点亮', subtitle: '每一枚都来自真实成就'),
               const SizedBox(height: 10),
-              Text(
-                badges[i].$1,
-                style: const TextStyle(fontWeight: FontWeight.w800),
+              ...earned.map(
+                (badge) => _BadgeTile(badge: badge, unlocked: true),
               ),
-              const SizedBox(height: 5),
-              Text(
-                badges[i].$2,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.muted, fontSize: 11),
-              ),
+              const SizedBox(height: 16),
             ],
-          ),
+            const _BadgeSectionTitle(title: '继续探索', subtitle: '完成条件后由系统自动点亮'),
+            const SizedBox(height: 10),
+            ...locked.map((badge) => _BadgeTile(badge: badge, unlocked: false)),
+          ],
         ),
       ),
     ),
   );
+}
+
+class _BadgeSummary extends StatelessWidget {
+  const _BadgeSummary({required this.earned, required this.total});
+  final int earned;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(22),
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        colors: [Color(0xFF2F80ED), Color(0xFF56A8FF)],
+      ),
+      borderRadius: BorderRadius.circular(24),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 66,
+          height: 66,
+          decoration: const BoxDecoration(
+            color: Colors.white24,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(LucideIcons.medal, size: 34, color: Colors.white),
+        ),
+        const SizedBox(width: 18),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '我的荣誉足迹',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                '已点亮 $earned / $total 枚',
+                style: const TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 10),
+              LinearProgressIndicator(
+                value: total == 0 ? 0 : earned / total,
+                minHeight: 7,
+                borderRadius: BorderRadius.circular(9),
+                color: Colors.white,
+                backgroundColor: Colors.white24,
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _BadgeSectionTitle extends StatelessWidget {
+  const _BadgeSectionTitle({required this.title, required this.subtitle});
+  final String title;
+  final String subtitle;
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(
+        title,
+        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+      ),
+      Text(
+        subtitle,
+        style: const TextStyle(fontSize: 11, color: AppColors.muted),
+      ),
+    ],
+  );
+}
+
+class _BadgeTile extends StatelessWidget {
+  const _BadgeTile({required this.badge, required this.unlocked});
+  final Map<String, dynamic> badge;
+  final bool unlocked;
+
+  String get code => '${badge['badgeCode'] ?? ''}';
+  IconData get icon {
+    if (code.contains('INVITE')) return LucideIcons.usersRound;
+    if (code.contains('DISTANCE')) return LucideIcons.route;
+    if (code.contains('HELP')) return LucideIcons.handHeart;
+    if (code.contains('G318')) return LucideIcons.mountain;
+    if (code.contains('SEASONS')) return LucideIcons.leaf;
+    return LucideIcons.compass;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final current = (badge['currentValue'] as num?)?.toInt() ?? 0;
+    final threshold = (badge['threshold'] as num?)?.toInt() ?? 1;
+    final progress = threshold <= 0
+        ? 0.0
+        : (current / threshold).clamp(0.0, 1.0);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 11),
+      child: TlxCard(
+        color: unlocked ? const Color(0xFFFFF8E9) : const Color(0xFFF7F8FA),
+        child: Row(
+          children: [
+            Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                color: unlocked
+                    ? const Color(0xFFFFE3A3)
+                    : const Color(0xFFE7EAF0),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                color: unlocked ? const Color(0xFFB76B00) : AppColors.muted,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 15),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${badge['badgeName'] ?? ''}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        unlocked ? '已获得' : '$current / $threshold',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: unlocked ? AppColors.success : AppColors.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    '${badge['conditionDescription'] ?? ''}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  LinearProgressIndicator(
+                    value: unlocked ? 1 : progress,
+                    minHeight: 5,
+                    borderRadius: BorderRadius.circular(8),
+                    color: unlocked
+                        ? const Color(0xFFF2A93B)
+                        : AppColors.primary,
+                    backgroundColor: const Color(0xFFE4E8EE),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class CouponWalletPage extends StatefulWidget {

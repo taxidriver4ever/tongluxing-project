@@ -60,7 +60,7 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     @Transactional
     public JsapiPayParamsVO createJsapiPayment(JsapiPaymentRequest request) {
-        PaymentOrderDTO order = orderPort.getOrder(request.orderId());
+        PaymentOrderDTO order = requireOwnedOrder(request.orderId());
         if (!"WAIT_PAY".equals(order.paymentStatus())) {
             throw new BusinessException("订单不是待支付状态");
         }
@@ -93,6 +93,10 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     @Transactional
     public void handlePaymentCallback(PaymentCallbackRequest request) {
+        PaymentOrderDTO order = requireOwnedOrder(request.orderId());
+        if (order.payableAmount() == null || request.payAmount().compareTo(order.payableAmount()) != 0) {
+            throw new BusinessException(400, "支付回调金额与服务端订单金额不一致");
+        }
         String idemKey = "payment:idem:callback:%s".formatted(request.transactionId());
         if (Boolean.TRUE.equals(redis.hasKey(idemKey))) {
             return;
@@ -100,21 +104,13 @@ public class PaymentServiceImpl implements PaymentService {
         LocalDateTime paidAt = request.paidAt() == null ? LocalDateTime.now() : request.paidAt();
         PaymentRecord latest = paymentRecordMapper.findLatestByOrderId(request.orderId());
         if (latest == null) {
-            latest = new PaymentRecord();
-            latest.setId(SnowflakeIdGenerator.nextId());
-            latest.setOrderId(request.orderId());
-            latest.setOrderNo("");
-            latest.setPaymentNo("PY" + SnowflakeIdGenerator.nextIdString());
-            latest.setPayChannel("WECHAT_JSAPI");
-            latest.setPayAmount(request.payAmount());
-            latest.setPaymentStatus("PAYING");
-            latest.setCreatedAt(paidAt);
-            latest.setUpdatedAt(paidAt);
-            latest.setDeleted(0);
-            paymentRecordMapper.insert(latest);
+            throw new BusinessException(409, "支付会话不存在，请先发起支付");
+        }
+        if (latest.getPayAmount() == null || request.payAmount().compareTo(latest.getPayAmount()) != 0) {
+            throw new BusinessException(400, "支付回调金额与支付会话金额不一致");
         }
         paymentRecordMapper.markSuccess(request.orderId(), request.transactionId(), request.rawPayload(), paidAt);
-        PaymentOrderDTO order = orderPort.markPaid(request.orderId(), paidAt);
+        order = orderPort.markPaid(request.orderId(), paidAt);
         // 支付成功后，如果订单来自拼团活动，则同步拼团参与人支付状态。
         if (order.activityId() != null) {
             groupbuyPort.addPaidParticipant(order.activityId(), order.orderId(), order.userId(), paidAt,
@@ -135,7 +131,7 @@ public class PaymentServiceImpl implements PaymentService {
             return cached;
         }
         Long userId = currentUserContext.requireUserId();
-        PaymentOrderDTO order = orderPort.getOrder(request.orderId());
+        PaymentOrderDTO order = requireOwnedOrder(request.orderId());
         if (!"SUCCESS".equals(order.paymentStatus())) {
             throw new BusinessException("订单未支付，不能退款");
         }
@@ -152,14 +148,11 @@ public class PaymentServiceImpl implements PaymentService {
         record.setRefundAmount(order.paidAmount());
         record.setRefundReason(request.reason().trim());
         record.setRefundType("USER_APPLY");
-        record.setRefundStatus("REFUNDING");
-        record.setAuditStatus("APPROVED");
+        // 用户申请只生成待审退款事实，不在审核前调用支付网关。
+        // 运营后台通过后再推进退款和订单状态，避免“先退款、后审核”的倒置链路。
+        record.setRefundStatus("PENDING");
+        record.setAuditStatus("PENDING");
         record.setRequestedAt(now);
-        PaymentGateway.RefundResult refundResult = paymentGateway.requestRefund(
-                new PaymentGateway.RefundCommand(record.getId(), record.getRefundNo(),
-                        record.getOrderId(), record.getRefundAmount(), record.getRefundReason()));
-        record.setWxRefundId(refundResult.externalRefundId());
-        record.setCallbackPayload(refundResult.rawPayload());
         record.setCreatedAt(now);
         record.setUpdatedAt(now);
         record.setDeleted(0);
@@ -179,6 +172,9 @@ public class PaymentServiceImpl implements PaymentService {
         if (record == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "退款记录不存在");
         }
+        if (!currentUserContext.requireUserId().equals(record.getUserId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "无权查看该退款记录");
+        }
         return toRefundVO(record);
     }
 
@@ -195,6 +191,9 @@ public class PaymentServiceImpl implements PaymentService {
         PaymentRefundRecord record = refundRecordMapper.findById(request.refundId());
         if (record == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "退款记录不存在");
+        }
+        if (!currentUserContext.requireUserId().equals(record.getUserId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "无权处理该退款回调");
         }
         LocalDateTime refundedAt = request.refundedAt() == null ? LocalDateTime.now() : request.refundedAt();
         refundRecordMapper.markSuccess(request.refundId(), request.wxRefundId(), request.rawPayload(), refundedAt);
@@ -226,22 +225,16 @@ public class PaymentServiceImpl implements PaymentService {
         record.setMerchantId(request.merchantId());
         record.setVerificationId(request.verificationId());
         record.setSharingNo("PS" + SnowflakeIdGenerator.nextIdString());
-        PaymentGateway.ProfitSharingResult sharingResult = paymentGateway.createProfitSharing(
-                new PaymentGateway.ProfitSharingCommand(request.orderId(), request.merchantId(),
-                        request.verificationId(), total, merchantAmount));
-        record.setWxSharingId(sharingResult.externalSharingId());
+        // 核销后先生成待结算事实，统一由运营后台触发结算；避免业务线程直接完成资金分账。
         record.setTotalAmount(total);
         record.setPlatformCommissionAmount(commission);
         record.setMerchantAmount(merchantAmount);
         record.setCommissionRate(DEFAULT_COMMISSION_RATE);
-        record.setSharingStatus("SUCCESS");
-        record.setCallbackPayload(sharingResult.rawPayload());
-        record.setSharedAt(now);
+        record.setSharingStatus("WAIT_SHARING");
         record.setCreatedAt(now);
         record.setUpdatedAt(now);
         record.setDeleted(0);
         sharingRecordMapper.insert(record);
-        orderPort.markCompleted(request.orderId());
         ProfitSharingVO result = toSharingVO(record);
         writeJson(idemKey, result, Duration.ofDays(7));
         return result;
@@ -262,6 +255,19 @@ public class PaymentServiceImpl implements PaymentService {
         return new ProfitSharingVO(record.getId(), record.getOrderId(), record.getMerchantId(), record.getSharingNo(),
                 record.getTotalAmount(), record.getPlatformCommissionAmount(), record.getMerchantAmount(),
                 record.getCommissionRate(), record.getSharingStatus(), record.getSharedAt());
+    }
+
+    /**
+     * Mock 支付阶段仅允许订单所属用户发起支付和模拟回调。
+     * 真实网关接入后应改为平台证书验签的匿名回调入口，而不能保留用户态模拟语义。
+     */
+    private PaymentOrderDTO requireOwnedOrder(Long orderId) {
+        Long userId = currentUserContext.requireUserId();
+        PaymentOrderDTO order = orderPort.getOrder(orderId);
+        if (!userId.equals(order.userId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "无权操作该订单");
+        }
+        return order;
     }
 
     /**

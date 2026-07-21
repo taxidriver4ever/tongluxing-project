@@ -19,6 +19,10 @@ public record ConversationResponse(
         /** 最后一条消息预览。 */
         String lastMessagePreview,
         /** 最后一条消息时间。 */
-        String lastMessageAt
+        String lastMessageAt,
+        /** 当前用户是否将会话置顶。 */
+        boolean pinned,
+        /** 当前用户是否开启免打扰。 */
+        boolean muted
 ) {
 }

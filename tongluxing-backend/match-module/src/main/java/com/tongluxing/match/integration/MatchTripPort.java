@@ -24,10 +24,18 @@ public interface MatchTripPort {
     record MatchTripDTO(
             Long tripId,
             Long userId,
+            String title,
             String startName,
             String endName,
+            Double startLatitude,
+            Double startLongitude,
+            Double endLatitude,
+            Double endLongitude,
             LocalDateTime departureTime,
-            String travelDepth
+            String travelDepth,
+            Integer expectedPeople,
+            String status,
+            Integer publicFlag
     ) {
     }
 }

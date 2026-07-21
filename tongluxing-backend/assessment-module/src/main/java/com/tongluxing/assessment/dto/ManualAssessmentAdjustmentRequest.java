@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -15,7 +17,7 @@ import jakarta.validation.constraints.Size;
  * @param requestId 幂等请求号，避免重复提交造成重复加扣分
  */
 public record ManualAssessmentAdjustmentRequest(
-        @NotNull BigDecimal scoreDelta,
+        @NotNull @DecimalMin("-20.00") @DecimalMax("20.00") BigDecimal scoreDelta,
         @NotBlank @Size(max = 255) String reason,
         @NotNull Long operatorId,
         @NotBlank @Size(max = 128) String requestId

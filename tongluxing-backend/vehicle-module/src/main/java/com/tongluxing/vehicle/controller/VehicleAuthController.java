@@ -23,7 +23,7 @@ import lombok.RequiredArgsConstructor;
 public class VehicleAuthController {
     private final VehicleService vehicleService;
 
-    /** 保存车辆、驾驶证、行驶证及车辆照片，并创建 PENDING 申请。 */
+    /** 保存车辆、行驶证及车辆照片，并创建 PENDING 申请；驾驶证走用户模块独立认证。 */
     @PostMapping("/submit")
     public Result<VehicleAuthStatusResponse> submit(@Valid @RequestBody VehicleAuthSubmitRequest request) {
         return Result.success(vehicleService.submitVehicleAuth(request));

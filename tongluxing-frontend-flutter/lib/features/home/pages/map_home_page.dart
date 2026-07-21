@@ -3,12 +3,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
+
+import '../../../app/app_session.dart';
 import 'package:x_amap_base/x_amap_base.dart';
 
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
 import '../../trip/pages/trip_create_page.dart';
 import 'search_location_page.dart';
+import 'sos_confirm_page.dart';
 
 class MapHomePage extends StatefulWidget {
   const MapHomePage({super.key});
@@ -142,24 +146,23 @@ class _MapHomePageState extends State<MapHomePage> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _showSosDialog() {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(LucideIcons.siren, color: AppColors.danger),
-            SizedBox(width: 10),
-            Text('道路救援'),
-          ],
+  Future<void> _openSos() async {
+    await _prepareSearchOrigin();
+    if (!mounted) return;
+    final location = _lastLocation;
+    if (location == null) {
+      _showMessage('暂未获取当前位置，请允许定位后重试');
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SosConfirmPage(
+          api: context.read<AppSession>().api,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          address: _selectedLocation?.address ?? '当前地图定位位置',
         ),
-        content: const Text('SOS 后端服务暂未联调。正式接入后，这里会发送当前位置并联系紧急联系人。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('我知道了'),
-          ),
-        ],
       ),
     );
   }
@@ -245,7 +248,7 @@ class _MapHomePageState extends State<MapHomePage> {
               icon: LucideIcons.siren,
               label: 'SOS',
               danger: true,
-              onTap: _showSosDialog,
+              onTap: _openSos,
             ),
           ],
         ),

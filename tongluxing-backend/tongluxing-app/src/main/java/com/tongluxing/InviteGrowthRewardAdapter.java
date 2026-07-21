@@ -4,6 +4,10 @@ import java.util.Map;
 
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tongluxing.admin.service.AdminConfigService;
+import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.growth.integration.GrowthFacade;
 import com.tongluxing.invite.integration.InviteRewardPort;
 
@@ -28,11 +32,38 @@ public class InviteGrowthRewardAdapter implements InviteRewardPort {
     );
 
     private final GrowthFacade growthFacade;
+    private final AdminConfigService adminConfigService;
+    private final ObjectMapper objectMapper;
+
+    @Override
+    public int rewardPoints(String ruleCode) {
+        int fallback = ruleCode != null && ruleCode.startsWith("INV_REG:")
+                ? 100 : REWARD_POINTS.getOrDefault(ruleCode, 0);
+        try {
+            JsonNode rule = objectMapper.readTree(
+                    adminConfigService.getConfig("INVITE", "invite.rules").configValue());
+            if (ruleCode != null && ruleCode.startsWith("INV_REG:")) {
+                return positive(rule.path("registerPoints").asInt(fallback), fallback);
+            }
+            if ("FIRST_TEAM".equals(ruleCode)) {
+                return positive(rule.path("firstTeamPoints").asInt(fallback), fallback);
+            }
+            if (ruleCode != null && ruleCode.startsWith("INVITE_STAGE_")) {
+                String stage = ruleCode.substring("INVITE_STAGE_".length());
+                return positive(rule.path("stagePoints").path(stage).asInt(fallback), fallback);
+            }
+        } catch (BusinessException ignored) {
+            // 未配置规则时使用 MVP 默认值。
+        } catch (Exception ignored) {
+            // 配置解析失败时降级，避免奖励主链路不可用。
+        }
+        return fallback;
+    }
 
     @Override
     public void grantInviteReward(Long beneficiaryUserId, String rewardBizNo, String ruleCode) {
         boolean registerReward = ruleCode != null && ruleCode.startsWith("INV_REG:");
-        int points = registerReward ? 100 : REWARD_POINTS.getOrDefault(ruleCode, 0);
+        int points = rewardPoints(ruleCode);
         if (points <= 0) {
             return;
         }
@@ -41,5 +72,9 @@ public class InviteGrowthRewardAdapter implements InviteRewardPort {
                 rewardBizNo,
                 points,
                 registerReward ? "邀请新用户注册奖励" : "邀请奖励");
+    }
+
+    private int positive(int value, int fallback) {
+        return value > 0 && value <= 10000 ? value : fallback;
     }
 }

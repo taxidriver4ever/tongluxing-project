@@ -41,6 +41,7 @@ import com.tongluxing.trip.mapper.TripRouteMapper;
 import com.tongluxing.trip.mapper.TripWaypointMapper;
 import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.service.TripFinishedEvent;
+import com.tongluxing.trip.service.TripPublishedEvent;
 import com.tongluxing.trip.service.TripStartedEvent;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
@@ -111,6 +112,12 @@ public class TripServiceImpl implements TripService {
         insertOwnerSnapshot(trip, vehicle, now);
         insertAuditLog(trip.getId(), userId, "PUBLISH", null, trip, "发布行程");
         clearListCaches(userId);
+        eventPublisher.publishEvent(new TripPublishedEvent(
+                trip.getId(),
+                StringUtils.hasText(trip.getTitle()) ? trip.getTitle() : "行程车队群",
+                userId,
+                List.of(userId)
+        ));
         return buildResponse(trip.getId());
     }
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -17,13 +19,63 @@ class TripNavigationPage extends StatefulWidget {
 
 class _TripNavigationPageState extends State<TripNavigationPage> {
   static const voice = MethodChannel('com.tongluxing/navigation_voice');
+  static const location = MethodChannel('com.tongluxing/permissions');
   bool ending = false;
   bool voiceEnabled = true;
+  bool uploadingTrack = false;
+  int trackedDistanceMeters = 0;
+  Timer? trackTimer;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _announce());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _announce();
+      _startTracking();
+    });
+  }
+
+  Future<void> _startTracking() async {
+    final granted =
+        await location.invokeMethod<bool>('requestLocation') ?? false;
+    if (!granted || !mounted) return;
+    await _uploadCurrentPoint();
+    trackTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _uploadCurrentPoint(),
+    );
+  }
+
+  Future<void> _uploadCurrentPoint() async {
+    if (uploadingTrack || !mounted) return;
+    uploadingTrack = true;
+    try {
+      final raw = await location.invokeMapMethod<String, dynamic>(
+        'getCurrentLocation',
+      );
+      if (raw == null || !mounted) return;
+      final response = await TripService(context.read<AppSession>().api)
+          .uploadTrackPoint(
+            tripId: widget.trip.id,
+            longitude: (raw['longitude'] as num).toDouble(),
+            latitude: (raw['latitude'] as num).toDouble(),
+            speed: (raw['speed'] as num?)?.toDouble(),
+            direction: (raw['direction'] as num?)?.toDouble(),
+            accuracy: (raw['accuracy'] as num?)?.toDouble(),
+            recordTime: DateTime.now(),
+          );
+      if (mounted) {
+        setState(
+          () => trackedDistanceMeters =
+              (response['totalDistance'] as num?)?.toInt() ??
+              trackedDistanceMeters,
+        );
+      }
+    } on PlatformException {
+      // 定位暂不可用时保留导航界面，下一周期自动重试。
+    } finally {
+      uploadingTrack = false;
+    }
   }
 
   String get _routeText {
@@ -76,6 +128,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
         ) ??
         false;
     if (!ok || !mounted) return;
+    trackTimer?.cancel();
     setState(() => ending = true);
     try {
       final service = TripService(context.read<AppSession>().api);
@@ -175,6 +228,13 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
   }
 
   @override
+  void dispose() {
+    trackTimer?.cancel();
+    voice.invokeMethod<void>('stop');
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(
       child: Stack(
@@ -263,7 +323,11 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      const _Metric(value: '0 km', label: '已行驶'),
+                      _Metric(
+                        value:
+                            '${(trackedDistanceMeters / 1000).toStringAsFixed(1)} km',
+                        label: uploadingTrack ? '轨迹同步中' : '已行驶',
+                      ),
                       _Metric(
                         value: widget.trip.distanceMeters == null
                             ? '--'

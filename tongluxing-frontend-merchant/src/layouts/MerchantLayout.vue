@@ -13,7 +13,7 @@ const nav = [
   { to: '/settlement', name: 'settlement', label: '收款设置', icon: CircleDollarSign },
 ]
 const title = computed(() => route.meta.title || '商家中心')
-function logout() { logoutMerchant(); router.replace({ name: 'login' }) }
+async function logout() { await logoutMerchant(); router.replace({ name: 'login' }) }
 </script>
 <template>
   <aside class="sidebar">

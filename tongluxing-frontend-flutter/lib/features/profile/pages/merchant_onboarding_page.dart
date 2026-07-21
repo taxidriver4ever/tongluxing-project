@@ -113,6 +113,7 @@ class MerchantApplicationForm extends StatefulWidget {
 }
 
 class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
+  static const _specialCategories = {'餐饮', '酒店', '旅行社', '汽车救援'};
   int step = 0;
   bool submitting = false;
   final formKeys = List.generate(4, (_) => GlobalKey<FormState>());
@@ -211,8 +212,8 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
       'legalRepresentativeName': c['legalName']!.text.trim(),
       'legalIdFrontImageKey': 'merchant/app/legal-front.jpg',
       'legalIdBackImageKey': 'merchant/app/legal-back.jpg',
-      'qualificationImageKeys': category == '餐饮'
-          ? ['merchant/app/food-license.jpg']
+      'qualificationImageKeys': _specialCategories.contains(category)
+          ? ['merchant/app/industry-license.jpg']
           : <String>[],
     };
     try {
@@ -399,7 +400,13 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
             ],
           ),
           const SizedBox(height: 16),
-          _upload('qualification', '经营资质（按类目要求）', optional: true),
+          _upload(
+            'qualification',
+            _specialCategories.contains(category)
+                ? '经营资质（当前类目必填）*'
+                : '经营资质（按类目要求）',
+            optional: !_specialCategories.contains(category),
+          ),
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(16),

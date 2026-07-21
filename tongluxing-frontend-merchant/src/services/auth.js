@@ -1,12 +1,12 @@
 import { reactive } from 'vue'
-import { apiRequest, clearSession, getStoredUser, getToken, saveSession } from './apiClient.js'
+import { apiRequest, clearSession, getOrCreateDeviceId, getStoredUser, getToken, saveSession } from './apiClient.js'
 
 export const authState = reactive({ user: getStoredUser(), merchant: null, validated: false })
 export const hasSession = () => Boolean(getToken())
 
 export async function loginMerchant({ phone, password, remember }) {
   const login = await apiRequest('/v1/auth/password-login', {
-    method: 'POST', body: JSON.stringify({ phone: phone.trim(), password, deviceId: `merchant-web-${Date.now()}` }),
+    method: 'POST', body: JSON.stringify({ phone: phone.trim(), password, deviceId: getOrCreateDeviceId() }),
   })
   const user = { userId: String(login.userId), phone: phone.trim() }
   saveSession(login.token, user, remember)
@@ -21,7 +21,17 @@ export async function ensureMerchantSession() {
   if (!hasSession()) return false
   if (authState.validated && authState.merchant) return true
   try { authState.merchant = await apiRequest('/v1/merchants/center/overview'); authState.user = getStoredUser(); authState.validated = true; return true }
-  catch { logoutMerchant(); return false }
+  catch { clearLocalMerchantSession(); return false }
 }
 
-export function logoutMerchant() { clearSession(); authState.user = null; authState.merchant = null; authState.validated = false }
+export async function logoutMerchant() {
+  try {
+    if (hasSession()) await apiRequest('/v1/auth/logout', { method: 'POST' })
+  } finally {
+    clearLocalMerchantSession()
+  }
+}
+
+export function clearLocalMerchantSession() {
+  clearSession(); authState.user = null; authState.merchant = null; authState.validated = false
+}

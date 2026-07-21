@@ -119,6 +119,16 @@ public interface CouponMapper {
                                 @Param("sourceType") String sourceType,
                                 @Param("sourceBizId") String sourceBizId);
 
+    @Select("""
+            select id,coupon_status couponStatus
+            from coupon_user
+            where user_id=#{userId} and template_id=#{templateId} and source_type=#{sourceType}
+              and source_biz_id=#{sourceBizId} and deleted=0
+            limit 1 for update
+            """)
+    CouponQueryDTO findBySourceForUpdate(@Param("userId") Long userId,@Param("templateId") Long templateId,
+                                         @Param("sourceType") String sourceType,@Param("sourceBizId") String sourceBizId);
+
     /**
      * 写入用户优惠券，初始状态为 AVAILABLE。
      */
@@ -155,6 +165,17 @@ public interface CouponMapper {
               and claimed_quantity < total_quantity
             """)
     int increaseClaimed(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    @Select("select count(*) from merchant_coupon_offer where id=#{templateId} and deleted=0")
+    int isMerchantOfferTemplate(@Param("templateId") Long templateId);
+
+    @Update("""
+            update merchant_coupon_offer
+            set stock=stock-1,sold_count=sold_count+1,updated_at=#{now}
+            where id=#{templateId} and audit_status='APPROVED' and offer_status='ACTIVE'
+              and publish_time<=#{now} and expire_time>#{now} and stock>0 and deleted=0
+            """)
+    int consumeMerchantOfferStock(@Param("templateId") Long templateId,@Param("now") LocalDateTime now);
 
     /**
      * 锁定用户优惠券。

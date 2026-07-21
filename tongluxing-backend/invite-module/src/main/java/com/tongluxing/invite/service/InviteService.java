@@ -13,6 +13,12 @@ public interface InviteService extends InviteFacade {
     /** 获取当前登录用户的邀请码。 */
     InviteCodeVO currentCode();
 
+    /** 获取当前七天周期内有效的邀请二维码。 */
+    InviteQrVO currentQr();
+
+    /** 校验二维码令牌签名、有效期及邀请码启用状态。 */
+    InviteQrValidationVO validateQr(String token);
+
     /** 当前登录用户绑定邀请码；重复提交返回原关系。 */
     InviteBindVO bindCurrent(String inviteCode);
 

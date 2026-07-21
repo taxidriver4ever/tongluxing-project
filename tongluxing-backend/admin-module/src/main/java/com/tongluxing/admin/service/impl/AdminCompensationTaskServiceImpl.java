@@ -11,6 +11,7 @@ import com.tongluxing.admin.entity.AdminCompensationTask;
 import com.tongluxing.admin.integration.AdminGroupbuyPort;
 import com.tongluxing.admin.mapper.AdminCompensationTaskMapper;
 import com.tongluxing.admin.service.AdminCompensationTaskService;
+import com.tongluxing.verification.service.VerificationService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -27,6 +28,7 @@ public class AdminCompensationTaskServiceImpl implements AdminCompensationTaskSe
     private final AdminCompensationTaskMapper taskMapper;
     private final AdminGroupbuyPort groupbuyPort;
     private final ObjectMapper objectMapper;
+    private final VerificationService verificationService;
 
     @Override
     @Transactional
@@ -41,6 +43,12 @@ public class AdminCompensationTaskServiceImpl implements AdminCompensationTaskSe
                     groupbuyPort.applyIntervention(activityId, payload.path("action").asText(),
                             payload.path("reason").asText(), task.getIdempotentKey(),
                             payload.path("extendMinutes").isMissingNode()?null:payload.path("extendMinutes").asInt());
+                } else if ("VERIFICATION_REVERSAL_AUDIT".equals(task.getBizType())) {
+                    JsonNode payload = objectMapper.readTree(task.getRequestPayload());
+                    verificationService.auditReversal(payload.path("targetId").asLong(Long.parseLong(task.getBizId())),
+                            payload.path("auditResult").asText(),
+                            payload.path("rejectReason").isNull() ? null : payload.path("rejectReason").asText(),
+                            payload.path("operatorId").asLong(), task.getIdempotentKey());
                 }
                 taskMapper.markSuccess(task.getId(), now);
                 processed++;

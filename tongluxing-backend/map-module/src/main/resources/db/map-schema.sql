@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS map_route_plan (
 
 CREATE TABLE IF NOT EXISTS map_location_search_log (
   id BIGINT NOT NULL,
-  user_id BIGINT NULL,
+  user_id BIGINT NOT NULL,
   keyword VARCHAR(128) NULL,
   selected_name VARCHAR(128) NULL,
   selected_address VARCHAR(255) NULL,
@@ -29,9 +29,16 @@ CREATE TABLE IF NOT EXISTS map_location_search_log (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted TINYINT(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
-  KEY idx_map_search_user_scene_time (user_id, scene, created_at),
+  KEY idx_map_search_user_scene_time (user_id, scene, deleted, created_at),
   KEY idx_map_search_keyword (keyword)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 已有开发数据库也同步收紧：每条搜索历史必须绑定用户，并让软删除过滤命中联合索引。
+ALTER TABLE map_location_search_log
+  MODIFY COLUMN user_id BIGINT NOT NULL;
+ALTER TABLE map_location_search_log
+  DROP INDEX idx_map_search_user_scene_time,
+  ADD INDEX idx_map_search_user_scene_time (user_id, scene, deleted, created_at);
 
 CREATE TABLE IF NOT EXISTS map_location_catalog (
   id BIGINT NOT NULL,
@@ -113,7 +120,8 @@ VALUES
   (910000000000000057, '呼和浩特东站', '内蒙古自治区呼和浩特市新城区万通路', '呼和浩特', '呼和浩特东站 高铁 火车站', 40.849000, 111.766000, 76),
   (910000000000000058, '银川站', '宁夏回族自治区银川市金凤区上海西路710号', '银川', '银川站 火车站 高铁', 38.487000, 106.180000, 74),
   (910000000000000059, '西宁站', '青海省西宁市城东区互助路128号', '西宁', '西宁站 火车站 青藏线', 36.620000, 101.814000, 78),
-  (910000000000000060, '乌鲁木齐站', '新疆维吾尔自治区乌鲁木齐市沙依巴克区高铁北六路', '乌鲁木齐', '乌鲁木齐站 高铁 火车站 新疆', 43.826000, 87.527000, 80);
+  (910000000000000060, '乌鲁木齐站', '新疆维吾尔自治区乌鲁木齐市沙依巴克区高铁北六路', '乌鲁木齐', '乌鲁木齐站 高铁 火车站 新疆', 43.826000, 87.527000, 80),
+  (910000000000000061, '广州塔', '广东省广州市海珠区阅江西路222号', '广州', '广州塔 小蛮腰 海珠 景点 地标', 23.106500, 113.324500, 100);
 
 CREATE TABLE IF NOT EXISTS map_geocode_cache (
   id BIGINT NOT NULL,

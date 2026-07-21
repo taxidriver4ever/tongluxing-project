@@ -15,6 +15,8 @@ class _GrowthPageState extends State<GrowthPage> {
   bool loading = true;
   String? error;
   Map<String, dynamic> data = {};
+  List<Map<String, dynamic>> logs = const [];
+  Map<String, dynamic> badges = const {};
   @override
   void initState() {
     super.initState();
@@ -23,7 +25,15 @@ class _GrowthPageState extends State<GrowthPage> {
 
   Future<void> load() async {
     try {
-      data = await GrowthService(context.read<AppSession>().api).summary();
+      final service = GrowthService(context.read<AppSession>().api);
+      final values = await Future.wait([
+        service.summary(),
+        service.logs(),
+        service.badges(),
+      ]);
+      data = values[0] as Map<String, dynamic>;
+      logs = values[1] as List<Map<String, dynamic>>;
+      badges = values[2] as Map<String, dynamic>;
       error = null;
     } catch (e) {
       error = e.toString();
@@ -33,7 +43,11 @@ class _GrowthPageState extends State<GrowthPage> {
 
   @override
   Widget build(BuildContext context) {
-    final exp = data['experience'] ?? data['growthValue'] ?? 1280;
+    final exp = (data['totalPoints'] as num?)?.toInt() ?? 0;
+    final next = (data['nextLevelPoints'] as num?)?.toInt() ?? 0;
+    final level = data['levelCode']?.toString() ?? 'LV1';
+    final progress = exp + next == 0 ? 1.0 : exp / (exp + next);
+    final earnedCount = (badges['earned'] as List? ?? const []).length;
     return Scaffold(
       appBar: AppBar(title: const Text('成长中心')),
       body: AsyncPanel(
@@ -49,20 +63,20 @@ class _GrowthPageState extends State<GrowthPage> {
                 children: [
                   Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Lv.5',
+                              level,
                               style: TextStyle(
                                 fontSize: 28,
                                 fontWeight: FontWeight.w800,
                                 color: AppColors.primary,
                               ),
                             ),
-                            Text(
-                              '自驾达人',
+                            const Text(
+                              '自驾成长旅程',
                               style: TextStyle(color: AppColors.muted),
                             ),
                           ],
@@ -75,17 +89,17 @@ class _GrowthPageState extends State<GrowthPage> {
                     ],
                   ),
                   const SizedBox(height: 18),
-                  const LinearProgressIndicator(
-                    value: .65,
+                  LinearProgressIndicator(
+                    value: progress.clamp(0, 1),
                     minHeight: 8,
                     borderRadius: BorderRadius.all(Radius.circular(8)),
                     backgroundColor: AppColors.primarySoft,
                   ),
                   const SizedBox(height: 10),
-                  const Align(
+                  Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      '距离下一等级还需要 220 成长值',
+                      next == 0 ? '已达到当前最高等级' : '距离下一等级还需要 $next 成长值',
                       style: TextStyle(color: AppColors.muted, fontSize: 13),
                     ),
                   ),
@@ -93,7 +107,7 @@ class _GrowthPageState extends State<GrowthPage> {
               ),
             ),
             const SizedBox(height: 18),
-            const TlxCard(
+            TlxCard(
               color: Color(0xFFF8FAFD),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -106,16 +120,16 @@ class _GrowthPageState extends State<GrowthPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _Stat('3200', '累计公里'),
-                      _Stat('15', '完成行程'),
-                      _Stat('8', '获得勋章'),
+                      _Stat('$exp', '累计成长'),
+                      _Stat('${logs.length}', '成长记录'),
+                      _Stat('$earnedCount', '获得勋章'),
                     ],
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 18),
-            const TlxCard(
+            TlxCard(
               color: Color(0xFFF8FAFD),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -124,9 +138,25 @@ class _GrowthPageState extends State<GrowthPage> {
                     '成长记录',
                     style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
                   ),
-                  _GrowthRow('完成自驾行程', '+100'),
-                  _GrowthRow('累计驾驶50公里', '+20'),
-                  _GrowthRow('邀请好友加入', '+50'),
+                  if (logs.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 16),
+                      child: Text(
+                        '暂无成长记录',
+                        style: TextStyle(color: AppColors.muted),
+                      ),
+                    )
+                  else
+                    ...logs
+                        .take(8)
+                        .map(
+                          (item) => _GrowthRow(
+                            item['remark']?.toString().isNotEmpty == true
+                                ? item['remark'].toString()
+                                : item['bizType']?.toString() ?? '成长事件',
+                            '${(item['pointDelta'] as num?)?.toInt().isNegative == true ? '' : '+'}${item['pointDelta'] ?? 0}',
+                          ),
+                        ),
                 ],
               ),
             ),

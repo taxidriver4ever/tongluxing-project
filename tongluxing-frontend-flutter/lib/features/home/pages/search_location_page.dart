@@ -33,6 +33,7 @@ class _SearchLocationPageState extends State<SearchLocationPage> {
   List<LocationSelection> _history = const [];
   bool _loading = true;
   bool _selecting = false;
+  bool _updatingHistory = false;
   String? _error;
 
   bool get _hasKeyword => _controller.text.trim().isNotEmpty;
@@ -45,27 +46,26 @@ class _SearchLocationPageState extends State<SearchLocationPage> {
     _loadHistory();
   }
 
-  Future<void> _loadHistory() async {
+  Future<bool> _loadHistory() async {
     try {
       final history = await _service!.history(
         latitude: widget.originLatitude,
         longitude: widget.originLongitude,
       );
-      if (!mounted) return;
-      final seen = <String>{};
-      final uniqueHistory = history
-          .where((item) => seen.add('${item.name}\u0000${item.address}'))
-          .toList();
+      if (!mounted) return false;
       setState(() {
-        _history = uniqueHistory;
+        // 最近搜索以后端数据库回读为唯一真源，不在前端补造或去重。
+        _history = history;
         _loading = false;
       });
+      return true;
     } on ApiException catch (error) {
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         _error = error.message;
         _loading = false;
       });
+      return false;
     }
   }
 
@@ -102,7 +102,7 @@ class _SearchLocationPageState extends State<SearchLocationPage> {
         _loading = false;
       });
     } on ApiException catch (error) {
-      if (!mounted) return;
+      if (!mounted || query != _controller.text.trim()) return;
       setState(() {
         _error = error.message;
         _loading = false;
@@ -143,6 +143,74 @@ class _SearchLocationPageState extends State<SearchLocationPage> {
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() => _selecting = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _deleteHistory(LocationSelection location) async {
+    final historyId = location.historyId;
+    if (historyId == null || _updatingHistory) return;
+    setState(() => _updatingHistory = true);
+    try {
+      final affected = await _service!.deleteHistory(historyId);
+      if (affected != 1) {
+        throw const ApiException('后端未删除该条搜索记录');
+      }
+      // 删除后必须重新查询后端，禁止只在本地 List 中移除造成假删除。
+      if (!await _loadHistory()) {
+        throw const ApiException('删除已写入后端，但重新读取失败，请重新进入页面确认');
+      }
+      if (!mounted) return;
+      setState(() => _updatingHistory = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已删除该条搜索记录')));
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _updatingHistory = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _clearHistory() async {
+    FocusScope.of(context).unfocus();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('清空最近搜索？'),
+        content: const Text('清空后无法恢复，但不会影响已创建的行程。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || _updatingHistory) return;
+    setState(() => _updatingHistory = true);
+    try {
+      final affected = await _service!.clearHistory();
+      // 清空后同样回读数据库；即使 affected=0，幂等结果也必须由 GET 确认。
+      if (!await _loadHistory()) {
+        throw const ApiException('清空已写入后端，但重新读取失败，请重新进入页面确认');
+      }
+      if (!mounted) return;
+      setState(() => _updatingHistory = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('最近搜索已清空（后端删除 $affected 条）')));
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _updatingHistory = false);
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(error.message)));
@@ -207,11 +275,14 @@ class _SearchLocationPageState extends State<SearchLocationPage> {
                 ),
               ),
               const Spacer(),
-              if (!_hasKeyword)
-                const Icon(
-                  LucideIcons.info,
-                  size: 20,
-                  color: Color(0xFF667085),
+              if (!_hasKeyword && _history.isNotEmpty)
+                TextButton.icon(
+                  onPressed: _updatingHistory ? null : _clearHistory,
+                  icon: const Icon(LucideIcons.trash2, size: 17),
+                  label: const Text('清空'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF667085),
+                  ),
                 ),
             ],
           ),
@@ -248,6 +319,9 @@ class _SearchLocationPageState extends State<SearchLocationPage> {
                   location: locations[index],
                   history: !_hasKeyword,
                   onTap: () => _select(locations[index]),
+                  onDelete: !_hasKeyword
+                      ? () => _deleteHistory(locations[index])
+                      : null,
                 ),
               ),
             ),
@@ -333,11 +407,13 @@ class _LocationRow extends StatelessWidget {
     required this.location,
     required this.history,
     required this.onTap,
+    this.onDelete,
   });
 
   final LocationSelection location;
   final bool history;
   final VoidCallback onTap;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) => InkWell(
@@ -398,11 +474,22 @@ class _LocationRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Icon(
-            history ? LucideIcons.chevronRight : LucideIcons.arrowUpLeft,
-            size: 20,
-            color: const Color(0xFF667085),
-          ),
+          if (onDelete case final delete?)
+            IconButton(
+              tooltip: '删除搜索记录',
+              onPressed: delete,
+              icon: const Icon(
+                LucideIcons.x,
+                size: 20,
+                color: Color(0xFF98A2B3),
+              ),
+            )
+          else
+            const Icon(
+              LucideIcons.arrowUpLeft,
+              size: 20,
+              color: Color(0xFF667085),
+            ),
         ],
       ),
     ),

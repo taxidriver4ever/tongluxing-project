@@ -168,8 +168,8 @@ public class AdminAuditServiceImpl implements AdminAuditService {
         if (repeated != null) {
             return repeated;
         }
-        String payload = "{\"targetId\":%d,\"auditResult\":\"%s\",\"rejectReason\":%s}"
-                .formatted(targetId, auditResult, jsonString(rejectReason));
+        String payload = "{\"targetId\":%d,\"auditResult\":\"%s\",\"rejectReason\":%s,\"operatorId\":%d}"
+                .formatted(targetId, auditResult, jsonString(rejectReason), operatorId);
         support.compensation(actionType, String.valueOf(targetId), request.requestId(), targetModule, payload);
         AdminAuditLog log = support.audit(actionType, targetModule, targetType, String.valueOf(targetId),
                 request.requestId(), operatorId, rejectReason, SUCCESS, null, payload);

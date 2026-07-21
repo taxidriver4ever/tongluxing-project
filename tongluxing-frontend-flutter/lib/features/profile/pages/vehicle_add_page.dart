@@ -23,10 +23,6 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
   bool saving = false;
 
   static const materialUrls = <String, String>{
-    '驾驶证正面':
-        'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="640" height="400"%3E%3Crect width="100%25" height="100%25" fill="%23eef3ff"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" fill="%23285cff" font-size="38"%3EDRIVER FRONT%3C/text%3E%3C/svg%3E',
-    '驾驶证背面':
-        'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="640" height="400"%3E%3Crect width="100%25" height="100%25" fill="%23f4f7ff"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" fill="%23285cff" font-size="38"%3EDRIVER BACK%3C/text%3E%3C/svg%3E',
     '行驶证主页':
         'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="640" height="400"%3E%3Crect width="100%25" height="100%25" fill="%23edfaf3"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" fill="%23059269" font-size="38"%3EREGISTRATION A%3C/text%3E%3C/svg%3E',
     '行驶证副页':
@@ -51,7 +47,7 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
     if (!materialsComplete) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请先选择全部 5 项认证材料')));
+      ).showSnackBar(const SnackBar(content: Text('请先选择全部 3 项认证材料')));
       return;
     }
     setState(() => saving = true);
@@ -61,7 +57,6 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
         vehicleBrand: brand.text.trim(),
         vehicleModel: model.text.trim(),
         vehicleColor: color.text.trim(),
-        driverLicenseImages: [materialUrls['驾驶证正面']!, materialUrls['驾驶证背面']!],
         registrationLicenseImages: [
           materialUrls['行驶证主页']!,
           materialUrls['行驶证副页']!,
@@ -118,8 +113,6 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
             ),
           ),
           const SizedBox(height: 18),
-          _materials('驾驶证', '请分别选择正面与背面', ['驾驶证正面', '驾驶证背面']),
-          const SizedBox(height: 14),
           _materials('车辆行驶证', '主页与副页均需清晰完整', ['行驶证主页', '行驶证副页']),
           const SizedBox(height: 14),
           _materials('车辆照片', '需能看清车辆正面及车牌', ['车辆正面照']),

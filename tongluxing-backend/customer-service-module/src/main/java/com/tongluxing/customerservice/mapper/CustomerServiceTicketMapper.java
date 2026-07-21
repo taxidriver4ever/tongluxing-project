@@ -45,6 +45,9 @@ public interface CustomerServiceTicketMapper {
             """)
     CustomerServiceQueryDTO findTicketByRequestId(@Param("requestId") String requestId);
 
+    @Select("select count(*) from customer_service_ticket_message where request_id=#{requestId} and deleted=0")
+    int countMessageByRequestId(@Param("requestId") String requestId);
+
     /**
      * 按工单 ID 查询有效工单。
      */
@@ -102,11 +105,11 @@ public interface CustomerServiceTicketMapper {
     @Insert("""
             insert into customer_service_ticket_message(
                 id, ticket_id, sender_type, sender_id, message_type,
-                content, image_keys_json, created_at, deleted
+                content, image_keys_json, request_id, created_at, deleted
             )
             values (
                 #{id}, #{ticketId}, #{senderType}, #{senderId}, #{messageType},
-                #{content}, #{imageKeysJson}, #{now}, 0
+                #{content}, #{imageKeysJson}, #{requestId}, #{now}, 0
             )
             """)
     int insertMessage(@Param("id") Long id,
@@ -116,6 +119,7 @@ public interface CustomerServiceTicketMapper {
                       @Param("messageType") String messageType,
                       @Param("content") String content,
                       @Param("imageKeysJson") String imageKeysJson,
+                      @Param("requestId") String requestId,
                       @Param("now") LocalDateTime now);
 
     /**

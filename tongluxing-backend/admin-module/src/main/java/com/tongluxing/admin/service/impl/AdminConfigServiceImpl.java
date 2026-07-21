@@ -18,6 +18,7 @@ import com.tongluxing.admin.vo.AdminConfigVO;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
+import com.tongluxing.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
 
@@ -38,6 +39,8 @@ public class AdminConfigServiceImpl implements AdminConfigService {
     private final AdminAuditLogMapper auditLogMapper;
     /** 后台通用支撑组件。 */
     private final AdminSupport support;
+    /** 运营操作身份必须来自已认证的后台 Token。 */
+    private final CurrentUserContext currentUserContext;
 
     /** 查询当前生效配置，优先读取 Redis 缓存。 */
     @Override
@@ -78,6 +81,7 @@ public class AdminConfigServiceImpl implements AdminConfigService {
         }
 
         LocalDateTime now = LocalDateTime.now();
+        Long operatorId = currentUserContext.requireUserId();
         AdminOperationConfig config = configMapper.findByKey(domain, key);
         if (config == null) {
             // 首次更新某个配置键时创建主配置记录，当前版本从 0 开始递增。
@@ -103,7 +107,7 @@ public class AdminConfigServiceImpl implements AdminConfigService {
         version.setVersionNo(nextVersion);
         version.setConfigValue(request.configValue());
         version.setEffectiveAt(request.effectiveAt() == null ? now : request.effectiveAt());
-        version.setOperatorId(request.operatorId());
+        version.setOperatorId(operatorId);
         version.setChangeReason(request.changeReason());
         version.setCreatedAt(now);
         versionMapper.insert(version);
@@ -117,7 +121,7 @@ public class AdminConfigServiceImpl implements AdminConfigService {
         AdminConfigVO result = toVO(config, version);
         // 记录配置变更审计，并清理旧配置缓存。
         support.audit("CONFIG_UPDATE", "admin-module", "ADMIN_OPERATION_CONFIG", String.valueOf(config.getId()),
-                request.requestId(), request.operatorId(), request.changeReason(), AdminSupport.SUCCESS,
+                request.requestId(), operatorId, request.changeReason(), AdminSupport.SUCCESS,
                 null, request.configValue());
         support.deleteRedis("admin:config:%s:%s".formatted(domain, key));
         support.writeJson(idemKey, result, Duration.ofHours(24));

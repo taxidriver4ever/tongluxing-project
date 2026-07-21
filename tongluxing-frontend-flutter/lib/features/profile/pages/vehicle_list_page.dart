@@ -21,6 +21,11 @@ class _VehicleListPageState extends State<VehicleListPage> {
   String? error;
   List<VehicleModel> rows = [];
   VehicleAuthStatusModel? authStatus;
+  String filter = 'ALL';
+
+  List<VehicleModel> get filteredRows => filter == 'ALL'
+      ? rows
+      : rows.where((vehicle) => vehicle.status == filter).toList();
 
   @override
   void initState() {
@@ -64,112 +69,168 @@ class _VehicleListPageState extends State<VehicleListPage> {
       loading: loading,
       error: error,
       onRetry: load,
-      child: ListView(
-        padding: const EdgeInsets.all(22),
-        children: [
-          const Text(
-            '管理你的车辆信息，设置常用车辆',
-            style: TextStyle(color: AppColors.muted),
-          ),
-          const SizedBox(height: 22),
-          _authOverview(context),
-          const SizedBox(height: 18),
-          ...rows.map(
-            (vehicle) => Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: TlxCard(
-                color: const Color(0xFFF8FAFD),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 90,
-                          height: 70,
-                          decoration: BoxDecoration(
-                            color: AppColors.primarySoft,
-                            borderRadius: BorderRadius.circular(16),
+      child: RefreshIndicator(
+        onRefresh: load,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(22),
+          children: [
+            const Text(
+              '管理你的车辆信息，设置常用车辆',
+              style: TextStyle(color: AppColors.muted),
+            ),
+            const SizedBox(height: 22),
+            _authOverview(context),
+            const SizedBox(height: 18),
+            _statusFilters(),
+            const SizedBox(height: 18),
+            if (filteredRows.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 36),
+                child: Center(
+                  child: Text(
+                    '当前筛选条件下暂无车辆',
+                    style: TextStyle(color: AppColors.muted),
+                  ),
+                ),
+              ),
+            ...filteredRows.map(
+              (vehicle) => Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: TlxCard(
+                  color: const Color(0xFFF8FAFD),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 90,
+                            height: 70,
+                            decoration: BoxDecoration(
+                              color: AppColors.primarySoft,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Icon(
+                              LucideIcons.carFront,
+                              color: AppColors.primary,
+                              size: 34,
+                            ),
                           ),
-                          child: const Icon(
-                            LucideIcons.carFront,
-                            color: AppColors.primary,
-                            size: 34,
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${vehicle.brand} ${vehicle.model}',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  vehicle.plate,
+                                  style: const TextStyle(
+                                    color: AppColors.secondaryText,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  _status(vehicle.status),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${vehicle.brand} ${vehicle.model}',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 5),
-                              Text(
-                                vehicle.plate,
-                                style: const TextStyle(
-                                  color: AppColors.secondaryText,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                _status(vehicle.status),
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Icon(LucideIcons.chevronRight),
-                      ],
-                    ),
-                    if (!vehicle.isDefault) ...[
-                      const SizedBox(height: 14),
-                      OutlinedButton(
-                        onPressed: () => setDefault(vehicle),
-                        child: const Text('设为主要车辆'),
+                          const Icon(LucideIcons.chevronRight),
+                        ],
                       ),
-                    ] else
-                      const Padding(
-                        padding: EdgeInsets.only(top: 12),
-                        child: Align(
+                      if (!vehicle.isDefault &&
+                          vehicle.status == 'APPROVED') ...[
+                        const SizedBox(height: 14),
+                        OutlinedButton(
+                          onPressed: () => setDefault(vehicle),
+                          child: const Text('设为主要车辆'),
+                        ),
+                      ] else if (!vehicle.isDefault) ...[
+                        const SizedBox(height: 12),
+                        const Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            '目前主要车辆',
+                            '认证通过后可设为主要车辆',
                             style: TextStyle(
-                              color: AppColors.primary,
-                              fontSize: 13,
+                              color: AppColors.muted,
+                              fontSize: 12,
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                      ] else
+                        const Padding(
+                          padding: EdgeInsets.only(top: 12),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '目前主要车辆',
+                              style: TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 4),
-          FilledButton.icon(
-            onPressed: () async {
-              final changed = await Navigator.push<bool>(
-                context,
-                MaterialPageRoute(builder: (_) => const VehicleAddPage()),
-              );
-              if (changed == true) load();
-            },
-            icon: const Icon(LucideIcons.plus),
-            label: const Text('添加车辆'),
-          ),
-        ],
+            const SizedBox(height: 4),
+            FilledButton.icon(
+              onPressed: () async {
+                final changed = await Navigator.push<bool>(
+                  context,
+                  MaterialPageRoute(builder: (_) => const VehicleAddPage()),
+                );
+                if (changed == true) load();
+              },
+              icon: const Icon(LucideIcons.plus),
+              label: const Text('添加车辆'),
+            ),
+          ],
+        ),
       ),
     ),
   );
+
+  Widget _statusFilters() {
+    const filters = [
+      ('ALL', '全部'),
+      ('PENDING', '认证中'),
+      ('APPROVED', '认证通过'),
+      ('REJECTED', '认证驳回'),
+    ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: filters
+            .map(
+              (item) => Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(item.$2),
+                  selected: filter == item.$1,
+                  showCheckmark: false,
+                  onSelected: (_) => setState(() => filter = item.$1),
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
 
   Widget _authOverview(BuildContext context) {
     final status = authStatus?.status ?? 'UNSUBMITTED';

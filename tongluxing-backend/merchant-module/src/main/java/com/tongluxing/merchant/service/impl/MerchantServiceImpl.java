@@ -84,6 +84,7 @@ public class MerchantServiceImpl implements MerchantService {
     private static final String IDEM_PROMOTION = "merchant:idem:promotion-code:%s";
     private static final String IDEM_STOCK = "merchant:idem:stock:%s";
     private static final String SOURCE_MERCHANT = "MERCHANT";
+    private static final Set<String> SPECIAL_CATEGORIES = Set.of("餐饮", "酒店", "旅行社", "汽车救援");
 
     private final CurrentUserContext currentUser;
     private final MerchantProfileMapper profileMapper;
@@ -105,6 +106,7 @@ public class MerchantServiceImpl implements MerchantService {
     @Transactional
     public MerchantProfileVO submitApplication(MerchantApplicationRequest request, String requestId) {
         Long userId = currentUser.requireUserId();
+        validateApplication(request);
         String idemKey = idemKey(IDEM_APPLICATION, requestId);
         MerchantProfileVO cached = idemGet(idemKey, MerchantProfileVO.class);
         if (cached != null) {
@@ -151,6 +153,21 @@ public class MerchantServiceImpl implements MerchantService {
         audit(merchantId, userId, "APPLICATION_SUBMIT", "MERCHANT", merchantId, null, result, "商家入驻申请");
         idemPut(idemKey, result);
         return result;
+    }
+
+    /** 特殊行业必须提交经营资质，门店坐标必须落在合法经纬度范围内。 */
+    private void validateApplication(MerchantApplicationRequest request) {
+        String category = trim(request.category());
+        if (SPECIAL_CATEGORIES.contains(category)
+                && (request.qualificationImageKeys() == null || request.qualificationImageKeys().isEmpty())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, category + "类目必须提交对应经营许可证");
+        }
+        if (request.latitude() == null || request.latitude().compareTo(BigDecimal.valueOf(-90)) < 0
+                || request.latitude().compareTo(BigDecimal.valueOf(90)) > 0
+                || request.longitude() == null || request.longitude().compareTo(BigDecimal.valueOf(-180)) < 0
+                || request.longitude().compareTo(BigDecimal.valueOf(180)) > 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "门店经纬度不合法");
+        }
     }
 
     @Override
@@ -222,7 +239,7 @@ public class MerchantServiceImpl implements MerchantService {
     @Transactional
     public MerchantProfileVO updateCurrentProfile(UpdateMerchantProfileRequest request) {
         Long userId = currentUser.requireUserId();
-        MerchantQueryDTO old = currentMerchant();
+        MerchantQueryDTO old = requireApprovedMerchant();
         String phone = StringUtils.hasText(request.contactPhone()) ? request.contactPhone().trim() : old.getContactPhoneMask();
         profileMapper.updateProfile(
                 old.getMerchantId(),
@@ -247,7 +264,7 @@ public class MerchantServiceImpl implements MerchantService {
     /** 查询当前商家商品列表。 */
     @Override
     public PageResult<MerchantProductVO> products(String status, int page, int size) {
-        MerchantQueryDTO merchant = currentMerchant();
+        MerchantQueryDTO merchant = requireApprovedMerchant();
         int normalizedPage = Math.max(1, page);
         int normalizedSize = Math.min(100, Math.max(1, size));
         String normalizedStatus = trimToEmpty(status);
@@ -297,7 +314,7 @@ public class MerchantServiceImpl implements MerchantService {
     @Transactional
     public MerchantProductVO updateProduct(Long productId, UpdateMerchantProductRequest request) {
         Long userId = currentUser.requireUserId();
-        MerchantQueryDTO merchant = currentMerchant();
+        MerchantQueryDTO merchant = requireApprovedMerchant();
         MerchantQueryDTO old = productMapper.findById(merchant.getMerchantId(), productId);
         if (old == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "商品不存在");
@@ -331,7 +348,7 @@ public class MerchantServiceImpl implements MerchantService {
     @Transactional
     public MerchantProductVO offShelfProduct(Long productId) {
         Long userId = currentUser.requireUserId();
-        MerchantQueryDTO merchant = currentMerchant();
+        MerchantQueryDTO merchant = requireApprovedMerchant();
         MerchantQueryDTO old = productMapper.findById(merchant.getMerchantId(), productId);
         if (old == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "商品不存在");
@@ -376,7 +393,7 @@ public class MerchantServiceImpl implements MerchantService {
     /** 查询商家券池列表。 */
     @Override
     public List<MerchantCouponPoolVO> couponPools() {
-        MerchantQueryDTO merchant = currentMerchant();
+        MerchantQueryDTO merchant = requireApprovedMerchant();
         String key = CACHE_COUPON_POOL.formatted(merchant.getMerchantId());
         List<MerchantCouponPoolVO> cached = cacheListGet(key, MerchantCouponPoolVO.class);
         if (cached != null) {
@@ -472,14 +489,14 @@ public class MerchantServiceImpl implements MerchantService {
     /** 查询推广码列表。 */
     @Override
     public List<MerchantPromotionCodeVO> promotionCodes() {
-        MerchantQueryDTO merchant = currentMerchant();
+        MerchantQueryDTO merchant = requireApprovedMerchant();
         return promotionCodeMapper.findByMerchant(merchant.getMerchantId()).stream().map(this::promotionCode).toList();
     }
 
     /** 查询推广码聚合统计。 */
     @Override
     public MerchantPromotionStatsVO promotionStats(Long promotionId) {
-        MerchantQueryDTO merchant = currentMerchant();
+        MerchantQueryDTO merchant = requireApprovedMerchant();
         if (promotionCodeMapper.findById(merchant.getMerchantId(), promotionId) == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "推广码不存在");
         }
@@ -522,7 +539,7 @@ public class MerchantServiceImpl implements MerchantService {
     /** 查询商家考核中心。 */
     @Override
     public MerchantAssessmentVO assessment() {
-        MerchantQueryDTO merchant = currentMerchant();
+        MerchantQueryDTO merchant = requireApprovedMerchant();
         String key = CACHE_ASSESSMENT.formatted(merchant.getMerchantId());
         MerchantAssessmentVO cached = cacheGet(key, MerchantAssessmentVO.class);
         if (cached != null) {

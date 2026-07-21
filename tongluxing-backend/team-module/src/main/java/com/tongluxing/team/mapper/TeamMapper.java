@@ -31,6 +31,18 @@ public interface TeamMapper {
             """)
     Team findById(@Param("teamId") Long teamId);
 
+    /** 查询指定行程对应的公开活跃车队。 */
+    @Select("""
+            select id, trip_id, owner_user_id, owner_vehicle_id, team_name, team_desc,
+                   start_name, end_name, departure_time, max_member_count, current_member_count,
+                   join_mode, team_status, public_flag, chat_conversation_id, notice,
+                   created_at, updated_at, deleted
+            from team
+            where trip_id = #{tripId} and team_status = 'ACTIVE' and public_flag = 1 and deleted = 0
+            limit 1
+            """)
+    Team findActiveByTripId(@Param("tripId") Long tripId);
+
     /**
      * 查询公开、活跃且未满员的车队列表。
      */

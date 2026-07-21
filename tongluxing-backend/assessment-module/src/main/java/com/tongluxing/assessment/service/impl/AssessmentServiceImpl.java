@@ -132,16 +132,20 @@ public class AssessmentServiceImpl implements AssessmentService {
     @Override
     @Transactional
     public MerchantAssessmentResultVO manualAdjust(Long merchantId, ManualAssessmentAdjustmentRequest request) {
+        if (assessmentMapper.countManualAdjustmentByRequestId(request.requestId().trim()) > 0) {
+            return toResult(merchantId, assessmentMapper.findLatestScore(merchantId), requireMerchant(merchantId));
+        }
         LocalDateTime now = LocalDateTime.now();
         AssessmentQueryDTO latest = assessmentMapper.findLatestScore(merchantId);
         BigDecimal baseScore = latest == null ? BigDecimal.ZERO : latest.getTotalScore();
-        BigDecimal adjustedScore = baseScore.add(request.scoreDelta()).max(BigDecimal.ZERO);
+        BigDecimal adjustedScore = baseScore.add(request.scoreDelta())
+                .max(BigDecimal.ZERO).min(new BigDecimal("100.00"));
         AssessmentQueryDTO mapping = levelMapping(adjustedScore);
         String period = latest == null ? YearMonth.now().toString() : latest.getPeriod();
 
         // 人工调整必须单独落明细，方便运营后台审计和后续追责。
         assessmentMapper.insertManualAdjustment(SnowflakeIdGenerator.nextId(), merchantId, request.scoreDelta(),
-                request.reason().trim(), request.operatorId(), request.requestId().trim(), now);
+                request.reason().trim(), currentUserContext.requireUserId(), request.requestId().trim(), now);
         assessmentMapper.upsertScore(SnowflakeIdGenerator.nextId(), merchantId, period, adjustedScore,
                 mapping.getMerchantLevel(), mapping.getCommissionRate(), mapping.getRankWeight(),
                 mapping.getExclusionRadiusKm(), request.requestId().trim(), now);

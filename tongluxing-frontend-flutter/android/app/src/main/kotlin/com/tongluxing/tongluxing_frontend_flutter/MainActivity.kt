@@ -2,7 +2,11 @@ package com.tongluxing.tongluxing_frontend_flutter
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Context
+import android.location.LocationManager
 import android.os.Build
+import android.content.ContentValues
+import android.provider.MediaStore
 import android.speech.tts.TextToSpeech
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -23,12 +27,26 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "requestLocation" -> requestLocationPermission(result)
+                "getCurrentLocation" -> getCurrentLocation(result)
                 "isAmapSupported" -> {
                     val primaryAbi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
                     result.success(
                         primaryAbi == "arm64-v8a" || primaryAbi == "armeabi-v7a",
                     )
                 }
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.tongluxing/media",
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "savePngToGallery" -> savePngToGallery(
+                    call.argument<ByteArray>("bytes"),
+                    call.argument<String>("fileName"),
+                    result,
+                )
                 else -> result.notImplemented()
             }
         }
@@ -61,6 +79,35 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun savePngToGallery(bytes: ByteArray?, fileName: String?, result: MethodChannel.Result) {
+        if (bytes == null || bytes.isEmpty()) {
+            result.error("EMPTY_IMAGE", "二维码图片为空", null)
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            result.error("ANDROID_VERSION_UNSUPPORTED", "Android 10 以下请使用系统截图保存", null)
+            return
+        }
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, fileName ?: "tongluxing_invite.png")
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Tongluxing")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("无法创建相册文件")
+            contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                ?: throw IllegalStateException("无法写入相册文件")
+            values.clear()
+            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            contentResolver.update(uri, values, null, null)
+            result.success(uri.toString())
+        } catch (exception: Exception) {
+            result.error("SAVE_FAILED", exception.message ?: "保存失败", null)
+        }
+    }
+
     override fun onDestroy() {
         textToSpeech?.stop()
         textToSpeech?.shutdown()
@@ -89,6 +136,37 @@ class MainActivity : FlutterActivity() {
             ),
             locationPermissionRequest,
         )
+    }
+
+    private fun getCurrentLocation(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
+        ) {
+            result.error("LOCATION_PERMISSION_REQUIRED", "请先授权定位权限", null)
+            return
+        }
+        try {
+            val manager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val latest = manager.getProviders(true)
+                .mapNotNull { provider -> manager.getLastKnownLocation(provider) }
+                .maxByOrNull { location -> location.time }
+            if (latest == null) {
+                result.error("LOCATION_UNAVAILABLE", "暂未获取到定位，请稍后重试", null)
+                return
+            }
+            result.success(
+                mapOf(
+                    "longitude" to latest.longitude,
+                    "latitude" to latest.latitude,
+                    "speed" to latest.speed.toDouble(),
+                    "direction" to latest.bearing.toDouble(),
+                    "accuracy" to latest.accuracy.toDouble(),
+                ),
+            )
+        } catch (exception: SecurityException) {
+            result.error("LOCATION_PERMISSION_REQUIRED", "定位权限不足", null)
+        }
     }
 
     override fun onRequestPermissionsResult(

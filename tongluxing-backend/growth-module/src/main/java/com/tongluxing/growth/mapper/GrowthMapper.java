@@ -166,17 +166,18 @@ public interface GrowthMapper {
             """)
     long countLogs(@Param("userId") Long userId);
 
-    /**
-     * 统计用户某类业务事件已发生次数，用于判断徽章达成条件。
-     */
+    /** 计算徽章事件指标；里程事件按成长值累计，其余事件按幂等流水次数。 */
     @Select("""
-            select count(*)
+            select case when #{bizType} = 'TRIP_MILEAGE'
+                        then coalesce(sum(point_delta), 0)
+                        else count(*)
+                   end
             from growth_log
             where user_id = #{userId}
               and biz_type = #{bizType}
               and deleted = 0
             """)
-    int countEvents(@Param("userId") Long userId, @Param("bizType") String bizType);
+    int metricValue(@Param("userId") Long userId, @Param("bizType") String bizType);
 
     /**
      * 查询当前事件次数已经满足条件的徽章。
@@ -218,6 +219,13 @@ public interface GrowthMapper {
                    b.badge_code badgeCode,
                    b.badge_name badgeName,
                    b.badge_image_key badgeImageKey,
+                   b.condition_description conditionDescription,
+                   b.event_type eventType,
+                   b.threshold threshold,
+                   case when b.event_type = 'TRIP_MILEAGE'
+                        then coalesce((select sum(gl.point_delta) from growth_log gl where gl.user_id = #{userId} and gl.biz_type = b.event_type and gl.deleted = 0), 0)
+                        else coalesce((select count(*) from growth_log gl where gl.user_id = #{userId} and gl.biz_type = b.event_type and gl.deleted = 0), 0)
+                   end currentValue,
                    ub.awarded_at awardedAt
             from growth_badge b
             join growth_user_badge ub
@@ -238,6 +246,13 @@ public interface GrowthMapper {
                    b.badge_code badgeCode,
                    b.badge_name badgeName,
                    b.badge_image_key badgeImageKey,
+                   b.condition_description conditionDescription,
+                   b.event_type eventType,
+                   b.threshold threshold,
+                   case when b.event_type = 'TRIP_MILEAGE'
+                        then coalesce((select sum(gl.point_delta) from growth_log gl where gl.user_id = #{userId} and gl.biz_type = b.event_type and gl.deleted = 0), 0)
+                        else coalesce((select count(*) from growth_log gl where gl.user_id = #{userId} and gl.biz_type = b.event_type and gl.deleted = 0), 0)
+                   end currentValue,
                    null awardedAt
             from growth_badge b
             where b.enabled_flag = 1

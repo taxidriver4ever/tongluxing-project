@@ -15,6 +15,8 @@ import com.tongluxing.admin.service.AdminQueryService;
 import com.tongluxing.admin.vo.AdminAuditResultVO;
 import com.tongluxing.admin.vo.PageResult;
 import com.tongluxing.common.result.Result;
+import com.tongluxing.verification.service.VerificationService;
+import com.tongluxing.verification.vo.VerificationReversalVO;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -31,14 +33,14 @@ public class AdminVerificationController {
     /** 后台审核服务。 */
     private final AdminAuditService auditService;
     /** 后台通用查询服务。 */
-    private final AdminQueryService queryService;
+    private final VerificationService verificationService;
 
     /** 分页查询核销撤销申请；当前返回空分页，后续可接入 verification-module 查询端口。 */
     @GetMapping
-    public Result<PageResult<Object>> page(@RequestParam(required = false) String status,
+    public Result<com.tongluxing.verification.vo.PageResult<VerificationReversalVO>> page(@RequestParam(required = false) String status,
                                            @RequestParam(defaultValue = "1") int page,
                                            @RequestParam(defaultValue = "20") int size) {
-        return Result.success(queryService.emptyBusinessPage("verification-module", status, null, null, null, page, size));
+        return Result.success(verificationService.adminReversals(status, page, size));
     }
 
     /** 审核指定核销撤销申请。 */

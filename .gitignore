@@ -94,6 +94,6 @@ temp/
 
 # Docker / local service data
 docker-data/
-data/
+/data/
 *.sqlite
 *.sqlite3

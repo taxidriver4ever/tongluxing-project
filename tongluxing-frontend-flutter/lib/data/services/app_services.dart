@@ -1,0 +1,946 @@
+import 'dart:typed_data';
+
+import '../models/app_models.dart';
+import 'api_client.dart';
+
+class AuthService {
+  const AuthService(this.api);
+  final ApiClient api;
+  Future<LoginSession> passwordLogin(
+    String phone,
+    String password, {
+    required String deviceId,
+  }) async {
+    final data = await api.post(
+      '/v1/auth/password-login',
+      body: {'phone': phone, 'password': password, 'deviceId': deviceId},
+    );
+    return LoginSession.fromJson(Map<String, dynamic>.from(data as Map));
+  }
+
+  Future<void> logout() => api.post('/v1/auth/logout');
+
+  Future<Map<String, dynamic>> currentUser() async =>
+      Map<String, dynamic>.from(await api.get('/v1/auth/me') as Map);
+
+  Future<TokenRefreshSession> refresh(String refreshToken) async {
+    final data = await api.post(
+      '/v1/auth/refresh-token',
+      body: {'refreshToken': refreshToken},
+    );
+    return TokenRefreshSession.fromJson(Map<String, dynamic>.from(data as Map));
+  }
+}
+
+class MerchantOnboardingService {
+  const MerchantOnboardingService(this.api);
+  final ApiClient api;
+
+  Future<Map<String, dynamic>?> latest() async {
+    try {
+      final data = await api.get('/v1/merchants/applications/me/latest');
+      return data is Map ? Map<String, dynamic>.from(data) : null;
+    } on ApiException catch (e) {
+      if (e.statusCode == 404 || e.message.contains('尚未入驻')) return null;
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> submit(Map<String, dynamic> body) async =>
+      Map<String, dynamic>.from(
+        await api.post('/v1/merchants/applications', body: body) as Map,
+      );
+
+  Future<void> saveSettlement(Map<String, dynamic> body) =>
+      api.put('/v1/merchants/me/settlement-account', body: body);
+}
+
+class MerchantEcosystemService {
+  const MerchantEcosystemService(this.api);
+  final ApiClient api;
+
+  // App 只消费已审核的商家优惠。门店、优惠券与拼单规则的
+  // 经营管理已统一迁移到商家 Web，不在移动端暴露写接口。
+  Future<List<Map<String, dynamic>>> marketplace() async {
+    final data = await api.get(
+      '/v1/merchant-market/coupons',
+      query: {'page': '1', 'size': '50'},
+    );
+    return data is Map ? _maps(data['records']) : const [];
+  }
+
+  Future<Map<String, dynamic>> marketDetail(String id) async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/merchant-market/coupons/$id') as Map,
+      );
+  List<Map<String, dynamic>> _maps(dynamic data) => (data as List? ?? const [])
+      .whereType<Map>()
+      .map((e) => Map<String, dynamic>.from(e))
+      .toList();
+}
+
+class GroupbuyService {
+  const GroupbuyService(this.api);
+  final ApiClient api;
+
+  Future<List<Map<String, dynamic>>> activities({String status = ''}) async {
+    final data = await api.get(
+      '/v1/groupbuys',
+      query: {'status': status, 'page': '1', 'size': '50'},
+    );
+    return _records(data);
+  }
+
+  Future<List<Map<String, dynamic>>> mine() async {
+    final data = await api.get(
+      '/v1/groupbuys/me',
+      query: {'page': '1', 'size': '50'},
+    );
+    return _records(data);
+  }
+
+  Future<Map<String, dynamic>> create(String couponId) async =>
+      Map<String, dynamic>.from(
+        await api.post(
+              '/v1/groupbuys',
+              body: {
+                'couponId': couponId,
+                'requestId':
+                    'APP-GROUP-CREATE-${DateTime.now().microsecondsSinceEpoch}',
+              },
+            )
+            as Map,
+      );
+
+  Future<Map<String, dynamic>> join(String activityId) async =>
+      Map<String, dynamic>.from(
+        await api.post(
+              '/v1/groupbuys/$activityId/join',
+              body: {
+                'requestId':
+                    'APP-GROUP-JOIN-${DateTime.now().microsecondsSinceEpoch}',
+              },
+            )
+            as Map,
+      );
+
+  Future<Map<String, dynamic>> detail(String activityId) async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/groupbuys/$activityId') as Map,
+      );
+
+  List<Map<String, dynamic>> _records(dynamic data) =>
+      (data is Map ? data['records'] as List? : const [])
+          ?.whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList() ??
+      const [];
+}
+
+class LocationService {
+  const LocationService(this.api);
+  final ApiClient api;
+
+  Future<List<LocationSelection>> search(
+    String keyword, {
+    double? latitude,
+    double? longitude,
+  }) async {
+    final data = await api.get(
+      '/v1/map/locations/search',
+      query: {
+        'keyword': keyword,
+        'limit': '20',
+        if (latitude != null) 'latitude': latitude.toString(),
+        if (longitude != null) 'longitude': longitude.toString(),
+      },
+    );
+    return _locations(data);
+  }
+
+  Future<List<LocationSelection>> history({
+    double? latitude,
+    double? longitude,
+  }) async => _locations(
+    await api.get(
+      '/v1/map/locations/history',
+      query: {
+        'limit': '10',
+        if (latitude != null) 'latitude': latitude.toString(),
+        if (longitude != null) 'longitude': longitude.toString(),
+      },
+    ),
+  );
+
+  Future<int> deleteHistory(String historyId) async {
+    final data = await api.delete('/v1/map/locations/history/$historyId');
+    return (data as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> clearHistory() async {
+    final data = await api.delete('/v1/map/locations/history');
+    return (data as num?)?.toInt() ?? 0;
+  }
+
+  Future<LocationSelection> select(LocationSelection location) async {
+    final data = await api.post(
+      '/v1/map/locations/resolve',
+      body: location.toJson(),
+    );
+    return LocationSelection.fromJson(Map<String, dynamic>.from(data as Map));
+  }
+
+  List<LocationSelection> _locations(dynamic data) {
+    final list = data is List ? data : const [];
+    return list
+        .map(
+          (item) => LocationSelection.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
+        .toList();
+  }
+}
+
+class TripService {
+  const TripService(this.api);
+  final ApiClient api;
+  Future<List<TripModel>> mine({String scope = 'active'}) async {
+    final data = await api.get('/v1/trips/me', query: {'scope': scope});
+    return _tripList(data);
+  }
+
+  Future<List<TripModel>> publicTrips() async =>
+      _tripList(await api.get('/v1/trips/public'));
+  Future<TripModel?> current() async {
+    final data = await api.get('/v1/trips/driving/current');
+    return data == null
+        ? null
+        : TripModel.fromJson(Map<String, dynamic>.from(data as Map));
+  }
+
+  Future<TripModel> detail(String id) async => TripModel.fromJson(
+    Map<String, dynamic>.from(await api.get('/v1/trips/$id') as Map),
+  );
+  Future<TripModel> start(String id) async => TripModel.fromJson(
+    Map<String, dynamic>.from(await api.post('/v1/trips/$id/start') as Map),
+  );
+  Future<TripModel> end(String id) async => TripModel.fromJson(
+    Map<String, dynamic>.from(await api.post('/v1/trips/$id/end') as Map),
+  );
+
+  Future<Map<String, dynamic>> uploadTrackPoint({
+    required String tripId,
+    required double longitude,
+    required double latitude,
+    required DateTime recordTime,
+    double? speed,
+    double? direction,
+    double? accuracy,
+  }) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/driver-tracks/points',
+          body: {
+            'tripId': tripId,
+            'longitude': longitude,
+            'latitude': latitude,
+            'speed': speed,
+            'direction': direction,
+            'accuracy': accuracy,
+            'recordTime': recordTime.toIso8601String(),
+          },
+        )
+        as Map,
+  );
+
+  Future<TripSettlementModel> settle(String id) async =>
+      TripSettlementModel.fromJson(
+        Map<String, dynamic>.from(
+          await api.post('/v1/trips/$id/settle') as Map,
+        ),
+      );
+
+  Future<TripDraftModel> createDraft(Map<String, dynamic> body) async =>
+      TripDraftModel.fromJson(
+        Map<String, dynamic>.from(
+          await api.post('/v1/trip/draft', body: body) as Map,
+        ),
+      );
+
+  Future<TripDraftModel> updateDraft(
+    String draftId,
+    Map<String, dynamic> body,
+  ) async => TripDraftModel.fromJson(
+    Map<String, dynamic>.from(
+      await api.put('/v1/trip/draft/$draftId', body: body) as Map,
+    ),
+  );
+
+  Future<TripDraftModel> draftDetail(String draftId) async =>
+      TripDraftModel.fromJson(
+        Map<String, dynamic>.from(
+          await api.get('/v1/trip/draft/$draftId') as Map,
+        ),
+      );
+
+  Future<void> deleteDraft(String draftId) =>
+      api.delete('/v1/trip/draft/$draftId');
+
+  Future<TripDraftWaypointModel> addWaypoint(
+    String draftId,
+    LocationSelection location, {
+    String type = 'REST',
+    int sort = 1,
+  }) async => TripDraftWaypointModel.fromJson(
+    Map<String, dynamic>.from(
+      await api.post(
+            '/v1/trip/$draftId/waypoint',
+            body: {
+              'name': location.name,
+              'address': location.address,
+              'longitude': location.longitude,
+              'latitude': location.latitude,
+              'type': type,
+              'sort': sort,
+              'stayMinutes': 30,
+            },
+          )
+          as Map,
+    ),
+  );
+
+  Future<void> deleteWaypoint(String draftId, String waypointId) =>
+      api.delete('/v1/trip/$draftId/waypoint/$waypointId');
+
+  Future<Map<String, dynamic>> planRoute(String draftId) async =>
+      Map<String, dynamic>.from(
+        await api.post('/v1/trip/draft/$draftId/route/plan') as Map,
+      );
+
+  Future<TripDraftRouteModel?> draftRoute(String draftId) async {
+    final data = await api.get('/v1/trip/$draftId/route');
+    return data is Map
+        ? TripDraftRouteModel.fromJson(Map<String, dynamic>.from(data))
+        : null;
+  }
+
+  Future<String> publishDraft(String draftId) async {
+    final data = Map<String, dynamic>.from(
+      await api.post('/v1/trip/draft/$draftId/publish') as Map,
+    );
+    return data['tripId']?.toString() ?? '';
+  }
+
+  Future<List<TripDraftModel>> drafts() async {
+    final data = await api.get('/v1/trip/draft');
+    final list = data is List ? data : const [];
+    return list
+        .map(
+          (e) => TripDraftModel.fromJson(Map<String, dynamic>.from(e as Map)),
+        )
+        .toList();
+  }
+
+  List<TripModel> _tripList(dynamic data) {
+    final list = data is Map ? (data['trips'] as List? ?? const []) : const [];
+    return list
+        .map((e) => TripModel.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+  }
+}
+
+class CompanionMatchService {
+  const CompanionMatchService(this.api);
+  final ApiClient api;
+
+  Future<List<CompanionMatchModel>> recommendations(String tripId) async {
+    final data = await api.get('/v1/matches/trips/$tripId/recommendations');
+    final list = data is Map ? (data['trips'] as List? ?? const []) : const [];
+    return list
+        .map(
+          (e) =>
+              CompanionMatchModel.fromJson(Map<String, dynamic>.from(e as Map)),
+        )
+        .toList();
+  }
+
+  Future<CompanionMatchModel> detail(String matchId) async =>
+      CompanionMatchModel.fromJson(
+        Map<String, dynamic>.from(
+          await api.get('/v1/matches/recommendations/$matchId') as Map,
+        ),
+      );
+
+  Future<Map<String, dynamic>> apply(String matchId, {String? message}) async =>
+      Map<String, dynamic>.from(
+        await api.post(
+              '/v1/matches/recommendations/$matchId/apply',
+              body: {'message': message ?? '路线很合适，希望一起出发'},
+            )
+            as Map,
+      );
+}
+
+class SosService {
+  const SosService(this.api);
+  final ApiClient api;
+
+  Future<Map<String, dynamic>> create({
+    required String requestId,
+    required double latitude,
+    required double longitude,
+    required String address,
+    double? accuracy,
+    String? message,
+  }) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/sos/events',
+          body: {
+            'requestId': requestId,
+            'latitude': latitude,
+            'longitude': longitude,
+            'locationAccuracyMeters': accuracy,
+            'address': address,
+            'message': message,
+          },
+        )
+        as Map,
+  );
+}
+
+class ChatService {
+  const ChatService(this.api);
+  final ApiClient api;
+  Future<List<ConversationModel>> conversations() async {
+    final data = await api.get('/v1/chats/conversations');
+    final list = data is Map
+        ? (data['conversations'] as List? ?? const [])
+        : const [];
+    return list
+        .map(
+          (e) =>
+              ConversationModel.fromJson(Map<String, dynamic>.from(e as Map)),
+        )
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> messages(String id) async {
+    final data = await api.get('/v1/chats/conversations/$id/messages');
+    final list = data is Map
+        ? (data['messages'] as List? ?? const [])
+        : const [];
+    return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  Future<ConversationModel> tripConversation(String tripId) async =>
+      ConversationModel.fromJson(
+        Map<String, dynamic>.from(
+          await api.get('/v1/chats/trips/$tripId/conversation') as Map,
+        ),
+      );
+
+  Future<Map<String, dynamic>> send(
+    String id,
+    String content, {
+    String type = 'TEXT',
+    Map<String, dynamic>? payload,
+  }) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/chats/conversations/$id/messages',
+          body: {
+            'messageType': type,
+            'content': content,
+            'payload': payload ?? <String, dynamic>{},
+          },
+        )
+        as Map,
+  );
+
+  Future<List<Map<String, dynamic>>> members(String id) async {
+    final data = await api.get('/v1/chats/conversations/$id/members');
+    return (data as List? ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> settings(String id) async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/chats/conversations/$id/settings') as Map,
+      );
+
+  Future<Map<String, dynamic>> updateSettings(
+    String id, {
+    required bool muted,
+    required bool pinned,
+  }) async => Map<String, dynamic>.from(
+    await api.put(
+          '/v1/chats/conversations/$id/settings',
+          body: {'muted': muted, 'pinned': pinned},
+        )
+        as Map,
+  );
+
+  Future<List<Map<String, dynamic>>> joinApplications({
+    String status = 'PENDING',
+  }) async {
+    final data = await api.get(
+      '/v1/chats/join-applications',
+      query: {'status': status},
+    );
+    return (data as List? ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> reviewJoinApplication(
+    String id,
+    String decision,
+  ) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/chats/join-applications/$id/review',
+          body: {'decision': decision},
+        )
+        as Map,
+  );
+
+  Future<Map<String, dynamic>> groupWorkspace(String id) async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/chats/conversations/$id/group') as Map,
+      );
+
+  Future<Map<String, dynamic>> createGroupItem(
+    String id, {
+    required String type,
+    required String title,
+    String? content,
+    Map<String, dynamic>? payload,
+  }) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/chats/conversations/$id/group/items',
+          body: {
+            'itemType': type,
+            'title': title,
+            'content': content,
+            'payload': payload ?? <String, dynamic>{},
+          },
+        )
+        as Map,
+  );
+
+  Future<Map<String, dynamic>> updateGroupItem(
+    String id,
+    String itemId, {
+    required String type,
+    required String title,
+    String? content,
+    Map<String, dynamic>? payload,
+  }) async => Map<String, dynamic>.from(
+    await api.put(
+          '/v1/chats/conversations/$id/group/items/$itemId',
+          body: {
+            'itemType': type,
+            'title': title,
+            'content': content,
+            'payload': payload ?? <String, dynamic>{},
+          },
+        )
+        as Map,
+  );
+
+  Future<List<Map<String, dynamic>>> vote(
+    String id,
+    String pollId,
+    String optionKey,
+  ) async {
+    final data = await api.post(
+      '/v1/chats/conversations/$id/group/polls/$pollId/vote',
+      body: {'optionKey': optionKey},
+    );
+    return (data as List? ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> groupItem(String id, String itemId) async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/chats/conversations/$id/group/items/$itemId') as Map,
+      );
+
+  Future<Map<String, dynamic>> closePoll(String id, String itemId) async =>
+      Map<String, dynamic>.from(
+        await api.post('/v1/chats/conversations/$id/group/polls/$itemId/close')
+            as Map,
+      );
+
+  Future<List<Map<String, dynamic>>> shareLocation(
+    String id, {
+    required double latitude,
+    required double longitude,
+    double? speed,
+    bool sharing = true,
+  }) async {
+    final data = await api.post(
+      '/v1/chats/conversations/$id/group/location',
+      body: {
+        'latitude': latitude,
+        'longitude': longitude,
+        'speed': speed,
+        'sharing': sharing,
+      },
+    );
+    return (data as List? ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> report(
+    String id, {
+    required String targetType,
+    required String targetId,
+    required String reportType,
+    required String reason,
+    Map<String, dynamic>? evidence,
+  }) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/chats/conversations/$id/group/reports',
+          body: {
+            'targetType': targetType,
+            'targetId': targetId,
+            'reportType': reportType,
+            'reason': reason,
+            'evidence': evidence ?? <String, dynamic>{},
+          },
+        )
+        as Map,
+  );
+
+  Future<void> removeMember(String id, String userId) =>
+      api.delete('/v1/chats/conversations/$id/group/members/$userId');
+
+  Future<void> updateMemberRole(String id, String userId, String role) =>
+      api.put(
+        '/v1/chats/conversations/$id/group/members/$userId/role',
+        body: {'role': role},
+      );
+
+  Future<Map<String, dynamic>> createTripConfirmation(String id) async =>
+      Map<String, dynamic>.from(
+        await api.post('/v1/chats/conversations/$id/group/trip-confirmations')
+            as Map,
+      );
+
+  Future<Map<String, dynamic>> tripConfirmation(
+    String id,
+    String confirmationId,
+  ) async => Map<String, dynamic>.from(
+    await api.get(
+          '/v1/chats/conversations/$id/group/trip-confirmations/$confirmationId',
+        )
+        as Map,
+  );
+
+  Future<Map<String, dynamic>> respondTripConfirmation(
+    String id,
+    String confirmationId,
+    String status, {
+    String? reason,
+  }) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/chats/conversations/$id/group/trip-confirmations/$confirmationId/respond',
+          body: {'status': status, 'reason': reason},
+        )
+        as Map,
+  );
+
+  Future<Map<String, dynamic>> startConfirmedTrip(
+    String id,
+    String confirmationId,
+  ) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/chats/conversations/$id/group/trip-confirmations/$confirmationId/start',
+        )
+        as Map,
+  );
+
+  Future<Map<String, dynamic>> renameGroup(String id, String name) async =>
+      Map<String, dynamic>.from(
+        await api.put(
+              '/v1/chats/conversations/$id/group/name',
+              body: {'name': name},
+            )
+            as Map,
+      );
+
+  Future<void> closeGroup(String id) =>
+      api.post('/v1/chats/conversations/$id/group/close');
+}
+
+class ChatAttachmentService {
+  const ChatAttachmentService(this.api);
+  final ApiClient api;
+
+  Future<Map<String, dynamic>> upload({
+    required String conversationId,
+    required String fileName,
+    required String contentType,
+    required Uint8List bytes,
+    required bool image,
+  }) async {
+    final bizType = image ? 'CHAT_IMAGE' : 'CHAT_FILE';
+    final presign = Map<String, dynamic>.from(
+      await api.post(
+            '/v1/storage/presign-upload',
+            body: {
+              'fileName': fileName,
+              'contentType': contentType,
+              'fileSize': bytes.length,
+              'bizType': bizType,
+              'bizId': conversationId,
+            },
+          )
+          as Map,
+    );
+    await api.putBytes(
+      presign['uploadUrl'].toString(),
+      bytes,
+      contentType: contentType,
+    );
+    final confirmed = Map<String, dynamic>.from(
+      await api.post(
+            '/v1/storage/confirm-upload',
+            body: {
+              'bucket': presign['bucket'],
+              'objectKey': presign['objectKey'],
+              'fileName': fileName,
+              'contentType': contentType,
+              'fileSize': bytes.length,
+              'bizType': bizType,
+              'bizId': conversationId,
+            },
+          )
+          as Map,
+    );
+    return {...confirmed, 'fileName': fileName, 'contentType': contentType};
+  }
+
+  Future<String> downloadUrl(Object fileId) async {
+    final data = Map<String, dynamic>.from(
+      await api.get(
+            '/v1/storage/presign-download',
+            query: {'fileId': fileId.toString()},
+          )
+          as Map,
+    );
+    return data['downloadUrl'].toString();
+  }
+}
+
+class UserProfileService {
+  const UserProfileService(this.api);
+  final ApiClient api;
+
+  Future<Map<String, dynamic>> me() async =>
+      Map<String, dynamic>.from(await api.get('/v1/users/me') as Map);
+
+  Future<Map<String, dynamic>> update(Map<String, dynamic> values) async =>
+      Map<String, dynamic>.from(
+        await api.put('/v1/users/me/profile', body: values) as Map,
+      );
+
+  Future<Map<String, dynamic>> homepage(String userId) async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/users/$userId/homepage') as Map,
+      );
+}
+
+class DrivingLicenseService {
+  const DrivingLicenseService(this.api);
+  final ApiClient api;
+
+  Future<Map<String, dynamic>> latest() async => Map<String, dynamic>.from(
+    await api.get('/v1/users/me/certifications/latest') as Map,
+  );
+
+  Future<Map<String, dynamic>> submit({
+    required String holderName,
+    required String licenseNo,
+    required String vehicleClass,
+    required String licenseFrontImageKey,
+    required String licenseBackImageKey,
+    String issuingAuthority = '',
+  }) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/users/me/certifications',
+          body: {
+            'holderName': holderName,
+            'licenseNo': licenseNo,
+            'vehicleClass': vehicleClass,
+            'issuingAuthority': issuingAuthority,
+            'licenseFrontImageKey': licenseFrontImageKey,
+            'licenseBackImageKey': licenseBackImageKey,
+            'recognitionSource': 'MANUAL_UPLOAD',
+          },
+        )
+        as Map,
+  );
+}
+
+class VehicleService {
+  const VehicleService(this.api);
+  final ApiClient api;
+  Future<List<VehicleModel>> mine() async {
+    final data = await api.get('/v1/vehicles/me');
+    final list = data is Map
+        ? (data['vehicles'] as List? ?? const [])
+        : const [];
+    return list
+        .map((e) => VehicleModel.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+  }
+
+  Future<void> setDefault(String id) => api.put('/v1/vehicles/$id/default');
+
+  Future<VehicleAuthStatusModel> authStatus() async =>
+      VehicleAuthStatusModel.fromJson(
+        Map<String, dynamic>.from(
+          await api.get('/v1/vehicle/auth/status') as Map,
+        ),
+      );
+
+  Future<VehicleAuthStatusModel> submitAuth({
+    required String plateNumber,
+    required String vehicleBrand,
+    required String vehicleModel,
+    required String vehicleColor,
+    required List<String> registrationLicenseImages,
+    required List<String> vehicleImages,
+  }) async => VehicleAuthStatusModel.fromJson(
+    Map<String, dynamic>.from(
+      await api.post(
+            '/v1/vehicle/auth/submit',
+            body: {
+              'plateNumber': plateNumber,
+              'vehicleBrand': vehicleBrand,
+              'vehicleModel': vehicleModel,
+              'vehicleColor': vehicleColor,
+              'registrationLicenseImages': registrationLicenseImages,
+              'vehicleImages': vehicleImages,
+            },
+          )
+          as Map,
+    ),
+  );
+
+  Future<VehicleModel> create({
+    required String plateNo,
+    required String brand,
+    required String model,
+    required String color,
+  }) async => VehicleModel.fromJson(
+    Map<String, dynamic>.from(
+      await api.post(
+            '/v1/vehicles',
+            body: {
+              'plateNo': plateNo,
+              'brand': brand,
+              'model': model,
+              'vehicleType': 'SUV',
+              'color': color,
+              'seatCount': 5,
+              'energyType': '汽油',
+            },
+          )
+          as Map,
+    ),
+  );
+}
+
+class GrowthService {
+  const GrowthService(this.api);
+  final ApiClient api;
+  Future<Map<String, dynamic>> summary() async =>
+      Map<String, dynamic>.from(await api.get('/v1/growth/me') as Map);
+  Future<List<Map<String, dynamic>>> logs() async {
+    final data = Map<String, dynamic>.from(
+      await api.get('/v1/growth/me/logs', query: {'page': '1', 'size': '20'})
+          as Map,
+    );
+    return (data['records'] as List? ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> badges() async =>
+      Map<String, dynamic>.from(await api.get('/v1/growth/me/badges') as Map);
+}
+
+class InviteService {
+  const InviteService(this.api);
+  final ApiClient api;
+  Future<Map<String, dynamic>> code() async =>
+      Map<String, dynamic>.from(await api.get('/v1/invites/code') as Map);
+  Future<Map<String, dynamic>> summary() async =>
+      Map<String, dynamic>.from(await api.get('/v1/invites/me/summary') as Map);
+  Future<Map<String, dynamic>> qr() async =>
+      Map<String, dynamic>.from(await api.get('/v1/invites/me/qr') as Map);
+  Future<Map<String, dynamic>> validateQr(String token) async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/invites/qr/validate', query: {'token': token})
+            as Map,
+      );
+}
+
+class CustomerSupportService {
+  const CustomerSupportService(this.api);
+  final ApiClient api;
+
+  Future<Map<String, dynamic>> createTicket({
+    required String title,
+    required String content,
+    bool complaint = false,
+  }) async => Map<String, dynamic>.from(
+    await api.post(
+          complaint
+              ? '/v1/customer-service/complaints'
+              : '/v1/customer-service/tickets',
+          body: {
+            'scene': complaint ? 'COMPLAINT' : 'GENERAL',
+            'targetType': '',
+            'targetId': '',
+            'title': title,
+            'content': content,
+            'imageKeys': const <String>[],
+            'requestId': 'APP-CS-${DateTime.now().microsecondsSinceEpoch}',
+          },
+        )
+        as Map,
+  );
+
+  Future<List<Map<String, dynamic>>> tickets() async {
+    final data = Map<String, dynamic>.from(
+      await api.get(
+            '/v1/customer-service/tickets/me',
+            query: {'page': '1', 'size': '30'},
+          )
+          as Map,
+    );
+    return (data['records'] as List? ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> notifications() async {
+    final data = Map<String, dynamic>.from(
+      await api.get(
+            '/v1/notifications/me',
+            query: {'scene': 'CUSTOMER_SERVICE', 'page': '1', 'size': '30'},
+          )
+          as Map,
+    );
+    return (data['records'] as List? ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  Future<void> markRead(Object id) => api.post('/v1/notifications/$id/read');
+}

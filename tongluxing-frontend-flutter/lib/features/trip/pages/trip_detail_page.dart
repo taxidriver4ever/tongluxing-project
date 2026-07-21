@@ -92,12 +92,6 @@ class _TripDetailPageState extends State<TripDetailPage> {
   }
 
   Future<void> openChat() async {
-    if (trip!.status != 'RUNNING' && trip!.status != 'ONGOING') {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('开启行程后，系统会自动创建车队群聊')));
-      return;
-    }
     try {
       final conversation = await ChatService(
         context.read<AppSession>().api,

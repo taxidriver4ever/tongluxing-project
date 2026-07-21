@@ -8,6 +8,7 @@ import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
 import '../../home/pages/search_location_page.dart';
 import '../widgets/trip_route_preview.dart';
+import 'trip_detail_page.dart';
 
 class TripCreatePage extends StatefulWidget {
   const TripCreatePage({this.draft, super.key});
@@ -175,12 +176,15 @@ class _TripCreatePageState extends State<TripCreatePage> {
     try {
       final service = TripService(context.read<AppSession>().api);
       if (!await _saveDraft(plan: true, manageSubmitting: false)) return;
-      final tripId = await service.publishDraft(id);
+      final tripId = (await service.publishDraft(id)).toString();
       if (!mounted) return;
-      ScaffoldMessenger.of(
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('行程发布成功，群聊已创建')),
+      );
+      Navigator.pushReplacement(
         context,
-      ).showSnackBar(SnackBar(content: Text('行程发布成功 · $tripId')));
-      Navigator.pop(context, true);
+        MaterialPageRoute(builder: (_) => TripDetailPage(tripId: tripId)),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(

@@ -91,13 +91,13 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
                           ),
                           SizedBox(height: 14),
                           Text(
-                            '暂无进行中的行程群聊',
+                            '暂时没有行程群聊',
                             textAlign: TextAlign.center,
                             style: TextStyle(fontWeight: FontWeight.w700),
                           ),
                           SizedBox(height: 6),
                           Text(
-                            '队长开启行程后，系统会自动创建群聊',
+                            '发布行程或加入车队后，可在这里与同行成员沟通',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: AppColors.muted),
                           ),

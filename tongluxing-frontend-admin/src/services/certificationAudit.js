@@ -23,6 +23,10 @@ export function getDrivingLicenseDetail(certificationId) {
   return apiRequest(`/v1/admin/users/certifications/${certificationId}`)
 }
 
+export function getVehicleCertificationDetail(certificationId) {
+  return apiRequest(`/v1/admin/vehicles/certifications/${certificationId}`)
+}
+
 export async function getVehicleMaterialApplications(params = {}) {
   const canonicalRequest = apiRequest(`/v1/admin/vehicles/certifications?${queryString(params)}`)
   const compatStatus = params.status ? STATUS_TO_COMPAT[params.status] : ''

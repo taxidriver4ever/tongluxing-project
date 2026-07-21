@@ -1,10 +1,14 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../common/widgets/app_widgets.dart';
+import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 
 class VehicleAddPage extends StatefulWidget {
@@ -19,19 +23,27 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
   final brand = TextEditingController();
   final model = TextEditingController();
   final color = TextEditingController();
-  final selectedMaterials = <String>{};
+  final picker = ImagePicker();
+  final selectedMaterials = <String, _SelectedImage>{};
   bool saving = false;
+  String savingLabel = '';
 
-  static const materialUrls = <String, String>{
-    '行驶证主页':
-        'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="640" height="400"%3E%3Crect width="100%25" height="100%25" fill="%23edfaf3"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" fill="%23059269" font-size="38"%3EREGISTRATION A%3C/text%3E%3C/svg%3E',
-    '行驶证副页':
-        'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="640" height="400"%3E%3Crect width="100%25" height="100%25" fill="%23f2fbf6"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" fill="%23059269" font-size="38"%3EREGISTRATION B%3C/text%3E%3C/svg%3E',
-    '车辆正面照':
-        'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="640" height="400"%3E%3Crect width="100%25" height="100%25" fill="%23fff7e8"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" fill="%23d97706" font-size="38"%3EVEHICLE PHOTO%3C/text%3E%3C/svg%3E',
+  static const materialBizTypes = <String, String>{
+    '行驶证主页': 'VEHICLE_LICENSE_FRONT',
+    '行驶证副页': 'VEHICLE_LICENSE_BACK',
+    '车辆正面照': 'VEHICLE_PHOTO_FRONT',
+    '车辆侧面照': 'VEHICLE_PHOTO_SIDE',
+    '车辆后方照': 'VEHICLE_PHOTO_REAR',
   };
 
-  bool get materialsComplete => selectedMaterials.length == materialUrls.length;
+  static const requiredMaterials = <String>{
+    '行驶证主页',
+    '行驶证副页',
+    '车辆正面照',
+  };
+
+  bool get materialsComplete =>
+      requiredMaterials.every(selectedMaterials.containsKey);
 
   @override
   void dispose() {
@@ -42,50 +54,101 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
     super.dispose();
   }
 
+  Future<void> pickMaterial(String label) async {
+    try {
+      final file = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 88,
+        maxWidth: 2200,
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) throw const ApiException('无法读取所选图片');
+      if (bytes.length > 10 * 1024 * 1024) {
+        throw const ApiException('单张图片不能超过 10MB');
+      }
+      if (!mounted) return;
+      setState(() {
+        selectedMaterials[label] = _SelectedImage(
+          fileName: file.name,
+          bytes: bytes,
+          contentType: file.mimeType ??
+              StorageUploadService.imageContentType(file.name),
+        );
+      });
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
+  }
+
   Future<void> submit() async {
     if (!formKey.currentState!.validate()) return;
     if (!materialsComplete) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请先选择全部 3 项认证材料')));
+      ).showSnackBar(const SnackBar(content: Text('请先从相册上传全部 3 项认证材料')));
       return;
     }
-    setState(() => saving = true);
+    FocusScope.of(context).unfocus();
+    setState(() {
+      saving = true;
+      savingLabel = '检查车辆信息…';
+    });
     try {
-      final service = VehicleService(context.read<AppSession>().api);
+      final api = context.read<AppSession>().api;
+      final vehicleService = VehicleService(api);
+      final storageService = StorageUploadService(api);
       final normalizedPlate = plate.text
           .trim()
           .replaceAll(' ', '')
           .toUpperCase();
-      final eligibility = await service.authEligibility(normalizedPlate);
+      final eligibility = await vehicleService.authEligibility(normalizedPlate);
       if (eligibility['eligible'] != true) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                eligibility['reason']?.toString() ??
-                    '该车辆已经认证通过，不能再次提交',
-              ),
-            ),
-          );
-        }
-        return;
+        throw ApiException(
+          eligibility['reason']?.toString() ?? '该车辆已经认证通过，不能再次提交',
+        );
       }
-      await service.submitAuth(
+
+      final uploadedKeys = <String, String>{};
+      for (final entry in materialBizTypes.entries) {
+        final image = selectedMaterials[entry.key];
+        if (image == null) continue;
+        if (!mounted) return;
+        setState(() => savingLabel = '正在上传${entry.key}…');
+        final uploaded = await storageService.upload(
+          bizType: entry.value,
+          bizId: normalizedPlate,
+          fileName: image.fileName,
+          bytes: image.bytes,
+          contentType: image.contentType,
+        );
+        uploadedKeys[entry.key] = uploaded['objectKey'].toString();
+      }
+
+      if (mounted) setState(() => savingLabel = '正在提交认证…');
+      await vehicleService.submitAuth(
         plateNumber: normalizedPlate,
         vehicleBrand: brand.text.trim(),
         vehicleModel: model.text.trim(),
         vehicleColor: color.text.trim(),
         registrationLicenseImages: [
-          materialUrls['行驶证主页']!,
-          materialUrls['行驶证副页']!,
+          uploadedKeys['行驶证主页']!,
+          uploadedKeys['行驶证副页']!,
         ],
-        vehicleImages: [materialUrls['车辆正面照']!],
+        vehicleImages: [
+          uploadedKeys['车辆正面照']!,
+          if (uploadedKeys['车辆侧面照'] case final key?) key,
+          if (uploadedKeys['车辆后方照'] case final key?) key,
+        ],
       );
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('认证材料已提交，进入办理中')));
+        ).showSnackBar(const SnackBar(content: Text('图片已上传，认证材料已提交')));
         Navigator.pop(context, true);
       }
     } catch (e) {
@@ -95,7 +158,12 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
         ).showSnackBar(SnackBar(content: Text('$e')));
       }
     } finally {
-      if (mounted) setState(() => saving = false);
+      if (mounted) {
+        setState(() {
+          saving = false;
+          savingLabel = '';
+        });
+      }
     }
   }
 
@@ -105,6 +173,7 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
     body: Form(
       key: formKey,
       child: ListView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: const EdgeInsets.all(22),
         children: [
           const Text(
@@ -113,7 +182,7 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
           ),
           const SizedBox(height: 7),
           const Text(
-            '资料仅用于平台审核，提交后可在认证进度中查看结果',
+            '从手机相册选择真实图片，App 会先向后端获取 MinIO 上传签名，再直传图片并提交审核。',
             style: TextStyle(color: AppColors.muted, height: 1.5),
           ),
           const SizedBox(height: 22),
@@ -134,7 +203,11 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
           const SizedBox(height: 18),
           _materials('车辆行驶证', '主页与副页均需清晰完整', ['行驶证主页', '行驶证副页']),
           const SizedBox(height: 14),
-          _materials('车辆照片', '需能看清车辆正面及车牌', ['车辆正面照']),
+          _materials(
+            '车辆照片',
+            '正面照必传，侧面和后方照片可选，需能清楚识别车辆',
+            ['车辆正面照', '车辆侧面照', '车辆后方照'],
+          ),
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: saving ? null : submit,
@@ -148,12 +221,12 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
                     ),
                   )
                 : const Icon(LucideIcons.shieldCheck),
-            label: Text(saving ? '提交中…' : '提交认证审核'),
+            label: Text(saving ? savingLabel : '上传并提交认证'),
           ),
           const SizedBox(height: 14),
           Center(
             child: Text(
-              '已选择 ${selectedMaterials.length} / ${materialUrls.length} 项材料',
+              '已选择 ${selectedMaterials.length} 项图片 · 必传材料 ${materialsComplete ? '已完整' : '未完整'}',
               style: TextStyle(
                 color: materialsComplete ? AppColors.success : AppColors.muted,
                 fontSize: 12,
@@ -186,60 +259,83 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
         const SizedBox(height: 14),
         Row(
           children: items.map((item) {
-            final selected = selectedMaterials.contains(item);
+            final selected = selectedMaterials[item];
             return Expanded(
               child: Padding(
                 padding: EdgeInsets.only(right: item == items.last ? 0 : 10),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(16),
-                  onTap: () => setState(
-                    () => selected
-                        ? selectedMaterials.remove(item)
-                        : selectedMaterials.add(item),
-                  ),
+                  onTap: saving ? null : () => pickMaterial(item),
                   child: Container(
-                    height: 104,
+                    height: 116,
+                    clipBehavior: Clip.antiAlias,
                     decoration: BoxDecoration(
-                      color: selected
-                          ? const Color(0xFFEEF3FF)
-                          : const Color(0xFFF8FAFD),
+                      color: selected == null
+                          ? const Color(0xFFF8FAFD)
+                          : const Color(0xFFEEF3FF),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: selected
-                            ? AppColors.primary
-                            : const Color(0xFFDDE3ED),
+                        color: selected == null
+                            ? const Color(0xFFDDE3ED)
+                            : AppColors.primary,
                       ),
                     ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          selected
-                              ? LucideIcons.circleCheck
-                              : LucideIcons.imagePlus,
-                          color: selected ? AppColors.primary : AppColors.muted,
-                        ),
-                        const SizedBox(height: 9),
-                        Text(
-                          item,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: selected
-                                ? AppColors.primary
-                                : AppColors.secondaryText,
+                    child: selected == null
+                        ? Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                LucideIcons.imagePlus,
+                                color: AppColors.muted,
+                              ),
+                              const SizedBox(height: 9),
+                              Text(
+                                item,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.secondaryText,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              const Text(
+                                '从相册选择',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: AppColors.muted,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Image.memory(selected.bytes, fit: BoxFit.cover),
+                              const DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [Colors.transparent, Color(0xAA000000)],
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                left: 8,
+                                right: 8,
+                                bottom: 8,
+                                child: Text(
+                                  '$item · 点击更换',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          selected ? '已选择' : '点击选择',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: AppColors.muted,
-                          ),
-                        ),
-                      ],
-                    ),
                   ),
                 ),
               ),
@@ -260,4 +356,16 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
     validator: (value) =>
         value == null || value.trim().isEmpty ? '请填写$label' : null,
   );
+}
+
+class _SelectedImage {
+  const _SelectedImage({
+    required this.fileName,
+    required this.bytes,
+    required this.contentType,
+  });
+
+  final String fileName;
+  final Uint8List bytes;
+  final String contentType;
 }

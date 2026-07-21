@@ -12,6 +12,7 @@ import 'vehicle_auth_status_page.dart';
 
 class VehicleListPage extends StatefulWidget {
   const VehicleListPage({super.key});
+
   @override
   State<VehicleListPage> createState() => _VehicleListPageState();
 }
@@ -22,6 +23,7 @@ class _VehicleListPageState extends State<VehicleListPage> {
   List<VehicleModel> rows = [];
   VehicleAuthStatusModel? authStatus;
   String filter = 'ALL';
+  String? operatingVehicleId;
 
   List<VehicleModel> get filteredRows => filter == 'ALL'
       ? rows
@@ -48,10 +50,87 @@ class _VehicleListPageState extends State<VehicleListPage> {
   }
 
   Future<void> setDefault(VehicleModel vehicle) async {
-    try {
-      await VehicleService(
+    await _runVehicleAction(
+      vehicle,
+      () => VehicleService(
         context.read<AppSession>().api,
-      ).setDefault(vehicle.id);
+      ).setDefault(vehicle.id),
+      successMessage: '已设为主要车辆',
+    );
+  }
+
+  Future<void> _confirmRemoveApproved(VehicleModel vehicle) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('移除认证车辆'),
+        content: Text(
+          '确定要移除 ${vehicle.brand} ${vehicle.model}（${vehicle.plate}）吗？\n\n移除后，该车辆将从你的车辆列表中隐藏，不能继续用于行程和车队；已通过认证记录会保留，用于防止相同车辆重复认证。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('确定移除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _runVehicleAction(
+      vehicle,
+      () => VehicleService(context.read<AppSession>().api).remove(vehicle.id),
+      successMessage: '车辆已移除',
+    );
+  }
+
+  Future<void> _confirmDeleteRejected(VehicleModel vehicle) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('删除驳回记录'),
+        content: Text(
+          '确定删除 ${vehicle.brand} ${vehicle.model}（${vehicle.plate}）的认证驳回记录吗？\n\n删除后可以重新添加车辆并提交新的认证材料。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('删除记录'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _runVehicleAction(
+      vehicle,
+      () => VehicleService(
+        context.read<AppSession>().api,
+      ).deleteRejectedHistory(vehicle.id),
+      successMessage: '驳回记录已删除',
+    );
+  }
+
+  Future<void> _runVehicleAction(
+    VehicleModel vehicle,
+    Future<void> Function() action, {
+    required String successMessage,
+  }) async {
+    setState(() => operatingVehicleId = vehicle.id);
+    try {
+      await action();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(successMessage)));
       await load();
     } catch (e) {
       if (mounted) {
@@ -59,8 +138,87 @@ class _VehicleListPageState extends State<VehicleListPage> {
           context,
         ).showSnackBar(SnackBar(content: Text(e.toString())));
       }
+    } finally {
+      if (mounted) setState(() => operatingVehicleId = null);
     }
   }
+
+  Future<void> _showRejectDetail(VehicleModel vehicle) => showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(LucideIcons.circleX, color: AppColors.danger),
+          SizedBox(width: 10),
+          Text('认证驳回详情'),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${vehicle.brand} ${vehicle.model}',
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              vehicle.plate,
+              style: const TextStyle(color: AppColors.muted),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              '驳回原因',
+              style: TextStyle(fontSize: 13, color: AppColors.muted),
+            ),
+            const SizedBox(height: 7),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF2F2),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFFFD7D7)),
+              ),
+              child: Text(
+                vehicle.rejectReason.trim().isEmpty
+                    ? '后台暂未填写具体驳回原因，请联系客服核实。'
+                    : vehicle.rejectReason.trim(),
+                style: const TextStyle(height: 1.55),
+              ),
+            ),
+            if (vehicle.certificationId?.isNotEmpty == true) ...[
+              const SizedBox(height: 14),
+              Text(
+                '认证申请编号：${vehicle.certificationId}',
+                style: const TextStyle(fontSize: 12, color: AppColors.muted),
+              ),
+            ],
+            if (vehicle.certificationSubmittedAt != null) ...[
+              const SizedBox(height: 5),
+              Text(
+                '提交时间：${_formatDateTime(vehicle.certificationSubmittedAt!)}',
+                style: const TextStyle(fontSize: 12, color: AppColors.muted),
+              ),
+            ],
+            if (vehicle.certificationReviewedAt != null) ...[
+              const SizedBox(height: 5),
+              Text(
+                '审核时间：${_formatDateTime(vehicle.certificationReviewedAt!)}',
+                style: const TextStyle(fontSize: 12, color: AppColors.muted),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('知道了'),
+        ),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -94,99 +252,7 @@ class _VehicleListPageState extends State<VehicleListPage> {
                   ),
                 ),
               ),
-            ...filteredRows.map(
-              (vehicle) => Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: TlxCard(
-                  color: const Color(0xFFF8FAFD),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 90,
-                            height: 70,
-                            decoration: BoxDecoration(
-                              color: AppColors.primarySoft,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: const Icon(
-                              LucideIcons.carFront,
-                              color: AppColors.primary,
-                              size: 34,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${vehicle.brand} ${vehicle.model}',
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                const SizedBox(height: 5),
-                                Text(
-                                  vehicle.plate,
-                                  style: const TextStyle(
-                                    color: AppColors.secondaryText,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  _status(vehicle.status),
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.primary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Icon(LucideIcons.chevronRight),
-                        ],
-                      ),
-                      if (!vehicle.isDefault &&
-                          vehicle.status == 'APPROVED') ...[
-                        const SizedBox(height: 14),
-                        OutlinedButton(
-                          onPressed: () => setDefault(vehicle),
-                          child: const Text('设为主要车辆'),
-                        ),
-                      ] else if (!vehicle.isDefault) ...[
-                        const SizedBox(height: 12),
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            '认证通过后可设为主要车辆',
-                            style: TextStyle(
-                              color: AppColors.muted,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ] else
-                        const Padding(
-                          padding: EdgeInsets.only(top: 12),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              '目前主要车辆',
-                              style: TextStyle(
-                                color: AppColors.primary,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            ...filteredRows.map(_vehicleCard),
             const SizedBox(height: 4),
             FilledButton.icon(
               onPressed: () async {
@@ -204,6 +270,217 @@ class _VehicleListPageState extends State<VehicleListPage> {
       ),
     ),
   );
+
+  Widget _vehicleCard(VehicleModel vehicle) {
+    final operating = operatingVehicleId == vehicle.id;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: TlxCard(
+        color: const Color(0xFFF8FAFD),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 82,
+                  height: 66,
+                  decoration: BoxDecoration(
+                    color: AppColors.primarySoft,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    LucideIcons.carFront,
+                    color: AppColors.primary,
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${vehicle.brand} ${vehicle.model}',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        vehicle.plate,
+                        style: const TextStyle(
+                          color: AppColors.secondaryText,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _status(vehicle.status),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _statusColor(vehicle.status),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (vehicle.status == 'REJECTED') ...[
+              const SizedBox(height: 14),
+              InkWell(
+                onTap: () => _showRejectDetail(vehicle),
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(13),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF2F2),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFFFD7D7)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        LucideIcons.info,
+                        size: 18,
+                        color: AppColors.danger,
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '驳回原因',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.danger,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              vehicle.rejectReason.trim().isEmpty
+                                  ? '后台暂未填写具体原因，点击查看详情'
+                                  : vehicle.rejectReason.trim(),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 13, height: 1.4),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(
+                        LucideIcons.chevronRight,
+                        size: 17,
+                        color: AppColors.danger,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            if (operating)
+              const SizedBox(
+                height: 36,
+                child: Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              )
+            else
+              _vehicleActions(vehicle),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _vehicleActions(VehicleModel vehicle) {
+    if (vehicle.status == 'APPROVED') {
+      return Wrap(
+        spacing: 10,
+        runSpacing: 8,
+        alignment: WrapAlignment.start,
+        children: [
+          if (!vehicle.isDefault)
+            OutlinedButton(
+              onPressed: () => setDefault(vehicle),
+              child: const Text('设为主要车辆'),
+            )
+          else
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 10),
+              child: Text(
+                '目前主要车辆',
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.danger,
+              side: const BorderSide(color: Color(0xFFFFC7C7)),
+            ),
+            onPressed: () => _confirmRemoveApproved(vehicle),
+            icon: const Icon(LucideIcons.trash2, size: 17),
+            label: const Text('移除车辆'),
+          ),
+        ],
+      );
+    }
+    if (vehicle.status == 'REJECTED') {
+      return Row(
+        children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () => _showRejectDetail(vehicle),
+              child: const Text('查看驳回详情'),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.danger,
+                side: const BorderSide(color: Color(0xFFFFC7C7)),
+              ),
+              onPressed: () => _confirmDeleteRejected(vehicle),
+              icon: const Icon(LucideIcons.trash2, size: 17),
+              label: const Text('删除记录'),
+            ),
+          ),
+        ],
+      );
+    }
+    if (vehicle.status == 'PENDING') {
+      return const Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          '材料正在审核中，审核期间不能删除车辆',
+          style: TextStyle(color: AppColors.muted, fontSize: 12),
+        ),
+      );
+    }
+    return const Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        '完成认证后可设为主要车辆',
+        style: TextStyle(color: AppColors.muted, fontSize: 12),
+      ),
+    );
+  }
 
   Widget _statusFilters() {
     const filters = [
@@ -317,4 +594,18 @@ class _VehicleListPageState extends State<VehicleListPage> {
     'REJECTED' => '认证驳回',
     _ => '未认证',
   };
+
+  Color _statusColor(String status) => switch (status) {
+    'APPROVED' => AppColors.success,
+    'PENDING' => AppColors.warning,
+    'REJECTED' => AppColors.danger,
+    _ => AppColors.primary,
+  };
+
+  static String _formatDateTime(DateTime value) {
+    final local = value.toLocal();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${local.year}-${two(local.month)}-${two(local.day)} '
+        '${two(local.hour)}:${two(local.minute)}';
+  }
 }

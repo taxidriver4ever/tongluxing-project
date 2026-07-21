@@ -36,6 +36,9 @@ public interface VehicleService {
     /** 逻辑删除当前登录用户名下指定车辆。 */
     void deleteVehicle(Long vehicleId);
 
+    /** 删除当前登录用户名下被驳回车辆的认证历史和车辆卡片。 */
+    void deleteRejectedCertificationHistory(Long vehicleId);
+
     /** 设置当前登录用户名下默认车辆。 */
     VehicleResponse setDefaultVehicle(Long vehicleId);
 

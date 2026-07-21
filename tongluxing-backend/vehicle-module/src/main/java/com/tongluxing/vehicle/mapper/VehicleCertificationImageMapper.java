@@ -28,4 +28,7 @@ public interface VehicleCertificationImageMapper {
             order by sort_no asc,id asc
             """)
     List<VehicleCertificationImage> findByCertificationId(@Param("certificationId") Long certificationId);
+
+    /** 删除驳回记录时删除该车辆关联的认证图片明细，SQL 位于 XML。 */
+    int deleteByVehicleId(@Param("vehicleId") Long vehicleId);
 }

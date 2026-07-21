@@ -42,4 +42,12 @@
         <include refid="adminCertificationFilters"/>
     </select>
 
+    <!-- 仅删除当前用户指定车辆的驳回认证历史。 -->
+    <delete id="deleteRejectedByVehicleAndUser">
+        delete from vehicle_certification
+        where vehicle_id = #{vehicleId}
+          and user_id = #{userId}
+          and status = 'REJECTED'
+    </delete>
+
 </mapper>

@@ -186,7 +186,7 @@ class _InvitePageState extends State<InvitePage> {
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: saveQr,
+                  onPressed: qrBytes == null ? null : saveQr,
                   icon: const Icon(LucideIcons.download),
                   label: const Text('保存二维码'),
                 ),
@@ -207,6 +207,47 @@ class _InvitePageState extends State<InvitePage> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 18),
+          const TlxCard(
+            color: Color(0xFFF8FAFD),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(LucideIcons.bookOpenCheck, color: AppColors.primary),
+                    SizedBox(width: 10),
+                    Text(
+                      '邀请奖励使用教程',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 16),
+                _InviteStep(
+                  number: '1',
+                  title: '保存邀请二维码',
+                  detail: '点击上方“保存二维码”，图片会真实保存到手机相册。',
+                ),
+                _InviteStep(
+                  number: '2',
+                  title: '把二维码发给好友',
+                  detail: '好友可通过相册、聊天软件或扫码入口识别这张二维码。',
+                ),
+                _InviteStep(
+                  number: '3',
+                  title: '好友完成注册并设置密码',
+                  detail: '好友使用手机号完成注册，并在首次登录流程中设置密码。',
+                ),
+                _InviteStep(
+                  number: '4',
+                  title: '系统自动绑定并发放奖励',
+                  detail: '好友识别二维码后完成注册，系统会自动绑定邀请关系，无需人工上传截图审核。',
+                  last: true,
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 10),
           TextButton.icon(
@@ -244,6 +285,75 @@ class _Metric extends StatelessWidget {
       ),
       const SizedBox(height: 5),
       Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+    ],
+  );
+}
+
+
+class _InviteStep extends StatelessWidget {
+  const _InviteStep({
+    required this.number,
+    required this.title,
+    required this.detail,
+    this.last = false,
+  });
+
+  final String number;
+  final String title;
+  final String detail;
+  final bool last;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Column(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(
+              color: AppColors.primary,
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              number,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          if (!last)
+            Container(
+              width: 2,
+              height: 44,
+              color: AppColors.primarySoft,
+            ),
+        ],
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: Padding(
+          padding: EdgeInsets.only(bottom: last ? 0 : 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Text(
+                detail,
+                style: const TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 12,
+                  height: 1.45,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     ],
   );
 }

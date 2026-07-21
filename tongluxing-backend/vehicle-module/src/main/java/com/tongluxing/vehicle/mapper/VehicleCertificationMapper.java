@@ -36,8 +36,12 @@ public interface VehicleCertificationMapper {
                    engine_no_cipher,engine_no_mask,register_date,issue_date,issuing_authority,
                    license_front_image_key,license_back_image_key,recognition_source,status,reject_reason,
                    submitted_at,reviewed_at,reviewer_id
-            from vehicle_certification
-            where user_id=#{userId}
+            from vehicle_certification c
+            where c.user_id=#{userId}
+              and exists (
+                  select 1 from vehicle_profile v
+                  where v.id = c.vehicle_id and v.user_id = c.user_id and v.deleted = 0
+              )
             order by submitted_at desc, id desc
             limit 1
             """)
@@ -102,4 +106,8 @@ public interface VehicleCertificationMapper {
                     @Param("rejectReason") String rejectReason,
                     @Param("operatorId") Long operatorId,
                     @Param("now") LocalDateTime now);
+
+    /** 仅删除当前用户指定车辆的驳回认证历史，SQL 位于 XML。 */
+    int deleteRejectedByVehicleAndUser(@Param("vehicleId") Long vehicleId,
+                                       @Param("userId") Long userId);
 }

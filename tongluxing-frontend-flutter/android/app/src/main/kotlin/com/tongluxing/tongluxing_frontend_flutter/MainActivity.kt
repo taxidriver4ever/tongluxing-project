@@ -47,6 +47,11 @@ class MainActivity : FlutterActivity() {
                     call.argument<String>("fileName"),
                     result,
                 )
+                "saveImageToGallery" -> saveImageToGallery(
+                    call.argument<ByteArray>("bytes"),
+                    call.argument<String>("mimeType"),
+                    result,
+                )
                 else -> result.notImplemented()
             }
         }
@@ -76,6 +81,43 @@ class MainActivity : FlutterActivity() {
                 textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tongluxing-navigation")
                 result.success(true)
             } else result.error("TTS_INIT_FAILED", "系统语音引擎初始化失败", null)
+        }
+    }
+
+    private fun saveImageToGallery(bytes: ByteArray?, mimeType: String?, result: MethodChannel.Result) {
+        if (bytes == null || bytes.isEmpty()) {
+            result.error("EMPTY_IMAGE", "图片内容为空", null)
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            result.error("ANDROID_VERSION_UNSUPPORTED", "Android 10 以下暂不支持直接保存", null)
+            return
+        }
+        try {
+            val resolvedMimeType = mimeType?.substringBefore(';')?.trim().orEmpty().ifBlank { "image/jpeg" }
+            val extension = when (resolvedMimeType.lowercase()) {
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                "image/heic", "image/heif" -> "heic"
+                else -> "jpg"
+            }
+            val generatedName = "tongluxing_chat_${System.currentTimeMillis()}.$extension"
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, generatedName)
+                put(MediaStore.Images.Media.MIME_TYPE, resolvedMimeType)
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Tongluxing")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("无法创建相册文件")
+            contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                ?: throw IllegalStateException("无法写入相册文件")
+            values.clear()
+            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            contentResolver.update(uri, values, null, null)
+            result.success(uri.toString())
+        } catch (exception: Exception) {
+            result.error("SAVE_FAILED", exception.message ?: "保存失败", null)
         }
     }
 

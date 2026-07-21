@@ -382,6 +382,10 @@ class VehicleModel {
     this.color = '',
     this.status = 'UNSUBMITTED',
     this.isDefault = false,
+    this.certificationId,
+    this.rejectReason = '',
+    this.certificationSubmittedAt,
+    this.certificationReviewedAt,
   });
   final String id;
   final String brand;
@@ -390,6 +394,10 @@ class VehicleModel {
   final String color;
   final String status;
   final bool isDefault;
+  final String? certificationId;
+  final String rejectReason;
+  final DateTime? certificationSubmittedAt;
+  final DateTime? certificationReviewedAt;
   factory VehicleModel.fromJson(Map<String, dynamic> json) => VehicleModel(
     id: json['vehicleId']?.toString() ?? '',
     brand: json['brand']?.toString() ?? '车辆',
@@ -398,6 +406,14 @@ class VehicleModel {
     color: json['color']?.toString() ?? '',
     status: json['certificationStatus']?.toString() ?? 'UNSUBMITTED',
     isDefault: json['isDefault'] == true,
+    certificationId: json['certificationId']?.toString(),
+    rejectReason: json['rejectReason']?.toString() ?? '',
+    certificationSubmittedAt: DateTime.tryParse(
+      json['certificationSubmittedAt']?.toString() ?? '',
+    ),
+    certificationReviewedAt: DateTime.tryParse(
+      json['certificationReviewedAt']?.toString() ?? '',
+    ),
   );
 }
 

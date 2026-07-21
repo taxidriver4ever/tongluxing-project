@@ -10,7 +10,6 @@ import 'growth_page.dart';
 import 'invite_page.dart';
 import 'profile_extra_pages.dart';
 import 'vehicle_list_page.dart';
-import '../../team/pages/team_page.dart';
 import '../../shop/pages/shop_home_page.dart';
 import '../../../data/services/app_services.dart';
 import 'profile_system_pages.dart';
@@ -28,6 +27,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Map<String, dynamic> profile = const {};
   Map<String, dynamic> growth = const {};
   Map<String, dynamic>? merchantApplication;
+  String avatarUrl = '';
   @override
   void initState() {
     super.initState();
@@ -42,11 +42,24 @@ class _ProfilePageState extends State<ProfilePage> {
         GrowthService(api).summary(),
         MerchantOnboardingService(api).latest(),
       ]);
+      final nextProfile = Map<String, dynamic>.from(v[0] as Map);
+      final avatarKey = nextProfile['avatarImageKey']?.toString() ?? '';
+      var nextAvatarUrl = '';
+      if (avatarKey.isNotEmpty) {
+        try {
+          nextAvatarUrl = await StorageUploadService(
+            api,
+          ).downloadUrlByObjectKey(avatarKey);
+        } catch (_) {
+          nextAvatarUrl = '';
+        }
+      }
       if (mounted) {
         setState(() {
-          profile = v[0];
-          growth = v[1];
+          profile = nextProfile;
+          growth = Map<String, dynamic>.from(v[1] as Map);
           merchantApplication = v[2] as Map<String, dynamic>?;
+          avatarUrl = nextAvatarUrl;
         });
       }
     } catch (_) {}
@@ -75,14 +88,19 @@ class _ProfilePageState extends State<ProfilePage> {
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(
                 children: [
-                  const CircleAvatar(
+                  CircleAvatar(
                     radius: 36,
                     backgroundColor: AppColors.primarySoft,
-                    child: Icon(
-                      LucideIcons.userRound,
-                      size: 30,
-                      color: AppColors.primary,
-                    ),
+                    backgroundImage: avatarUrl.isEmpty
+                        ? null
+                        : NetworkImage(avatarUrl),
+                    child: avatarUrl.isEmpty
+                        ? const Icon(
+                            LucideIcons.userRound,
+                            size: 30,
+                            color: AppColors.primary,
+                          )
+                        : null,
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -212,14 +230,6 @@ class _ProfilePageState extends State<ProfilePage> {
             title: '车队与消费',
             items: [
               _Menu(
-                LucideIcons.usersRound,
-                '我的车队',
-                () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const TeamPage()),
-                ),
-              ),
-              _Menu(
                 LucideIcons.store,
                 '沿途商城',
                 () => Navigator.push(
@@ -260,10 +270,12 @@ class _ProfilePageState extends State<ProfilePage> {
               _Menu(
                 LucideIcons.userRoundCog,
                 '个人资料',
-                () => Navigator.push(
+                () => Navigator.push<bool>(
                   context,
                   MaterialPageRoute(builder: (_) => const EditProfilePage()),
-                ),
+                ).then((changed) {
+                  if (changed == true) load();
+                }),
               ),
               _Menu(
                 LucideIcons.shieldCheck,

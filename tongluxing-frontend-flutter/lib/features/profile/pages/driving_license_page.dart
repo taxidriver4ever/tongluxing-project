@@ -1,10 +1,14 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../common/widgets/app_widgets.dart';
+import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 
 class DrivingLicensePage extends StatefulWidget {
@@ -15,20 +19,17 @@ class DrivingLicensePage extends StatefulWidget {
 }
 
 class _DrivingLicensePageState extends State<DrivingLicensePage> {
-  static const _frontImage =
-      'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="640" height="400"%3E%3Crect width="100%25" height="100%25" fill="%23eef3ff"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" fill="%23285cff" font-size="38"%3EDRIVING LICENSE FRONT%3C/text%3E%3C/svg%3E';
-  static const _backImage =
-      'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="640" height="400"%3E%3Crect width="100%25" height="100%25" fill="%23f4f7ff"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" fill="%23285cff" font-size="38"%3EDRIVING LICENSE BACK%3C/text%3E%3C/svg%3E';
-
   final _formKey = GlobalKey<FormState>();
   final _holderName = TextEditingController();
   final _licenseNo = TextEditingController();
   final _vehicleClass = TextEditingController(text: 'C1');
   final _authority = TextEditingController();
-  final _selectedImages = <String>{};
+  final _picker = ImagePicker();
+  final _selectedImages = <String, _SelectedLicenseImage>{};
   Map<String, dynamic>? _status;
   bool _loading = true;
   bool _submitting = false;
+  String _submittingLabel = '';
   String? _error;
 
   @override
@@ -54,31 +55,84 @@ class _DrivingLicensePageState extends State<DrivingLicensePage> {
     }
   }
 
+  Future<void> _pickImage(String label) async {
+    try {
+      final file = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 88,
+        maxWidth: 2200,
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) throw const ApiException('无法读取所选图片');
+      if (bytes.length > 10 * 1024 * 1024) {
+        throw const ApiException('单张图片不能超过 10MB');
+      }
+      if (!mounted) return;
+      setState(() {
+        _selectedImages[label] = _SelectedLicenseImage(
+          fileName: file.name,
+          bytes: bytes,
+          contentType: file.mimeType ??
+              StorageUploadService.imageContentType(file.name),
+        );
+      });
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedImages.length != 2) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请上传驾驶证正面和背面')));
+      ).showSnackBar(const SnackBar(content: Text('请从相册上传驾驶证正面和背面')));
       return;
     }
     FocusScope.of(context).unfocus();
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _submittingLabel = '正在上传驾驶证正面…';
+    });
     try {
-      final result = await DrivingLicenseService(context.read<AppSession>().api)
-          .submit(
-            holderName: _holderName.text.trim(),
-            licenseNo: _licenseNo.text.trim(),
-            vehicleClass: _vehicleClass.text.trim().toUpperCase(),
-            issuingAuthority: _authority.text.trim(),
-            licenseFrontImageKey: _frontImage,
-            licenseBackImageKey: _backImage,
-          );
+      final api = context.read<AppSession>().api;
+      final storage = StorageUploadService(api);
+      final front = _selectedImages['正面']!;
+      final back = _selectedImages['背面']!;
+      final frontResult = await storage.upload(
+        bizType: 'USER_DRIVER_LICENSE_FRONT',
+        bizId: context.read<AppSession>().userId,
+        fileName: front.fileName,
+        bytes: front.bytes,
+        contentType: front.contentType,
+      );
+      if (mounted) setState(() => _submittingLabel = '正在上传驾驶证背面…');
+      final backResult = await storage.upload(
+        bizType: 'USER_DRIVER_LICENSE_BACK',
+        bizId: context.read<AppSession>().userId,
+        fileName: back.fileName,
+        bytes: back.bytes,
+        contentType: back.contentType,
+      );
+      if (mounted) setState(() => _submittingLabel = '正在提交认证…');
+      final result = await DrivingLicenseService(api).submit(
+        holderName: _holderName.text.trim(),
+        licenseNo: _licenseNo.text.trim(),
+        vehicleClass: _vehicleClass.text.trim().toUpperCase(),
+        issuingAuthority: _authority.text.trim(),
+        licenseFrontImageKey: frontResult['objectKey'].toString(),
+        licenseBackImageKey: backResult['objectKey'].toString(),
+      );
       if (!mounted) return;
       setState(() => _status = result);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('驾驶证认证已提交，等待平台审核')));
+      ).showSnackBar(const SnackBar(content: Text('驾驶证图片已上传，认证申请已提交')));
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -86,7 +140,12 @@ class _DrivingLicensePageState extends State<DrivingLicensePage> {
         ).showSnackBar(SnackBar(content: Text(error.toString())));
       }
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _submittingLabel = '';
+        });
+      }
     }
   }
 
@@ -233,7 +292,7 @@ class _DrivingLicensePageState extends State<DrivingLicensePage> {
               ),
               const SizedBox(height: 4),
               const Text(
-                '请上传清晰完整的正面和背面',
+                '从手机相册选择清晰完整的正面和背面',
                 style: TextStyle(color: AppColors.muted, fontSize: 12),
               ),
               const SizedBox(height: 14),
@@ -262,7 +321,7 @@ class _DrivingLicensePageState extends State<DrivingLicensePage> {
                     ),
                   )
                 : const Icon(LucideIcons.shieldCheck),
-            label: Text(_submitting ? '提交中…' : '提交驾驶证认证'),
+            label: Text(_submitting ? _submittingLabel : '上传并提交驾驶证认证'),
           ),
         ),
       ],
@@ -270,38 +329,71 @@ class _DrivingLicensePageState extends State<DrivingLicensePage> {
   );
 
   Widget _imageButton(String label) {
-    final selected = _selectedImages.contains(label);
+    final selected = _selectedImages[label];
     return Expanded(
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () => setState(
-          () => selected
-              ? _selectedImages.remove(label)
-              : _selectedImages.add(label),
-        ),
+        onTap: _submitting ? null : () => _pickImage(label),
         child: Container(
-          height: 104,
+          height: 116,
+          clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            color: selected ? AppColors.primarySoft : const Color(0xFFF8FAFD),
+            color: selected == null
+                ? const Color(0xFFF8FAFD)
+                : AppColors.primarySoft,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: selected ? AppColors.primary : const Color(0xFFDDE3ED),
+              color: selected == null
+                  ? const Color(0xFFDDE3ED)
+                  : AppColors.primary,
             ),
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                selected ? LucideIcons.circleCheck : LucideIcons.imagePlus,
-                color: selected ? AppColors.primary : AppColors.muted,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '驾驶证$label',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ],
-          ),
+          child: selected == null
+              ? Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(LucideIcons.imagePlus, color: AppColors.muted),
+                    const SizedBox(height: 8),
+                    Text(
+                      '驾驶证$label',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 3),
+                    const Text(
+                      '从相册选择',
+                      style: TextStyle(fontSize: 10, color: AppColors.muted),
+                    ),
+                  ],
+                )
+              : Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Image.memory(selected.bytes, fit: BoxFit.cover),
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.transparent, Color(0xAA000000)],
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 8,
+                      left: 8,
+                      right: 8,
+                      child: Text(
+                        '驾驶证$label · 点击更换',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
         ),
       ),
     );
@@ -323,4 +415,16 @@ class _DrivingLicensePageState extends State<DrivingLicensePage> {
       return null;
     },
   );
+}
+
+class _SelectedLicenseImage {
+  const _SelectedLicenseImage({
+    required this.fileName,
+    required this.bytes,
+    required this.contentType,
+  });
+
+  final String fileName;
+  final Uint8List bytes;
+  final String contentType;
 }

@@ -8,7 +8,7 @@ import {
 import BaseModal from '../components/BaseModal.vue'
 import {
   auditCertification, getCertificationStatusCounts, getDrivingLicenseApplications,
-  getDrivingLicenseDetail, getVehicleMaterialApplications,
+  getDrivingLicenseDetail, getVehicleCertificationDetail, getVehicleMaterialApplications,
 } from '../services/certificationAudit.js'
 import { showToast } from '../utils.js'
 
@@ -48,6 +48,12 @@ const currentQueue = computed(() => queues[activeModule.value])
 const currentFilters = computed(() => filters[activeModule.value])
 const pageCount = computed(() => Math.max(1, Math.ceil(currentQueue.value.total / currentQueue.value.size)))
 const selectedId = computed(() => selected.value?.certificationId)
+function imageSource(image) {
+  if (!image) return ''
+  if (typeof image === 'string') return image
+  return image.imageUrl || image.url || image.downloadUrl || image.imageKey || image.objectKey || ''
+}
+
 const selectedImages = computed(() => {
   if (!selected.value) return []
   if (activeModule.value === 'driver') {
@@ -59,16 +65,33 @@ const selectedImages = computed(() => {
       ].filter(Boolean),
     }]
   }
+  const registrationImages = [
+    selected.value.licenseFrontImageUrl || selected.value.licenseFrontImageKey,
+    selected.value.licenseBackImageUrl || selected.value.licenseBackImageKey,
+  ].filter(Boolean)
+  const compatRegistrationImages = (selected.value.registrationLicenseImages || [])
+    .map(imageSource)
+    .filter(Boolean)
+  const vehicleImages = (selected.value.vehicleImages || [])
+    .map(imageSource)
+    .filter(Boolean)
   return [
-    { key: 'registration', name: '行驶证', hint: '主页、副页', expected: '2 张', items: selected.value.registrationLicenseImages || [] },
-    { key: 'vehicle', name: '车辆照片', hint: '车头必传，侧面/车牌可选', expected: '1–3 张', items: selected.value.vehicleImages || [] },
+    {
+      key: 'registration', name: '行驶证', hint: '主页、副页', expected: '2 张',
+      items: registrationImages.length ? registrationImages : compatRegistrationImages,
+    },
+    {
+      key: 'vehicle', name: '车辆照片', hint: '车头必传，侧面/车牌可选', expected: '1–3 张',
+      items: vehicleImages,
+    },
   ]
 })
 const selectedComplete = computed(() => {
   if (!selected.value) return false
   if (activeModule.value === 'driver') return selectedImages.value[0]?.items.length >= 1
-  return (selected.value.registrationLicenseImages?.length || 0) === 2
-    && (selected.value.vehicleImages?.length || 0) >= 1
+  const registration = selectedImages.value.find(group => group.key === 'registration')
+  const vehicle = selectedImages.value.find(group => group.key === 'vehicle')
+  return (registration?.items.length || 0) >= 2 && (vehicle?.items.length || 0) >= 1
 })
 
 const statusMeta = status => ({
@@ -143,13 +166,15 @@ async function openApplication(row) {
   requestId.value = `ADMIN-${activeModule.value.toUpperCase()}-${row.certificationId}-${Date.now()}`
   Object.keys(failedImages).forEach(key => delete failedImages[key])
   modalOpen.value = true
-  if (activeModule.value !== 'driver') return
   detailLoading.value = true
   try {
-    selected.value = await getDrivingLicenseDetail(row.certificationId)
+    const loader = activeModule.value === 'driver'
+      ? getDrivingLicenseDetail
+      : getVehicleCertificationDetail
+    selected.value = await loader(row.certificationId)
     rejectReason.value = selected.value.rejectReason || ''
   } catch (error) {
-    showToast(`驾驶证详情加载失败：${error.message}`)
+    showToast(`${activeModule.value === 'driver' ? '驾驶证' : '车辆认证'}详情加载失败：${error.message}`)
   } finally {
     detailLoading.value = false
   }

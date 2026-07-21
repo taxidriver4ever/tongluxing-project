@@ -48,6 +48,17 @@ import org.springframework.util.StringUtils;
  */
 @Service
 public class StorageServiceImpl implements StorageService {
+    private static final long MAX_IMAGE_SIZE_BYTES = 10L * 1024 * 1024;
+    private static final java.util.Set<String> IMAGE_BIZ_TYPES = java.util.Set.of(
+            "USER_AVATAR", "USER_DRIVER_LICENSE_FRONT", "USER_DRIVER_LICENSE_BACK",
+            "VEHICLE_LICENSE_FRONT", "VEHICLE_LICENSE_BACK", "VEHICLE_PHOTO_FRONT",
+            "VEHICLE_PHOTO_REAR", "VEHICLE_PHOTO_SIDE", "VEHICLE_PHOTO_OTHER",
+            "MERCHANT_COVER", "MERCHANT_LICENSE", "MERCHANT_QUALIFICATION",
+            "MERCHANT_PRODUCT_IMAGE", "MERCHANT_QR", "CHAT_IMAGE"
+    );
+    private static final java.util.Set<String> ALLOWED_IMAGE_CONTENT_TYPES = java.util.Set.of(
+            "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"
+    );
     private static final String UPLOAD_SESSION_PREFIX = "storage:upload:session:";
     private static final String CONFIRM_IDEM_PREFIX = "storage:confirm:idem:";
     private static final String FILE_META_PREFIX = "storage:file:meta:";
@@ -83,6 +94,7 @@ public class StorageServiceImpl implements StorageService {
     @Override
     public PresignUploadResponse presignUpload(PresignUploadRequest request) {
         Long userId = currentUserContext.requireUserId();
+        validateUploadRequest(request);
         String bucket = properties.bucket();
         String objectKey = buildObjectKey(request.bizType(), request.fileName(), userId);
         ensureBucket(bucket);
@@ -290,6 +302,21 @@ public class StorageServiceImpl implements StorageService {
     private void validateObjectKey(String objectKey) {
         if (!StringUtils.hasText(objectKey) || objectKey.contains("..") || objectKey.startsWith("/")) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "objectKey 不合法");
+        }
+    }
+
+    /** 图片业务仅允许常见安全图片格式，并限制单张图片大小。 */
+    private void validateUploadRequest(PresignUploadRequest request) {
+        String bizType = trim(request.bizType()).toUpperCase(Locale.ROOT);
+        if (!IMAGE_BIZ_TYPES.contains(bizType)) {
+            return;
+        }
+        String contentType = trim(request.contentType()).toLowerCase(Locale.ROOT);
+        if (!ALLOWED_IMAGE_CONTENT_TYPES.contains(contentType)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "仅支持 JPG、PNG、WEBP、HEIC 图片");
+        }
+        if (request.fileSize() > MAX_IMAGE_SIZE_BYTES) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "单张图片不能超过 10MB");
         }
     }
 

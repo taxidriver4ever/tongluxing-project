@@ -72,6 +72,13 @@ public class VehicleController {
         return Result.success();
     }
 
+    /** 删除被驳回车辆的认证历史，并从“我的车辆”中移除对应车辆卡片。 */
+    @DeleteMapping("/{vehicleId}/rejected-certification-history")
+    public Result<Void> deleteRejectedCertificationHistory(@PathVariable Long vehicleId) {
+        vehicleService.deleteRejectedCertificationHistory(vehicleId);
+        return Result.success();
+    }
+
     /** 将当前用户名下指定车辆设置为默认车辆。 */
     @PutMapping("/{vehicleId}/default")
     public Result<VehicleResponse> setDefaultVehicle(@PathVariable Long vehicleId) {

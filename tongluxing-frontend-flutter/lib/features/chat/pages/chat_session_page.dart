@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -23,6 +24,7 @@ class ChatSessionPage extends StatefulWidget {
 
 class _ChatSessionPageState extends State<ChatSessionPage> {
   static const permissionChannel = MethodChannel('com.tongluxing/permissions');
+  static const mediaChannel = MethodChannel('com.tongluxing/media');
   final input = TextEditingController();
   final scroll = ScrollController();
   final focus = FocusNode();
@@ -382,19 +384,25 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     );
   }
 
-  Widget _avatar(Map<String, dynamic> message) => CircleAvatar(
-    radius: 19,
-    backgroundColor: AppColors.primarySoft,
-    child: Text(
-      (message['senderNickname']?.toString().isNotEmpty ?? false)
-          ? message['senderNickname'].toString().characters.first
-          : '同',
-      style: const TextStyle(
-        color: AppColors.primary,
-        fontWeight: FontWeight.w800,
-      ),
-    ),
-  );
+  Widget _avatar(Map<String, dynamic> message) {
+    final avatarUrl = message['senderAvatarUrl']?.toString().trim() ?? '';
+    final nickname = message['senderNickname']?.toString() ?? '同路行用户';
+    return CircleAvatar(
+      radius: 19,
+      backgroundColor: AppColors.primarySoft,
+      foregroundImage: avatarUrl.isEmpty ? null : NetworkImage(avatarUrl),
+      onForegroundImageError: avatarUrl.isEmpty ? null : (_, __) {},
+      child: avatarUrl.isEmpty
+          ? Text(
+              nickname.isNotEmpty ? nickname.characters.first : '同',
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w800,
+              ),
+            )
+          : null,
+    );
+  }
 
   Widget _messageContent(
     String type,
@@ -455,38 +463,40 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     }
     if (type == 'IMAGE') {
       final fileId = payload['fileId'];
-      return SizedBox(
-        width: 220,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (fileId != null)
-              FutureBuilder<String>(
-                future: attachmentUrls.putIfAbsent(
-                  fileId.toString(),
-                  () => ChatAttachmentService(
-                    context.read<AppSession>().api,
-                  ).downloadUrl(fileId),
-                ),
-                builder: (_, snapshot) => snapshot.hasData
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.network(
-                          snapshot.data!,
-                          height: 150,
-                          width: 220,
-                          fit: BoxFit.cover,
-                        ),
-                      )
-                    : const SizedBox(
-                        height: 90,
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-              ),
-            const SizedBox(height: 7),
-            Text(content, style: _bubbleText(self)),
-          ],
+      if (fileId == null) {
+        return const SizedBox(
+          width: 180,
+          height: 100,
+          child: Center(child: Text('图片暂时无法加载')),
+        );
+      }
+      return FutureBuilder<String>(
+        future: attachmentUrls.putIfAbsent(
+          fileId.toString(),
+          () => ChatAttachmentService(
+            context.read<AppSession>().api,
+          ).downloadUrl(fileId),
         ),
+        builder: (_, snapshot) => snapshot.hasData
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.network(
+                  snapshot.data!,
+                  height: 170,
+                  width: 220,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const SizedBox(
+                    width: 220,
+                    height: 120,
+                    child: Center(child: Text('图片加载失败')),
+                  ),
+                ),
+              )
+            : const SizedBox(
+                width: 220,
+                height: 120,
+                child: Center(child: CircularProgressIndicator()),
+              ),
       );
     }
     if (type == 'FILE') {
@@ -658,7 +668,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
       );
       await ChatService(api).send(
         widget.conversation.id,
-        name,
+        image ? '' : name,
         type: image ? 'IMAGE' : 'FILE',
         payload: meta,
       );
@@ -694,7 +704,13 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     final url = await ChatAttachmentService(
       context.read<AppSession>().api,
     ).downloadUrl(fileId);
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _ChatImagePreviewPage(imageUrl: url),
+      ),
+    );
   }
 
   Future<void> _showLocation(Map<String, dynamic> payload) => showDialog<void>(
@@ -1117,4 +1133,86 @@ class _TripConfirmationCardPageState extends State<TripConfirmationCardPage> {
     'REJECTED' => '❌ 不参加',
     _ => '⏳ 待确认',
   };
+}
+
+
+class _ChatImagePreviewPage extends StatefulWidget {
+  const _ChatImagePreviewPage({required this.imageUrl});
+  final String imageUrl;
+
+  @override
+  State<_ChatImagePreviewPage> createState() => _ChatImagePreviewPageState();
+}
+
+class _ChatImagePreviewPageState extends State<_ChatImagePreviewPage> {
+  static const mediaChannel = MethodChannel('com.tongluxing/media');
+  bool saving = false;
+
+  Future<void> _save() async {
+    if (saving) return;
+    setState(() => saving = true);
+    try {
+      final response = await http.get(Uri.parse(widget.imageUrl));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('图片下载失败');
+      }
+      final contentType = response.headers['content-type'] ?? 'image/jpeg';
+      await mediaChannel.invokeMethod<String>('saveImageToGallery', {
+        'bytes': response.bodyBytes,
+        'mimeType': contentType,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('图片已保存到相册 Pictures/Tongluxing')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('保存失败：$e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.black,
+    appBar: AppBar(
+      backgroundColor: Colors.black,
+      foregroundColor: Colors.white,
+      title: const Text('查看图片'),
+      actions: [
+        IconButton(
+          tooltip: '保存到相册',
+          onPressed: saving ? null : _save,
+          icon: saving
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(LucideIcons.download),
+        ),
+      ],
+    ),
+    body: Center(
+      child: InteractiveViewer(
+        minScale: 0.8,
+        maxScale: 5,
+        child: Image.network(
+          widget.imageUrl,
+          fit: BoxFit.contain,
+          loadingBuilder: (_, child, progress) => progress == null
+              ? child
+              : const CircularProgressIndicator(),
+          errorBuilder: (_, __, ___) => const Text(
+            '图片加载失败',
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
+      ),
+    ),
+  );
 }

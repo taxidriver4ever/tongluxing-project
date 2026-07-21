@@ -740,6 +740,80 @@ class ChatAttachmentService {
   }
 }
 
+class StorageUploadService {
+  const StorageUploadService(this.api);
+  final ApiClient api;
+
+  Future<Map<String, dynamic>> upload({
+    required String bizType,
+    required String fileName,
+    required Uint8List bytes,
+    String? bizId,
+    String? contentType,
+  }) async {
+    if (bytes.isEmpty) throw const ApiException('图片内容为空');
+    if (bytes.length > 10 * 1024 * 1024) {
+      throw const ApiException('单张图片不能超过 10MB');
+    }
+    final resolvedContentType = contentType ?? imageContentType(fileName);
+    final presign = Map<String, dynamic>.from(
+      await api.post(
+            '/v1/storage/presign-upload',
+            body: {
+              'fileName': fileName,
+              'contentType': resolvedContentType,
+              'fileSize': bytes.length,
+              'bizType': bizType,
+              'bizId': bizId,
+            },
+          )
+          as Map,
+    );
+    await api.putBytes(
+      presign['uploadUrl'].toString(),
+      bytes,
+      contentType: resolvedContentType,
+    );
+    final confirmed = Map<String, dynamic>.from(
+      await api.post(
+            '/v1/storage/confirm-upload',
+            body: {
+              'bucket': presign['bucket'],
+              'objectKey': presign['objectKey'],
+              'fileName': fileName,
+              'contentType': resolvedContentType,
+              'fileSize': bytes.length,
+              'bizType': bizType,
+              'bizId': bizId,
+            },
+          )
+          as Map,
+    );
+    return confirmed;
+  }
+
+  Future<String> downloadUrlByObjectKey(String objectKey) async {
+    if (objectKey.trim().isEmpty || objectKey.startsWith('data:')) return '';
+    final data = Map<String, dynamic>.from(
+      await api.get(
+            '/v1/storage/presign-download',
+            query: {'objectKey': objectKey},
+          )
+          as Map,
+    );
+    return data['downloadUrl']?.toString() ?? '';
+  }
+
+  static String imageContentType(String fileName) {
+    final lower = fileName.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.heic')) return 'image/heic';
+    if (lower.endsWith('.heif')) return 'image/heif';
+    return 'image/jpeg';
+  }
+}
+
 class UserProfileService {
   const UserProfileService(this.api);
   final ApiClient api;
@@ -804,6 +878,11 @@ class VehicleService {
   }
 
   Future<void> setDefault(String id) => api.put('/v1/vehicles/$id/default');
+
+  Future<void> remove(String id) => api.delete('/v1/vehicles/$id');
+
+  Future<void> deleteRejectedHistory(String id) =>
+      api.delete('/v1/vehicles/$id/rejected-certification-history');
 
   Future<Map<String, dynamic>> authEligibility(String plateNumber) async =>
       Map<String, dynamic>.from(

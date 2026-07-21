@@ -42,6 +42,7 @@ import com.tongluxing.user.service.UserService;
 import com.tongluxing.user.model.UserModels.PublicProfileVO;
 import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.vo.TripResponse;
+import com.tongluxing.storage.service.StorageService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -78,6 +79,8 @@ public class ChatServiceImpl implements ChatService {
     private final UserService userService;
     /** 用于兼容升级前已发布行程：首次进入时惰性补建行程群。 */
     private final TripService tripService;
+    /** 为聊天头像生成短期有效的 MinIO 访问地址。 */
+    private final StorageService storageService;
 
     /** 创建或复用车队群聊会话。 */
     @Override
@@ -255,7 +258,8 @@ public class ChatServiceImpl implements ChatService {
         if (conversation == null || !"ACTIVE".equals(conversation.getConversationStatus())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "会话不存在或已归档");
         }
-        if (!StringUtils.hasText(request.content())) {
+        boolean imageMessage = "IMAGE".equalsIgnoreCase(request.messageType());
+        if (!imageMessage && !StringUtils.hasText(request.content())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "消息内容不能为空");
         }
         if ("FILE".equalsIgnoreCase(request.messageType())) {
@@ -268,10 +272,16 @@ public class ChatServiceImpl implements ChatService {
         message.setSenderUserId(userId);
         message.setMessageType(request.messageType());
         Map<String, Object> messagePayload = new java.util.LinkedHashMap<>();
-        messagePayload.put("content", request.content());
+        messagePayload.put("content", imageMessage ? "" : request.content());
         if (request.payload() != null) messagePayload.putAll(request.payload());
+        if (imageMessage) {
+            // 图片消息只保留访问所需元数据，不向聊天记录暴露手机原始文件名。
+            messagePayload.remove("fileName");
+            messagePayload.remove("originalFileName");
+            messagePayload.remove("name");
+        }
         message.setMessagePayloadJson(toJson(messagePayload));
-        RiskDecision risk = detectRisk(request.content());
+        RiskDecision risk = imageMessage ? null : detectRisk(request.content());
         message.setMessageStatus(risk == null ? "NORMAL" : (risk.blocked() ? "BLOCKED" : "RISK_REVIEW"));
         message.setProviderMessageKey("local-msg-" + message.getId());
         message.setSentAt(now);
@@ -279,10 +289,12 @@ public class ChatServiceImpl implements ChatService {
         message.setUpdatedAt(now);
         if ((risk == null || !risk.blocked())
                 && "TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()) {
+            // 腾讯 IM 当前封装的是文本通道；图片消息发送占位摘要，真实图片仍由 MinIO payload 展示。
+            String providerContent = imageMessage ? "[图片]" : request.content();
             message.setProviderMessageKey(tencentImService.sendGroupText(
                     conversation.getProviderConversationKey(),
                     TencentImServiceImpl.toImUserId(userId),
-                    request.content()
+                    providerContent
             ));
         }
         messageMapper.insert(message);
@@ -292,7 +304,7 @@ public class ChatServiceImpl implements ChatService {
         if (risk != null && risk.blocked()) {
             return toMessageResponse(message);
         }
-        conversationMapper.updateLastMessage(conversationId, message.getId(), preview(request.content()), now);
+        conversationMapper.updateLastMessage(conversationId, message.getId(), imageMessage ? "[图片]" : preview(request.content()), now);
         // 给除发送者之外的有效成员增加未读数。
         memberMapper.incrementUnread(conversationId, userId, now);
         return toMessageResponse(message);
@@ -616,10 +628,23 @@ public class ChatServiceImpl implements ChatService {
                 readContent(message.getMessagePayloadJson()),
                 sender == null ? null : sender.nickname(),
                 sender == null ? null : sender.avatarImageKey(),
+                sender == null ? null : avatarUrl(sender.avatarImageKey()),
                 readPayload(message.getMessagePayloadJson()),
                 message.getMessageStatus(),
                 format(message.getSentAt())
         );
+    }
+
+    /** 将头像对象 Key 转换为短期有效的访问地址；头像缺失或签名失败时返回空串。 */
+    private String avatarUrl(String objectKey) {
+        if (!StringUtils.hasText(objectKey) || objectKey.startsWith("data:")) {
+            return "";
+        }
+        try {
+            return storageService.presignDownload(null, null, objectKey).downloadUrl();
+        } catch (RuntimeException ignored) {
+            return "";
+        }
     }
 
     /** 将消息内容序列化为 payload JSON。 */

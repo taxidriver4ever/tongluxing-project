@@ -1,5 +1,7 @@
 package com.tongluxing.vehicle.vo;
 
+import java.time.LocalDateTime;
+
 /**
  * 车辆详情响应。
  *
@@ -29,6 +31,14 @@ public record VehicleResponse(
         /** 认证状态，例如 UNSUBMITTED、PENDING、APPROVED、REJECTED。 */
         String certificationStatus,
         /** 是否为当前用户默认车辆。 */
-        Boolean isDefault
+        Boolean isDefault,
+        /** 最近一次认证申请 ID；未提交认证时为空。 */
+        Long certificationId,
+        /** 最近一次认证驳回原因；非驳回状态为空。 */
+        String rejectReason,
+        /** 最近一次认证提交时间。 */
+        LocalDateTime certificationSubmittedAt,
+        /** 最近一次认证审核时间。 */
+        LocalDateTime certificationReviewedAt
 ) {
 }

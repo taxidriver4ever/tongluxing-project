@@ -173,12 +173,39 @@ public class VehicleServiceImpl implements VehicleService {
     public void deleteVehicle(Long vehicleId) {
         Long userId = currentUserContext.requireUserId();
         VehicleProfile before = requireOwnedVehicle(vehicleId, userId);
+        if (CERTIFICATION_PENDING.equals(before.getCertificationStatus())) {
+            throw new BusinessException(409, "车辆认证正在审核，暂时不能移除");
+        }
+        if ("REJECTED".equals(before.getCertificationStatus())) {
+            throw new BusinessException(409, "认证驳回车辆请使用“删除驳回记录”操作");
+        }
         int rows = vehicleProfileMapper.logicDelete(vehicleId, userId, LocalDateTime.now());
         if (rows == 0) {
             throw new BusinessException(ResultCode.NOT_FOUND, "车辆不存在");
         }
         clearVehicleCaches(userId, vehicleId);
-        insertAuditLog(vehicleId, userId, "DELETE", before, null, "删除车辆");
+        insertAuditLog(vehicleId, userId, "REMOVE", before, null, "用户移除车辆");
+    }
+
+    /** 删除被驳回的认证历史，并移除对应车辆卡片。 */
+    @Override
+    @Transactional
+    public void deleteRejectedCertificationHistory(Long vehicleId) {
+        Long userId = currentUserContext.requireUserId();
+        VehicleProfile before = requireOwnedVehicle(vehicleId, userId);
+        VehicleCertification latest = certificationMapper.findLatestByVehicleId(vehicleId);
+        if (latest == null || !"REJECTED".equals(latest.getStatus())) {
+            throw new BusinessException(409, "只有认证驳回的车辆才能删除认证历史");
+        }
+        certificationImageMapper.deleteByVehicleId(vehicleId);
+        certificationMapper.deleteRejectedByVehicleAndUser(vehicleId, userId);
+        int rows = vehicleProfileMapper.logicDelete(vehicleId, userId, LocalDateTime.now());
+        if (rows == 0) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "车辆不存在");
+        }
+        clearVehicleCaches(userId, vehicleId);
+        insertAuditLog(vehicleId, userId, "DELETE_REJECTED_HISTORY", before, null,
+                "删除认证驳回历史和车辆卡片");
     }
 
     /** 设置默认车辆；先清空再设置，保证单用户唯一默认车辆。 */
@@ -450,6 +477,7 @@ public class VehicleServiceImpl implements VehicleService {
 
     /** 转换为车辆详情响应。 */
     private VehicleResponse toVehicleResponse(VehicleProfile vehicle) {
+        VehicleCertification certification = certificationMapper.findLatestByVehicleId(vehicle.getId());
         return new VehicleResponse(
                 vehicle.getId(),
                 vehicle.getUserId(),
@@ -462,7 +490,11 @@ public class VehicleServiceImpl implements VehicleService {
                 vehicle.getEnergyType(),
                 vehicle.getVehiclePhotoImageKey(),
                 vehicle.getCertificationStatus(),
-                isTrue(vehicle.getDefaultFlag())
+                isTrue(vehicle.getDefaultFlag()),
+                certification == null ? null : certification.getId(),
+                certification == null ? "" : normalize(certification.getRejectReason()),
+                certification == null ? null : certification.getSubmittedAt(),
+                certification == null ? null : certification.getReviewedAt()
         );
     }
 

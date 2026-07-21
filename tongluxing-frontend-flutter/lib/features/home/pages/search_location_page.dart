@@ -264,7 +264,7 @@ class _SearchLocationPageState extends State<SearchLocationPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 14, 10),
+          padding: const EdgeInsets.fromLTRB(30, 18, 24, 10),
           child: Row(
             children: [
               Text(
@@ -304,17 +304,19 @@ class _SearchLocationPageState extends State<SearchLocationPage> {
         else
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
+              padding: const EdgeInsets.symmetric(horizontal: 30),
               child: ListView.separated(
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: const EdgeInsets.only(bottom: 24),
                 itemCount: locations.length,
-                separatorBuilder: (_, _) => const Divider(
-                  height: 1,
-                  indent: 64,
-                  color: Color(0xFFEAECF0),
-                ),
+                separatorBuilder: (_, _) => _hasKeyword
+                    ? const Divider(
+                        height: 1,
+                        indent: 58,
+                        color: Color(0xFFEAECF0),
+                      )
+                    : const SizedBox(height: 9),
                 itemBuilder: (context, index) => _LocationRow(
                   location: locations[index],
                   history: !_hasKeyword,
@@ -416,34 +418,35 @@ class _LocationRow extends StatelessWidget {
   final VoidCallback? onDelete;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(8, 12, 8, 12),
+  Widget build(BuildContext context) {
+    final content = Padding(
+      padding: EdgeInsets.fromLTRB(12, history ? 10 : 11, 8, history ? 10 : 11),
       child: Row(
         children: [
           Container(
-            width: 42,
-            height: 42,
-            decoration: const BoxDecoration(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Color(0xFFF2F4F7),
+              color: history ? Colors.white : const Color(0xFFF2F4F7),
             ),
             child: Icon(
               history ? LucideIcons.history : LucideIcons.mapPin,
-              size: 21,
+              size: 19,
               color: history ? const Color(0xFF475467) : AppColors.primary,
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 13),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   location.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -451,10 +454,10 @@ class _LocationRow extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     location.address,
-                    maxLines: 2,
+                    maxLines: history ? 1 : 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 12,
                       color: Color(0xFF667085),
                     ),
                   ),
@@ -473,27 +476,38 @@ class _LocationRow extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           if (onDelete case final delete?)
             IconButton(
               tooltip: '删除搜索记录',
+              visualDensity: VisualDensity.compact,
               onPressed: delete,
               icon: const Icon(
                 LucideIcons.x,
-                size: 20,
+                size: 19,
                 color: Color(0xFF98A2B3),
               ),
             )
           else
-            const Icon(
-              LucideIcons.arrowUpLeft,
-              size: 20,
-              color: Color(0xFF667085),
+            const Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: Icon(
+                LucideIcons.arrowUpLeft,
+                size: 19,
+                color: Color(0xFF667085),
+              ),
             ),
         ],
       ),
-    ),
-  );
+    );
+
+    return Material(
+      color: history ? const Color(0xFFF7F9FC) : Colors.transparent,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(onTap: onTap, child: content),
+    );
+  }
 }
 
 class _EmptyState extends StatelessWidget {

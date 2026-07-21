@@ -61,7 +61,7 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 22),
+            padding: const EdgeInsets.symmetric(horizontal: 30),
             child: TextField(
               decoration: InputDecoration(
                 hintText: '搜索聊天记录',
@@ -106,7 +106,7 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
                     : ListView.separated(
                         keyboardDismissBehavior:
                             ScrollViewKeyboardDismissBehavior.onDrag,
-                        padding: const EdgeInsets.fromLTRB(22, 12, 22, 24),
+                        padding: const EdgeInsets.fromLTRB(30, 12, 30, 24),
                         itemCount: rows.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
@@ -159,16 +159,16 @@ class _SwipeConversationTile extends StatefulWidget {
 }
 
 class _SwipeConversationTileState extends State<_SwipeConversationTile> {
-  static const actionWidth = 108.0;
+  static const actionWidth = 94.0;
   double offset = 0;
 
-  void settle() => setState(() => offset = offset < -46 ? -actionWidth : 0);
+  void settle() => setState(() => offset = offset < -40 ? -actionWidth : 0);
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 96,
+    height: 84,
     child: ClipRRect(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(16),
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -230,9 +230,9 @@ class _SwipeConversationTileState extends State<_SwipeConversationTile> {
                     : Colors.white,
                 child: ListTile(
                   minVerticalPadding: 0,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12),
                   leading: CircleAvatar(
-                    radius: 26,
+                    radius: 23,
                     backgroundColor: AppColors.primarySoft,
                     child: Text(
                       widget.row.name.isEmpty
@@ -266,7 +266,7 @@ class _SwipeConversationTileState extends State<_SwipeConversationTile> {
                     ],
                   ),
                   subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 6),
+                    padding: const EdgeInsets.only(top: 4),
                     child: Text(
                       widget.row.preview,
                       maxLines: 1,

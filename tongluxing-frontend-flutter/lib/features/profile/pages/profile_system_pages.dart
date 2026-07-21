@@ -1,8 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
+import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 
 class PublicProfilePage extends StatefulWidget {
@@ -15,6 +19,7 @@ class PublicProfilePage extends StatefulWidget {
 class _PublicProfilePageState extends State<PublicProfilePage> {
   Map<String, dynamic>? data;
   String? error;
+  String avatarUrl = '';
   @override
   void initState() {
     super.initState();
@@ -23,9 +28,16 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
 
   Future<void> load() async {
     try {
-      data = await UserProfileService(
-        context.read<AppSession>().api,
-      ).homepage(widget.userId);
+      final api = context.read<AppSession>().api;
+      data = await UserProfileService(api).homepage(widget.userId);
+      final profile = Map<String, dynamic>.from(
+        data?['profile'] as Map? ?? const {},
+      );
+      final avatarKey = profile['avatarImageKey']?.toString() ?? '';
+      avatarUrl = avatarKey.isEmpty
+          ? ''
+          : await StorageUploadService(api).downloadUrlByObjectKey(avatarKey);
+      error = null;
     } catch (e) {
       error = e.toString();
     }
@@ -64,11 +76,16 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                       CircleAvatar(
                         radius: 42,
                         backgroundColor: AppColors.primarySoft,
-                        child: const Icon(
-                          LucideIcons.userRound,
-                          size: 38,
-                          color: AppColors.primary,
-                        ),
+                        backgroundImage: avatarUrl.isEmpty
+                            ? null
+                            : NetworkImage(avatarUrl),
+                        child: avatarUrl.isEmpty
+                            ? const Icon(
+                                LucideIcons.userRound,
+                                size: 38,
+                                color: AppColors.primary,
+                              )
+                            : null,
                       ),
                       const SizedBox(height: 12),
                       Text(
@@ -159,36 +176,112 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
 
 class EditProfilePage extends StatefulWidget {
   const EditProfilePage({super.key});
+
   @override
   State<EditProfilePage> createState() => _EditProfilePageState();
 }
 
 class _EditProfilePageState extends State<EditProfilePage> {
-  final nickname = TextEditingController(),
-      city = TextEditingController(),
-      bio = TextEditingController();
+  final nickname = TextEditingController();
+  final city = TextEditingController();
+  final bio = TextEditingController();
+  final ImagePicker picker = ImagePicker();
+
   int gender = 0;
-  bool loading = true, saving = false;
+  bool loading = true;
+  bool saving = false;
+  Uint8List? avatarBytes;
+  String avatarFileName = '';
+  String avatarImageKey = '';
+  String avatarUrl = '';
+
   @override
   void initState() {
     super.initState();
     load();
   }
 
+  @override
+  void dispose() {
+    nickname.dispose();
+    city.dispose();
+    bio.dispose();
+    super.dispose();
+  }
+
   Future<void> load() async {
-    final p = await UserProfileService(context.read<AppSession>().api).me();
-    nickname.text = p['nickname']?.toString() ?? '';
-    city.text = p['cityName']?.toString() ?? '';
-    bio.text = p['bio']?.toString() ?? '';
-    gender = (p['gender'] as num?)?.toInt() ?? 0;
-    if (mounted) setState(() => loading = false);
+    try {
+      final api = context.read<AppSession>().api;
+      final p = await UserProfileService(api).me();
+      nickname.text = p['nickname']?.toString() ?? '';
+      city.text = p['cityName']?.toString() ?? '';
+      bio.text = p['bio']?.toString() ?? '';
+      gender = (p['gender'] as num?)?.toInt() ?? 0;
+      avatarImageKey = p['avatarImageKey']?.toString() ?? '';
+      if (avatarImageKey.isNotEmpty) {
+        avatarUrl = await StorageUploadService(
+          api,
+        ).downloadUrlByObjectKey(avatarImageKey);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> pickAvatar() async {
+    try {
+      final file = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1600,
+        imageQuality: 90,
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (bytes.length > 10 * 1024 * 1024) {
+        throw const ApiException('头像图片不能超过 10MB');
+      }
+      if (mounted) {
+        setState(() {
+          avatarBytes = bytes;
+          avatarFileName = file.name;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
   }
 
   Future<void> save() async {
     setState(() => saving = true);
     try {
-      await UserProfileService(context.read<AppSession>().api).update({
+      final api = context.read<AppSession>().api;
+      var nextAvatarKey = avatarImageKey;
+      if (avatarBytes != null) {
+        final session = context.read<AppSession>();
+        final uploaded = await StorageUploadService(api).upload(
+          bizType: 'USER_AVATAR',
+          bizId: session.userId,
+          fileName: avatarFileName.isEmpty ? 'avatar.jpg' : avatarFileName,
+          bytes: avatarBytes!,
+        );
+        nextAvatarKey = uploaded['objectKey']?.toString() ?? '';
+        if (nextAvatarKey.isEmpty) {
+          throw const ApiException('头像上传结果缺少 objectKey');
+        }
+      }
+      await UserProfileService(api).update({
         'nickname': nickname.text.trim(),
+        'avatarImageKey': nextAvatarKey,
         'cityName': city.text.trim(),
         'bio': bio.text.trim(),
         'gender': gender,
@@ -199,9 +292,21 @@ class _EditProfilePageState extends State<EditProfilePage> {
         ).showSnackBar(const SnackBar(content: Text('个人资料已保存')));
         Navigator.pop(context, true);
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     } finally {
       if (mounted) setState(() => saving = false);
     }
+  }
+
+  ImageProvider<Object>? get avatarProvider {
+    if (avatarBytes != null) return MemoryImage(avatarBytes!);
+    if (avatarUrl.isNotEmpty) return NetworkImage(avatarUrl);
+    return null;
   }
 
   @override
@@ -213,31 +318,45 @@ class _EditProfilePageState extends State<EditProfilePage> {
             padding: const EdgeInsets.all(22),
             children: [
               Center(
-                child: Stack(
-                  children: [
-                    const CircleAvatar(
-                      radius: 46,
-                      backgroundColor: AppColors.primarySoft,
-                      child: Icon(
-                        LucideIcons.userRound,
-                        size: 40,
-                        color: AppColors.primary,
+                child: InkWell(
+                  onTap: saving ? null : pickAvatar,
+                  borderRadius: BorderRadius.circular(52),
+                  child: Stack(
+                    children: [
+                      CircleAvatar(
+                        radius: 46,
+                        backgroundColor: AppColors.primarySoft,
+                        backgroundImage: avatarProvider,
+                        child: avatarProvider == null
+                            ? const Icon(
+                                LucideIcons.userRound,
+                                size: 40,
+                                color: AppColors.primary,
+                              )
+                            : null,
                       ),
-                    ),
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: CircleAvatar(
-                        radius: 16,
-                        backgroundColor: AppColors.primary,
-                        child: const Icon(
-                          LucideIcons.camera,
-                          size: 15,
-                          color: Colors.white,
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: CircleAvatar(
+                          radius: 16,
+                          backgroundColor: AppColors.primary,
+                          child: const Icon(
+                            LucideIcons.camera,
+                            size: 15,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 9),
+              const Center(
+                child: Text(
+                  '点击头像从手机相册选择图片',
+                  style: TextStyle(color: AppColors.muted, fontSize: 12),
                 ),
               ),
               const SizedBox(height: 24),
@@ -274,7 +393,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
               const SizedBox(height: 24),
               FilledButton(
                 onPressed: saving ? null : save,
-                child: Text(saving ? '保存中...' : '保存资料'),
+                child: Text(saving ? '图片上传并保存中...' : '保存资料'),
               ),
             ],
           ),

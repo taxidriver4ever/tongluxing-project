@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.tongluxing.vehicle.mapper.VehicleCertificationImageMapper">
+
+    <!-- 删除驳回记录时删除该车辆关联的认证图片明细。 -->
+    <delete id="deleteByVehicleId">
+        delete from vehicle_certification_image
+        where vehicle_id = #{vehicleId}
+    </delete>
+
+</mapper>

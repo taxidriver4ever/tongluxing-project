@@ -18,8 +18,10 @@ public record MessageResponse(
         String content,
         /** 发送者公开昵称。 */
         String senderNickname,
-        /** 发送者公开头像。 */
+        /** 发送者公开头像对象 Key。 */
         String senderAvatarImageKey,
+        /** 发送者头像短期访问地址。 */
+        String senderAvatarUrl,
         /** 结构化消息数据。 */
         Map<String, Object> payload,
         /** 消息状态。 */

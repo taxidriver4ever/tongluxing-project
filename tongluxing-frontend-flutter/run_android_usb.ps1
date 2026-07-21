@@ -119,12 +119,42 @@ if ($DeviceId) {
 & $adbPath -s $DeviceId reverse "tcp:$backendPort" "tcp:$backendPort"
 
 if ($LASTEXITCODE -ne 0) {
-    throw 'Failed to create adb reverse port forwarding.'
+    throw 'Failed to create backend adb reverse port forwarding.'
+}
+
+$minioPublicEndpoint = $settings['MINIO_PUBLIC_ENDPOINT']
+$minioForwarded = $false
+$minioPort = $null
+
+if ($minioPublicEndpoint) {
+    try {
+        $minioUri = [System.Uri]$minioPublicEndpoint
+        if (
+            $minioUri.Port -gt 0 -and
+            ($minioUri.Host -eq '127.0.0.1' -or $minioUri.Host -eq 'localhost')
+        ) {
+            $minioPort = $minioUri.Port
+            & $adbPath -s $DeviceId reverse "tcp:$minioPort" "tcp:$minioPort"
+            if ($LASTEXITCODE -ne 0) {
+                throw 'Failed to create MinIO adb reverse port forwarding.'
+            }
+            $minioForwarded = $true
+        }
+    } catch {
+        throw "MINIO_PUBLIC_ENDPOINT is invalid: $minioPublicEndpoint"
+    }
 }
 
 $apiBaseUrl = "http://127.0.0.1:$backendPort$contextPath"
 
 Write-Host "USB forwarding ready: phone localhost:$backendPort -> computer localhost:$backendPort"
+if ($minioForwarded) {
+    Write-Host "MinIO forwarding ready: phone localhost:$minioPort -> computer localhost:$minioPort"
+} elseif ($minioPublicEndpoint) {
+    Write-Host "MinIO uses a non-local public endpoint: $minioPublicEndpoint"
+} else {
+    Write-Warning 'MINIO_PUBLIC_ENDPOINT is not configured. Real image uploads may fail.'
+}
 Write-Host "Flutter API_BASE_URL: $apiBaseUrl"
 
 if ($ConfigureOnly) {

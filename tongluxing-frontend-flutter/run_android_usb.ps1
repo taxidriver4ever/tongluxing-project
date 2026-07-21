@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$DeviceId,
     [string]$BackendRoot,
     [switch]$ConfigureOnly
@@ -13,69 +13,129 @@ if (-not $BackendRoot) {
     } else {
         $PSScriptRoot
     }
+
     $BackendRoot = Join-Path $resolvedScriptRoot '..\tongluxing-backend'
 }
 
+$BackendRoot = [System.IO.Path]::GetFullPath($BackendRoot)
 $backendEnv = Join-Path $BackendRoot '.env'
+
 if (-not (Test-Path -LiteralPath $backendEnv)) {
-    throw "未找到后端环境文件：$backendEnv"
+    throw "Backend environment file not found: $backendEnv"
 }
 
 $settings = @{}
+
 Get-Content -LiteralPath $backendEnv | ForEach-Object {
-    if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$') {
-        $settings[$matches[1]] = $matches[2].Trim()
+    $line = $_.Trim()
+
+    if (-not $line -or $line.StartsWith('#')) {
+        return
+    }
+
+    if ($line -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+        $key = $matches[1]
+        $value = $matches[2].Trim()
+
+        if (
+            ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+            ($value.StartsWith("'") -and $value.EndsWith("'"))
+        ) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+
+        $settings[$key] = $value
     }
 }
 
 $backendPort = $settings['SERVER_PORT']
+
 if (-not $backendPort -or $backendPort -notmatch '^\d+$') {
-    throw '后端 .env 中缺少有效的 SERVER_PORT。'
+    throw 'SERVER_PORT is missing or invalid in the backend .env file.'
 }
 
 $contextPath = $settings['SERVER_SERVLET_CONTEXT_PATH']
-if (-not $contextPath) { $contextPath = '' }
+
+if (-not $contextPath) {
+    $contextPath = ''
+}
+
 if ($contextPath -and -not $contextPath.StartsWith('/')) {
     $contextPath = "/$contextPath"
 }
+
 $contextPath = $contextPath.TrimEnd('/')
 
 $adbCandidates = @()
+
 if ($env:LOCALAPPDATA) {
     $adbCandidates += Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'
 }
+
 if ($env:ANDROID_SDK_ROOT) {
     $adbCandidates += Join-Path $env:ANDROID_SDK_ROOT 'platform-tools\adb.exe'
 }
-$adbPath = $adbCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
-if (-not $adbPath) { throw '未找到 adb.exe，请检查 Android SDK 配置。' }
 
-$authorizedDevices = @(& $adbPath devices | Select-Object -Skip 1 | ForEach-Object {
-    if ($_ -match '^(\S+)\s+device$' -and $matches[1] -notlike 'emulator-*') {
-        $matches[1]
-    }
-})
+if ($env:ANDROID_HOME) {
+    $adbCandidates += Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
+}
+
+$adbFromPath = Get-Command adb.exe -ErrorAction SilentlyContinue
+if ($adbFromPath) {
+    $adbCandidates += $adbFromPath.Source
+}
+
+$adbPath = $adbCandidates |
+    Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
+    Select-Object -Unique |
+    Select-Object -First 1
+
+if (-not $adbPath) {
+    throw 'adb.exe was not found. Check the Android SDK platform-tools installation.'
+}
+
+$authorizedDevices = @(
+    & $adbPath devices |
+        Select-Object -Skip 1 |
+        ForEach-Object {
+            if ($_ -match '^(\S+)\s+device$' -and $matches[1] -notlike 'emulator-*') {
+                $matches[1]
+            }
+        }
+)
 
 if ($DeviceId) {
     if ($DeviceId -notin $authorizedDevices) {
-        throw "真机 $DeviceId 未连接或未授权 USB 调试。"
+        throw "Android device $DeviceId is not connected or USB debugging is not authorized."
     }
 } elseif ($authorizedDevices.Count -eq 1) {
     $DeviceId = $authorizedDevices[0]
 } elseif ($authorizedDevices.Count -eq 0) {
-    throw '没有检测到已授权的 Android 真机。请连接数据线并在手机上允许 USB 调试。'
+    throw 'No authorized Android phone was detected. Connect the USB cable and allow USB debugging.'
 } else {
-    throw "检测到多个真机，请使用 -DeviceId 指定：$($authorizedDevices -join ', ')"
+    throw "Multiple Android phones were detected. Specify one with -DeviceId: $($authorizedDevices -join ', ')"
 }
 
 & $adbPath -s $DeviceId reverse "tcp:$backendPort" "tcp:$backendPort"
-if ($LASTEXITCODE -ne 0) { throw 'adb reverse 建立失败。' }
+
+if ($LASTEXITCODE -ne 0) {
+    throw 'Failed to create adb reverse port forwarding.'
+}
 
 $apiBaseUrl = "http://127.0.0.1:$backendPort$contextPath"
-Write-Host "USB 转发已建立：手机 localhost:$backendPort -> 电脑 localhost:$backendPort"
-Write-Host "Flutter API_BASE_URL：$apiBaseUrl"
 
-if ($ConfigureOnly) { exit 0 }
+Write-Host "USB forwarding ready: phone localhost:$backendPort -> computer localhost:$backendPort"
+Write-Host "Flutter API_BASE_URL: $apiBaseUrl"
+
+if ($ConfigureOnly) {
+    exit 0
+}
+
+$flutterCommand = Get-Command flutter -ErrorAction SilentlyContinue
+
+if (-not $flutterCommand) {
+    throw 'flutter was not found in PATH.'
+}
 
 & flutter run -d $DeviceId "--dart-define=API_BASE_URL=$apiBaseUrl"
 exit $LASTEXITCODE

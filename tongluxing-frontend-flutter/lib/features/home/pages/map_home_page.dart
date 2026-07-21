@@ -10,6 +10,7 @@ import 'package:x_amap_base/x_amap_base.dart';
 
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
+import '../../../data/services/app_services.dart';
 import '../../trip/pages/trip_create_page.dart';
 import 'search_location_page.dart';
 import 'sos_confirm_page.dart';
@@ -144,6 +145,25 @@ class _MapHomePageState extends State<MapHomePage> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _openCreateTrip() async {
+    try {
+      final state = await TripService(
+        context.read<AppSession>().api,
+      ).activeState();
+      if (!mounted) return;
+      if (state['active'] == true) {
+        _showMessage(state['message']?.toString() ?? '一次只能进行一个行程');
+        return;
+      }
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const TripCreatePage()),
+      );
+    } catch (e) {
+      if (mounted) _showMessage('$e');
+    }
   }
 
   Future<void> _openSos() async {
@@ -290,10 +310,7 @@ class _MapHomePageState extends State<MapHomePage> {
               ),
               const SizedBox(height: 12),
               FilledButton(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const TripCreatePage()),
-                ),
+                onPressed: _openCreateTrip,
                 child: const Text('创建行程'),
               ),
             ],

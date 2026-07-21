@@ -17,6 +17,7 @@ import com.tongluxing.trip.dto.CreateTripRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
 import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.service.TripSettlementService;
+import com.tongluxing.trip.vo.ActiveTripStateResponse;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
 import com.tongluxing.trip.vo.TripResponse;
@@ -51,6 +52,12 @@ public class TripController {
     @GetMapping("/me")
     public Result<TripListResponse> getMyTrips(@RequestParam(defaultValue = "active") String scope) {
         return Result.success(tripService.getMyTrips(scope));
+    }
+
+    /** 查询用户是否已拥有或参加一个活跃行程，用于创建入口前置校验。 */
+    @GetMapping("/me/active-state")
+    public Result<ActiveTripStateResponse> getActiveTripState() {
+        return Result.success(tripService.getActiveTripState());
     }
 
     /**

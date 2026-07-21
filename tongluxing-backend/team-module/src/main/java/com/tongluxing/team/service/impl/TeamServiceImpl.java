@@ -123,6 +123,10 @@ public class TeamServiceImpl implements TeamService {
         if (memberMapper.findActiveByUserId(userId) != null) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "当前用户已有活跃车队");
         }
+        if (tripPort.findActiveOwnedTripId(userId) != null) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR,
+                    "你已有一个未结束的行程，不能同时申请加入其他行程");
+        }
         if (applicationMapper.findPending(teamId, userId) != null) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "已存在待审批申请");
         }
@@ -174,6 +178,9 @@ public class TeamServiceImpl implements TeamService {
             // 二次校验申请人是否已有活跃车队，避免审批期间状态发生变化。
             if (memberMapper.findActiveByUserId(application.getApplicantUserId()) != null) {
                 throw new BusinessException(ResultCode.BUSINESS_ERROR, "申请人已有活跃车队");
+            }
+            if (tripPort.findActiveOwnedTripId(application.getApplicantUserId()) != null) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "申请人已有未结束的行程");
             }
             int incremented = teamMapper.incrementMemberCount(team.getId(), now);
             if (incremented == 0) {

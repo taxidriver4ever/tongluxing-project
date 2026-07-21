@@ -30,6 +30,7 @@ import com.tongluxing.trip.dto.WaypointLocationRequest;
 import com.tongluxing.trip.entity.Trip;
 import com.tongluxing.trip.entity.TripRoute;
 import com.tongluxing.trip.entity.TripMemberSnapshot;
+import com.tongluxing.trip.integration.TripParticipationPort;
 import com.tongluxing.trip.integration.TripUserProfilePort;
 import com.tongluxing.trip.integration.TripUserProfilePort.TripUserProfileDTO;
 import com.tongluxing.trip.integration.TripVehiclePort;
@@ -43,6 +44,7 @@ import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.service.TripFinishedEvent;
 import com.tongluxing.trip.service.TripPublishedEvent;
 import com.tongluxing.trip.service.TripStartedEvent;
+import com.tongluxing.trip.vo.ActiveTripStateResponse;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
 import com.tongluxing.trip.vo.TripResponse;
@@ -80,6 +82,7 @@ public class TripServiceImpl implements TripService {
     private final TripMemberSnapshotMapper memberMapper;
     private final TripAuditLogMapper auditLogMapper;
     private final TripVehiclePort vehiclePort;
+    private final TripParticipationPort participationPort;
     private final TripUserProfilePort userProfilePort;
     private final MapService mapService;
     private final ApplicationEventPublisher eventPublisher;
@@ -91,6 +94,7 @@ public class TripServiceImpl implements TripService {
     @Transactional
     public TripResponse createTrip(CreateTripRequest request) {
         Long userId = currentUserContext.requireUserId();
+        ensureNoActiveTrip(userId);
         checkRateLimit(PUBLISH_RL_KEY.formatted(userId), PUBLISH_LIMIT, Duration.ofHours(1), "行程发布太频繁，请稍后再试");
         validateRequest(request.startLocation(), request.endLocation(), request.travelDepth(), request.waypoints());
         TripVehicleDTO vehicle = requireCertifiedVehicle(request.vehicleId(), userId);
@@ -141,6 +145,23 @@ public class TripServiceImpl implements TripService {
         return response;
     }
 
+    /** 查询当前用户拥有或参加的活跃行程状态。 */
+    @Override
+    public ActiveTripStateResponse getActiveTripState() {
+        Long userId = currentUserContext.requireUserId();
+        Long ownedTripId = tripMapper.findActiveTripIdByUserId(userId);
+        if (ownedTripId != null) {
+            return new ActiveTripStateResponse(true, String.valueOf(ownedTripId),
+                    "你已有一个未结束的行程，请先结束或取消后再创建新行程");
+        }
+        Long participatingTripId = participationPort.findActiveParticipatingTripId(userId);
+        if (participatingTripId != null) {
+            return new ActiveTripStateResponse(true, String.valueOf(participatingTripId),
+                    "你正在参加一个未结束的行程，请退出或完成后再创建新行程");
+        }
+        return new ActiveTripStateResponse(false, null, "");
+    }
+
     /**
      * 查询行程详情，公开行程或本人行程可读，并写入详情缓存。
      */
@@ -189,6 +210,14 @@ public class TripServiceImpl implements TripService {
         Trip before = requireOwnerTrip(tripId, userId);
         if (!STATUS_PUBLISHED.equals(before.getStatus())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "只有已发布行程可以开始");
+        }
+        if (tripMapper.findOtherRunningTripId(userId, tripId) != null) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "同一时间只能进行一个行程");
+        }
+        Long participatingTripId = participationPort.findActiveParticipatingTripId(userId);
+        if (participatingTripId != null && !tripId.equals(participatingTripId)) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR,
+                    "你正在参加其他未结束的行程，不能同时开启当前行程");
         }
         LocalDateTime now = LocalDateTime.now();
         int rows = tripMapper.startTrip(tripId, userId, now);
@@ -435,6 +464,18 @@ public class TripServiceImpl implements TripService {
         member.setCreatedAt(now);
         member.setUpdatedAt(now);
         memberMapper.insert(member);
+    }
+
+    /** 保证一个用户同一时间只能拥有或参加一个活跃行程。 */
+    private void ensureNoActiveTrip(Long userId) {
+        if (tripMapper.findActiveTripIdByUserId(userId) != null) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR,
+                    "你已有一个未结束的行程，请先结束或取消后再发布新行程");
+        }
+        if (participationPort.findActiveParticipatingTripId(userId) != null) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR,
+                    "你正在参加一个未结束的行程，请先退出或完成后再发布新行程");
+        }
     }
 
     /**

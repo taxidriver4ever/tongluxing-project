@@ -3,6 +3,7 @@ package com.tongluxing.vehicle.service.impl;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,7 @@ import com.tongluxing.vehicle.vo.VehicleCertificationAuditDetailVO;
 import com.tongluxing.vehicle.vo.VehicleCertificationAuditSummaryVO;
 import com.tongluxing.vehicle.vo.VehicleCertificationImageVO;
 import com.tongluxing.vehicle.vo.VehicleCertificationResponse;
+import com.tongluxing.vehicle.vo.VehicleAuthEligibilityResponse;
 import com.tongluxing.vehicle.vo.VehicleAuthStatusResponse;
 import com.tongluxing.vehicle.vo.VehicleListResponse;
 import com.tongluxing.vehicle.vo.VehicleResponse;
@@ -119,8 +121,9 @@ public class VehicleServiceImpl implements VehicleService {
         VehicleProfile vehicle = new VehicleProfile();
         vehicle.setId(SnowflakeIdGenerator.nextId());
         vehicle.setUserId(userId);
-        vehicle.setPlateNoCipher(cipher(request.plateNo()));
-        vehicle.setPlateNoMask(maskPlateNo(request.plateNo()));
+        String normalizedPlateNo = normalizePlateNo(request.plateNo());
+        vehicle.setPlateNoCipher(cipher(normalizedPlateNo));
+        vehicle.setPlateNoMask(maskPlateNo(normalizedPlateNo));
         vehicle.setCertificationStatus(CERTIFICATION_UNSUBMITTED);
         vehicle.setDefaultFlag(0);
         vehicle.setCreatedAt(now);
@@ -203,11 +206,13 @@ public class VehicleServiceImpl implements VehicleService {
         Long userId = currentUserContext.requireUserId();
         checkRateLimit(CERTIFICATION_RL_KEY.formatted(userId), CERTIFICATION_SUBMIT_LIMIT, Duration.ofHours(24), "车辆认证提交太频繁，请明天再试");
         requireOwnedVehicle(vehicleId, userId);
+        String normalizedPlateNo = normalizePlateNo(request.plateNo());
 
         VehicleCertification latest = certificationMapper.findLatestByVehicleId(vehicleId);
         if (latest != null && List.of("PENDING", "APPROVED").contains(latest.getStatus())) {
-            throw new BusinessException(409, "车辆认证正在审核或已通过");
+            throw new BusinessException(409, "车辆认证正在审核或已通过，不能重复提交");
         }
+        ensurePlateNotApproved(normalizedPlateNo);
 
         LocalDateTime now = LocalDateTime.now();
         VehicleCertification certification = new VehicleCertification();
@@ -215,8 +220,8 @@ public class VehicleServiceImpl implements VehicleService {
         certification.setVehicleId(vehicleId);
         certification.setUserId(userId);
         certification.setOwnerName(normalize(request.ownerName()));
-        certification.setPlateNoCipher(cipher(request.plateNo()));
-        certification.setPlateNoMask(maskPlateNo(request.plateNo()));
+        certification.setPlateNoCipher(cipher(normalizedPlateNo));
+        certification.setPlateNoMask(maskPlateNo(normalizedPlateNo));
         certification.setVehicleType(normalize(request.vehicleType()));
         certification.setVinCipher(cipher(request.vin()));
         certification.setVinMask(maskVin(request.vin()));
@@ -269,18 +274,32 @@ public class VehicleServiceImpl implements VehicleService {
      * 图片仅按 URL/资源标识保存，不触发 OCR。
      */
     @Override
+    public VehicleAuthEligibilityResponse checkVehicleAuthEligibility(String plateNumber) {
+        currentUserContext.requireUserId();
+        String normalizedPlateNo = normalizePlateNo(plateNumber);
+        VehicleCertification approved = findApprovedCertification(normalizedPlateNo);
+        if (approved != null) {
+            return new VehicleAuthEligibilityResponse(false, CERTIFICATION_APPROVED,
+                    "该车辆已经认证通过，不能再次发送认证申请");
+        }
+        return new VehicleAuthEligibilityResponse(true, CERTIFICATION_UNSUBMITTED, "");
+    }
+
+    @Override
     @Transactional
     public VehicleAuthStatusResponse submitVehicleAuth(VehicleAuthSubmitRequest request) {
         Long userId = currentUserContext.requireUserId();
-        String plateCipher = cipher(request.plateNumber());
+        String normalizedPlateNo = normalizePlateNo(request.plateNumber());
+        ensurePlateNotApproved(normalizedPlateNo);
+        String plateCipher = cipher(normalizedPlateNo);
         VehicleProfile vehicle = vehicleProfileMapper.findByUserIdAndPlateNoCipher(userId, plateCipher);
         if (vehicle == null) {
             vehicle = vehicleProfileMapper.findByUserIdAndPlateNoCipher(
-                    userId, vehicleDataCipher.legacyEncoded(request.plateNumber()));
+                    userId, vehicleDataCipher.legacyEncoded(normalizedPlateNo));
         }
         if (vehicle == null) {
             VehicleResponse created = createVehicle(new CreateVehicleRequest(
-                    request.plateNumber(), request.vehicleBrand(), request.vehicleModel(), "轿车",
+                    normalizedPlateNo, request.vehicleBrand(), request.vehicleModel(), "轿车",
                     request.vehicleColor(), 5, "", request.vehicleImages().get(0)));
             vehicle = vehicleProfileMapper.findByIdAndUserId(created.vehicleId(), userId);
         } else {
@@ -302,7 +321,7 @@ public class VehicleServiceImpl implements VehicleService {
                 new SubmitVehicleCertificationRequest.VehicleImageRequest("VEHICLE", url)));
 
         submitCertification(vehicle.getId(), new SubmitVehicleCertificationRequest(
-                "", request.plateNumber(), "轿车", "", "", null, null, "",
+                "", normalizedPlateNo, "轿车", "", "", null, null, "",
                 request.registrationLicenseImages().get(0), request.registrationLicenseImages().get(1),
                 images, "MANUAL_UPLOAD"));
         return toVehicleAuthStatus(certificationMapper.findLatestByVehicleId(vehicle.getId()));
@@ -361,6 +380,10 @@ public class VehicleServiceImpl implements VehicleService {
         }
         if (!CERTIFICATION_PENDING.equals(certification.getStatus())) {
             throw new BusinessException(409, "车辆认证申请已审核");
+        }
+        if (CERTIFICATION_APPROVED.equals(normalizedResult)) {
+            String normalizedPlateNo = normalizePlateNo(decipher(certification.getPlateNoCipher()));
+            ensurePlateNotApproved(normalizedPlateNo);
         }
         LocalDateTime now = LocalDateTime.now();
         int changed = certificationMapper.updateAudit(
@@ -595,6 +618,29 @@ public class VehicleServiceImpl implements VehicleService {
         } catch (JsonProcessingException ignored) {
             redisTemplate.delete(key);
         }
+    }
+
+    /** 查询全平台是否已有相同车牌的通过认证记录。 */
+    private VehicleCertification findApprovedCertification(String normalizedPlateNo) {
+        return certificationMapper.findApprovedByPlateNoCipher(
+                cipher(normalizedPlateNo),
+                vehicleDataCipher.legacyEncoded(normalizedPlateNo));
+    }
+
+    /** 已通过认证的相同车辆不允许再次提交。 */
+    private void ensurePlateNotApproved(String normalizedPlateNo) {
+        if (findApprovedCertification(normalizedPlateNo) != null) {
+            throw new BusinessException(409, "该车辆已经认证通过，不能再次发送认证申请");
+        }
+    }
+
+    /** 统一车牌格式，避免大小写和空格差异绕过重复校验。 */
+    private String normalizePlateNo(String plateNo) {
+        String value = normalize(plateNo).replace(" ", "").toUpperCase(Locale.ROOT);
+        if (!StringUtils.hasText(value)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "车牌号不能为空");
+        }
+        return value;
     }
 
     /** 使用版本化 AES-GCM 加密车辆敏感字段。 */

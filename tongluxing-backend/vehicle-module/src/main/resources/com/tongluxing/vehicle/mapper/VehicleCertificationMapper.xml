@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.tongluxing.vehicle.mapper.VehicleCertificationMapper">
+
+    <!-- 后台车辆认证列表的公共筛选条件，分页查询和总数统计共同使用。 -->
+    <sql id="adminCertificationFilters">
+        <where>
+            <if test="status != null and status != ''">
+                status = #{status}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                and (
+                    cast(user_id as char) = #{keyword}
+                    or cast(vehicle_id as char) = #{keyword}
+                    or plate_no_mask like concat('%', #{keyword}, '%')
+                )
+            </if>
+        </where>
+    </sql>
+
+    <!-- 分页查询后台车辆认证列表。 -->
+    <select id="page" resultType="com.tongluxing.vehicle.entity.VehicleCertification">
+        select
+            id,
+            vehicle_id,
+            user_id,
+            owner_name,
+            plate_no_mask,
+            vehicle_type,
+            status,
+            submitted_at
+        from vehicle_certification
+        <include refid="adminCertificationFilters"/>
+        order by submitted_at desc, id desc
+        limit #{offset}, #{size}
+    </select>
+
+    <!-- 统计后台车辆认证列表。 -->
+    <select id="count" resultType="long">
+        select count(1)
+        from vehicle_certification
+        <include refid="adminCertificationFilters"/>
+    </select>
+
+</mapper>

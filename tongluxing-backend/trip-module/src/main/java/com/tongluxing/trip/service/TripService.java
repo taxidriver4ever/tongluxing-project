@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.tongluxing.trip.dto.CreateTripRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
+import com.tongluxing.trip.vo.ActiveTripStateResponse;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
 import com.tongluxing.trip.vo.TripResponse;
@@ -22,6 +23,9 @@ public interface TripService {
      * 查询当前用户行程列表。
      */
     TripListResponse getMyTrips(String scope);
+
+    /** 查询当前用户是否已经存在一个活跃行程或正在参加活跃车队。 */
+    ActiveTripStateResponse getActiveTripState();
 
     /**
      * 查询行程详情。

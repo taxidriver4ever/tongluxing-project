@@ -210,6 +210,11 @@ class TripService {
     return _tripList(data);
   }
 
+  Future<Map<String, dynamic>> activeState() async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/trips/me/active-state') as Map,
+      );
+
   Future<List<TripModel>> publicTrips() async =>
       _tripList(await api.get('/v1/trips/public'));
   Future<TripModel?> current() async {
@@ -799,6 +804,15 @@ class VehicleService {
   }
 
   Future<void> setDefault(String id) => api.put('/v1/vehicles/$id/default');
+
+  Future<Map<String, dynamic>> authEligibility(String plateNumber) async =>
+      Map<String, dynamic>.from(
+        await api.get(
+              '/v1/vehicle/auth/eligibility',
+              query: {'plateNumber': plateNumber},
+            )
+            as Map,
+      );
 
   Future<VehicleAuthStatusModel> authStatus() async =>
       VehicleAuthStatusModel.fromJson(

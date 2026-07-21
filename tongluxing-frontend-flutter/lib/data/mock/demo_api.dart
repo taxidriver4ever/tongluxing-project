@@ -22,6 +22,16 @@ class DemoApi {
     }
     if (path == '/v1/auth/logout') return null;
 
+    if (path == '/v1/trips/me/active-state') {
+      final active = _trips.where(
+        (trip) => trip['status'] == 'PUBLISHED' || trip['status'] == 'RUNNING',
+      );
+      return {
+        'active': active.isNotEmpty,
+        'tripId': active.isEmpty ? null : active.first['tripId'],
+        'message': active.isEmpty ? '' : '你已有一个未结束的行程，请先处理当前行程',
+      };
+    }
     if (path == '/v1/trips/me') return {'trips': _trips};
     if (path == '/v1/trips/public') return {'trips': _trips};
     if (path == '/v1/trips/driving/current') return null;
@@ -68,6 +78,9 @@ class DemoApi {
     }
     if (path.contains('/messages')) return null;
 
+    if (path == '/v1/vehicle/auth/eligibility') {
+      return {'eligible': true, 'status': 'UNSUBMITTED', 'reason': ''};
+    }
     if (path == '/v1/vehicles/me') return {'vehicles': _vehicles};
     if (path == '/v1/vehicles' && method == 'POST') {
       return {

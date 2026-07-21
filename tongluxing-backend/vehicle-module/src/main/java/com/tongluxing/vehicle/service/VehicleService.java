@@ -9,6 +9,7 @@ import com.tongluxing.vehicle.vo.PageResult;
 import com.tongluxing.vehicle.vo.VehicleCertificationAuditDetailVO;
 import com.tongluxing.vehicle.vo.VehicleCertificationAuditSummaryVO;
 import com.tongluxing.vehicle.vo.VehicleCertificationResponse;
+import com.tongluxing.vehicle.vo.VehicleAuthEligibilityResponse;
 import com.tongluxing.vehicle.vo.VehicleAuthStatusResponse;
 import com.tongluxing.vehicle.vo.VehicleListResponse;
 import com.tongluxing.vehicle.vo.VehicleResponse;
@@ -46,6 +47,9 @@ public interface VehicleService {
 
     /** 按车辆认证闭环请求创建或复用车辆并提交认证资料。 */
     VehicleAuthStatusResponse submitVehicleAuth(VehicleAuthSubmitRequest request);
+
+    /** 按车牌检查是否允许提交车辆认证。 */
+    VehicleAuthEligibilityResponse checkVehicleAuthEligibility(String plateNumber);
 
     /** 查询当前用户最近一次车辆认证申请状态。 */
     VehicleAuthStatusResponse getMyVehicleAuthStatus();

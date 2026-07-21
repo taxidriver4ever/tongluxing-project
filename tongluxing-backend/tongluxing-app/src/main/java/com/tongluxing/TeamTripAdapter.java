@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 @Component
 @RequiredArgsConstructor
 public class TeamTripAdapter implements TeamTripPort {
+
     private final TripMapper tripMapper;
 
     /**
@@ -24,6 +25,11 @@ public class TeamTripAdapter implements TeamTripPort {
      * @param tripId 行程 ID
      * @return 车队模块行程摘要；不存在时返回 null
      */
+    @Override
+    public Long findActiveOwnedTripId(Long userId) {
+        return tripMapper.findActiveTripIdByUserId(userId);
+    }
+
     @Override
     public TeamTripDTO getTrip(Long tripId) {
         Trip trip = tripMapper.findById(tripId);

@@ -52,8 +52,27 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
     }
     setState(() => saving = true);
     try {
-      await VehicleService(context.read<AppSession>().api).submitAuth(
-        plateNumber: plate.text.trim(),
+      final service = VehicleService(context.read<AppSession>().api);
+      final normalizedPlate = plate.text
+          .trim()
+          .replaceAll(' ', '')
+          .toUpperCase();
+      final eligibility = await service.authEligibility(normalizedPlate);
+      if (eligibility['eligible'] != true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                eligibility['reason']?.toString() ??
+                    '该车辆已经认证通过，不能再次提交',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      await service.submitAuth(
+        plateNumber: normalizedPlate,
         vehicleBrand: brand.text.trim(),
         vehicleModel: model.text.trim(),
         vehicleColor: color.text.trim(),

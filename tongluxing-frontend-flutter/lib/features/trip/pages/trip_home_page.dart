@@ -65,6 +65,36 @@ class _TripHomePageState extends State<TripHomePage> {
     if (mounted) setState(() => loading = false);
   }
 
+  Future<void> _openCreateTrip() async {
+    try {
+      final state = await TripService(
+        context.read<AppSession>().api,
+      ).activeState();
+      if (!mounted) return;
+      if (state['active'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              state['message']?.toString() ?? '一次只能进行一个行程',
+            ),
+          ),
+        );
+        return;
+      }
+      final changed = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(builder: (_) => const TripCreatePage()),
+      );
+      if (changed == true) load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) => SafeArea(
     child: Column(
@@ -73,10 +103,7 @@ class _TripHomePageState extends State<TripHomePage> {
           '行程',
           subtitle: '管理你的自驾旅程，寻找同行伙伴',
           action: IconButton.filled(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const TripCreatePage()),
-            ),
+            onPressed: _openCreateTrip,
             icon: const Icon(LucideIcons.plus),
           ),
         ),

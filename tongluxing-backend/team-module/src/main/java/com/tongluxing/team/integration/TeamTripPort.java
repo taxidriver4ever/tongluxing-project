@@ -12,6 +12,9 @@ public interface TeamTripPort {
      */
     TeamTripDTO getTrip(Long tripId);
 
+    /** 查询用户作为发布者拥有的活跃行程 ID。 */
+    Long findActiveOwnedTripId(Long userId);
+
     /**
      * 车队创建依赖的行程最小字段集合。
      */

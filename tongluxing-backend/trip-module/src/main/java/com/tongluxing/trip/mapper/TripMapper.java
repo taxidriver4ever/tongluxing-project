@@ -54,6 +54,31 @@ public interface TripMapper {
             """)
     List<Trip> findActiveByUserId(@Param("userId") Long userId);
 
+    /** 查询用户作为发布者拥有的第一条活跃行程 ID。 */
+    @Select("""
+            select id
+            from trip
+            where user_id = #{userId}
+              and deleted = 0
+              and status in ('PUBLISHED', 'RUNNING', 'ONGOING')
+            order by created_at asc
+            limit 1
+            """)
+    Long findActiveTripIdByUserId(@Param("userId") Long userId);
+
+    /** 查询除指定行程外，用户是否还有正在行驶的行程。 */
+    @Select("""
+            select id
+            from trip
+            where user_id = #{userId}
+              and id <> #{tripId}
+              and deleted = 0
+              and status in ('RUNNING', 'ONGOING')
+            order by actual_start_time asc, created_at asc
+            limit 1
+            """)
+    Long findOtherRunningTripId(@Param("userId") Long userId, @Param("tripId") Long tripId);
+
     /**
      * 查询用户历史行程。
      */

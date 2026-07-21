@@ -65,7 +65,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
         service.messages(widget.conversation.id),
         service.groupWorkspace(widget.conversation.id),
       ]);
-      messages = values[0] as List<Map<String, dynamic>>;
+      messages = (values[0] as List<Map<String, dynamic>>).reversed.toList();
       workspace = values[1] as Map<String, dynamic>;
     } catch (_) {}
     if (mounted) {
@@ -77,7 +77,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   void _showLatest() => WidgetsBinding.instance.addPostFrameCallback((_) {
     if (scroll.hasClients) {
       scroll.animateTo(
-        0,
+        scroll.position.maxScrollExtent,
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOut,
       );
@@ -224,7 +224,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
                 ? const Center(child: Text('暂无消息，和车队成员打个招呼吧'))
                 : ListView.builder(
                     controller: scroll,
-                    reverse: true,
+                    reverse: false,
                     keyboardDismissBehavior:
                         ScrollViewKeyboardDismissBehavior.onDrag,
                     padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),

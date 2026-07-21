@@ -5,11 +5,13 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.tongluxing.common.result.Result;
 import com.tongluxing.vehicle.dto.VehicleAuthSubmitRequest;
 import com.tongluxing.vehicle.service.VehicleService;
+import com.tongluxing.vehicle.vo.VehicleAuthEligibilityResponse;
 import com.tongluxing.vehicle.vo.VehicleAuthStatusResponse;
 
 import jakarta.validation.Valid;
@@ -27,6 +29,12 @@ public class VehicleAuthController {
     @PostMapping("/submit")
     public Result<VehicleAuthStatusResponse> submit(@Valid @RequestBody VehicleAuthSubmitRequest request) {
         return Result.success(vehicleService.submitVehicleAuth(request));
+    }
+
+    /** 提交前按车牌检查是否已存在通过认证的相同车辆。 */
+    @GetMapping("/eligibility")
+    public Result<VehicleAuthEligibilityResponse> eligibility(@RequestParam String plateNumber) {
+        return Result.success(vehicleService.checkVehicleAuthEligibility(plateNumber));
     }
 
     /** 查询当前用户最近一次车辆认证状态。 */

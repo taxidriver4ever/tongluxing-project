@@ -148,22 +148,10 @@ class _MapHomePageState extends State<MapHomePage> {
   }
 
   Future<void> _openCreateTrip() async {
-    try {
-      final state = await TripService(
-        context.read<AppSession>().api,
-      ).activeState();
-      if (!mounted) return;
-      if (state['active'] == true) {
-        _showMessage(state['message']?.toString() ?? '一次只能进行一个行程');
-        return;
-      }
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const TripCreatePage()),
-      );
-    } catch (e) {
-      if (mounted) _showMessage('$e');
-    }
+    await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const TripCreatePage()),
+    );
   }
 
   Future<void> _openSos() async {

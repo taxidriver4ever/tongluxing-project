@@ -4,13 +4,19 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.UUID;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -26,6 +32,7 @@ import com.tongluxing.map.vo.RoutePlanResponse;
 import com.tongluxing.trip.dto.CreateTripRequest;
 import com.tongluxing.trip.dto.LocationRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
+import com.tongluxing.trip.dto.TripTimeConflictRequest;
 import com.tongluxing.trip.dto.WaypointLocationRequest;
 import com.tongluxing.trip.entity.Trip;
 import com.tongluxing.trip.entity.TripRoute;
@@ -48,6 +55,7 @@ import com.tongluxing.trip.vo.ActiveTripStateResponse;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
 import com.tongluxing.trip.vo.TripResponse;
+import com.tongluxing.trip.vo.TripTimeConflictResponse;
 import com.tongluxing.trip.vo.LocationResponse;
 import com.tongluxing.trip.vo.WaypointLocationResponse;
 import com.tongluxing.user.support.CurrentUserContext;
@@ -63,6 +71,8 @@ public class TripServiceImpl implements TripService {
 
     private static final int PUBLISH_LIMIT = 10;
     private static final String STATUS_PUBLISHED = "PUBLISHED";
+    private static final String STATUS_READY = "READY";
+    private static final String STATUS_CONFIRMING = "CONFIRMING";
     private static final String STATUS_RUNNING = "RUNNING";
     private static final String STATUS_LEGACY_ONGOING = "ONGOING";
     private static final String STATUS_CANCELLED = "CANCELLED";
@@ -72,6 +82,12 @@ public class TripServiceImpl implements TripService {
     private static final String MINE_CACHE_KEY = "trip:cache:mine:%d:%s";
     private static final String PUBLIC_CACHE_KEY = "trip:cache:public:list:%d";
     private static final String PUBLISH_RL_KEY = "trip:rl:publish:%d";
+    private static final String START_LOCK_KEY = "trip:lock:start:user:%d";
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                    + "return redis.call('del', KEYS[1]) else return 0 end",
+            Long.class
+    );
 
     private final CurrentUserContext currentUserContext;
     private final StringRedisTemplate redisTemplate;
@@ -94,7 +110,6 @@ public class TripServiceImpl implements TripService {
     @Transactional
     public TripResponse createTrip(CreateTripRequest request) {
         Long userId = currentUserContext.requireUserId();
-        ensureNoActiveTrip(userId);
         checkRateLimit(PUBLISH_RL_KEY.formatted(userId), PUBLISH_LIMIT, Duration.ofHours(1), "行程发布太频繁，请稍后再试");
         validateRequest(request.startLocation(), request.endLocation(), request.travelDepth(), request.waypoints());
         TripVehicleDTO vehicle = requireCertifiedVehicle(request.vehicleId(), userId);
@@ -145,21 +160,43 @@ public class TripServiceImpl implements TripService {
         return response;
     }
 
-    /** 查询当前用户拥有或参加的活跃行程状态。 */
+    /** 查询当前用户拥有或参加的进行中行程状态。 */
     @Override
     public ActiveTripStateResponse getActiveTripState() {
         Long userId = currentUserContext.requireUserId();
-        Long ownedTripId = tripMapper.findActiveTripIdByUserId(userId);
+        Long ownedTripId = tripMapper.findRunningTripIdByUserId(userId);
         if (ownedTripId != null) {
             return new ActiveTripStateResponse(true, String.valueOf(ownedTripId),
-                    "你已有一个未结束的行程，请先结束或取消后再创建新行程");
+                    "你已有一个进行中的行程，同一时间只能进行一个行程");
         }
-        Long participatingTripId = participationPort.findActiveParticipatingTripId(userId);
+        Long participatingTripId = participationPort.findRunningParticipatingTripId(userId);
         if (participatingTripId != null) {
             return new ActiveTripStateResponse(true, String.valueOf(participatingTripId),
-                    "你正在参加一个未结束的行程，请退出或完成后再创建新行程");
+                    "你正在参加一个进行中的行程，同一时间只能参与一个进行中的行程");
         }
         return new ActiveTripStateResponse(false, null, "");
+    }
+
+    @Override
+    public TripTimeConflictResponse checkTimeConflict(TripTimeConflictRequest request) {
+        Long userId = currentUserContext.requireUserId();
+        LocalDateTime startTime = parseTime(request.departureTime());
+        int days = request.estimatedDays() == null ? 1 : Math.max(1, request.estimatedDays());
+        LocalDateTime endTime = startTime.plusDays(days);
+        Trip conflict = tripMapper.findTimeConflict(userId, request.excludeTripId(), startTime, endTime);
+        if (conflict == null) {
+            return new TripTimeConflictResponse(false, null, null, null, null, "");
+        }
+        LocalDateTime conflictEnd = conflict.getDepartureTime()
+                .plusDays(Math.max(1, conflict.getEstimatedDays() == null ? 1 : conflict.getEstimatedDays()));
+        return new TripTimeConflictResponse(
+                true,
+                String.valueOf(conflict.getId()),
+                conflict.getTitle(),
+                formatTime(conflict.getDepartureTime()),
+                formatTime(conflictEnd),
+                "该行程与您已发布的行程时间存在冲突，请调整出发时间"
+        );
     }
 
     /**
@@ -202,43 +239,63 @@ public class TripServiceImpl implements TripService {
         return buildResponse(tripId);
     }
 
-    /** 开启行程，严格执行 PUBLISHED -> RUNNING。 */
+    /** 开启行程：招募中、待出发或待确认均可进入 RUNNING，并按全部参与用户加锁。 */
     @Override
     @Transactional
     public TripResponse startTrip(Long tripId) {
         Long userId = currentUserContext.requireUserId();
         Trip before = requireOwnerTrip(tripId, userId);
-        if (!STATUS_PUBLISHED.equals(before.getStatus())) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "只有已发布行程可以开始");
+        if (!STATUS_PUBLISHED.equals(before.getStatus())
+                && !STATUS_READY.equals(before.getStatus())
+                && !STATUS_CONFIRMING.equals(before.getStatus())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "只有招募中、待出发或待确认的行程可以开始");
         }
-        if (tripMapper.findOtherRunningTripId(userId, tripId) != null) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "同一时间只能进行一个行程");
-        }
-        Long participatingTripId = participationPort.findActiveParticipatingTripId(userId);
-        if (participatingTripId != null && !tripId.equals(participatingTripId)) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR,
-                    "你正在参加其他未结束的行程，不能同时开启当前行程");
-        }
-        LocalDateTime now = LocalDateTime.now();
-        int rows = tripMapper.startTrip(tripId, userId, now);
-        if (rows == 0) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "当前状态不允许开始行程");
-        }
-        Trip after = tripMapper.findById(tripId);
-        insertAuditLog(tripId, userId, "START", before, after, "开始行程");
-        List<Long> chatMemberIds = memberMapper.findByTripId(tripId).stream()
+
+        LinkedHashSet<Long> participantIds = new LinkedHashSet<>();
+        participantIds.add(userId);
+        memberMapper.findByTripId(tripId).stream()
                 .filter(member -> "OWNER".equals(member.getJoinStatus()) || "APPROVED".equals(member.getJoinStatus()))
                 .map(TripMemberSnapshot::getUserId)
-                .distinct()
-                .toList();
-        eventPublisher.publishEvent(new TripStartedEvent(
-                tripId,
-                StringUtils.hasText(after.getTitle()) ? after.getTitle() : "行程车队群",
-                userId,
-                chatMemberIds
-        ));
-        clearTripCaches(userId, tripId);
-        return toResponse(after);
+                .forEach(participantIds::add);
+        participationPort.findActiveParticipantUserIds(tripId).forEach(participantIds::add);
+
+        String lockValue = UUID.randomUUID().toString();
+        List<String> acquiredLocks = acquireStartLocks(participantIds.stream().sorted().toList(), lockValue);
+        boolean releaseInFinally = registerLockReleaseAfterTransaction(acquiredLocks, lockValue);
+        try {
+            for (Long participantId : participantIds) {
+                Long ownedRunningTripId = tripMapper.findOtherRunningTripId(participantId, tripId);
+                Long joinedRunningTripId = participationPort.findRunningParticipatingTripId(participantId);
+                if (ownedRunningTripId != null
+                        || (joinedRunningTripId != null && !tripId.equals(joinedRunningTripId))) {
+                    String message = participantId.equals(userId)
+                            ? "你已有其他进行中的行程，请先返回当前行程"
+                            : "有成员正在参加其他进行中的行程，暂时不能开启当前行程";
+                    throw new BusinessException(ResultCode.BUSINESS_ERROR, message);
+                }
+            }
+
+            LocalDateTime now = LocalDateTime.now();
+            int rows = tripMapper.startTrip(tripId, userId, now);
+            if (rows == 0) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "当前状态不允许开始行程");
+            }
+            Trip after = tripMapper.findById(tripId);
+            insertAuditLog(tripId, userId, "START", before, after, "开始行程");
+            List<Long> chatMemberIds = List.copyOf(participantIds);
+            eventPublisher.publishEvent(new TripStartedEvent(
+                    tripId,
+                    StringUtils.hasText(after.getTitle()) ? after.getTitle() : "行程车队群",
+                    userId,
+                    chatMemberIds
+            ));
+            clearTripCaches(userId, tripId);
+            return toResponse(after);
+        } finally {
+            if (releaseInFinally) {
+                releaseStartLocks(acquiredLocks, lockValue);
+            }
+        }
     }
 
     /** 结束行程，只执行 RUNNING -> FINISHED；成长值由独立结算接口产生。 */
@@ -301,9 +358,10 @@ public class TripServiceImpl implements TripService {
         Long userId = currentUserContext.requireUserId();
         Trip trip = tripMapper.findCurrentDrivingByUserId(userId);
         if (trip == null) {
-            return null;
+            Long participatingTripId = participationPort.findRunningParticipatingTripId(userId);
+            trip = participatingTripId == null ? null : tripMapper.findById(participatingTripId);
         }
-        return toResponse(trip);
+        return trip == null ? null : toResponse(trip);
     }
 
     /**
@@ -466,15 +524,42 @@ public class TripServiceImpl implements TripService {
         memberMapper.insert(member);
     }
 
-    /** 保证一个用户同一时间只能拥有或参加一个活跃行程。 */
-    private void ensureNoActiveTrip(Long userId) {
-        if (tripMapper.findActiveTripIdByUserId(userId) != null) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR,
-                    "你已有一个未结束的行程，请先结束或取消后再发布新行程");
+    /** 为全部参与用户加短期 Redis 锁，防止连续点击或并发请求同时开启两条行程。 */
+    private List<String> acquireStartLocks(List<Long> userIds, String lockValue) {
+        List<String> acquired = new ArrayList<>();
+        for (Long userId : userIds) {
+            String key = START_LOCK_KEY.formatted(userId);
+            Boolean locked = redisTemplate.opsForValue().setIfAbsent(key, lockValue, Duration.ofSeconds(60));
+            if (!Boolean.TRUE.equals(locked)) {
+                releaseStartLocks(acquired, lockValue);
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "行程正在开启处理中，请勿重复点击");
+            }
+            acquired.add(key);
         }
-        if (participationPort.findActiveParticipatingTripId(userId) != null) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR,
-                    "你正在参加一个未结束的行程，请先退出或完成后再发布新行程");
+        return acquired;
+    }
+
+
+    /**
+     * 将锁延迟到事务提交或回滚后释放，避免第一条行程尚未提交时第二个请求读到旧状态。
+     * 返回 true 表示当前没有事务同步，需要由 finally 立即释放。
+     */
+    private boolean registerLockReleaseAfterTransaction(List<String> keys, String lockValue) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return true;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                releaseStartLocks(keys, lockValue);
+            }
+        });
+        return false;
+    }
+
+    private void releaseStartLocks(List<String> keys, String lockValue) {
+        for (String key : keys) {
+            redisTemplate.execute(UNLOCK_SCRIPT, List.of(key), lockValue);
         }
     }
 
@@ -526,6 +611,8 @@ public class TripServiceImpl implements TripService {
      */
     private void ensureMutable(Trip trip) {
         if (!STATUS_PUBLISHED.equals(trip.getStatus())
+                && !STATUS_READY.equals(trip.getStatus())
+                && !STATUS_CONFIRMING.equals(trip.getStatus())
                 && !STATUS_RUNNING.equals(trip.getStatus())
                 && !STATUS_LEGACY_ONGOING.equals(trip.getStatus())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "当前状态不允许操作");

@@ -24,6 +24,7 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
 
     private static final String BIZ_TYPE_TRIP_MILEAGE = "TRIP_MILEAGE";
     private static final String SETTLE_TYPE_MILESTONE = "MILEAGE_STAGE";
+    private static final String SETTLE_TYPE_WAYPOINT = "WAYPOINT";
 
     private final DriverTrackDistanceRecordMapper distanceMapper;
     private final DriverTrackGrowthPort growthPort;
@@ -33,6 +34,9 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
 
     @Value("${mileage.growth.points-per-km:1}")
     private Integer pointsPerKm;
+
+    @Value("${mileage.growth.points-per-waypoint:10}")
+    private Integer pointsPerWaypoint;
 
     @Override
     @Transactional
@@ -50,7 +54,8 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
                 continue;
             }
             int points = calculatePoints(normalizedStageMeters);
-            insertSettlement(tripId, userId, effectiveDistance, stageDistance, settleKey);
+            insertSettlement(tripId, userId, effectiveDistance, stageDistance,
+                    SETTLE_TYPE_MILESTONE, settleKey);
             growthPort.grantMileageGrowth(userId, settleKey, points, remark(stageDistance));
             settledStages++;
             grantedPoints += points;
@@ -66,7 +71,27 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
         );
     }
 
-    private void insertSettlement(Long tripId, Long userId, int totalDistance, int stageDistance, String settleKey) {
+    @Override
+    @Transactional
+    public MileageSettlementResponse settleWaypoint(Long tripId, Long userId, Long waypointId,
+                                                     String waypointName, Integer distanceMeters) {
+        int effectiveDistance = distanceMeters == null ? 0 : Math.max(0, distanceMeters);
+        String settleKey = tripId + ":" + userId + ":TRIP_WAYPOINT:" + waypointId;
+        if (distanceMapper.findBySettleKey(settleKey) != null) {
+            return new MileageSettlementResponse(String.valueOf(tripId), String.valueOf(userId),
+                    effectiveDistance, 0, 0, true);
+        }
+        int points = pointsPerWaypoint == null || pointsPerWaypoint <= 0 ? 10 : pointsPerWaypoint;
+        insertSettlement(tripId, userId, effectiveDistance, effectiveDistance,
+                SETTLE_TYPE_WAYPOINT, settleKey);
+        growthPort.grantMileageGrowth(userId, settleKey, points,
+                "到达途经点：" + (waypointName == null ? "未命名途经点" : waypointName));
+        return new MileageSettlementResponse(String.valueOf(tripId), String.valueOf(userId),
+                effectiveDistance, 1, points, false);
+    }
+
+    private void insertSettlement(Long tripId, Long userId, int totalDistance, int stageDistance,
+                                  String settleType, String settleKey) {
         LocalDateTime now = LocalDateTime.now();
         DriverTrackDistanceRecord record = new DriverTrackDistanceRecord();
         record.setId(SnowflakeIdGenerator.nextId());
@@ -74,7 +99,7 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
         record.setDriverId(userId);
         record.setTotalDistance(totalDistance);
         record.setLastSettleDistance(stageDistance);
-        record.setSettleType(SETTLE_TYPE_MILESTONE);
+        record.setSettleType(settleType);
         record.setSettleKey(settleKey);
         record.setSettleTime(now);
         record.setEventPublished(1);

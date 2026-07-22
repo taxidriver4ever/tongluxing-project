@@ -1,14 +1,19 @@
 package com.tongluxing.trip.integration;
 
+import java.util.List;
+
 /**
- * 行程模块查询用户是否已经参加其他活跃车队的跨模块端口。
+ * 行程模块查询用户是否正在参加其他“进行中”车队的跨模块端口。
  */
 public interface TripParticipationPort {
 
     /**
-     * 查询用户当前参加的活跃车队所绑定的行程 ID。
+     * 查询用户当前作为队员参加的进行中行程 ID。
      *
-     * @return 没有参加活跃车队时返回 null
+     * @return 没有参加进行中行程时返回 null
      */
-    Long findActiveParticipatingTripId(Long userId);
+    Long findRunningParticipatingTripId(Long userId);
+
+    /** 查询指定行程当前全部有效参与者，用于开启前并发校验。 */
+    List<Long> findActiveParticipantUserIds(Long tripId);
 }

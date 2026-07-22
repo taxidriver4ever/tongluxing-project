@@ -8,10 +8,12 @@ import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
+import '../widgets/user_avatar.dart';
 
 class PublicProfilePage extends StatefulWidget {
   const PublicProfilePage({required this.userId, super.key});
   final String userId;
+
   @override
   State<PublicProfilePage> createState() => _PublicProfilePageState();
 }
@@ -20,6 +22,10 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
   Map<String, dynamic>? data;
   String? error;
   String avatarUrl = '';
+
+  bool get isOwner =>
+      widget.userId == context.read<AppSession>().userId?.toString();
+
   @override
   void initState() {
     super.initState();
@@ -44,6 +50,32 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
     if (mounted) setState(() {});
   }
 
+  Future<bool> _editProfile() async {
+    if (!isOwner) return false;
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const EditProfilePage()),
+    );
+    if (changed == true) await load();
+    return changed == true;
+  }
+
+  Future<void> _previewAvatar(Map<String, dynamic> profile) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AvatarPreviewPage(
+          nickname: profile['nickname']?.toString() ?? '同路行用户',
+          avatarImageKey: profile['avatarImageKey']?.toString() ?? '',
+          avatarUrl: avatarUrl,
+          canEdit: isOwner,
+          onEdit: _editProfile,
+        ),
+      ),
+    );
+    if (changed == true) await load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = Map<String, dynamic>.from(data?['profile'] as Map? ?? const {});
@@ -53,7 +85,17 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
     );
     final earned = badges['earned'] as List? ?? const [];
     return Scaffold(
-      appBar: AppBar(title: const Text('个人主页')),
+      appBar: AppBar(
+        title: const Text('个人主页'),
+        actions: [
+          if (isOwner)
+            IconButton(
+              tooltip: '编辑个人资料',
+              onPressed: _editProfile,
+              icon: const Icon(LucideIcons.pencil),
+            ),
+        ],
+      ),
       body: data == null
           ? Center(
               child: error == null
@@ -73,19 +115,21 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                   ),
                   child: Column(
                     children: [
-                      CircleAvatar(
+                      UserAvatar(
+                        nickname: p['nickname']?.toString() ?? '同路行用户',
+                        avatarImageKey: p['avatarImageKey']?.toString() ?? '',
+                        avatarUrl: avatarUrl,
                         radius: 42,
-                        backgroundColor: AppColors.primarySoft,
-                        backgroundImage: avatarUrl.isEmpty
-                            ? null
-                            : NetworkImage(avatarUrl),
-                        child: avatarUrl.isEmpty
-                            ? const Icon(
-                                LucideIcons.userRound,
-                                size: 38,
-                                color: AppColors.primary,
-                              )
-                            : null,
+                        onTap: () => _previewAvatar(p),
+                        heroTag: 'profile-avatar-${widget.userId}',
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        isOwner ? '点击头像可预览并修改' : '点击头像可查看大图',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.muted,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       Text(

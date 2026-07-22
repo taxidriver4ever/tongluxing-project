@@ -214,6 +214,23 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
+     * 查询聊天成员基础资料。聊天模块已经先校验会话成员身份，因此这里不再应用公开主页可见性，
+     * 并直接读取数据库，保证用户刚修改的头像能够立即出现在聊天记录和群成员列表中。
+     */
+    @Override
+    public PublicProfileVO getChatMemberProfile(Long userId) {
+        UserQueryDTO row = mapper.findProfile(userId);
+        if (row == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "用户资料不存在");
+        }
+        UserProfileVO profile = profile(row);
+        return new PublicProfileVO(profile.userId(), profile.nickname(), profile.avatarImageKey(),
+                profile.cityName(), profile.bio(), profile.drivingLicenseCertificationStatus(),
+                row.getTotalTripCount(), row.getTotalDistanceMeters(), row.getTotalDurationMinutes(),
+                row.getCompletedWaypointCount());
+    }
+
+    /**
      * 查询用户完整资料，必要时先初始化默认资料和隐私设置。
      */
     private UserProfileVO profile(long userId) {

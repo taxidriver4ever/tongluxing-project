@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.drivertrack.dto.DriverTrackBatchRequest;
 import com.tongluxing.drivertrack.dto.DriverTrackPointRequest;
+import com.tongluxing.drivertrack.dto.MockDeviationRequest;
 import com.tongluxing.drivertrack.service.DriverTrackService;
 import com.tongluxing.drivertrack.vo.DriverDeviationResponse;
 import com.tongluxing.drivertrack.vo.DriverDistanceResponse;
@@ -54,5 +55,12 @@ public class DriverTrackController {
     @GetMapping("/trips/{tripId}/distance")
     public Result<DriverDistanceResponse> getDistance(@PathVariable Long tripId) {
         return Result.success(driverTrackService.getDistance(tripId));
+    }
+
+    /** 导航页面联调偏航提示；仅进行中行程的队长可调用。 */
+    @PostMapping("/trips/{tripId}/mock-deviation")
+    public Result<DriverDeviationResponse> mockDeviation(@PathVariable Long tripId,
+            @Valid @RequestBody MockDeviationRequest request) {
+        return Result.success(driverTrackService.mockDeviation(tripId, request));
     }
 }

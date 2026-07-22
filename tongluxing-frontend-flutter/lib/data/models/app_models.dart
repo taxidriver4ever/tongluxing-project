@@ -194,6 +194,7 @@ class TripModel {
     required this.startName,
     required this.endName,
     required this.status,
+    this.ownerUserId,
     this.departureTime,
     this.distanceMeters,
     this.joinedVehicles = 0,
@@ -202,12 +203,14 @@ class TripModel {
     this.waypoints = const [],
     this.startLocation,
     this.endLocation,
+    this.routePolyline,
   });
   final String id;
   final String title;
   final String startName;
   final String endName;
   final String status;
+  final String? ownerUserId;
   final String? departureTime;
   final int? distanceMeters;
   final int joinedVehicles;
@@ -216,6 +219,7 @@ class TripModel {
   final List<LocationSelection> waypoints;
   final LocationSelection? startLocation;
   final LocationSelection? endLocation;
+  final String? routePolyline;
   factory TripModel.fromJson(Map<String, dynamic> json) => TripModel(
     id: json['tripId']?.toString() ?? json['id']?.toString() ?? '',
     title: json['title']?.toString() ?? '未命名行程',
@@ -228,6 +232,7 @@ class TripModel {
         json['endLocation']?['name']?.toString() ??
         '终点',
     status: json['status']?.toString() ?? 'PUBLISHED',
+    ownerUserId: json['userId']?.toString() ?? json['ownerUserId']?.toString(),
     departureTime: json['departureTime']?.toString(),
     distanceMeters: _int(json['totalDistanceMeters'] ?? json['routeDistance']),
     joinedVehicles: _int(json['joinedVehicleCount']) ?? 0,
@@ -247,6 +252,7 @@ class TripModel {
             Map<String, dynamic>.from(json['endLocation'] as Map),
           )
         : null,
+    routePolyline: json['routePolyline']?.toString(),
   );
 }
 

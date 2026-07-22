@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.trip.dto.CreateTripRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
+import com.tongluxing.trip.dto.TripTimeConflictRequest;
 import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.service.TripSettlementService;
 import com.tongluxing.trip.vo.ActiveTripStateResponse;
@@ -22,6 +23,7 @@ import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
 import com.tongluxing.trip.vo.TripResponse;
 import com.tongluxing.trip.vo.TripSettlementResponse;
+import com.tongluxing.trip.vo.TripTimeConflictResponse;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -54,10 +56,17 @@ public class TripController {
         return Result.success(tripService.getMyTrips(scope));
     }
 
-    /** 查询用户是否已拥有或参加一个活跃行程，用于创建入口前置校验。 */
+    /** 查询用户当前拥有或参加的进行中行程。 */
     @GetMapping("/me/active-state")
     public Result<ActiveTripStateResponse> getActiveTripState() {
         return Result.success(tripService.getActiveTripState());
+    }
+
+    /** 发布前检查预计时间冲突；冲突仅提醒，用户仍可确认继续发布。 */
+    @PostMapping("/time-conflicts/check")
+    public Result<TripTimeConflictResponse> checkTimeConflict(
+            @Valid @RequestBody TripTimeConflictRequest request) {
+        return Result.success(tripService.checkTimeConflict(request));
     }
 
     /**

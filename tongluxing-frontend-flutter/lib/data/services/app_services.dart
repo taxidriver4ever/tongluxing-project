@@ -215,6 +215,22 @@ class TripService {
         await api.get('/v1/trips/me/active-state') as Map,
       );
 
+  Future<Map<String, dynamic>> checkTimeConflict({
+    required DateTime departureTime,
+    int estimatedDays = 1,
+    String? excludeTripId,
+  }) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/trips/time-conflicts/check',
+          body: {
+            'departureTime': departureTime.toIso8601String(),
+            'estimatedDays': estimatedDays,
+            if (excludeTripId != null) 'excludeTripId': excludeTripId,
+          },
+        )
+        as Map,
+  );
+
   Future<List<TripModel>> publicTrips() async =>
       _tripList(await api.get('/v1/trips/public'));
   Future<TripModel?> current() async {
@@ -254,6 +270,17 @@ class TripService {
             'accuracy': accuracy,
             'recordTime': recordTime.toIso8601String(),
           },
+        )
+        as Map,
+  );
+
+  Future<Map<String, dynamic>> mockDeviation(
+    String tripId, {
+    int status = 1,
+  }) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/driver-tracks/trips/$tripId/mock-deviation',
+          body: {'deviationStatus': status},
         )
         as Map,
   );

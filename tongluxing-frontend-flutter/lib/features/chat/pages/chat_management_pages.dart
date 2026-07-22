@@ -10,6 +10,7 @@ import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
 import '../../profile/pages/profile_system_pages.dart';
+import '../../profile/widgets/user_avatar.dart';
 import '../../trip/pages/trip_detail_page.dart';
 
 class ChatGroupDetailsPage extends StatefulWidget {
@@ -108,18 +109,21 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                       ),
                       child: Column(
                         children: [
-                          CircleAvatar(
+                          UserAvatar(
+                            nickname:
+                                m['nickname']?.toString() ?? '同路行用户',
+                            avatarImageKey:
+                                m['avatarImageKey']?.toString() ?? '',
+                            avatarUrl: m['avatarUrl']?.toString() ?? '',
                             radius: 26,
-                            backgroundColor: AppColors.primarySoft,
-                            child: Text(
-                              (m['nickname']?.toString().isNotEmpty ?? false)
-                                  ? m['nickname'].toString().characters.first
-                                  : '同',
-                              style: const TextStyle(
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.w800,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => PublicProfilePage(
+                                  userId: m['userId'].toString(),
+                                ),
                               ),
-                            ),
+                            ).then((_) => load()),
                           ),
                           const SizedBox(height: 6),
                           Text(

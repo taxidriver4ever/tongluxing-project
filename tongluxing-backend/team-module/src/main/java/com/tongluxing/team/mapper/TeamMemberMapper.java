@@ -30,16 +30,17 @@ public interface TeamMemberMapper {
     List<TeamMember> findActiveByTeamId(@Param("teamId") Long teamId);
 
     /**
-     * 查询指定用户当前所在的活跃车队成员记录。
+     * 查询指定用户当前所在的全部活跃车队成员记录。
+     * 用户可以参加多个未来行程，因此这里不能只返回一条。
      */
     @Select("""
             select id, team_id, user_id, vehicle_id, member_role, member_status, joined_at,
                    exited_at, nickname_snapshot, vehicle_snapshot, created_at, updated_at, deleted
             from team_member
             where user_id = #{userId} and member_status = 'ACTIVE' and deleted = 0
-            limit 1
+            order by joined_at asc
             """)
-    TeamMember findActiveByUserId(@Param("userId") Long userId);
+    List<TeamMember> findActiveListByUserId(@Param("userId") Long userId);
 
     /**
      * 查询某用户在指定车队中的历史或当前成员记录。

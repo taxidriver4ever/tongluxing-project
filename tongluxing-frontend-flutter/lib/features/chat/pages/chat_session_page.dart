@@ -13,6 +13,8 @@ import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
+import '../../profile/pages/profile_system_pages.dart';
+import '../../profile/widgets/user_avatar.dart';
 import 'chat_management_pages.dart';
 
 class ChatSessionPage extends StatefulWidget {
@@ -385,22 +387,24 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   }
 
   Widget _avatar(Map<String, dynamic> message) {
+    final senderUserId = message['senderUserId']?.toString() ?? '';
     final avatarUrl = message['senderAvatarUrl']?.toString().trim() ?? '';
+    final avatarKey =
+        message['senderAvatarImageKey']?.toString().trim() ?? '';
     final nickname = message['senderNickname']?.toString() ?? '同路行用户';
-    return CircleAvatar(
+    return UserAvatar(
+      nickname: nickname,
+      avatarImageKey: avatarKey,
+      avatarUrl: avatarUrl,
       radius: 19,
-      backgroundColor: AppColors.primarySoft,
-      foregroundImage: avatarUrl.isEmpty ? null : NetworkImage(avatarUrl),
-      onForegroundImageError: avatarUrl.isEmpty ? null : (_, __) {},
-      child: avatarUrl.isEmpty
-          ? Text(
-              nickname.isNotEmpty ? nickname.characters.first : '同',
-              style: const TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w800,
+      onTap: senderUserId.isEmpty
+          ? null
+          : () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => PublicProfilePage(userId: senderUserId),
               ),
-            )
-          : null,
+            ).then((_) => load(silent: true)),
     );
   }
 

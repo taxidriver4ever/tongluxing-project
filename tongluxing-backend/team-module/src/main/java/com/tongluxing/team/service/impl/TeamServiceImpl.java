@@ -51,18 +51,18 @@ public class TeamServiceImpl implements TeamService {
     private final ApplicationEventPublisher eventPublisher;
 
     /**
-     * 创建车队：校验用户无活跃车队、行程归属后写入车队和队长成员。
+     * 创建车队：校验行程归属和重复车队后，写入车队及队长成员。
      */
     @Override
     @Transactional
     public TeamResponse createTeam(CreateTeamRequest request) {
         Long userId = currentUserContext.requireUserId();
-        if (memberMapper.findActiveByUserId(userId) != null || teamMapper.findActiveOwnedByUser(userId) != null) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "当前用户已有活跃车队");
-        }
         TeamTripDTO trip = tripPort.getTrip(request.tripId());
         if (trip == null || !userId.equals(trip.ownerUserId())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "只能基于自己的行程创建车队");
+        }
+        if (teamMapper.findAnyActiveByTripId(request.tripId()) != null) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "该行程已经创建车队");
         }
         LocalDateTime now = LocalDateTime.now();
         Team team = new Team();
@@ -110,7 +110,7 @@ public class TeamServiceImpl implements TeamService {
     }
 
     /**
-     * 提交入队申请：禁止队长重复申请、禁止一个用户同时加入多个活跃车队。
+     * 提交入队申请：允许加入多个未来车队，但禁止与其他进行中行程冲突。
      */
     @Override
     @Transactional
@@ -120,13 +120,11 @@ public class TeamServiceImpl implements TeamService {
         if (team.getOwnerUserId().equals(userId)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "队长无需申请入队");
         }
-        if (memberMapper.findActiveByUserId(userId) != null) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR, "当前用户已有活跃车队");
+        TeamMember existedMember = memberMapper.findByTeamAndUser(teamId, userId);
+        if (existedMember != null && "ACTIVE".equals(existedMember.getMemberStatus())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "你已经是该车队成员");
         }
-        if (tripPort.findActiveOwnedTripId(userId) != null) {
-            throw new BusinessException(ResultCode.BUSINESS_ERROR,
-                    "你已有一个未结束的行程，不能同时申请加入其他行程");
-        }
+        ensureNoOtherRunningTrip(userId, team.getTripId());
         if (applicationMapper.findPending(teamId, userId) != null) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "已存在待审批申请");
         }
@@ -175,13 +173,8 @@ public class TeamServiceImpl implements TeamService {
         application.setReviewedAt(now);
         application.setUpdatedAt(now);
         if ("APPROVED".equals(status)) {
-            // 二次校验申请人是否已有活跃车队，避免审批期间状态发生变化。
-            if (memberMapper.findActiveByUserId(application.getApplicantUserId()) != null) {
-                throw new BusinessException(ResultCode.BUSINESS_ERROR, "申请人已有活跃车队");
-            }
-            if (tripPort.findActiveOwnedTripId(application.getApplicantUserId()) != null) {
-                throw new BusinessException(ResultCode.BUSINESS_ERROR, "申请人已有未结束的行程");
-            }
+            // 仅当目标行程已经进行中时，校验申请人是否正在其他行程中。
+            ensureNoOtherRunningTrip(application.getApplicantUserId(), team.getTripId());
             int incremented = teamMapper.incrementMemberCount(team.getId(), now);
             if (incremented == 0) {
                 throw new BusinessException(ResultCode.BUSINESS_ERROR, "车队已满或不可加入");
@@ -212,6 +205,31 @@ public class TeamServiceImpl implements TeamService {
         teamMapper.decrementMemberCount(teamId, LocalDateTime.now());
         audit(teamId, userId, "EXIT_TEAM", "退出车队");
         return toTeamResponse(teamMapper.findById(teamId));
+    }
+
+
+    /**
+     * 用户可以加入多个未来车队，但目标行程进行中时，不允许与其他进行中行程并行。
+     */
+    private void ensureNoOtherRunningTrip(Long userId, Long targetTripId) {
+        TeamTripDTO target = tripPort.getTrip(targetTripId);
+        if (target == null || !target.running()) {
+            return;
+        }
+        Long ownedRunningTripId = tripPort.findRunningOwnedTripId(userId);
+        if (ownedRunningTripId != null && !targetTripId.equals(ownedRunningTripId)) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户已有其他进行中的行程");
+        }
+        for (TeamMember membership : memberMapper.findActiveListByUserId(userId)) {
+            Team membershipTeam = teamMapper.findById(membership.getTeamId());
+            if (membershipTeam == null || targetTripId.equals(membershipTeam.getTripId())) {
+                continue;
+            }
+            TeamTripDTO membershipTrip = tripPort.getTrip(membershipTeam.getTripId());
+            if (membershipTrip != null && membershipTrip.running()) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "用户正在参加其他进行中的车队");
+            }
+        }
     }
 
     /**

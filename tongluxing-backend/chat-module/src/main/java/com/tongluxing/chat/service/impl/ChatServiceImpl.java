@@ -75,7 +75,7 @@ public class ChatServiceImpl implements ChatService {
     private final MessageRiskMapper riskMapper;
     /** 入群申请事实表。 */
     private final ChatJoinApplicationMapper joinApplicationMapper;
-    /** 只读取公开资料，用于成员和申请人展示。 */
+    /** 读取聊天成员基础资料，用于消息、成员和申请人展示。 */
     private final UserService userService;
     /** 用于兼容升级前已发布行程：首次进入时惰性补建行程群。 */
     private final TripService tripService;
@@ -576,6 +576,7 @@ public class ChatServiceImpl implements ChatService {
                 member.getUnreadCount(),
                 profile.nickname(),
                 profile.avatarImageKey(),
+                avatarUrl(profile.avatarImageKey()),
                 profile.totalTripCount(),
                 profile.totalDistanceMeters(),
                 profile.completedWaypointCount(),
@@ -606,7 +607,7 @@ public class ChatServiceImpl implements ChatService {
 
     private PublicProfileVO safePublicProfile(Long userId) {
         try {
-            PublicProfileVO profile = userService.getPublicProfile(userId);
+            PublicProfileVO profile = userService.getChatMemberProfile(userId);
             String nickname = StringUtils.hasText(profile.nickname()) ? profile.nickname() : "同路行用户";
             return new PublicProfileVO(profile.userId(), nickname, profile.avatarImageKey(), profile.cityName(),
                     profile.bio(), profile.drivingLicenseCertificationStatus(), profile.totalTripCount(),

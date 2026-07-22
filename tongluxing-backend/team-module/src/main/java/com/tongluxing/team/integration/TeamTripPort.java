@@ -7,23 +7,23 @@ import java.time.LocalDateTime;
  */
 public interface TeamTripPort {
 
-    /**
-     * 查询创建车队所需的行程摘要。
-     */
+    /** 查询创建车队、入队校验所需的行程摘要。 */
     TeamTripDTO getTrip(Long tripId);
 
-    /** 查询用户作为发布者拥有的活跃行程 ID。 */
-    Long findActiveOwnedTripId(Long userId);
+    /** 查询用户作为发布者拥有的进行中行程 ID。 */
+    Long findRunningOwnedTripId(Long userId);
 
-    /**
-     * 车队创建依赖的行程最小字段集合。
-     */
+    /** 车队模块依赖的行程最小字段集合。 */
     record TeamTripDTO(
             Long tripId,
             Long ownerUserId,
             String startName,
             String endName,
-            LocalDateTime departureTime
+            LocalDateTime departureTime,
+            String status
     ) {
+        public boolean running() {
+            return "RUNNING".equals(status) || "ONGOING".equals(status);
+        }
     }
 }

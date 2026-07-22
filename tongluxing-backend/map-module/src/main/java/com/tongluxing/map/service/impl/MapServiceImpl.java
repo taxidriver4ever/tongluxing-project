@@ -46,7 +46,7 @@ import lombok.RequiredArgsConstructor;
 public class MapServiceImpl implements MapService {
 
     /** 当前地图服务商标识。 */
-    private static final String PROVIDER_TYPE = "MOCK";
+    private static final String PROVIDER_TYPE = "MOCK_V2";
 
     /** 路线规划 Mapper。 */
     private final MapRoutePlanMapper routePlanMapper;
@@ -83,7 +83,7 @@ public class MapServiceImpl implements MapService {
         // MOCK 实现：按球面距离估算总里程，并用固定速度估算时长。
         int distance = estimateDistance(points);
         int duration = distance == 0 ? 0 : Math.max(1, distance / 800);
-        String routePolyline = routePointsJson;
+        String routePolyline = toJson(buildMockPolyline(points));
         String resultJson = toJson(new RoutePlanResult(distance, duration, routePolyline));
         LocalDateTime now = LocalDateTime.now();
         MapRoutePlan plan = new MapRoutePlan();
@@ -256,6 +256,37 @@ public class MapServiceImpl implements MapService {
         } catch (NumberFormatException exception) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "经纬度格式错误");
         }
+    }
+
+    /**
+     * 生成可用于导航预览、偏航检测和轨迹回放的 MOCK polyline。
+     * 每一段插入若干线性采样点，后续接入高德时只需替换服务商实现。
+     */
+    private List<LocationDto> buildMockPolyline(List<LocationDto> routePoints) {
+        List<LocationDto> polyline = new ArrayList<>();
+        for (int i = 0; i < routePoints.size() - 1; i++) {
+            LocationDto from = routePoints.get(i);
+            LocationDto to = routePoints.get(i + 1);
+            int segmentDistance = haversineMeters(from, to);
+            int steps = Math.max(2, Math.min(40, segmentDistance / 5000 + 2));
+            for (int step = 0; step < steps; step++) {
+                if (i > 0 && step == 0) {
+                    continue;
+                }
+                double ratio = (double) step / (steps - 1);
+                BigDecimal latitude = BigDecimal.valueOf(
+                        from.latitude().doubleValue()
+                                + (to.latitude().doubleValue() - from.latitude().doubleValue()) * ratio);
+                BigDecimal longitude = BigDecimal.valueOf(
+                        from.longitude().doubleValue()
+                                + (to.longitude().doubleValue() - from.longitude().doubleValue()) * ratio);
+                polyline.add(new LocationDto(step == 0 ? from.name() : "", "", latitude, longitude));
+            }
+        }
+        if (polyline.isEmpty() && !routePoints.isEmpty()) {
+            polyline.add(routePoints.get(0));
+        }
+        return polyline;
     }
 
     /** 估算路线所有相邻点之间的总距离，单位米。 */

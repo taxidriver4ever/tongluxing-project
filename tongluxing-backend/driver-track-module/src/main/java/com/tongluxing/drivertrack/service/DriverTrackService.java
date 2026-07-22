@@ -2,6 +2,7 @@ package com.tongluxing.drivertrack.service;
 
 import com.tongluxing.drivertrack.dto.DriverTrackBatchRequest;
 import com.tongluxing.drivertrack.dto.DriverTrackPointRequest;
+import com.tongluxing.drivertrack.dto.MockDeviationRequest;
 import com.tongluxing.drivertrack.vo.DriverDeviationResponse;
 import com.tongluxing.drivertrack.vo.DriverDistanceResponse;
 import com.tongluxing.drivertrack.vo.DriverTrackListResponse;
@@ -21,4 +22,6 @@ public interface DriverTrackService {
     DriverDeviationResponse getDeviation(Long tripId);
 
     DriverDistanceResponse getDistance(Long tripId);
+
+    DriverDeviationResponse mockDeviation(Long tripId, MockDeviationRequest request);
 }

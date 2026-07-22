@@ -4,10 +4,12 @@ import java.util.List;
 
 import com.tongluxing.trip.dto.CreateTripRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
+import com.tongluxing.trip.dto.TripTimeConflictRequest;
 import com.tongluxing.trip.vo.ActiveTripStateResponse;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
 import com.tongluxing.trip.vo.TripResponse;
+import com.tongluxing.trip.vo.TripTimeConflictResponse;
 
 /**
  * 行程模块业务服务接口。
@@ -24,8 +26,11 @@ public interface TripService {
      */
     TripListResponse getMyTrips(String scope);
 
-    /** 查询当前用户是否已经存在一个活跃行程或正在参加活跃车队。 */
+    /** 查询当前用户拥有或参加的进行中行程。 */
     ActiveTripStateResponse getActiveTripState();
+
+    /** 检查预计出发时间是否与已发布行程重叠；仅返回提醒。 */
+    TripTimeConflictResponse checkTimeConflict(TripTimeConflictRequest request);
 
     /**
      * 查询行程详情。

@@ -46,9 +46,45 @@ class _TripDetailPageState extends State<TripDetailPage> {
 
   Future<void> start() async {
     try {
-      trip = await TripService(
-        context.read<AppSession>().api,
-      ).start(widget.tripId);
+      final service = TripService(context.read<AppSession>().api);
+      final state = await service.activeState();
+      if (!mounted) return;
+      final runningTripId = state['tripId']?.toString();
+      if (state['active'] == true &&
+          runningTripId != null &&
+          runningTripId.isNotEmpty &&
+          runningTripId != widget.tripId) {
+        final openCurrent = await showDialog<bool>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('已有进行中的行程'),
+                content: Text(
+                  state['message']?.toString() ?? '同一时间只能进行一个行程。',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: const Text('取消'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(dialogContext, true),
+                    child: const Text('查看当前行程'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+        if (openCurrent && mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => TripDetailPage(tripId: runningTripId),
+            ),
+          );
+        }
+        return;
+      }
+      trip = await service.start(widget.tripId);
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -113,8 +149,11 @@ class _TripDetailPageState extends State<TripDetailPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: AsyncPanel(
+  Widget build(BuildContext context) {
+    final currentUserId = context.watch<AppSession>().userId;
+    final isOwner = trip?.ownerUserId != null && trip!.ownerUserId == currentUserId;
+    return Scaffold(
+      body: AsyncPanel(
       loading: loading && trip == null,
       error: error,
       onRetry: load,
@@ -248,8 +287,9 @@ class _TripDetailPageState extends State<TripDetailPage> {
                           ),
                         ),
                       const SizedBox(height: 24),
-                      if (trip!.status == 'RUNNING' ||
-                          trip!.status == 'ONGOING')
+                      if (isOwner &&
+                          (trip!.status == 'RUNNING' ||
+                              trip!.status == 'ONGOING'))
                         FilledButton(
                           onPressed: () => Navigator.push(
                             context,
@@ -259,14 +299,15 @@ class _TripDetailPageState extends State<TripDetailPage> {
                           ),
                           child: const Text('继续导航'),
                         )
-                      else if (trip!.status == 'FINISHED' ||
-                          trip!.status == 'ENDED')
+                      else if (isOwner &&
+                          (trip!.status == 'FINISHED' ||
+                              trip!.status == 'ENDED'))
                         FilledButton.icon(
                           onPressed: settling ? null : settle,
                           icon: const Icon(LucideIcons.sparkles),
                           label: Text(settling ? '正在结算…' : '结算成长值'),
                         )
-                      else if (trip!.status == 'SETTLED')
+                      else if (isOwner && trip!.status == 'SETTLED')
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
@@ -288,7 +329,9 @@ class _TripDetailPageState extends State<TripDetailPage> {
                             ],
                           ),
                         )
-                      else if (trip!.status == 'PUBLISHED')
+                      else if (isOwner &&
+                          const ['PUBLISHED', 'READY', 'CONFIRMING']
+                              .contains(trip!.status))
                         FilledButton(
                           onPressed: start,
                           child: const Text('开启行程'),
@@ -298,8 +341,9 @@ class _TripDetailPageState extends State<TripDetailPage> {
                 ),
               ],
             ),
-    ),
-  );
+      ),
+    );
+  }
 }
 
 class _GlassAction extends StatelessWidget {

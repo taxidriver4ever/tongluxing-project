@@ -1,5 +1,7 @@
 package com.tongluxing;
 
+import java.util.List;
+
 import org.springframework.stereotype.Component;
 
 import com.tongluxing.team.entity.Team;
@@ -12,7 +14,7 @@ import com.tongluxing.trip.mapper.TripMapper;
 
 import lombok.RequiredArgsConstructor;
 
-/** 行程模块查询活跃车队参与关系的适配器。 */
+/** 行程模块查询“进行中”车队参与关系的适配器。 */
 @Component
 @RequiredArgsConstructor
 public class TripParticipationAdapter implements TripParticipationPort {
@@ -21,22 +23,31 @@ public class TripParticipationAdapter implements TripParticipationPort {
     private final TripMapper tripMapper;
 
     @Override
-    public Long findActiveParticipatingTripId(Long userId) {
-        TeamMember membership = teamMemberMapper.findActiveByUserId(userId);
-        if (membership != null) {
+    public Long findRunningParticipatingTripId(Long userId) {
+        for (TeamMember membership : teamMemberMapper.findActiveListByUserId(userId)) {
             Team team = teamMapper.findById(membership.getTeamId());
-            if (team != null && "ACTIVE".equals(team.getTeamStatus()) && isActiveTrip(team.getTripId())) {
+            if (team != null && "ACTIVE".equals(team.getTeamStatus()) && isRunningTrip(team.getTripId())) {
                 return team.getTripId();
             }
         }
         Team ownedTeam = teamMapper.findActiveOwnedByUser(userId);
-        return ownedTeam != null && isActiveTrip(ownedTeam.getTripId()) ? ownedTeam.getTripId() : null;
+        return ownedTeam != null && isRunningTrip(ownedTeam.getTripId()) ? ownedTeam.getTripId() : null;
     }
 
-    private boolean isActiveTrip(Long tripId) {
+    @Override
+    public List<Long> findActiveParticipantUserIds(Long tripId) {
+        Team team = teamMapper.findAnyActiveByTripId(tripId);
+        if (team == null) {
+            return List.of();
+        }
+        return teamMemberMapper.findActiveByTeamId(team.getId()).stream()
+                .map(TeamMember::getUserId)
+                .distinct()
+                .toList();
+    }
+
+    private boolean isRunningTrip(Long tripId) {
         Trip trip = tripMapper.findById(tripId);
-        return trip != null && ("PUBLISHED".equals(trip.getStatus())
-                || "RUNNING".equals(trip.getStatus())
-                || "ONGOING".equals(trip.getStatus()));
+        return trip != null && ("RUNNING".equals(trip.getStatus()) || "ONGOING".equals(trip.getStatus()));
     }
 }

@@ -18,8 +18,10 @@ public record ConversationMemberResponse(
         Integer unreadCount,
         /** 公开昵称。 */
         String nickname,
-        /** 公开头像。 */
+        /** 公开头像对象 Key。 */
         String avatarImageKey,
+        /** 头像短期访问地址。 */
+        String avatarUrl,
         /** 已参与旅行次数。 */
         Integer totalTripCount,
         /** 累计行驶里程，单位米。 */

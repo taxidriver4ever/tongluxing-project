@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter/services.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
@@ -13,6 +15,7 @@ import '../../../data/services/app_services.dart';
 class TripNavigationPage extends StatefulWidget {
   const TripNavigationPage({required this.trip, super.key});
   final TripModel trip;
+
   @override
   State<TripNavigationPage> createState() => _TripNavigationPageState();
 }
@@ -20,10 +23,15 @@ class TripNavigationPage extends StatefulWidget {
 class _TripNavigationPageState extends State<TripNavigationPage> {
   static const voice = MethodChannel('com.tongluxing/navigation_voice');
   static const location = MethodChannel('com.tongluxing/permissions');
+
   bool ending = false;
   bool voiceEnabled = true;
   bool uploadingTrack = false;
+  bool mockingDeviation = false;
   int trackedDistanceMeters = 0;
+  int deviationStatus = 0;
+  int deviationDistance = 0;
+  DateTime? lastDeviationAnnouncement;
   Timer? trackTimer;
 
   @override
@@ -64,13 +72,18 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
             accuracy: (raw['accuracy'] as num?)?.toDouble(),
             recordTime: DateTime.now(),
           );
-      if (mounted) {
-        setState(
-          () => trackedDistanceMeters =
-              (response['totalDistance'] as num?)?.toInt() ??
-              trackedDistanceMeters,
-        );
-      }
+      if (!mounted) return;
+      setState(() {
+        trackedDistanceMeters =
+            (response['totalDistance'] as num?)?.toInt() ??
+            trackedDistanceMeters;
+        deviationStatus =
+            (response['deviationStatus'] as num?)?.toInt() ?? 0;
+        deviationDistance =
+            (response['deviationDistance'] as num?)?.toInt() ?? 0;
+      });
+      await _notifyDeviationIfNeeded();
+      _notifySettlement(response);
     } on PlatformException {
       // 定位暂不可用时保留导航界面，下一周期自动重试。
     } finally {
@@ -78,11 +91,95 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
     }
   }
 
+  Future<void> _mockDeviation() async {
+    if (mockingDeviation) return;
+    setState(() => mockingDeviation = true);
+    try {
+      final nextStatus = deviationStatus == 0 ? 1 : 0;
+      final response = await TripService(
+        context.read<AppSession>().api,
+      ).mockDeviation(widget.trip.id, status: nextStatus);
+      if (!mounted) return;
+      setState(() {
+        deviationStatus =
+            (response['deviationStatus'] as num?)?.toInt() ?? nextStatus;
+        deviationDistance =
+            (response['deviationDistance'] as num?)?.toInt() ?? 0;
+      });
+      await _notifyDeviationIfNeeded(force: true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => mockingDeviation = false);
+    }
+  }
+
+  Future<void> _notifyDeviationIfNeeded({bool force = false}) async {
+    if (deviationStatus <= 0) return;
+    final now = DateTime.now();
+    if (!force &&
+        lastDeviationAnnouncement != null &&
+        now.difference(lastDeviationAnnouncement!) <
+            const Duration(minutes: 1)) {
+      return;
+    }
+    lastDeviationAnnouncement = now;
+    if (voiceEnabled) {
+      await voice.invokeMethod('speak', {
+        'text': '检测到偏航约$deviationDistance米。您可以继续当前路线，系统不会强制纠偏。',
+      });
+    }
+  }
+
+  void _notifySettlement(Map<String, dynamic> response) {
+    final points = (response['grantedPoints'] as num?)?.toInt() ?? 0;
+    final waypoint = response['reachedWaypointName']?.toString();
+    if (points <= 0 || !mounted) return;
+    final message = waypoint != null && waypoint.isNotEmpty
+        ? '已到达途经点“$waypoint”，实时发放 +$points 成长值'
+        : '完成新的 50 公里里程阶段，实时发放 +$points 成长值';
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
   String get _routeText {
     final stops = widget.trip.waypoints.map((e) => e.name).join('、');
     return stops.isEmpty
         ? '${widget.trip.startName}前往${widget.trip.endName}'
         : '${widget.trip.startName}出发，途经$stops，前往${widget.trip.endName}';
+  }
+
+  List<LocationSelection> get _routePoints {
+    final raw = widget.trip.routePolyline;
+    if (raw != null && raw.trim().isNotEmpty) {
+      try {
+        final values = jsonDecode(raw);
+        if (values is List) {
+          final points = values
+              .whereType<Map>()
+              .map(
+                (value) => LocationSelection.fromJson(
+                  Map<String, dynamic>.from(value),
+                ),
+              )
+              .where((point) => point.latitude != 0 || point.longitude != 0)
+              .toList();
+          if (points.length >= 2) return points;
+        }
+      } catch (_) {
+        // 历史 polyline 无法解析时使用起点、途经点和终点兜底。
+      }
+    }
+    return [
+      if (widget.trip.startLocation != null) widget.trip.startLocation!,
+      ...widget.trip.waypoints,
+      if (widget.trip.endLocation != null) widget.trip.endLocation!,
+    ];
   }
 
   Future<void> _announce() async {
@@ -157,14 +254,11 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                     const SizedBox(height: 14),
                     const Text(
                       '行程已结束',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                      ),
+                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      '当前状态为“已完成”，确认后将独立结算成长值。',
+                      '实际里程已在行驶过程中按途经点和每 50 公里分段发放。',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: AppColors.secondaryText),
                     ),
@@ -173,7 +267,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                       width: double.infinity,
                       child: FilledButton(
                         onPressed: () => Navigator.pop(sheetContext, true),
-                        child: const Text('立即结算成长值'),
+                        child: const Text('完成最终行程结算'),
                       ),
                     ),
                     TextButton(
@@ -201,11 +295,11 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
             color: AppColors.primary,
             size: 36,
           ),
-          title: Text(result.duplicate ? '该行程已结算' : '成长值结算完成'),
+          title: Text(result.duplicate ? '该行程已结算' : '行程结算完成'),
           content: Text(
-            '行程状态：已结算\n'
             '有效成员：${result.memberCount} 人\n'
-            '每人获得：+${result.pointsPerMember} 成长值',
+            '最终行程奖励：每人 +${result.pointsPerMember} 成长值\n'
+            '实际驾驶里程：${(trackedDistanceMeters / 1000).toStringAsFixed(1)} km',
             textAlign: TextAlign.center,
           ),
           actions: [
@@ -243,7 +337,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
           Positioned.fill(
             child: Container(
               color: const Color(0xFFEAF2FF),
-              child: CustomPaint(painter: _NavPainter()),
+              child: CustomPaint(painter: _NavPainter(_routePoints)),
             ),
           ),
           Positioned(
@@ -285,7 +379,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${widget.trip.waypoints.length} 个经停点',
+                          '${widget.trip.waypoints.length} 个经停点 · 规划路线已保存',
                           style: const TextStyle(color: Colors.white70),
                         ),
                         Text(
@@ -305,6 +399,44 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
               ),
             ),
           ),
+          if (deviationStatus > 0)
+            Positioned(
+              left: 16,
+              right: 16,
+              top: 184,
+              child: Material(
+                color: deviationStatus >= 2
+                    ? const Color(0xFFFFE7E4)
+                    : const Color(0xFFFFF3D8),
+                borderRadius: BorderRadius.circular(18),
+                elevation: 2,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 13, 10, 13),
+                  child: Row(
+                    children: [
+                      Icon(
+                        LucideIcons.triangleAlert,
+                        color: deviationStatus >= 2
+                            ? AppColors.danger
+                            : const Color(0xFFD88700),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '检测到偏航约 $deviationDistance 米。仅提醒队长，可继续偏航，系统不会强制纠偏。',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '我知道了',
+                        onPressed: () => setState(() => deviationStatus = 0),
+                        icon: const Icon(LucideIcons.x, size: 19),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             left: 16,
             right: 16,
@@ -326,7 +458,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                       _Metric(
                         value:
                             '${(trackedDistanceMeters / 1000).toStringAsFixed(1)} km',
-                        label: uploadingTrack ? '轨迹同步中' : '已行驶',
+                        label: uploadingTrack ? '轨迹同步中' : '实际里程',
                       ),
                       _Metric(
                         value: widget.trip.distanceMeters == null
@@ -340,7 +472,22 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: mockingDeviation ? null : _mockDeviation,
+                      icon: const Icon(LucideIcons.flaskConical, size: 18),
+                      label: Text(
+                        mockingDeviation
+                            ? '模拟中…'
+                            : deviationStatus > 0
+                            ? '结束偏航模拟'
+                            : '联调：模拟偏航提醒',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   FilledButton(
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.danger,
@@ -362,6 +509,7 @@ class _Metric extends StatelessWidget {
   const _Metric({required this.value, required this.label});
   final String value;
   final String label;
+
   @override
   Widget build(BuildContext context) => Column(
     children: [
@@ -375,26 +523,67 @@ class _Metric extends StatelessWidget {
 }
 
 class _NavPainter extends CustomPainter {
+  const _NavPainter(this.points);
+  final List<LocationSelection> points;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
+    final routePaint = Paint()
       ..color = AppColors.primary
       ..strokeWidth = 9
       ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-    final path = Path()
-      ..moveTo(size.width * .2, size.height)
-      ..cubicTo(
-        size.width * .1,
-        size.height * .7,
-        size.width * .85,
-        size.height * .55,
-        size.width * .55,
-        0,
-      );
-    canvas.drawPath(path, paint);
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final shadowPaint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 15
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    if (points.length < 2) {
+      final fallback = Path()
+        ..moveTo(size.width * .2, size.height)
+        ..cubicTo(
+          size.width * .1,
+          size.height * .7,
+          size.width * .85,
+          size.height * .55,
+          size.width * .55,
+          0,
+        );
+      canvas.drawPath(fallback, shadowPaint);
+      canvas.drawPath(fallback, routePaint);
+      return;
+    }
+
+    final minLat = points.map((e) => e.latitude).reduce(math.min);
+    final maxLat = points.map((e) => e.latitude).reduce(math.max);
+    final minLng = points.map((e) => e.longitude).reduce(math.min);
+    final maxLng = points.map((e) => e.longitude).reduce(math.max);
+    final latSpan = math.max(0.000001, maxLat - minLat);
+    final lngSpan = math.max(0.000001, maxLng - minLng);
+    const horizontalPadding = 42.0;
+    const topPadding = 240.0;
+    const bottomPadding = 210.0;
+    final drawHeight = math.max(100.0, size.height - topPadding - bottomPadding);
+    final drawWidth = math.max(100.0, size.width - horizontalPadding * 2);
+
+    Offset mapPoint(LocationSelection point) => Offset(
+      horizontalPadding + (point.longitude - minLng) / lngSpan * drawWidth,
+      topPadding + (maxLat - point.latitude) / latSpan * drawHeight,
+    );
+
+    final path = Path()..moveTo(mapPoint(points.first).dx, mapPoint(points.first).dy);
+    for (final point in points.skip(1)) {
+      final offset = mapPoint(point);
+      path.lineTo(offset.dx, offset.dy);
+    }
+    canvas.drawPath(path, shadowPaint);
+    canvas.drawPath(path, routePaint);
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _NavPainter oldDelegate) =>
+      oldDelegate.points != points;
 }

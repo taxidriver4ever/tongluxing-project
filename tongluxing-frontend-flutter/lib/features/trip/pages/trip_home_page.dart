@@ -66,33 +66,11 @@ class _TripHomePageState extends State<TripHomePage> {
   }
 
   Future<void> _openCreateTrip() async {
-    try {
-      final state = await TripService(
-        context.read<AppSession>().api,
-      ).activeState();
-      if (!mounted) return;
-      if (state['active'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              state['message']?.toString() ?? '一次只能进行一个行程',
-            ),
-          ),
-        );
-        return;
-      }
-      final changed = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(builder: (_) => const TripCreatePage()),
-      );
-      if (changed == true) load();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$e')),
-        );
-      }
-    }
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const TripCreatePage()),
+    );
+    if (changed == true && mounted) load();
   }
 
   @override

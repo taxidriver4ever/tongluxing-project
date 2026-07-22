@@ -110,6 +110,7 @@ String tripStatusLabel(String status) => switch (status) {
   'DRAFT' => '草稿',
   'PUBLISHED' => '招募中',
   'READY' => '待开启',
+  'CONFIRMING' => '待成员确认',
   'RUNNING' => '进行中',
   'FINISHED' => '已完成',
   'SETTLED' => '已结算',

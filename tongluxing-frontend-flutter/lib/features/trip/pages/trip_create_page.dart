@@ -176,6 +176,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
     try {
       final service = TripService(context.read<AppSession>().api);
       if (!await _saveDraft(plan: true, manageSubmitting: false)) return;
+      if (!await _confirmTimeConflict(service)) return;
       final tripId = (await service.publishDraft(id)).toString();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -194,6 +195,39 @@ class _TripCreatePageState extends State<TripCreatePage> {
     } finally {
       if (mounted) setState(() => submitting = false);
     }
+  }
+
+  Future<bool> _confirmTimeConflict(TripService service) async {
+    final departure = startTime;
+    if (departure == null) return true;
+    final result = await service.checkTimeConflict(
+      departureTime: departure,
+      estimatedDays: 1,
+    );
+    if (result['conflict'] != true || !mounted) return true;
+    return await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            icon: const Icon(LucideIcons.calendarClock),
+            title: const Text('行程时间可能冲突'),
+            content: Text(
+              '${result['message'] ?? '该行程与您已发布的行程时间存在冲突，请调整出发时间。'}\n\n'
+              '冲突行程：${result['conflictTitle'] ?? '未命名行程'}\n'
+              '预计时间：${result['conflictStartTime'] ?? '-'} 至 ${result['conflictEndTime'] ?? '-'}',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('返回调整'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('仍然发布'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
   }
 
   Future<bool> _saveDraft({

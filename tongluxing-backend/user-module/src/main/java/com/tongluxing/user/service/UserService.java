@@ -49,4 +49,12 @@ public interface UserService {
      * 查询指定用户的公开主页资料。
      */
     PublicProfileVO getPublicProfile(Long userId);
+
+    /**
+     * 查询聊天场景使用的基础用户资料。
+     *
+     * <p>该方法只返回昵称、头像和公开统计等聊天必需字段，不受公开主页隐藏开关影响，
+     * 仅供已完成会话成员权限校验的内部模块调用。</p>
+     */
+    PublicProfileVO getChatMemberProfile(Long userId);
 }

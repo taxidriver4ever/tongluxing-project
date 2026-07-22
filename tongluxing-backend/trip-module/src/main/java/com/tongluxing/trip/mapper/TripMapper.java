@@ -49,22 +49,46 @@ public interface TripMapper {
                    created_at, updated_at, deleted
             from trip
             where user_id = #{userId} and deleted = 0
-              and status in ('PUBLISHED', 'RUNNING', 'ONGOING')
+              and status in ('PUBLISHED', 'READY', 'CONFIRMING', 'RUNNING', 'ONGOING')
             order by departure_time asc
             """)
     List<Trip> findActiveByUserId(@Param("userId") Long userId);
 
-    /** 查询用户作为发布者拥有的第一条活跃行程 ID。 */
+    /** 查询用户作为发布者拥有的进行中行程 ID。 */
     @Select("""
             select id
             from trip
             where user_id = #{userId}
               and deleted = 0
-              and status in ('PUBLISHED', 'RUNNING', 'ONGOING')
-            order by created_at asc
+              and status in ('RUNNING', 'ONGOING')
+            order by actual_start_time asc, created_at asc
             limit 1
             """)
-    Long findActiveTripIdByUserId(@Param("userId") Long userId);
+    Long findRunningTripIdByUserId(@Param("userId") Long userId);
+
+    /** 查询与新行程预计时间重叠的未来行程。 */
+    @Select("""
+            select id, user_id, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
+                   start_location_name, start_location_address, start_latitude, start_longitude,
+                   end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
+                   route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                   departure_time, estimated_days, total_distance_meters,
+                   max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   actual_start_time, actual_end_time, created_at, updated_at, deleted
+            from trip
+            where user_id = #{userId}
+              and deleted = 0
+              and status in ('PUBLISHED', 'READY', 'CONFIRMING')
+              and (#{excludeTripId} is null or id <> #{excludeTripId})
+              and departure_time < #{endTime}
+              and timestampadd(day, greatest(coalesce(estimated_days, 1), 1), departure_time) > #{startTime}
+            order by departure_time asc
+            limit 1
+            """)
+    Trip findTimeConflict(@Param("userId") Long userId,
+                          @Param("excludeTripId") Long excludeTripId,
+                          @Param("startTime") LocalDateTime startTime,
+                          @Param("endTime") LocalDateTime endTime);
 
     /** 查询除指定行程外，用户是否还有正在行驶的行程。 */
     @Select("""
@@ -196,7 +220,7 @@ public interface TripMapper {
     int updateStatus(@Param("tripId") Long tripId, @Param("userId") Long userId, @Param("status") String status, @Param("updatedAt") LocalDateTime updatedAt);
 
     /**
-     * 开始行程，只允许 PUBLISHED -> RUNNING。
+     * 开始行程，允许 PUBLISHED / READY / CONFIRMING -> RUNNING。
      */
     @Update("""
             update trip
@@ -205,7 +229,7 @@ public interface TripMapper {
                 updated_at = #{actualStartTime}
             where id = #{tripId}
               and user_id = #{userId}
-              and status = 'PUBLISHED'
+              and status in ('PUBLISHED', 'READY', 'CONFIRMING')
               and deleted = 0
             """)
     int startTrip(@Param("tripId") Long tripId, @Param("userId") Long userId, @Param("actualStartTime") LocalDateTime actualStartTime);

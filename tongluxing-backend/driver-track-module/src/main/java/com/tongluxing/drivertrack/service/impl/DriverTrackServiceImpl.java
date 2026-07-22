@@ -19,6 +19,7 @@ import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.drivertrack.dto.DriverTrackBatchRequest;
 import com.tongluxing.drivertrack.dto.DriverTrackPointRequest;
+import com.tongluxing.drivertrack.dto.MockDeviationRequest;
 import com.tongluxing.drivertrack.entity.DriverDeviationRecord;
 import com.tongluxing.drivertrack.entity.DriverTrackRecord;
 import com.tongluxing.drivertrack.entity.DriverTrackDistanceRecord;
@@ -32,11 +33,14 @@ import com.tongluxing.drivertrack.vo.DriverDistanceResponse;
 import com.tongluxing.drivertrack.vo.DriverTrackListResponse;
 import com.tongluxing.drivertrack.vo.DriverTrackPointVO;
 import com.tongluxing.drivertrack.vo.DriverTrackUploadResponse;
+import com.tongluxing.drivertrack.vo.MileageSettlementResponse;
 import com.tongluxing.map.dto.LocationDto;
 import com.tongluxing.trip.entity.Trip;
 import com.tongluxing.trip.entity.TripRoute;
 import com.tongluxing.trip.mapper.TripMapper;
 import com.tongluxing.trip.mapper.TripRouteMapper;
+import com.tongluxing.trip.mapper.TripWaypointMapper;
+import com.tongluxing.trip.entity.TripWaypoint;
 import com.tongluxing.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
@@ -52,11 +56,13 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     private static final String STATUS_RUNNING = "RUNNING";
     private static final int MILD_DEVIATION_METERS = 100;
     private static final int SEVERE_DEVIATION_METERS = 500;
+    private static final int WAYPOINT_ARRIVAL_METERS = 200;
 
     private final CurrentUserContext currentUserContext;
     private final ObjectMapper objectMapper;
     private final TripMapper tripMapper;
     private final TripRouteMapper tripRouteMapper;
+    private final TripWaypointMapper tripWaypointMapper;
     private final DriverTrackRecordMapper trackMapper;
     private final DriverDeviationRecordMapper deviationMapper;
     private final DriverTrackDistanceRecordMapper distanceMapper;
@@ -89,14 +95,21 @@ public class DriverTrackServiceImpl implements DriverTrackService {
 
         int totalDistance = trackMapper.sumDistance(request.tripId(), driverId);
         DriverDeviationRecord deviation = saveDeviation(trip, request, driverId, now);
-        mileageSettlementService.settleMileage(request.tripId(), driverId, totalDistance);
+        MileageSettlementResponse mileageResult = mileageSettlementService
+                .settleMileage(request.tripId(), driverId, totalDistance);
+        WaypointArrival waypointArrival = settleReachedWaypoint(
+                request.tripId(), driverId, request.latitude(), request.longitude(), totalDistance);
 
         return new DriverTrackUploadResponse(
                 String.valueOf(record.getId()),
                 distanceFromPrev,
                 deviation.getDeviationStatus(),
                 deviation.getDeviationDistance(),
-                totalDistance
+                totalDistance,
+                mileageResult.settledStages() + (waypointArrival == null ? 0 : 1),
+                mileageResult.grantedPoints() + (waypointArrival == null ? 0 : waypointArrival.points()),
+                waypointArrival == null ? null : String.valueOf(waypointArrival.waypointId()),
+                waypointArrival == null ? null : waypointArrival.waypointName()
         );
     }
 
@@ -157,6 +170,29 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         );
     }
 
+    @Override
+    @Transactional
+    public DriverDeviationResponse mockDeviation(Long tripId, MockDeviationRequest request) {
+        Long driverId = currentUserContext.requireUserId();
+        Trip trip = requireOngoingOwnerTrip(tripId, driverId);
+        int status = request.deviationStatus();
+        int distance = status == 2 ? 680 : status == 1 ? 180 : 0;
+        LocalDateTime now = LocalDateTime.now();
+        DriverDeviationRecord record = new DriverDeviationRecord();
+        record.setId(SnowflakeIdGenerator.nextId());
+        record.setTripId(tripId);
+        record.setDriverId(driverId);
+        record.setLongitude(trip.getStartLongitude() != null ? trip.getStartLongitude() : trip.getStartLng());
+        record.setLatitude(trip.getStartLatitude() != null ? trip.getStartLatitude() : trip.getStartLat());
+        record.setDeviationDistance(distance);
+        record.setDeviationStatus(status);
+        record.setRecordTime(now);
+        record.setCreatedAt(now);
+        record.setDeleted(0);
+        deviationMapper.insert(record);
+        return new DriverDeviationResponse(String.valueOf(tripId), status, distance, formatTime(now));
+    }
+
     private Trip requireOngoingOwnerTrip(Long tripId, Long userId) {
         Trip trip = tripMapper.findById(tripId);
         if (trip == null) {
@@ -207,11 +243,38 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         if (routePoints.isEmpty()) {
             return 0;
         }
+        if (routePoints.size() == 1) {
+            LocationDto point = routePoints.get(0);
+            return haversineMeters(latitude, longitude, point.latitude(), point.longitude());
+        }
         int minDistance = Integer.MAX_VALUE;
-        for (LocationDto point : routePoints) {
-            minDistance = Math.min(minDistance, haversineMeters(latitude, longitude, point.latitude(), point.longitude()));
+        for (int i = 1; i < routePoints.size(); i++) {
+            minDistance = Math.min(minDistance,
+                    distanceToSegmentMeters(latitude, longitude, routePoints.get(i - 1), routePoints.get(i)));
         }
         return minDistance == Integer.MAX_VALUE ? 0 : minDistance;
+    }
+
+    /** 使用局部平面近似计算当前位置到 polyline 线段的最短距离。 */
+    private int distanceToSegmentMeters(BigDecimal latitude, BigDecimal longitude,
+                                        LocationDto from, LocationDto to) {
+        double refLat = Math.toRadians(latitude.doubleValue());
+        double metersPerLat = 111_320d;
+        double metersPerLng = 111_320d * Math.cos(refLat);
+        double ax = (from.longitude().doubleValue() - longitude.doubleValue()) * metersPerLng;
+        double ay = (from.latitude().doubleValue() - latitude.doubleValue()) * metersPerLat;
+        double bx = (to.longitude().doubleValue() - longitude.doubleValue()) * metersPerLng;
+        double by = (to.latitude().doubleValue() - latitude.doubleValue()) * metersPerLat;
+        double dx = bx - ax;
+        double dy = by - ay;
+        double lengthSquared = dx * dx + dy * dy;
+        if (lengthSquared <= 0.0001d) {
+            return (int) Math.round(Math.sqrt(ax * ax + ay * ay));
+        }
+        double t = Math.max(0d, Math.min(1d, -(ax * dx + ay * dy) / lengthSquared));
+        double px = ax + t * dx;
+        double py = ay + t * dy;
+        return (int) Math.round(Math.sqrt(px * px + py * py));
     }
 
     private List<LocationDto> readRoutePoints(Long tripId) {
@@ -225,6 +288,27 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         } catch (JsonProcessingException exception) {
             return List.of();
         }
+    }
+
+    /** 到达任一尚未结算的途经点时立即发放一次成长值。 */
+    private WaypointArrival settleReachedWaypoint(Long tripId, Long driverId,
+                                                  BigDecimal latitude, BigDecimal longitude,
+                                                  int totalDistance) {
+        for (TripWaypoint waypoint : tripWaypointMapper.findByTripId(tripId)) {
+            if (waypoint.getLat() == null || waypoint.getLng() == null) {
+                continue;
+            }
+            int distance = haversineMeters(latitude, longitude, waypoint.getLat(), waypoint.getLng());
+            if (distance > WAYPOINT_ARRIVAL_METERS) {
+                continue;
+            }
+            MileageSettlementResponse result = mileageSettlementService.settleWaypoint(
+                    tripId, driverId, waypoint.getId(), waypoint.getPlaceName(), totalDistance);
+            if (!Boolean.TRUE.equals(result.duplicate())) {
+                return new WaypointArrival(waypoint.getId(), waypoint.getPlaceName(), result.grantedPoints());
+            }
+        }
+        return null;
     }
 
     private DriverTrackPointVO toPointVO(DriverTrackRecord record) {
@@ -250,6 +334,9 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
                 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
         return (int) Math.round(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
+
+    private record WaypointArrival(Long waypointId, String waypointName, Integer points) {
     }
 
     private String formatTime(LocalDateTime value) {

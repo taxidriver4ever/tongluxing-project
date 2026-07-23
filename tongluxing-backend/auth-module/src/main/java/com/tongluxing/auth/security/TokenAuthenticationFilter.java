@@ -32,15 +32,20 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
     /** 与用户 JWT 隔离的 Web Admin 会话存储。 */
     private final AdminSessionStore adminSessionStore;
     private final AuthRoleMapper authRoleMapper;
+    private final AuthSecurityExceptionHandler authSecurityExceptionHandler;
 
     /** 解析请求中的 Token，并在有效时设置当前请求的认证信息。 */
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String token = resolveToken(request);
-        var adminSession = adminSessionStore.resolve(token);
-        if (adminSession.isPresent()) {
-            var session = adminSession.get();
+        AdminSessionStore.AdminResolution adminResolution = adminSessionStore.resolveDetailed(token);
+        if (adminResolution.status() == AdminSessionStore.AdminStatus.KICKED) {
+            authSecurityExceptionHandler.accountLoggedInElsewhere(response);
+            return;
+        }
+        if (adminResolution.status() == AdminSessionStore.AdminStatus.VALID) {
+            var session = adminResolution.session();
             AuthPrincipal principal = new AuthPrincipal(
                     session.operatorId(), session.username(), token, "admin-web");
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
@@ -50,7 +55,13 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
             );
             SecurityContextHolder.getContext().setAuthentication(authentication);
         } else {
-            tokenStore.resolve(token).ifPresent(principal -> {
+            TokenStore.AccessResolution resolution = tokenStore.resolveAccessToken(token);
+            if (resolution.status() == TokenStore.AccessStatus.KICKED) {
+                authSecurityExceptionHandler.accountLoggedInElsewhere(response);
+                return;
+            }
+            if (resolution.status() == TokenStore.AccessStatus.VALID) {
+                AuthPrincipal principal = resolution.principal();
                 List<SimpleGrantedAuthority> authorities = new ArrayList<>();
                 authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
                 authRoleMapper.findRoleCodes(principal.userId()).stream()
@@ -62,7 +73,7 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
                         authorities
                 );
                 SecurityContextHolder.getContext().setAuthentication(authentication);
-            });
+            }
         }
         filterChain.doFilter(request, response);
     }

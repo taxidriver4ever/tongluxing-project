@@ -3,6 +3,7 @@ package com.tongluxing.auth.service.impl;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.Set;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.context.ApplicationEventPublisher;
@@ -32,6 +33,7 @@ import com.tongluxing.auth.mapper.AuthLoginLogMapper;
 import com.tongluxing.auth.mapper.AuthPasswordCredentialMapper;
 import com.tongluxing.auth.mapper.AuthSmsLogMapper;
 import com.tongluxing.auth.security.AuthPrincipal;
+import com.tongluxing.auth.security.AuthSecurityExceptionHandler;
 import com.tongluxing.auth.security.TokenStore;
 import com.tongluxing.auth.service.AuthService;
 import com.tongluxing.auth.vo.CurrentUserResponse;
@@ -81,6 +83,9 @@ public class AuthServiceImpl implements AuthService {
     private static final int APP_BIND_TICKET_EXPIRE_SECONDS = 300;
     private static final String CLIENT_MINI_PROGRAM = "MINI_PROGRAM";
     private static final String CLIENT_APP_DRIVER = "APP_DRIVER";
+    private static final String CLIENT_MERCHANT_WEB = "MERCHANT_WEB";
+    /** 所有客户端共用账号级会话，保证一个账号同时只能保留一个设备登录。 */
+    private static final String SESSION_SCOPE_ACCOUNT = "ACCOUNT";
     private static final String PASSWORD_VERSION_BCRYPT = "BCRYPT";
 
     /** Redis 模板，用于验证码、限流计数和登录失败计数。 */
@@ -173,12 +178,14 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "手机号或密码错误");
         }
 
+        String clientType = passwordClientType(request.clientType());
         String ip = currentIp();
         updateLastLogin(account.getUserId(), ip);
-        upsertDeviceBinding(account, CLIENT_MINI_PROGRAM, request.deviceId(), null, null, ip);
+        upsertDeviceBinding(account, clientType, request.deviceId(), null, null, ip);
         redisTemplate.delete(loginFailKey(phone));
 
-        TokenStore.TokenPair tokenPair = tokenStore.create(account.getUserId(), phone, normalizeDeviceId(request.deviceId()));
+        TokenStore.TokenPair tokenPair = tokenStore.create(
+                account.getUserId(), phone, normalizeDeviceId(request.deviceId()), SESSION_SCOPE_ACCOUNT);
         insertLoginLog(account.getUserId(), phone, "password_login", request.deviceId(), ip, true, "password login success");
         return new LoginResponse(
                 tokenPair.token(),
@@ -284,7 +291,8 @@ public class AuthServiceImpl implements AuthService {
         String ip = currentIp();
         updateLastLogin(account.getUserId(), ip);
         upsertDeviceBinding(account, CLIENT_APP_DRIVER, request.deviceId(), request.deviceName(), request.platform(), ip);
-        TokenStore.TokenPair tokenPair = tokenStore.create(account.getUserId(), account.getPhone(), normalizeDeviceId(request.deviceId()));
+        TokenStore.TokenPair tokenPair = tokenStore.create(
+                account.getUserId(), account.getPhone(), normalizeDeviceId(request.deviceId()), SESSION_SCOPE_ACCOUNT);
         insertLoginLog(account.getUserId(), account.getPhone(), "app_bind_login", request.deviceId(), ip, true, "app bind by mini ticket success");
         return new LoginResponse(
                 tokenPair.token(),
@@ -324,7 +332,8 @@ public class AuthServiceImpl implements AuthService {
         // 登录成功后清除验证码错误计数，避免用户后续被旧失败次数影响。
         redisTemplate.delete(loginFailKey(phone));
 
-        TokenStore.TokenPair tokenPair = tokenStore.create(account.getUserId(), phone, normalizeDeviceId(deviceId));
+        TokenStore.TokenPair tokenPair = tokenStore.create(
+                account.getUserId(), phone, normalizeDeviceId(deviceId), sessionScope(clientType));
         insertLoginLog(account.getUserId(), phone, actionType, deviceId, ip, true, actionType + " success");
         return new LoginResponse(
                 tokenPair.token(),
@@ -334,6 +343,21 @@ public class AuthServiceImpl implements AuthService {
                 passwordSet,
                 tokenPair.expireSeconds()
         );
+    }
+
+
+    /** 密码登录只允许 App 与商家 Web；两者共享同一个单点登录会话域。 */
+    private String passwordClientType(String value) {
+        if (!StringUtils.hasText(value)) return CLIENT_APP_DRIVER;
+        String normalized = value.trim().toUpperCase();
+        if (!Set.of(CLIENT_APP_DRIVER, CLIENT_MERCHANT_WEB).contains(normalized)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "客户端类型不正确");
+        }
+        return normalized;
+    }
+
+    private String sessionScope(String clientType) {
+        return SESSION_SCOPE_ACCOUNT;
     }
 
     /** 首次注册时校验初始密码。 */
@@ -455,8 +479,16 @@ public class AuthServiceImpl implements AuthService {
     /** 使用 refresh token 换取新的 access token。 */
     @Override
     public RefreshTokenResponse refreshToken(RefreshTokenRequest request) {
-        TokenStore.RefreshPrincipal refreshPrincipal = tokenStore.resolveRefreshToken(request.refreshToken())
-                .orElseThrow(() -> new BusinessException(ResultCode.UNAUTHORIZED, "刷新令牌已失效，请重新登录"));
+        TokenStore.RefreshResolution resolution = tokenStore.resolveRefresh(request.refreshToken());
+        if (resolution.status() == TokenStore.RefreshStatus.KICKED) {
+            throw new BusinessException(
+                    AuthSecurityExceptionHandler.ACCOUNT_LOGGED_IN_ELSEWHERE_CODE,
+                    AuthSecurityExceptionHandler.ACCOUNT_LOGGED_IN_ELSEWHERE_MESSAGE);
+        }
+        if (resolution.status() != TokenStore.RefreshStatus.VALID) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "刷新令牌已失效，请重新登录");
+        }
+        TokenStore.RefreshPrincipal refreshPrincipal = resolution.principal();
         AuthAccount account = accountMapper.findByUserId(refreshPrincipal.userId());
         if (account == null) {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "登录状态已失效");
@@ -464,7 +496,8 @@ public class AuthServiceImpl implements AuthService {
 
         // refresh token 一次性使用：刷新成功后立即删除旧 refresh token。
         tokenStore.deleteRefreshToken(request.refreshToken());
-        TokenStore.TokenPair tokenPair = tokenStore.create(refreshPrincipal.userId(), account.getPhone(), refreshPrincipal.deviceId());
+        TokenStore.TokenPair tokenPair = tokenStore.create(
+                refreshPrincipal.userId(), account.getPhone(), refreshPrincipal.deviceId(), refreshPrincipal.sessionScope());
         insertLoginLog(refreshPrincipal.userId(), account.getPhone(), "refresh", null, currentIp(), true, "refresh token success");
         return new RefreshTokenResponse(
                 tokenPair.token(),

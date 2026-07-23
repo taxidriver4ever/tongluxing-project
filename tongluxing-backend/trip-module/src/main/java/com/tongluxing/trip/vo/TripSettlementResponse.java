@@ -5,9 +5,9 @@ package com.tongluxing.trip.vo;
  *
  * @param tripId 行程 ID
  * @param status 结算后的状态，固定为 SETTLED
- * @param memberCount 获得成长值的有效成员数
- * @param pointsPerMember 每位成员成长值
- * @param totalPoints 本次应发成长值总和
+ * @param memberCount 本次结算的有效成员数
+ * @param pointsPerMember 行程结束固定奖励（现为 0，成长值按累计每 50 公里实时发放）
+ * @param totalPoints 本次行程结束固定奖励总和
  * @param duplicate 是否为重复结算请求
  * @param settledAt 结算完成时间
  */

@@ -8,7 +8,7 @@ public interface MileageSettlementService {
     /** 每累计 50 公里执行一次幂等成长值发放。 */
     MileageSettlementResponse settleMileage(Long tripId, Long userId, Integer distanceMeters);
 
-    /** 到达途经点时执行一次幂等成长值发放。 */
+    /** 幂等记录途经点到达事实；途经点本身不再发放成长值。 */
     MileageSettlementResponse settleWaypoint(Long tripId, Long userId, Long waypointId,
                                               String waypointName, Integer distanceMeters);
 }

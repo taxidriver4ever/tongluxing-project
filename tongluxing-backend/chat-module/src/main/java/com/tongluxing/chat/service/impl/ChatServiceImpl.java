@@ -228,9 +228,10 @@ public class ChatServiceImpl implements ChatService {
 
     /** 查询当前用户参与的有效会话列表。 */
     @Override
-    public ConversationListResponse getConversations() {
+    public ConversationListResponse getConversations(String title) {
         Long userId = currentUserContext.requireUserId();
-        return new ConversationListResponse(conversationMapper.findActiveByUserId(userId).stream()
+        String titleKeyword = StringUtils.hasText(title) ? title.trim() : null;
+        return new ConversationListResponse(conversationMapper.findActiveByUserId(userId, titleKeyword).stream()
                 .map(conversation -> toConversationResponse(conversation,
                         memberMapper.findByConversationAndUser(conversation.getId(), userId)))
                 .toList());

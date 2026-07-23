@@ -29,6 +29,9 @@ public interface MatchService {
     /** 通过推荐结果提交目标车队入队申请。 */
     MatchApplyResponse apply(Long matchId, String message);
 
+    /** 从地图附近招募列表直接申请加入目标行程对应的车队。 */
+    MatchApplyResponse applyNearbyTrip(Long tripId, String message);
+
     /** 记录推荐关联行程的开始/结束事件。 */
     void recordTripLifecycle(Long tripId, String actionType);
 

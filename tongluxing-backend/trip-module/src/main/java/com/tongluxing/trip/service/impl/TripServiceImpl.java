@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -243,6 +244,13 @@ public class TripServiceImpl implements TripService {
     @Override
     @Transactional
     public TripResponse startTrip(Long tripId) {
+        return startTrip(tripId, null);
+    }
+
+    /** 行程确认卡入口只让明确确认的用户进入本次行程。 */
+    @Override
+    @Transactional
+    public TripResponse startTrip(Long tripId, List<Long> confirmedParticipantUserIds) {
         Long userId = currentUserContext.requireUserId();
         Trip before = requireOwnerTrip(tripId, userId);
         if (!STATUS_PUBLISHED.equals(before.getStatus())
@@ -251,13 +259,24 @@ public class TripServiceImpl implements TripService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "只有招募中、待出发或待确认的行程可以开始");
         }
 
+        Set<Long> confirmationFilter = confirmedParticipantUserIds == null
+                ? null : new LinkedHashSet<>(confirmedParticipantUserIds);
+        if (confirmationFilter != null) {
+            confirmationFilter.add(userId);
+            memberMapper.declineUnconfirmedMembers(
+                    tripId, userId, List.copyOf(confirmationFilter), LocalDateTime.now());
+        }
+
         LinkedHashSet<Long> participantIds = new LinkedHashSet<>();
         participantIds.add(userId);
         memberMapper.findByTripId(tripId).stream()
                 .filter(member -> "OWNER".equals(member.getJoinStatus()) || "APPROVED".equals(member.getJoinStatus()))
                 .map(TripMemberSnapshot::getUserId)
+                .filter(memberId -> confirmationFilter == null || confirmationFilter.contains(memberId))
                 .forEach(participantIds::add);
-        participationPort.findActiveParticipantUserIds(tripId).forEach(participantIds::add);
+        participationPort.findActiveParticipantUserIds(tripId).stream()
+                .filter(memberId -> confirmationFilter == null || confirmationFilter.contains(memberId))
+                .forEach(participantIds::add);
 
         String lockValue = UUID.randomUUID().toString();
         List<String> acquiredLocks = acquireStartLocks(participantIds.stream().sorted().toList(), lockValue);

@@ -35,7 +35,7 @@ public interface ChatService {
     void closeTripConversation(Long tripId);
 
     /** 查询当前登录用户参与的有效会话。 */
-    ConversationListResponse getConversations();
+    ConversationListResponse getConversations(String title);
 
     /** 查询会话历史消息。 */
     MessageListResponse getMessages(Long conversationId, Long beforeMessageId, Integer limit);

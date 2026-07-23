@@ -15,6 +15,7 @@ public interface MerchantEcosystemService {
     PageResult<MerchantCouponOfferVO> offersForAdmin(String status,int page,int size);
     MerchantCouponOfferVO offerForAdmin(Long couponId);
     MerchantCouponOfferVO auditOffer(Long couponId,String result,String reason,Long reviewerId);
+    MerchantCouponOfferVO manageOfferStatus(Long couponId, String status);
     PageResult<MerchantCouponOfferVO> marketplace(int page,int size);
     MerchantCouponOfferVO marketplaceDetail(Long couponId);
     MerchantCouponOfferVO groupbuySnapshot(Long couponId);

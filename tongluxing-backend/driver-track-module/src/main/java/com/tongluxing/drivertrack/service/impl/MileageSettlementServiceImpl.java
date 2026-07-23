@@ -35,26 +35,27 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
     @Value("${mileage.growth.points-per-km:1}")
     private Integer pointsPerKm;
 
-    @Value("${mileage.growth.points-per-waypoint:10}")
-    private Integer pointsPerWaypoint;
-
     @Override
     @Transactional
     public MileageSettlementResponse settleMileage(Long tripId, Long userId, Integer distanceMeters) {
         int effectiveDistance = distanceMeters == null ? 0 : Math.max(0, distanceMeters);
         int normalizedStageMeters = stageMeters == null || stageMeters <= 0 ? 50_000 : stageMeters;
-        int stageCount = effectiveDistance / normalizedStageMeters;
+        // 里程按用户跨行程累计：例如前一程 30km、后一程 20km，会在累计 50km 时发一次。
+        // max 兼容内部联调接口直接传入里程、尚未写入轨迹明细的场景。
+        int cumulativeDistance = Math.max(effectiveDistance, distanceMapper.sumTrackedDistance(userId));
+        int stageCount = cumulativeDistance / normalizedStageMeters;
+        int alreadySettledStages = distanceMapper.countMileageStages(userId);
         int settledStages = 0;
         int grantedPoints = 0;
 
-        for (int stage = 1; stage <= stageCount; stage++) {
+        for (int stage = alreadySettledStages + 1; stage <= stageCount; stage++) {
             int stageDistance = stage * normalizedStageMeters;
-            String settleKey = settleKey(tripId, userId, stageDistance);
+            String settleKey = settleKey(userId, stageDistance);
             if (distanceMapper.findBySettleKey(settleKey) != null) {
                 continue;
             }
             int points = calculatePoints(normalizedStageMeters);
-            insertSettlement(tripId, userId, effectiveDistance, stageDistance,
+            insertSettlement(tripId, userId, cumulativeDistance, stageDistance,
                     SETTLE_TYPE_MILESTONE, settleKey);
             growthPort.grantMileageGrowth(userId, settleKey, points, remark(stageDistance));
             settledStages++;
@@ -81,13 +82,11 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
             return new MileageSettlementResponse(String.valueOf(tripId), String.valueOf(userId),
                     effectiveDistance, 0, 0, true);
         }
-        int points = pointsPerWaypoint == null || pointsPerWaypoint <= 0 ? 10 : pointsPerWaypoint;
+        // 途经点只记录到达事实，不发成长值；驾驶成长值唯一口径是累计每 50 公里。
         insertSettlement(tripId, userId, effectiveDistance, effectiveDistance,
                 SETTLE_TYPE_WAYPOINT, settleKey);
-        growthPort.grantMileageGrowth(userId, settleKey, points,
-                "到达途经点：" + (waypointName == null ? "未命名途经点" : waypointName));
         return new MileageSettlementResponse(String.valueOf(tripId), String.valueOf(userId),
-                effectiveDistance, 1, points, false);
+                effectiveDistance, 0, 0, false);
     }
 
     private void insertSettlement(Long tripId, Long userId, int totalDistance, int stageDistance,
@@ -114,11 +113,11 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
         return Math.max(1, (settledDistanceMeters / 1000) * normalizedPointsPerKm);
     }
 
-    private String settleKey(Long tripId, Long userId, int stageDistance) {
-        return tripId + ":" + userId + ":" + BIZ_TYPE_TRIP_MILEAGE + ":" + stageDistance;
+    private String settleKey(Long userId, int stageDistance) {
+        return userId + ":" + BIZ_TYPE_TRIP_MILEAGE + ":" + stageDistance;
     }
 
     private String remark(int stageDistance) {
-        return "完成" + (stageDistance / 1000) + "公里驾驶";
+        return "累计完成" + (stageDistance / 1000) + "公里驾驶";
     }
 }

@@ -6,6 +6,8 @@ import '../../../app/theme.dart';
 import '../../../common/widgets/app_widgets.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
+import '../../profile/pages/profile_system_pages.dart';
+import '../../profile/widgets/user_avatar.dart';
 
 class CompanionDiscoveryPage extends StatefulWidget {
   const CompanionDiscoveryPage({super.key});
@@ -389,6 +391,7 @@ class _CompanionMatchDetailPageState extends State<CompanionMatchDetailPage> {
   bool loading = true;
   bool applying = false;
   String? error;
+  Map<String, dynamic>? ownerProfile;
   @override
   void initState() {
     super.initState();
@@ -397,9 +400,16 @@ class _CompanionMatchDetailPageState extends State<CompanionMatchDetailPage> {
 
   Future<void> load() async {
     try {
-      match = await CompanionMatchService(
-        context.read<AppSession>().api,
-      ).detail(widget.matchId);
+      final api = context.read<AppSession>().api;
+      if (widget.matchId.isNotEmpty) {
+        match = await CompanionMatchService(api).detail(widget.matchId);
+      }
+      if (match.userId.isNotEmpty) {
+        final homepage = await UserProfileService(api).homepage(match.userId);
+        ownerProfile = homepage['profile'] is Map
+            ? Map<String, dynamic>.from(homepage['profile'] as Map)
+            : homepage;
+      }
     } catch (e) {
       error = e.toString();
     }
@@ -409,9 +419,12 @@ class _CompanionMatchDetailPageState extends State<CompanionMatchDetailPage> {
   Future<void> apply() async {
     setState(() => applying = true);
     try {
-      await CompanionMatchService(
-        context.read<AppSession>().api,
-      ).apply(widget.matchId);
+      final service = CompanionMatchService(context.read<AppSession>().api);
+      if (widget.matchId.isEmpty) {
+        await service.applyNearbyTrip(match.tripId);
+      } else {
+        await service.apply(widget.matchId);
+      }
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -437,6 +450,28 @@ class _CompanionMatchDetailPageState extends State<CompanionMatchDetailPage> {
       child: ListView(
         padding: const EdgeInsets.all(22),
         children: [
+          if (ownerProfile != null) ...[
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PublicProfilePage(userId: match.userId),
+                ),
+              ),
+              leading: UserAvatar(
+                nickname: ownerProfile!['nickname']?.toString() ?? '同路行用户',
+                avatarImageKey:
+                    ownerProfile!['avatarImageKey']?.toString() ?? '',
+                avatarUrl: ownerProfile!['avatarUrl']?.toString() ?? '',
+                radius: 25,
+              ),
+              title: Text(ownerProfile!['nickname']?.toString() ?? '同路行用户'),
+              subtitle: const Text('行程发起人 · 点击查看资料'),
+              trailing: const Icon(LucideIcons.chevronRight),
+            ),
+            const SizedBox(height: 18),
+          ],
           Center(
             child: Stack(
               alignment: Alignment.center,

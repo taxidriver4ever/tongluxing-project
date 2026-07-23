@@ -329,8 +329,8 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
         ),
         const SizedBox(height: 22),
         if (step == 0) ...[
-          _field('merchantName', '营业执照主体名称 *'),
-          _field('merchantShortName', '商家简称 *'),
+          _field('merchantName', '营业执照主体名称 *', maxLength: 128),
+          _field('merchantShortName', '商家简称 *', maxLength: 64),
           DropdownButtonFormField<String>(
             initialValue: category,
             decoration: const InputDecoration(labelText: '经营类目 *'),
@@ -345,19 +345,29 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
             onChanged: (v) => category = v!,
           ),
           const SizedBox(height: 14),
-          _field('introduction', '商家介绍 *', maxLines: 4),
+          _field('introduction', '商家介绍 *', maxLines: 4, maxLength: 1000),
           _upload('logo', '商家 Logo *'),
           _upload('license', '营业执照 *'),
         ],
         if (step == 1) ...[
-          _field('contactName', '联系人 *'),
-          _field('contactPhone', '手机号 *', keyboard: TextInputType.phone),
-          _field('contactEmail', '邮箱 *', keyboard: TextInputType.emailAddress),
-          _field('contactWechat', '微信（选填）', required: false),
+          _field('contactName', '联系人 *', maxLength: 64),
+          _field(
+            'contactPhone',
+            '手机号 *',
+            keyboard: TextInputType.phone,
+            maxLength: 11,
+          ),
+          _field(
+            'contactEmail',
+            '邮箱 *',
+            keyboard: TextInputType.emailAddress,
+            maxLength: 128,
+          ),
+          _field('contactWechat', '微信（选填）', required: false, maxLength: 64),
         ],
         if (step == 2) ...[
-          _field('storeName', '门店名称 *'),
-          _field('storeAddress', '门店地址 *'),
+          _field('storeName', '门店名称 *', maxLength: 128),
+          _field('storeAddress', '门店地址 *', maxLength: 255),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -391,7 +401,7 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
           ),
         ],
         if (step == 3) ...[
-          _field('legalName', '法人姓名 *'),
+          _field('legalName', '法人姓名 *', maxLength: 64),
           Row(
             children: [
               Expanded(child: _upload('idFront', '身份证正面 *')),
@@ -435,12 +445,14 @@ class _MerchantApplicationFormState extends State<MerchantApplicationForm> {
     String label, {
     bool required = true,
     int maxLines = 1,
+    int? maxLength,
     TextInputType? keyboard,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 14),
     child: TextFormField(
       controller: c[key],
       maxLines: maxLines,
+      maxLength: maxLength,
       keyboardType: keyboard,
       decoration: InputDecoration(
         labelText: label,
@@ -529,11 +541,11 @@ class _MerchantSettlementPageState extends State<MerchantSettlementPage> {
                 onChanged: (v) => type = v!,
               ),
               const SizedBox(height: 14),
-              _input(name, '账户名称'),
+              _input(name, '账户名称', 128),
               const SizedBox(height: 14),
-              _input(no, '收款账号'),
+              _input(no, '收款账号', 64),
               const SizedBox(height: 14),
-              _input(bank, '开户行'),
+              _input(bank, '开户行', 128),
               const SizedBox(height: 22),
               FilledButton(onPressed: _save, child: const Text('保存收款账户')),
             ],
@@ -542,11 +554,13 @@ class _MerchantSettlementPageState extends State<MerchantSettlementPage> {
       ],
     ),
   );
-  Widget _input(TextEditingController c, String label) => TextFormField(
-    controller: c,
-    decoration: InputDecoration(labelText: label),
-    validator: (v) => v == null || v.trim().isEmpty ? '请填写$label' : null,
-  );
+  Widget _input(TextEditingController c, String label, int maxLength) =>
+      TextFormField(
+        controller: c,
+        maxLength: maxLength,
+        decoration: InputDecoration(labelText: label),
+        validator: (v) => v == null || v.trim().isEmpty ? '请填写$label' : null,
+      );
   Future<void> _save() async {
     if (!(key.currentState?.validate() ?? false)) return;
     try {

@@ -261,6 +261,112 @@ class CouponWalletPage extends StatefulWidget {
 
 class _CouponWalletPageState extends State<CouponWalletPage> {
   int tab = 0;
+  bool loading = true;
+  List<Map<String, dynamic>> coupons = [];
+  List<Map<String, dynamic>> claimable = [];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => load());
+  }
+
+  Future<void> load() async {
+    setState(() => loading = true);
+    try {
+      final service = CouponWalletService(context.read<AppSession>().api);
+      final status = ['AVAILABLE', 'USED', 'EXPIRED'][tab];
+      coupons = await service.mine(status);
+      claimable = tab == 0 ? await service.claimable() : const [];
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+    }
+    if (mounted) setState(() => loading = false);
+  }
+
+  Future<void> claim(String id) async {
+    try {
+      await CouponWalletService(context.read<AppSession>().api).claim(id);
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('领取成功，已放入券包')));
+      await load();
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  Future<void> showVerificationCode(Map<String, dynamic> coupon) async {
+    try {
+      final session = context.read<AppSession>();
+      final service = CouponWalletService(session.api);
+      final detail = await service.detail('${coupon['id']}');
+      final merchantId = detail['issuerId'];
+      if (merchantId == null) throw Exception('该平台通用券无需到店扫码核销');
+      final result = await service.createVerificationCode({
+        'bizType': 'COUPON',
+        'bizId': coupon['id'],
+        'userId': session.userId,
+        'merchantId': merchantId,
+        'userCouponId': coupon['id'],
+        'amount': detail['discountAmount'] ?? 0,
+        'expireAt': DateTime.now()
+            .add(const Duration(minutes: 10))
+            .toIso8601String(),
+        'requestId':
+            'APP-COUPON-${coupon['id']}-${DateTime.now().millisecondsSinceEpoch}',
+      });
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('到店核销码'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                LucideIcons.qrCode,
+                size: 72,
+                color: AppColors.primary,
+              ),
+              const SizedBox(height: 14),
+              SelectableText(
+                '${result['verificationCode']}',
+                style: const TextStyle(
+                  fontSize: 25,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '10 分钟内向商家出示',
+                style: TextStyle(color: AppColors.muted),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('完成'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('我的券包')),
@@ -275,45 +381,81 @@ class _CouponWalletPageState extends State<CouponWalletPage> {
               ButtonSegment(value: 2, label: Text('已过期')),
             ],
             selected: {tab},
-            onSelectionChanged: (v) => setState(() => tab = v.first),
+            onSelectionChanged: (v) {
+              setState(() => tab = v.first);
+              load();
+            },
             showSelectedIcon: false,
           ),
         ),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(22),
-            children: tab == 0
-                ? const [
-                    _Coupon(
-                      value: '¥20',
-                      title: '养车服务满减券',
-                      desc: '满 100 元可用 · 7 天后过期',
-                    ),
-                    SizedBox(height: 14),
-                    _Coupon(
-                      value: '9折',
-                      title: '露营装备折扣券',
-                      desc: '最高优惠 50 元 · 全场可用',
-                    ),
-                    SizedBox(height: 14),
-                    _Coupon(value: '¥30', title: '新旅程加油礼', desc: '指定合作加油站可用'),
-                  ]
-                : [
-                    const SizedBox(height: 120),
-                    const Icon(
-                      LucideIcons.ticketX,
-                      size: 48,
-                      color: AppColors.muted,
-                    ),
-                    const SizedBox(height: 12),
-                    Center(
-                      child: Text(
-                        tab == 1 ? '暂无已使用优惠券' : '暂无已过期优惠券',
-                        style: const TextStyle(color: AppColors.muted),
-                      ),
-                    ),
-                  ],
-          ),
+          child: loading
+              ? const Center(child: CircularProgressIndicator())
+              : RefreshIndicator(
+                  onRefresh: load,
+                  child: ListView(
+                    padding: const EdgeInsets.all(22),
+                    children: [
+                      if (tab == 0 && claimable.isNotEmpty) ...[
+                        const Text(
+                          '可领取的平台合作券',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        ...claimable.map(
+                          (item) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _Coupon(
+                              value: '¥${item['discountAmount']}',
+                              title: '${item['couponName']}',
+                              desc:
+                                  '领取后 ${item['validDays']} 天有效 · 剩余 ${(item['totalQuantity'] as num? ?? 0).toInt() - (item['claimedQuantity'] as num? ?? 0).toInt()}',
+                              action: '领取',
+                              onTap: () => claim('${item['templateId']}'),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+                      if (coupons.isNotEmpty)
+                        ...coupons.map(
+                          (item) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _Coupon(
+                              value: '¥${item['discountAmount']}',
+                              title: '${item['couponName']}',
+                              desc:
+                                  '${item['couponStatus']} · 有效至 ${item['validEndAt']}',
+                              action: tab == 0 ? '出示核销码' : '',
+                              onTap: () => showVerificationCode(item),
+                            ),
+                          ),
+                        ),
+                      if (coupons.isEmpty && claimable.isEmpty) ...[
+                        const SizedBox(height: 120),
+                        const Icon(
+                          LucideIcons.ticketX,
+                          size: 48,
+                          color: AppColors.muted,
+                        ),
+                        const SizedBox(height: 12),
+                        Center(
+                          child: Text(
+                            tab == 0
+                                ? '暂无可用或可领取优惠券'
+                                : tab == 1
+                                ? '暂无已使用优惠券'
+                                : '暂无已过期优惠券',
+                            style: const TextStyle(color: AppColors.muted),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
         ),
       ],
     ),
@@ -321,8 +463,15 @@ class _CouponWalletPageState extends State<CouponWalletPage> {
 }
 
 class _Coupon extends StatelessWidget {
-  const _Coupon({required this.value, required this.title, required this.desc});
-  final String value, title, desc;
+  const _Coupon({
+    required this.value,
+    required this.title,
+    required this.desc,
+    required this.action,
+    required this.onTap,
+  });
+  final String value, title, desc, action;
+  final VoidCallback onTap;
   @override
   Widget build(BuildContext context) => TlxCard(
     color: const Color(0xFFFFF8F0),
@@ -354,7 +503,8 @@ class _Coupon extends StatelessWidget {
             ],
           ),
         ),
-        TextButton(onPressed: () {}, child: const Text('去使用')),
+        if (action.isNotEmpty)
+          TextButton(onPressed: onTap, child: Text(action)),
       ],
     ),
   );

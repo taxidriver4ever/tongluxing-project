@@ -117,7 +117,7 @@ public interface ChatGroupMapper {
  """) Map<String,Object> confirmation(@Param("conversationId")Long conversationId,@Param("id")Long id);
  @Update("""
  update trip_confirm_record set status=#{status},reject_reason=#{reason},confirm_time=#{now},updated_at=#{now}
- where confirmation_id=#{confirmationId} and user_id=#{userId}
+ where confirmation_id=#{confirmationId} and user_id=#{userId} and status='WAITING'
  """) int respondConfirmation(@Param("confirmationId")Long confirmationId,@Param("userId")Long userId,
    @Param("status")String status,@Param("reason")String reason,@Param("now")LocalDateTime now);
  @Select("""

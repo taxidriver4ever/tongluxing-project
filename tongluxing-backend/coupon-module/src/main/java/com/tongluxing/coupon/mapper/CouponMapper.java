@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import com.tongluxing.coupon.dto.CouponQueryDTO;
+import com.tongluxing.coupon.dto.AdminCouponTemplateVO;
 
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
@@ -20,6 +21,54 @@ import org.apache.ibatis.annotations.Update;
  */
 @Mapper
 public interface CouponMapper {
+
+    @Insert("""
+        insert into coupon_template(id,coupon_name,coupon_type,issuer_id,threshold_amount,discount_amount,scope_json,
+          validity_type,valid_days,total_quantity,claimed_quantity,per_user_limit,template_status,created_at,updated_at,deleted)
+        values(#{id},#{name},#{type},#{issuerId},#{threshold},#{discount},#{scopeJson},'DAYS_AFTER_CLAIM',#{validDays},
+          #{quantity},0,#{perUserLimit},'ACTIVE',#{now},#{now},0)
+        """)
+    int insertAdminTemplate(@Param("id") Long id,@Param("name") String name,@Param("type") String type,
+            @Param("issuerId") Long issuerId,@Param("threshold") BigDecimal threshold,@Param("discount") BigDecimal discount,
+            @Param("scopeJson") String scopeJson,@Param("validDays") Integer validDays,@Param("quantity") Integer quantity,
+            @Param("perUserLimit") Integer perUserLimit,@Param("now") LocalDateTime now);
+
+    String ADMIN_TEMPLATE_SELECT = """
+        select t.id templateId,t.coupon_name couponName,t.coupon_type couponType,t.issuer_id issuerId,
+          t.threshold_amount thresholdAmount,t.discount_amount discountAmount,t.scope_json scopeJson,t.valid_days validDays,
+          t.total_quantity totalQuantity,t.claimed_quantity claimedQuantity,t.per_user_limit perUserLimit,
+          t.template_status templateStatus,
+          (select count(*) from coupon_user u where u.template_id=t.id and u.deleted=0) issuedCount,
+          (select count(*) from coupon_user u where u.template_id=t.id and u.source_type='CLAIM' and u.deleted=0) claimedCount,
+          (select count(*) from coupon_user u where u.template_id=t.id and u.coupon_status='USED' and u.deleted=0) usedCount,
+          (select count(*) from verification_record v join coupon_user u on u.id=v.user_coupon_id and u.deleted=0
+             where u.template_id=t.id and v.verification_status='SUCCESS' and v.deleted=0) verifiedCount,
+          t.created_at createdAt from coupon_template t
+        """;
+
+    @Select(ADMIN_TEMPLATE_SELECT + " where t.id=#{id} and t.deleted=0 limit 1")
+    AdminCouponTemplateVO findAdminTemplate(@Param("id") Long id);
+
+    @Select(ADMIN_TEMPLATE_SELECT + " where (#{status}='' or t.template_status=#{status}) and t.deleted=0 order by t.created_at desc")
+    List<AdminCouponTemplateVO> findAdminTemplates(@Param("status") String status);
+
+    @Update("update coupon_template set template_status=#{status},updated_at=#{now} where id=#{id} and deleted=0")
+    int updateAdminTemplateStatus(@Param("id") Long id,@Param("status") String status,@Param("now") LocalDateTime now);
+
+    @Update("update merchant_coupon_pool set pool_status=#{status},updated_at=#{now} where id=#{id} and source_type='PARTNER' and deleted=0")
+    int updatePartnerPoolStatusIfPresent(@Param("id") Long id,@Param("status") String status,@Param("now") LocalDateTime now);
+
+    @Select("select count(*) from merchant_coupon_pool where id=#{id} and source_type='PARTNER' and deleted=0")
+    int isPartnerPoolTemplate(@Param("id") Long id);
+
+    @Update("""
+        update merchant_coupon_pool set used_stock=used_stock+1,updated_at=#{now}
+        where id=#{id} and audit_status='APPROVED' and pool_status='ACTIVE' and used_stock<total_stock and deleted=0
+        """)
+    int consumePartnerPoolStock(@Param("id") Long id,@Param("now") LocalDateTime now);
+
+    @Select(ADMIN_TEMPLATE_SELECT + " where t.template_status='ACTIVE' and t.deleted=0 and t.claimed_quantity<t.total_quantity and not exists (select 1 from merchant_coupon_offer o where o.id=t.id and o.deleted=0) order by t.created_at desc")
+    List<AdminCouponTemplateVO> findClaimableTemplates();
 
     /**
      * 分页查询用户优惠券列表，支持按状态和类型过滤。

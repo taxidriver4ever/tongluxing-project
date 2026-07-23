@@ -26,6 +26,8 @@ public class AuthSecurityExceptionHandler implements AuthenticationEntryPoint, A
 
     private static final String LOGIN_REQUIRED_MESSAGE = "请先登录";
     private static final String FORBIDDEN_MESSAGE = "权限不足";
+    public static final int ACCOUNT_LOGGED_IN_ELSEWHERE_CODE = 40101;
+    public static final String ACCOUNT_LOGGED_IN_ELSEWHERE_MESSAGE = "账号已在其他设备登录，请重新登录";
 
     private final ObjectMapper objectMapper;
 
@@ -41,13 +43,21 @@ public class AuthSecurityExceptionHandler implements AuthenticationEntryPoint, A
         write(response, ResultCode.FORBIDDEN, FORBIDDEN_MESSAGE);
     }
 
+    /** 旧会话被新登录剔除时返回可被前端精确识别的业务码。 */
+    public void accountLoggedInElsewhere(HttpServletResponse response) throws IOException {
+        write(response, ResultCode.UNAUTHORIZED.getCode(), ACCOUNT_LOGGED_IN_ELSEWHERE_CODE,
+                ACCOUNT_LOGGED_IN_ELSEWHERE_MESSAGE);
+    }
+
     private void write(HttpServletResponse response, ResultCode resultCode, String message) throws IOException {
-        if (response.isCommitted()) {
-            return;
-        }
-        response.setStatus(resultCode.getCode());
+        write(response, resultCode.getCode(), resultCode.getCode(), message);
+    }
+
+    private void write(HttpServletResponse response, int httpStatus, int code, String message) throws IOException {
+        if (response.isCommitted()) return;
+        response.setStatus(httpStatus);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        objectMapper.writeValue(response.getWriter(), Result.fail(resultCode, message));
+        objectMapper.writeValue(response.getWriter(), Result.fail(code, message));
     }
 }

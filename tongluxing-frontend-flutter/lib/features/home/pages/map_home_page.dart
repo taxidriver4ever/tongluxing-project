@@ -10,7 +10,7 @@ import 'package:x_amap_base/x_amap_base.dart';
 
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
-import '../../../data/services/app_services.dart';
+import '../../../data/services/location_snapshot.dart';
 import '../../trip/pages/trip_create_page.dart';
 import 'search_location_page.dart';
 import 'sos_confirm_page.dart';
@@ -110,6 +110,10 @@ class _MapHomePageState extends State<MapHomePage> {
     );
     if (!mounted || selected == null) return;
     setState(() => _selectedLocation = selected);
+    LocationSnapshot.current = LocationSnapshot(
+      selected.latitude,
+      selected.longitude,
+    );
     _moveToLocation(LatLng(selected.latitude, selected.longitude));
     _showMessage('已定位到 ${selected.name}');
   }
@@ -189,6 +193,10 @@ class _MapHomePageState extends State<MapHomePage> {
           onLocationChanged: (location) {
             if (!isLocationValid(location)) return;
             _lastLocation = location.latLng;
+            LocationSnapshot.current = LocationSnapshot(
+              location.latLng.latitude,
+              location.latLng.longitude,
+            );
             if (_centerOnNextLocation) _moveToLocation(location.latLng);
           },
         ),

@@ -41,6 +41,7 @@ public interface ChatConversationMapper {
 
     /** 查询用户参与的有效会话列表。 */
     @Select("""
+            <script>
             select c.id, c.biz_type, c.biz_id, c.conversation_name, c.conversation_status, c.provider_type,
                    c.provider_conversation_key, c.last_message_id, c.last_message_preview, c.last_message_at,
                    c.created_at, c.updated_at, c.deleted
@@ -48,9 +49,14 @@ public interface ChatConversationMapper {
             join chat_conversation_member m on m.conversation_id = c.id and m.deleted = 0
             where m.user_id = #{userId} and m.member_status = 'ACTIVE'
               and c.conversation_status = 'ACTIVE' and c.deleted = 0
+            <if test="title != null and title != ''">
+              and lower(c.conversation_name) like concat('%', lower(#{title}), '%')
+            </if>
             order by m.pinned_flag desc, c.last_message_at desc, c.created_at desc
+            </script>
             """)
-    List<ChatConversation> findActiveByUserId(@Param("userId") Long userId);
+    List<ChatConversation> findActiveByUserId(@Param("userId") Long userId,
+                                              @Param("title") String title);
 
     /** 新增会话。 */
     @Insert("""

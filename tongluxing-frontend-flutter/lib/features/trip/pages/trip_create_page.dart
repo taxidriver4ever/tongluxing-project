@@ -3,12 +3,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
+import '../../../app/routes.dart';
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
 import '../../home/pages/search_location_page.dart';
 import '../widgets/trip_route_preview.dart';
-import 'trip_detail_page.dart';
 
 class TripCreatePage extends StatefulWidget {
   const TripCreatePage({this.draft, super.key});
@@ -65,15 +65,86 @@ class _TripCreatePageState extends State<TripCreatePage> {
 
   Future<void> _selectLocation(bool isStart) async {
     final value = await _pickLocation();
-    if (value != null && mounted) {
-      setState(() => isStart ? start = value : end = value);
+    if (value == null || !mounted) return;
+    final conflict = isStart
+        ? _conflictForStart(value)
+        : _conflictForEnd(value);
+    if (conflict != null) {
+      _showMessage(conflict);
+      return;
     }
+    setState(() => isStart ? start = value : end = value);
   }
 
   Future<void> _addWaypoint() async {
     final value = await _pickLocation();
-    if (value != null && mounted) setState(() => waypoints.add(value));
+    if (value == null || !mounted) return;
+    final conflict = _conflictForWaypoint(value);
+    if (conflict != null) {
+      _showMessage(conflict);
+      return;
+    }
+    setState(() => waypoints.add(value));
   }
+
+  String? _conflictForStart(LocationSelection value) {
+    if (_sameLocation(value, end)) return '起点不能与终点选择同一地点';
+    if (waypoints.any((point) => _sameLocation(value, point))) {
+      return '起点不能与经停点选择同一地点';
+    }
+    return null;
+  }
+
+  String? _conflictForEnd(LocationSelection value) {
+    if (_sameLocation(value, start)) return '终点不能与起点选择同一地点';
+    if (waypoints.any((point) => _sameLocation(value, point))) {
+      return '终点不能与经停点选择同一地点';
+    }
+    return null;
+  }
+
+  String? _conflictForWaypoint(LocationSelection value) {
+    if (_sameLocation(value, start)) return '经停点不能与起点选择同一地点';
+    if (_sameLocation(value, end)) return '经停点不能与终点选择同一地点';
+    if (waypoints.any((point) => _sameLocation(value, point))) {
+      return '经停点不能重复选择';
+    }
+    return null;
+  }
+
+  String? _routeConflictMessage() {
+    if (_sameLocation(start, end)) return '起点不能与终点选择同一地点';
+    for (var i = 0; i < waypoints.length; i++) {
+      final point = waypoints[i];
+      if (_sameLocation(point, start)) return '经停点不能与起点选择同一地点';
+      if (_sameLocation(point, end)) return '经停点不能与终点选择同一地点';
+      for (var j = i + 1; j < waypoints.length; j++) {
+        if (_sameLocation(point, waypoints[j])) return '经停点不能重复选择';
+      }
+    }
+    return null;
+  }
+
+  bool _sameLocation(LocationSelection? left, LocationSelection? right) {
+    if (left == null || right == null) return false;
+    final coordinatesMatch =
+        (left.latitude - right.latitude).abs() <= 0.000001 &&
+        (left.longitude - right.longitude).abs() <= 0.000001;
+    if (coordinatesMatch) return true;
+    final leftAddress = _normalizeLocationText(left.address);
+    final rightAddress = _normalizeLocationText(right.address);
+    return _normalizeLocationText(left.name) ==
+            _normalizeLocationText(right.name) &&
+        leftAddress.isNotEmpty &&
+        leftAddress == rightAddress;
+  }
+
+  String _normalizeLocationText(String value) =>
+      value.trim().replaceAll(RegExp(r'\s+'), '').toLowerCase();
+
+  void _showMessage(String message) => ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text(message)));
 
   Future<void> _pickTime() async {
     final date = await showDatePicker(
@@ -123,6 +194,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
       0 when startTime == null => '请选择出发时间',
       1 when start == null => '请选择起点',
       1 when end == null => '请选择终点',
+      1 when _routeConflictMessage() != null => _routeConflictMessage(),
       _ => null,
     };
     if (message != null) {
@@ -177,15 +249,12 @@ class _TripCreatePageState extends State<TripCreatePage> {
       final service = TripService(context.read<AppSession>().api);
       if (!await _saveDraft(plan: true, manageSubmitting: false)) return;
       if (!await _confirmTimeConflict(service)) return;
-      final tripId = (await service.publishDraft(id)).toString();
+      await service.publishDraft(id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('行程发布成功，群聊已创建')),
-      );
-      Navigator.pushReplacement(
+      ScaffoldMessenger.of(
         context,
-        MaterialPageRoute(builder: (_) => TripDetailPage(tripId: tripId)),
-      );
+      ).showSnackBar(const SnackBar(content: Text('行程发布成功，群聊已创建')));
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.home, (_) => false);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -236,6 +305,11 @@ class _TripCreatePageState extends State<TripCreatePage> {
   }) async {
     final id = draftId;
     if (id == null) return false;
+    final conflict = _routeConflictMessage();
+    if (conflict != null) {
+      _showMessage(conflict);
+      return false;
+    }
     if (manageSubmitting) setState(() => submitting = true);
     try {
       final service = TripService(context.read<AppSession>().api);
@@ -313,6 +387,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
                 children: [
                   TextField(
                     controller: title,
+                    maxLength: 128,
                     decoration: const InputDecoration(
                       labelText: '行程标题',
                       hintText: '例如：318川藏线自驾',
@@ -328,6 +403,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
                   const SizedBox(height: 16),
                   TextField(
                     controller: description,
+                    maxLength: 1000,
                     maxLines: 4,
                     decoration: const InputDecoration(
                       labelText: '行程描述',

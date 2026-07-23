@@ -30,6 +30,7 @@ import com.tongluxing.verification.mapper.VerificationCodeMapper;
 import com.tongluxing.verification.mapper.VerificationCompensationTaskMapper;
 import com.tongluxing.verification.mapper.VerificationRecordMapper;
 import com.tongluxing.verification.mapper.VerificationMerchantMapper;
+import com.tongluxing.verification.mapper.VerificationCouponMapper;
 import com.tongluxing.verification.integration.VerificationPaymentPort;
 import com.tongluxing.verification.mapper.VerificationReversalRequestMapper;
 import com.tongluxing.verification.service.VerificationService;
@@ -63,6 +64,7 @@ public class VerificationServiceImpl implements VerificationService {
     private final VerificationCodeMapper codeMapper;
     private final VerificationRecordMapper recordMapper;
     private final VerificationMerchantMapper merchantMapper;
+    private final VerificationCouponMapper couponMapper;
     private final VerificationReversalRequestMapper reversalMapper;
     private final VerificationCompensationTaskMapper compensationTaskMapper;
     private final VerificationPaymentPort paymentPort;
@@ -82,6 +84,10 @@ public class VerificationServiceImpl implements VerificationService {
         }
         String bizType = normalizeBizType(request.bizType());
         validateBizRequest(bizType, request.orderId(), request.userCouponId());
+        if (COUPON.equals(bizType)
+                && couponMapper.countUsable(request.userCouponId(), currentUserId, request.merchantId()) != 1) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "优惠券不存在、已失效或不属于该商家");
+        }
 
         String idemKey = "verification:idem:create-code:%s".formatted(request.requestId());
         VerificationCodeVO cached = readJson(idemKey, VerificationCodeVO.class);
@@ -186,7 +192,11 @@ public class VerificationServiceImpl implements VerificationService {
 
             VerificationRecord record = buildRecord(code, request, now);
             recordMapper.insert(record);
-            // 核销成功后写入补偿任务，由后续任务处理分账或券状态同步。
+            // 用户看到“核销成功”时，优惠券必须已经不可再次使用；与核销记录放在同一事务中。
+            if (COUPON.equals(code.getBizType()) && recordMapper.markCouponUsed(record.getId(), now) != 1) {
+                throw new BusinessException("优惠券状态已变化，请重新扫码");
+            }
+            // 仍保留补偿任务，用于订单分账以及跨模块状态的最终一致性兜底。
             addCrossModuleCompensation(record, request.requestId(), now);
 
             VerificationRecordVO result = toRecordVO(record);

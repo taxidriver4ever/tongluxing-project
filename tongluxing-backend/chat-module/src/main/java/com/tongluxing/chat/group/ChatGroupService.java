@@ -81,7 +81,7 @@ public class ChatGroupService {
  @Transactional public Map<String,Object> respondConfirmation(Long cid,Long id,TripConfirmationRespondRequest request){requireMember(cid);
   Map<String,Object>row=mapper.confirmation(cid,id);if(row==null||!"OPEN".equals(row.get("confirmationStatus")))throw new BusinessException(ResultCode.BAD_REQUEST,"行程确认已结束");
   String status=request.status().toUpperCase();Long uid=current.requireUserId();if(mapper.respondConfirmation(id,uid,status,trim(request.reason()),LocalDateTime.now())==0)
-   throw new BusinessException(ResultCode.BAD_REQUEST,"你不在本次确认名单中");
+   throw new BusinessException(ResultCode.BAD_REQUEST,"确认结果已提交，不能重复修改，或你不在本次确认名单中");
   persistCard(cid,null,"SYSTEM",status.equals("CONFIRMED")?"成员已确认参加":"成员暂不参加",null,Map.of("userId",String.valueOf(uid),"confirmationId",String.valueOf(id)));return confirmationDetails(cid,id);}
  @Transactional public Map<String,Object> startConfirmedTrip(Long cid,Long id){ChatConversationMember me=requireMember(cid);requireOwner(me);Map<String,Object>details=confirmationDetails(cid,id);
   if(!"OPEN".equals(details.get("confirmationStatus")))throw new BusinessException(ResultCode.BAD_REQUEST,"本次行程确认已结束");
@@ -89,8 +89,14 @@ public class ChatGroupService {
   boolean ownerConfirmed=records.stream().anyMatch(r->"OWNER".equals(r.get("memberRole"))&&"CONFIRMED".equals(r.get("status")));
   if(!ownerConfirmed)throw new BusinessException(ResultCode.BAD_REQUEST,"队长尚未确认，不能开启行程");
   if(records.stream().noneMatch(r->"CONFIRMED".equals(r.get("status"))))throw new BusinessException(ResultCode.BAD_REQUEST,"至少需要一名有效成员确认参加");Long tripId=longValue(details.get("tripId"));
-  trips.startTrip(tripId);mapper.closeConfirmation(id,LocalDateTime.now());persistCard(cid,null,"SYSTEM","行程正式开始",null,Map.of("tripId",String.valueOf(tripId),"confirmed",details.get("confirmed")));return workspace(cid);}
+  List<Long> confirmedUserIds=records.stream().filter(r->"CONFIRMED".equals(r.get("status"))).map(r->longValue(r.get("userId"))).filter(Objects::nonNull).toList();
+  trips.startTrip(tripId,confirmedUserIds);mapper.closeConfirmation(id,LocalDateTime.now());persistCard(cid,null,"SYSTEM","行程正式开始",null,Map.of("tripId",String.valueOf(tripId),"confirmed",details.get("confirmed")));return workspace(cid);}
  @Transactional public void close(Long cid){ChatConversationMember me=requireMember(cid);requireOwner(me);
+  Map<String,Object> workspace=requireWorkspace(cid);Long tripId=longValue(workspace.get("tripId"));String tripStatus=String.valueOf(workspace.get("tripStatus"));
+  if(tripId!=null){
+   if(List.of("RUNNING","ONGOING").contains(tripStatus))trips.endTrip(tripId);
+   else if(List.of("PUBLISHED","READY","CONFIRMING").contains(tripStatus))trips.cancelTrip(tripId);
+  }
   LocalDateTime now=LocalDateTime.now();conversations.archive(cid,now);members.exitAll(cid,now);}
  public List<Map<String,Object>> reports(String status,Integer limit){return mapper.reports(norm(status),safe(limit));}
  public List<Map<String,Object>> risks(String status,Integer limit){return mapper.risks(norm(status),safe(limit));}

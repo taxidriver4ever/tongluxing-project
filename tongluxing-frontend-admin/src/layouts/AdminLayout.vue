@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
   Bell, Boxes, ChartNoAxesCombined, ChevronRight, FileClock, LayoutDashboard,
-  Compass, Headphones, LogOut, Network, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Store, TicketCheck, UsersRound, Siren, MessageSquareWarning,
+  Compass, Handshake, Headphones, LogOut, Network, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Store, TicketCheck, UsersRound, Siren, MessageSquareWarning,
 } from 'lucide-vue-next'
 import { adminAuthState, logoutAdmin } from '../services/adminAuth.js'
 
@@ -14,6 +14,8 @@ const navGroups = [
     { to: '/', name: 'dashboard', label: '运营总览', icon: LayoutDashboard },
     { to: '/certification-audit', name: 'audit', label: '认证审核', icon: ShieldCheck },
     { to: '/merchant-audit', name: 'merchant-audit', label: '商家入驻审核', icon: Store },
+    { to: '/partner-audit', name: 'partner-audit', label: '合作商审核', icon: Handshake },
+    { to: '/coupon-center', name: 'coupon-center', label: '平台合作券池', icon: TicketCheck },
     { to: '/merchant-coupon-audit', name: 'merchant-coupon-audit', label: '商家优惠审核', icon: TicketCheck },
     { to: '/trade-management', name: 'trade', label: '交易管理', icon: ShoppingBag },
     { to: '/groupbuy-intervention', name: 'groupbuy', label: '拼团干预', icon: UsersRound },

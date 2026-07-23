@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import com.tongluxing.coupon.integration.CouponFacade;
+import com.tongluxing.coupon.dto.AdminCouponTemplateVO;
 import com.tongluxing.user.model.UserModels.*;
 
 /**
@@ -33,6 +34,9 @@ public interface CouponService extends CouponFacade {
      * 当前登录用户主动领取优惠券模板。
      */
     CouponIssueResult claim(Long templateId);
+
+    /** 查询用户当前可以领取的平台/合作券模板。 */
+    List<AdminCouponTemplateVO> claimableTemplates();
 
     /**
      * 锁定优惠券，防止同一张券在支付过程中被重复使用。

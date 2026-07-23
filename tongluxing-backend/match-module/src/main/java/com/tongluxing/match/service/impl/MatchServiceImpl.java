@@ -88,6 +88,25 @@ public class MatchServiceImpl implements MatchService {
                 String.valueOf(team.teamId()), String.valueOf(applicationId), "PENDING");
     }
 
+    @Override @Transactional
+    public MatchApplyResponse applyNearbyTrip(Long tripId, String message) {
+        Long userId = currentUserContext.requireUserId();
+        MatchTripDTO target = requireTrip(tripId);
+        if (target.userId().equals(userId)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "不能申请加入自己创建的行程");
+        }
+        if (!"PUBLISHED".equals(target.status()) || !Integer.valueOf(1).equals(target.publicFlag())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "该行程当前不在招募中");
+        }
+        MatchTeamDTO team = teamPort.findActiveTeamByTripId(tripId);
+        if (team == null) throw new BusinessException(ResultCode.BUSINESS_ERROR, "该行程暂未创建可加入车队");
+        Long applicationId = teamPort.apply(team.teamId(), StringUtils.hasText(message) ? message.trim() : "通过地图附近行程申请加入");
+        // 附近场景没有“我的源行程”，用目标行程 ID 填充非空审计字段并通过 requestId 标识来源。
+        log(userId, tripId, tripId, team.teamId(), "APPLY", "NEARBY:" + tripId);
+        return new MatchApplyResponse(null, String.valueOf(tripId), String.valueOf(team.teamId()),
+                String.valueOf(applicationId), "PENDING");
+    }
+
     @Override public void recordTripLifecycle(Long tripId, String actionType) {
         if (!List.of("START", "FINISH").contains(actionType)) return;
         MatchTripDTO trip = tripPort.getTrip(tripId);
@@ -101,8 +120,19 @@ public class MatchServiceImpl implements MatchService {
     }
 
     @Override public NearbyTripListResponse getNearbyTrips(String latitude, String longitude, Integer radiusMeters, Integer limit) {
-        parse(latitude, "纬度不能为空"); parse(longitude, "经度不能为空");
-        return new NearbyTripListResponse(tripPort.listPublicTrips(safeLimit(limit)).stream().map(this::cardWithoutMatch).toList());
+        double lat = parse(latitude, "纬度不能为空").doubleValue();
+        double lng = parse(longitude, "经度不能为空").doubleValue();
+        int radius = radiusMeters == null ? 5000 : Math.max(500, Math.min(radiusMeters, 100000));
+        Long userId = currentUserContext.requireUserId();
+        List<MatchTripCardResponse> trips = tripPort.listPublicTrips(300).stream()
+                .filter(t -> "PUBLISHED".equals(t.status()))
+                .filter(t -> !userId.equals(t.userId()))
+                .filter(t -> distanceKm(lat, lng, t.startLatitude(), t.startLongitude()) * 1000 <= radius)
+                .sorted(java.util.Comparator.comparingDouble(t -> distanceKm(lat, lng, t.startLatitude(), t.startLongitude())))
+                .limit(safeLimit(limit))
+                .map(this::cardWithoutMatch)
+                .toList();
+        return new NearbyTripListResponse(trips);
     }
 
     @Override public NearbyTeamListResponse getNearbyTeams(String latitude, String longitude, Integer radiusMeters, Integer limit) {

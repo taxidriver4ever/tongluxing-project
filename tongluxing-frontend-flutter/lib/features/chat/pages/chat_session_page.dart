@@ -7,11 +7,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
+import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import '../../profile/pages/profile_system_pages.dart';
 import '../../profile/widgets/user_avatar.dart';
@@ -26,13 +26,14 @@ class ChatSessionPage extends StatefulWidget {
 
 class _ChatSessionPageState extends State<ChatSessionPage> {
   static const permissionChannel = MethodChannel('com.tongluxing/permissions');
-  static const mediaChannel = MethodChannel('com.tongluxing/media');
   final input = TextEditingController();
   final scroll = ScrollController();
   final focus = FocusNode();
   List<Map<String, dynamic>> messages = [];
   Map<String, dynamic> workspace = {};
   final Map<String, Future<String>> attachmentUrls = {};
+  final Map<String, Future<Map<String, dynamic>>> confirmationDetails = {};
+  final Set<String> respondingConfirmations = {};
   bool loading = true, sending = false, announcementHidden = false;
   bool toolsExpanded = false;
   Timer? pollingTimer;
@@ -69,7 +70,16 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
         service.messages(widget.conversation.id),
         service.groupWorkspace(widget.conversation.id),
       ]);
-      messages = (values[0] as List<Map<String, dynamic>>).reversed.toList();
+      final nextMessages = (values[0] as List<Map<String, dynamic>>).reversed
+          .toList();
+      final previousLatestId = messages.isEmpty
+          ? null
+          : messages.last['messageId']?.toString();
+      final nextLatestId = nextMessages.isEmpty
+          ? null
+          : nextMessages.last['messageId']?.toString();
+      if (previousLatestId != nextLatestId) confirmationDetails.clear();
+      messages = nextMessages;
       workspace = values[1] as Map<String, dynamic>;
     } catch (_) {}
     if (mounted) {
@@ -259,6 +269,14 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
                         child: TextField(
                           controller: input,
                           focusNode: focus,
+                          maxLength: 1000,
+                          buildCounter:
+                              (
+                                _, {
+                                required currentLength,
+                                required isFocused,
+                                maxLength,
+                              }) => null,
                           onTap: _showLatest,
                           minLines: 1,
                           maxLines: 4,
@@ -389,8 +407,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   Widget _avatar(Map<String, dynamic> message) {
     final senderUserId = message['senderUserId']?.toString() ?? '';
     final avatarUrl = message['senderAvatarUrl']?.toString().trim() ?? '';
-    final avatarKey =
-        message['senderAvatarImageKey']?.toString().trim() ?? '';
+    final avatarKey = message['senderAvatarImageKey']?.toString().trim() ?? '';
     final nickname = message['senderNickname']?.toString() ?? '同路行用户';
     return UserAvatar(
       nickname: nickname,
@@ -414,6 +431,9 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     Map<String, dynamic> payload,
     bool self,
   ) {
+    if (type == 'TRIP_CONFIRM_CARD') {
+      return _tripConfirmationCard(content, payload);
+    }
     if (type.endsWith('_CARD')) {
       final icon = type == 'POLL_CARD'
           ? LucideIcons.listChecks
@@ -517,6 +537,166 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
       );
     }
     return Text(content, style: _bubbleText(self));
+  }
+
+  Future<Map<String, dynamic>> _confirmation(String confirmationId) =>
+      confirmationDetails.putIfAbsent(
+        confirmationId,
+        () => ChatService(
+          context.read<AppSession>().api,
+        ).tripConfirmation(widget.conversation.id, confirmationId),
+      );
+
+  Future<void> _respondFromCard(String confirmationId, String status) async {
+    if (respondingConfirmations.contains(confirmationId)) return;
+    setState(() => respondingConfirmations.add(confirmationId));
+    try {
+      await ChatService(
+        context.read<AppSession>().api,
+      ).respondTripConfirmation(widget.conversation.id, confirmationId, status);
+      confirmationDetails.remove(confirmationId);
+      await _confirmation(confirmationId);
+      await load(silent: true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(status == 'CONFIRMED' ? '已确认参加本次行程' : '已拒绝参加本次行程'),
+          ),
+        );
+      }
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      if (mounted)
+        setState(() => respondingConfirmations.remove(confirmationId));
+    }
+  }
+
+  Widget _tripConfirmationCard(String content, Map<String, dynamic> payload) {
+    final confirmationId = payload['confirmationId']?.toString() ?? '';
+    if (confirmationId.isEmpty) return Text(content);
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _confirmation(confirmationId),
+      builder: (context, snapshot) {
+        final row = snapshot.data;
+        final records = (row?['records'] as List? ?? const [])
+            .whereType<Map>()
+            .map((value) => Map<String, dynamic>.from(value))
+            .toList();
+        final selfId = context.read<AppSession>().userId;
+        final selfRecord = records
+            .where((record) => record['userId']?.toString() == selfId)
+            .firstOrNull;
+        final selfRole =
+            selfRecord?['memberRole']?.toString() ??
+            workspace['selfRole']?.toString() ??
+            'MEMBER';
+        final currentStatus = selfRecord?['status']?.toString() ?? 'WAITING';
+        final open = row?['confirmationStatus'] == 'OPEN';
+        final busy = respondingConfirmations.contains(confirmationId);
+        final route = [payload['startName'], payload['endName']]
+            .where((value) => value?.toString().trim().isNotEmpty == true)
+            .map((value) => value.toString())
+            .join(' → ');
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(LucideIcons.carFront, color: AppColors.primary),
+                SizedBox(width: 8),
+                Text('行程确认', style: TextStyle(fontWeight: FontWeight.w800)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              payload['title']?.toString() ?? content,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+            if (route.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(route, style: const TextStyle(color: AppColors.muted)),
+            ],
+            const SizedBox(height: 8),
+            if (snapshot.connectionState == ConnectionState.waiting)
+              const LinearProgressIndicator(minHeight: 2)
+            else if (snapshot.hasError)
+              const Text(
+                '确认状态加载失败，点击卡片查看详情',
+                style: TextStyle(color: AppColors.danger),
+              )
+            else ...[
+              Text(
+                '已确认 ${row?['confirmed'] ?? 0} · 待确认 ${row?['waiting'] ?? 0} · 不参加 ${row?['rejected'] ?? 0}',
+                style: const TextStyle(fontSize: 12, color: AppColors.muted),
+              ),
+              if (open &&
+                  selfRole != 'OWNER' &&
+                  currentStatus == 'WAITING') ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: busy
+                            ? null
+                            : () =>
+                                  _respondFromCard(confirmationId, 'REJECTED'),
+                        child: Text(
+                          currentStatus == 'REJECTED' ? '已拒绝' : '拒绝参加',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: busy
+                            ? null
+                            : () =>
+                                  _respondFromCard(confirmationId, 'CONFIRMED'),
+                        child: busy
+                            ? const SizedBox.square(
+                                dimension: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Text(
+                                currentStatus == 'CONFIRMED' ? '已确认' : '确认参加',
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                const Divider(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        !open
+                            ? '本次确认已结束'
+                            : currentStatus == 'CONFIRMED'
+                            ? '你已确认参加，点击查看进度'
+                            : currentStatus == 'REJECTED'
+                            ? '你已拒绝参加，点击查看进度'
+                            : '点击查看确认进度',
+                      ),
+                    ),
+                    const Icon(LucideIcons.chevronRight, size: 17),
+                  ],
+                ),
+              ],
+            ],
+          ],
+        );
+      },
+    );
   }
 
   TextStyle _bubbleText(bool self) =>
@@ -711,9 +891,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     if (!mounted) return;
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => _ChatImagePreviewPage(imageUrl: url),
-      ),
+      MaterialPageRoute(builder: (_) => _ChatImagePreviewPage(imageUrl: url)),
     );
   }
 
@@ -1049,14 +1227,26 @@ class _TripConfirmationCardPageState extends State<TripConfirmationCardPage> {
                 const SizedBox(height: 18),
                 for (final entry in records)
                   ListTile(
-                    leading: const CircleAvatar(
-                      child: Icon(LucideIcons.userRound),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PublicProfilePage(
+                          userId: entry['userId']?.toString() ?? '',
+                        ),
+                      ),
+                    ),
+                    leading: UserAvatar(
+                      nickname: entry['nickname']?.toString() ?? '同路行用户',
+                      avatarImageKey: entry['avatarImageKey']?.toString() ?? '',
+                      radius: 20,
                     ),
                     title: Text(entry['nickname']?.toString() ?? '同路行用户'),
                     subtitle: Text(entry['memberRole']?.toString() ?? 'MEMBER'),
                     trailing: Text(_status(entry['status']?.toString())),
                   ),
-                if (row!['confirmationStatus'] == 'OPEN' && !owner) ...[
+                if (row!['confirmationStatus'] == 'OPEN' &&
+                    !owner &&
+                    self?['status'] == 'WAITING') ...[
                   const SizedBox(height: 14),
                   FilledButton(
                     onPressed: () => respond('CONFIRMED'),
@@ -1067,6 +1257,18 @@ class _TripConfirmationCardPageState extends State<TripConfirmationCardPage> {
                     child: const Text('暂不参加'),
                   ),
                 ],
+                if (row!['confirmationStatus'] == 'OPEN' &&
+                    !owner &&
+                    self?['status'] != 'WAITING')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 14),
+                    child: Center(
+                      child: Text(
+                        self?['status'] == 'CONFIRMED' ? '你已确认参加' : '你已拒绝参加',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
                 if (row!['confirmationStatus'] == 'OPEN' && owner) ...[
                   const SizedBox(height: 14),
                   FilledButton.icon(
@@ -1139,7 +1341,6 @@ class _TripConfirmationCardPageState extends State<TripConfirmationCardPage> {
   };
 }
 
-
 class _ChatImagePreviewPage extends StatefulWidget {
   const _ChatImagePreviewPage({required this.imageUrl});
   final String imageUrl;
@@ -1172,9 +1373,9 @@ class _ChatImagePreviewPageState extends State<_ChatImagePreviewPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('保存失败：$e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('保存失败：$e')));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -1208,13 +1409,10 @@ class _ChatImagePreviewPageState extends State<_ChatImagePreviewPage> {
         child: Image.network(
           widget.imageUrl,
           fit: BoxFit.contain,
-          loadingBuilder: (_, child, progress) => progress == null
-              ? child
-              : const CircularProgressIndicator(),
-          errorBuilder: (_, __, ___) => const Text(
-            '图片加载失败',
-            style: TextStyle(color: Colors.white),
-          ),
+          loadingBuilder: (_, child, progress) =>
+              progress == null ? child : const CircularProgressIndicator(),
+          errorBuilder: (_, __, ___) =>
+              const Text('图片加载失败', style: TextStyle(color: Colors.white)),
         ),
       ),
     ),

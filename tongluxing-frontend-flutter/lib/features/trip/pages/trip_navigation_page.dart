@@ -8,6 +8,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
+import '../../../app/routes.dart';
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
@@ -77,8 +78,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
         trackedDistanceMeters =
             (response['totalDistance'] as num?)?.toInt() ??
             trackedDistanceMeters;
-        deviationStatus =
-            (response['deviationStatus'] as num?)?.toInt() ?? 0;
+        deviationStatus = (response['deviationStatus'] as num?)?.toInt() ?? 0;
         deviationDistance =
             (response['deviationDistance'] as num?)?.toInt() ?? 0;
       });
@@ -109,9 +109,9 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
       await _notifyDeviationIfNeeded(force: true);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
       }
     } finally {
       if (mounted) setState(() => mockingDeviation = false);
@@ -140,7 +140,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
     final waypoint = response['reachedWaypointName']?.toString();
     if (points <= 0 || !mounted) return;
     final message = waypoint != null && waypoint.isNotEmpty
-        ? '已到达途经点“$waypoint”，实时发放 +$points 成长值'
+        ? '已到达途经点“$waypoint”'
         : '完成新的 50 公里里程阶段，实时发放 +$points 成长值';
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -254,7 +254,10 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                     const SizedBox(height: 14),
                     const Text(
                       '行程已结束',
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     const Text(
@@ -282,7 +285,11 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
           false;
       if (!mounted) return;
       if (!settleNow) {
-        Navigator.popUntil(context, (route) => route.isFirst);
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.home,
+          (_) => false,
+        );
         return;
       }
       final result = await service.settle(widget.trip.id);
@@ -298,7 +305,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
           title: Text(result.duplicate ? '该行程已结算' : '行程结算完成'),
           content: Text(
             '有效成员：${result.memberCount} 人\n'
-            '最终行程奖励：每人 +${result.pointsPerMember} 成长值\n'
+            '行程结束不发固定奖励，成长值按累计每 50 公里实时发放\n'
             '实际驾驶里程：${(trackedDistanceMeters / 1000).toStringAsFixed(1)} km',
             textAlign: TextAlign.center,
           ),
@@ -310,7 +317,13 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
           ],
         ),
       );
-      if (mounted) Navigator.popUntil(context, (route) => route.isFirst);
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.home,
+          (_) => false,
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -566,7 +579,10 @@ class _NavPainter extends CustomPainter {
     const horizontalPadding = 42.0;
     const topPadding = 240.0;
     const bottomPadding = 210.0;
-    final drawHeight = math.max(100.0, size.height - topPadding - bottomPadding);
+    final drawHeight = math.max(
+      100.0,
+      size.height - topPadding - bottomPadding,
+    );
     final drawWidth = math.max(100.0, size.width - horizontalPadding * 2);
 
     Offset mapPoint(LocationSelection point) => Offset(
@@ -574,7 +590,8 @@ class _NavPainter extends CustomPainter {
       topPadding + (maxLat - point.latitude) / latSpan * drawHeight,
     );
 
-    final path = Path()..moveTo(mapPoint(points.first).dx, mapPoint(points.first).dy);
+    final path = Path()
+      ..moveTo(mapPoint(points.first).dx, mapPoint(points.first).dy);
     for (final point in points.skip(1)) {
       final offset = mapPoint(point);
       path.lineTo(offset.dx, offset.dy);

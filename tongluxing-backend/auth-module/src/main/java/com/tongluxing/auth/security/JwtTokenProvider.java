@@ -62,13 +62,13 @@ public class JwtTokenProvider {
     }
 
     /** 创建 access token。 */
-    public JwtToken createAccessToken(Long userId, String phone, String deviceId, int ttlSeconds) {
-        return createToken(userId, phone, deviceId, ACCESS_TYPE, ttlSeconds);
+    public JwtToken createAccessToken(Long userId, String phone, String deviceId, String sessionScope, int ttlSeconds) {
+        return createToken(userId, phone, deviceId, sessionScope, ACCESS_TYPE, ttlSeconds);
     }
 
     /** 创建 refresh token。 */
-    public JwtToken createRefreshToken(Long userId, String phone, String deviceId, int ttlSeconds) {
-        return createToken(userId, phone, deviceId, REFRESH_TYPE, ttlSeconds);
+    public JwtToken createRefreshToken(Long userId, String phone, String deviceId, String sessionScope, int ttlSeconds) {
+        return createToken(userId, phone, deviceId, sessionScope, REFRESH_TYPE, ttlSeconds);
     }
 
     /** 解析并校验 access token 类型。 */
@@ -90,7 +90,7 @@ public class JwtTokenProvider {
     }
 
     /** 根据用户信息、令牌类型和有效期创建完整 JWT。 */
-    private JwtToken createToken(Long userId, String phone, String deviceId, String type, int ttlSeconds) {
+    private JwtToken createToken(Long userId, String phone, String deviceId, String sessionScope, String type, int ttlSeconds) {
         long now = Instant.now().getEpochSecond();
         // jti 是令牌唯一编号，用于 Redis 中记录和撤销单个令牌。
         String jti = Long.toUnsignedString(SnowflakeIdGenerator.nextId(), 36);
@@ -103,6 +103,7 @@ public class JwtTokenProvider {
         claims.put("u", userId);
         claims.put("p", phone);
         claims.put("d", StringUtils.hasText(deviceId) ? deviceId : "");
+        claims.put("s", StringUtils.hasText(sessionScope) ? sessionScope : "ACCOUNT");
         claims.put("t", type);
         claims.put("j", jti);
         claims.put("iat", now);
@@ -139,6 +140,7 @@ public class JwtTokenProvider {
                 asLong(claims.get("u")),
                 asString(claims.get("p")),
                 asString(claims.get("d")),
+                StringUtils.hasText(asString(claims.get("s"))) ? asString(claims.get("s")) : "ACCOUNT",
                 asString(claims.get("t")),
                 asString(claims.get("j")),
                 exp
@@ -210,6 +212,6 @@ public class JwtTokenProvider {
     }
 
     /** JWT 中承载的业务声明。 */
-    public record JwtClaims(Long userId, String phone, String deviceId, String type, String jti, Long expiresAt) {
+    public record JwtClaims(Long userId, String phone, String deviceId, String sessionScope, String type, String jti, Long expiresAt) {
     }
 }

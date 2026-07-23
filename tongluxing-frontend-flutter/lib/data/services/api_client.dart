@@ -7,20 +7,29 @@ import '../../common/constants/api_config.dart';
 import '../mock/demo_api.dart';
 
 class ApiException implements Exception {
-  const ApiException(this.message, {this.statusCode});
+  const ApiException(this.message, {this.statusCode, this.code});
   final String message;
   final int? statusCode;
+  final int? code;
   @override
   String toString() => message;
+}
+
+class SessionInvalidation {
+  const SessionInvalidation({required this.message, required this.kicked});
+  final String message;
+  final bool kicked;
 }
 
 class ApiClient {
   ApiClient({http.Client? client, this.useDemo = demoMode})
     : _client = client ?? http.Client();
 
+  static const int accountLoggedInElsewhereCode = 40101;
   final http.Client _client;
   final bool useDemo;
   String? token;
+  void Function(SessionInvalidation event)? onSessionInvalidated;
 
   /// App 默认连接后端；仅组件测试或离线演示显式开启 API_DEMO。
   static const bool demoMode = bool.fromEnvironment('API_DEMO');
@@ -63,8 +72,11 @@ class ApiClient {
       path: '${base.path}${path.startsWith('/') ? path : '/$path'}',
       queryParameters: query?.isEmpty == true ? null : query,
     );
+    final requestToken = token;
     final headers = <String, String>{'Content-Type': 'application/json'};
-    if (token?.isNotEmpty == true) headers['Authorization'] = 'Bearer $token';
+    if (requestToken?.isNotEmpty == true) {
+      headers['Authorization'] = 'Bearer $requestToken';
+    }
 
     late http.Response response;
     try {
@@ -92,16 +104,30 @@ class ApiClient {
     } catch (_) {
       throw ApiException('服务器返回了无法识别的数据', statusCode: response.statusCode);
     }
+
+    final businessCode = payload is Map
+        ? int.tryParse(payload['code']?.toString() ?? '')
+        : null;
+    final message = payload is Map
+        ? payload['message']?.toString() ?? '请求失败'
+        : '请求失败';
+    if (businessCode == accountLoggedInElsewhereCode &&
+        requestToken?.isNotEmpty == true) {
+      onSessionInvalidated?.call(
+        SessionInvalidation(message: message, kicked: true),
+      );
+    }
+
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(
-        payload is Map ? (payload['message']?.toString() ?? '请求失败') : '请求失败',
+        message,
         statusCode: response.statusCode,
+        code: businessCode,
       );
     }
     if (payload is Map && payload.containsKey('code')) {
-      final code = payload['code'];
-      if (code != 0 && code != 200) {
-        throw ApiException(payload['message']?.toString() ?? '业务处理失败');
+      if (businessCode != 0 && businessCode != 200) {
+        throw ApiException(message, code: businessCode);
       }
       return payload['data'];
     }

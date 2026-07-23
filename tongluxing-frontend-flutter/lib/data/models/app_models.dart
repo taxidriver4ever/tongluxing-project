@@ -291,6 +291,7 @@ class CompanionMatchModel {
   const CompanionMatchModel({
     required this.matchId,
     required this.tripId,
+    required this.userId,
     required this.title,
     required this.startName,
     required this.endName,
@@ -306,6 +307,7 @@ class CompanionMatchModel {
   });
   final String matchId;
   final String tripId;
+  final String userId;
   final String title;
   final String startName;
   final String endName;
@@ -323,6 +325,7 @@ class CompanionMatchModel {
       CompanionMatchModel(
         matchId: json['matchId']?.toString() ?? '',
         tripId: json['tripId']?.toString() ?? '',
+        userId: json['userId']?.toString() ?? '',
         title: json['title']?.toString() ?? '同行行程',
         startName: json['startName']?.toString() ?? '起点',
         endName: json['endName']?.toString() ?? '终点',

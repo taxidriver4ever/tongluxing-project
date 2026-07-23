@@ -10,6 +10,10 @@ import com.tongluxing.common.result.Result;
 import com.tongluxing.order.service.OrderService;
 import com.tongluxing.order.vo.OrderVO;
 import com.tongluxing.order.vo.PageResult;
+import com.tongluxing.merchant.mapper.MerchantProfileMapper;
+import com.tongluxing.merchant.dto.MerchantQueryDTO;
+import com.tongluxing.user.support.CurrentUserContext;
+import com.tongluxing.common.exception.BusinessException;
 
 import lombok.RequiredArgsConstructor;
 
@@ -24,6 +28,8 @@ import lombok.RequiredArgsConstructor;
 public class MerchantOrderController {
 
     private final OrderService orderService;
+    private final MerchantProfileMapper merchantMapper;
+    private final CurrentUserContext currentUser;
 
     /**
      * 分页查询商家订单。
@@ -35,11 +41,10 @@ public class MerchantOrderController {
      * @return 商家订单分页数据
      */
     @GetMapping
-    public Result<PageResult<OrderVO>> list(@RequestParam Long merchantId,
-                                            @RequestParam(required = false) String status,
+    public Result<PageResult<OrderVO>> list(@RequestParam(required = false) String status,
                                             @RequestParam(defaultValue = "1") int page,
                                             @RequestParam(defaultValue = "20") int size) {
-        return Result.success(orderService.merchantOrders(merchantId, status, page, size));
+        return Result.success(orderService.merchantOrders(requireMerchantId(), status, page, size));
     }
 
     /**
@@ -50,6 +55,16 @@ public class MerchantOrderController {
      */
     @GetMapping("/{orderId}")
     public Result<OrderVO> detail(@PathVariable Long orderId) {
-        return Result.success(orderService.internalDetail(orderId));
+        OrderVO order = orderService.internalDetail(orderId);
+        if (!requireMerchantId().equals(order.merchantId())) throw new BusinessException(403, "无权查看其他商家的订单");
+        return Result.success(order);
+    }
+
+    private Long requireMerchantId() {
+        MerchantQueryDTO merchant = merchantMapper.findByUserId(currentUser.requireUserId());
+        if (merchant == null || !"APPROVED".equals(merchant.getAuditStatus()) || !"ACTIVE".equals(merchant.getStatus())) {
+            throw new BusinessException(403, "当前账号不是可用商家");
+        }
+        return merchant.getMerchantId();
     }
 }

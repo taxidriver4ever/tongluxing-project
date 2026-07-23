@@ -1,0 +1,28 @@
+/* Admin 表单统一留白，避免光标和输入内容紧贴边界。 */
+.field,
+.form-group input,
+.form-group select,
+.form-group textarea {
+  font-size: 12px;
+}
+
+textarea.field,
+.form-group textarea.field {
+  min-height: 92px;
+  padding: 12px 13px;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.field::placeholder {
+  color: #a1a9b7;
+}
+
+.modal-body .form-grid {
+  gap: 16px;
+}
+
+.btn:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}

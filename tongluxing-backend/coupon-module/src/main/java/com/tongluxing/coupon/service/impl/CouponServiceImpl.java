@@ -18,6 +18,7 @@ import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.coupon.integration.CouponFacade.CouponIssueResult;
 import com.tongluxing.coupon.mapper.CouponMapper;
 import com.tongluxing.coupon.dto.CouponQueryDTO;
+import com.tongluxing.coupon.dto.AdminCouponTemplateVO;
 import com.tongluxing.coupon.service.CouponService;
 import com.tongluxing.user.model.UserModels.AvailableCouponVO;
 import com.tongluxing.user.model.UserModels.CouponCountVO;
@@ -98,6 +99,12 @@ public class CouponServiceImpl implements CouponService {
         return issue(userId, templateId, "CLAIM", "CLAIM:" + userId + ":" + templateId);
     }
 
+    @Override
+    public List<AdminCouponTemplateVO> claimableTemplates() {
+        currentUser.requireUserId();
+        return mapper.findClaimableTemplates();
+    }
+
     /**
      * 向用户发放优惠券。
      *
@@ -138,6 +145,10 @@ public class CouponServiceImpl implements CouponService {
         if (mapper.isMerchantOfferTemplate(templateId) > 0
                 && mapper.consumeMerchantOfferStock(templateId, now) == 0) {
             throw new BusinessException(409, "商家优惠券库存不足或未到领取时间");
+        }
+        if (mapper.isPartnerPoolTemplate(templateId) > 0
+                && mapper.consumePartnerPoolStock(templateId, now) == 0) {
+            throw new BusinessException(409, "合作券库存不足或已下架");
         }
         return new CouponIssueResult(id, "AVAILABLE", false);
     }

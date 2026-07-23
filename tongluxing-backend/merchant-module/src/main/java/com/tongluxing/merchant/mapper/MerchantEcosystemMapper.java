@@ -86,6 +86,22 @@ public interface MerchantEcosystemMapper {
     int auditOffer(@Param("couponId") Long couponId,@Param("status") String status,@Param("reason") String reason,
                    @Param("reviewerId") Long reviewerId,@Param("now") LocalDateTime now);
 
+    @Update("""
+        update merchant_coupon_offer
+        set offer_status=#{status}, updated_at=#{now}
+        where id=#{couponId} and audit_status='APPROVED' and deleted=0
+        """)
+    int updateOfferStatus(@Param("couponId") Long couponId, @Param("status") String status,
+                          @Param("now") LocalDateTime now);
+
+    @Update("""
+        update coupon_template
+        set template_status=#{status}, updated_at=#{now}
+        where id=#{couponId} and deleted=0
+        """)
+    int updateClaimTemplateStatus(@Param("couponId") Long couponId, @Param("status") String status,
+                                  @Param("now") LocalDateTime now);
+
     /** 审核通过后用同一业务 ID 激活用户可领取模板，避免市场券与券包模板断链。 */
     @Insert("""
         insert into coupon_template(id,coupon_name,coupon_type,issuer_id,threshold_amount,discount_amount,

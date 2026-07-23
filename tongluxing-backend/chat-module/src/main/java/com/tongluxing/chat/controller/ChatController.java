@@ -31,6 +31,7 @@ import java.util.List;
 import com.tongluxing.common.result.Result;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -63,8 +64,9 @@ public class ChatController {
 
     /** 查询当前登录用户参与的会话列表。 */
     @GetMapping("/conversations")
-    public Result<ConversationListResponse> getConversations() {
-        return Result.success(chatService.getConversations());
+    public Result<ConversationListResponse> getConversations(
+            @RequestParam(required = false) @Size(max = 64) String title) {
+        return Result.success(chatService.getConversations(title));
     }
 
     /** 查询当前成员可访问的行程群聊；群聊由开启行程动作自动创建。 */

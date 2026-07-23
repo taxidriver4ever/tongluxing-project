@@ -4,8 +4,8 @@ import java.time.Duration;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -14,164 +14,213 @@ import lombok.RequiredArgsConstructor;
 /**
  * Token 登录态存储。
  *
- * <p>JWT 负责携带用户身份，Redis 负责保存“当前有效令牌”和刷新令牌状态，从而支持退出登录、单手机号单点登录和刷新令牌失效。</p>
+ * <p>JWT 携带身份，Redis 保存当前有效会话。App、小程序与商家 Web 统一使用
+ * 账号级会话，因此同一账号后登录会立即剔除所有终端上的旧会话。</p>
  */
 @Component
 @RequiredArgsConstructor
 public class TokenStore {
 
-    /** access token 的 Redis key 前缀，后接 JWT jti。 */
     private static final String ACCESS_PREFIX = "a:t:";
-    /** refresh token 的 Redis key 前缀，后接 refresh token 的 jti。 */
     private static final String REFRESH_PREFIX = "a:r:";
-    /** 手机号和设备当前登录 access jti 的 Redis key 前缀。 */
-    private static final String PHONE_LOGIN_PREFIX = "a:u:";
-    /** 比较并删除脚本，避免退出登录时误删新登录产生的 jti。 */
+    private static final String SESSION_PREFIX = "a:s:";
+    private static final String ACCOUNT_SCOPE = "ACCOUNT";
+    /** 兼容上线前签发的两个旧会话域，登录时同步覆盖才能让旧 Token 精确返回 KICKED。 */
+    private static final java.util.List<String> COMPATIBLE_SCOPES =
+            java.util.List.of(ACCOUNT_SCOPE, "APP_WEB", "MINI_PROGRAM");
     private static final DefaultRedisScript<Long> COMPARE_AND_DELETE_SCRIPT = new DefaultRedisScript<>(
             "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
             Long.class
     );
 
-    /** Redis 字符串操作模板。 */
     private final StringRedisTemplate redisTemplate;
-    /** JWT 签发与解析组件。 */
     private final JwtTokenProvider jwtTokenProvider;
 
-    /** access token 有效期，单位秒。 */
     @Value("${auth.jwt.access-expire-seconds}")
     private Integer accessExpireSeconds;
 
-    /** refresh token 有效期，单位秒。 */
     @Value("${auth.jwt.refresh-expire-seconds}")
     private Integer refreshExpireSeconds;
 
-    /**
-     * 创建一组 access token 和 refresh token，并写入 Redis 登录态。
-     *
-     * <p>如果同一手机号已有登录态，会删除旧 access token，使旧设备立即失效。</p>
-     */
-    public TokenPair create(Long userId, String phone, String deviceId) {
+    /** 创建新会话，并撤销该账号在所有客户端会话域中的旧 access token。 */
+    public TokenPair create(Long userId, String phone, String deviceId, String sessionScope) {
         String normalizedDeviceId = StringUtils.hasText(deviceId) ? deviceId : "default";
-        JwtTokenProvider.JwtToken accessToken = jwtTokenProvider.createAccessToken(userId, phone, normalizedDeviceId, accessExpireSeconds);
-        JwtTokenProvider.JwtToken refreshToken = jwtTokenProvider.createRefreshToken(userId, phone, normalizedDeviceId, refreshExpireSeconds);
+        String normalizedScope = normalizeScope(sessionScope);
+        JwtTokenProvider.JwtToken accessToken = jwtTokenProvider.createAccessToken(
+                userId, phone, normalizedDeviceId, normalizedScope, accessExpireSeconds);
+        JwtTokenProvider.JwtToken refreshToken = jwtTokenProvider.createRefreshToken(
+                userId, phone, normalizedDeviceId, normalizedScope, refreshExpireSeconds);
 
-        String oldJti = redisTemplate.opsForValue().get(phoneLoginKey(phone, normalizedDeviceId));
-        if (StringUtils.hasText(oldJti)) {
-            redisTemplate.delete(accessKey(oldJti));
+        for (String scope : COMPATIBLE_SCOPES) {
+            String oldJti = redisTemplate.opsForValue().get(sessionKey(phone, scope));
+            if (StringUtils.hasText(oldJti) && !oldJti.equals(accessToken.jti())) {
+                redisTemplate.delete(accessKey(oldJti));
+            }
         }
+
         redisTemplate.opsForValue().set(accessKey(accessToken.jti()), "1", Duration.ofSeconds(accessExpireSeconds));
         redisTemplate.opsForValue().set(refreshKey(refreshToken.jti()), accessToken.jti(), Duration.ofSeconds(refreshExpireSeconds));
-        // 设备当前会话索引必须覆盖 refresh token 的完整生命周期；否则 access token
-        // 到期时索引会同时消失，仍在有效期内的 refresh token 也无法完成轮换。
-        redisTemplate.opsForValue().set(
-                phoneLoginKey(phone, normalizedDeviceId),
-                accessToken.jti(),
-                Duration.ofSeconds(refreshExpireSeconds)
-        );
-
+        for (String scope : COMPATIBLE_SCOPES) {
+            redisTemplate.opsForValue().set(
+                    sessionKey(phone, scope), accessToken.jti(), Duration.ofSeconds(refreshExpireSeconds));
+        }
         return new TokenPair(accessToken.token(), refreshToken.token(), accessExpireSeconds);
     }
 
-    /**
-     * 解析 access token 并校验 Redis 登录态。
-     *
-     * @return 校验通过时返回当前登录主体，否则返回空
-     */
-    public Optional<AuthPrincipal> resolve(String token) {
-        if (!StringUtils.hasText(token)) {
-            return Optional.empty();
-        }
+    /** 兼容旧调用；默认归入账号级单点登录会话域。 */
+    public TokenPair create(Long userId, String phone, String deviceId) {
+        return create(userId, phone, deviceId, ACCOUNT_SCOPE);
+    }
 
-        JwtTokenProvider.JwtClaims claims;
+    /** 解析 access token，并区分“被其他登录剔除”和普通无效。 */
+    public AccessResolution resolveAccessToken(String token) {
+        if (!StringUtils.hasText(token)) return AccessResolution.invalid();
+
+        final JwtTokenProvider.JwtClaims claims;
         try {
             claims = jwtTokenProvider.parseAccessToken(token);
         } catch (IllegalArgumentException exception) {
-            return Optional.empty();
+            return AccessResolution.invalid();
         }
 
-        if (Boolean.FALSE.equals(redisTemplate.hasKey(accessKey(claims.jti())))) {
-            return Optional.empty();
+        String currentJti = redisTemplate.opsForValue().get(sessionKey(claims.phone(), claims.sessionScope()));
+        if (StringUtils.hasText(currentJti) && !claims.jti().equals(currentJti)) {
+            return AccessResolution.kicked();
         }
-        String currentJti = redisTemplate.opsForValue().get(phoneLoginKey(claims.phone(), claims.deviceId()));
-        if (!claims.jti().equals(currentJti)) {
-            return Optional.empty();
+        if (!claims.jti().equals(currentJti)
+                || Boolean.FALSE.equals(redisTemplate.hasKey(accessKey(claims.jti())))) {
+            return AccessResolution.invalid();
         }
 
-        return Optional.of(new AuthPrincipal(
-                claims.userId(),
-                claims.phone(),
-                token,
-                claims.deviceId()
-        ));
+        return AccessResolution.valid(new AuthPrincipal(
+                claims.userId(), claims.phone(), token, claims.deviceId()));
     }
 
-    /**
-     * 解析 refresh token 并校验其是否仍绑定当前有效 access token。
-     */
-    public Optional<RefreshPrincipal> resolveRefreshToken(String refreshToken) {
-        if (!StringUtils.hasText(refreshToken)) {
-            return Optional.empty();
-        }
-        JwtTokenProvider.JwtClaims claims;
+    public Optional<AuthPrincipal> resolve(String token) {
+        AccessResolution resolution = resolveAccessToken(token);
+        return resolution.status() == AccessStatus.VALID
+                ? Optional.of(resolution.principal())
+                : Optional.empty();
+    }
+
+    /** 校验 refresh token，并区分旧会话被后登录剔除与普通失效。 */
+    public RefreshResolution resolveRefresh(String refreshToken) {
+        if (!StringUtils.hasText(refreshToken)) return RefreshResolution.invalid();
+
+        final JwtTokenProvider.JwtClaims claims;
         try {
             claims = jwtTokenProvider.parseRefreshToken(refreshToken);
         } catch (IllegalArgumentException exception) {
-            return Optional.empty();
+            return RefreshResolution.invalid();
         }
 
         String accessJti = redisTemplate.opsForValue().get(refreshKey(claims.jti()));
-        if (!StringUtils.hasText(accessJti)) {
-            return Optional.empty();
+        if (!StringUtils.hasText(accessJti)) return RefreshResolution.invalid();
+        String currentJti = redisTemplate.opsForValue().get(sessionKey(claims.phone(), claims.sessionScope()));
+        if (StringUtils.hasText(currentJti) && !accessJti.equals(currentJti)) {
+            return RefreshResolution.kicked();
         }
-        String currentJti = redisTemplate.opsForValue().get(phoneLoginKey(claims.phone(), claims.deviceId()));
-        if (!accessJti.equals(currentJti)) {
-            return Optional.empty();
-        }
-        return Optional.of(new RefreshPrincipal(claims.userId(), claims.phone(), claims.deviceId(), accessJti, claims.jti()));
+        if (!accessJti.equals(currentJti)) return RefreshResolution.invalid();
+        return RefreshResolution.valid(new RefreshPrincipal(
+                claims.userId(), claims.phone(), claims.deviceId(), claims.sessionScope(), accessJti, claims.jti()));
     }
 
-    /**
-     * 删除当前 access token 登录态。
-     *
-     * <p>手机号登录态使用 compare-and-delete，避免用户刚重新登录后旧请求退出把新登录态删掉。</p>
-     */
+    /** 兼容原有 Optional 调用。 */
+    public Optional<RefreshPrincipal> resolveRefreshToken(String refreshToken) {
+        RefreshResolution resolution = resolveRefresh(refreshToken);
+        return resolution.status() == RefreshStatus.VALID
+                ? Optional.of(resolution.principal())
+                : Optional.empty();
+    }
+
+    /** 删除当前 access token；compare-and-delete 防止旧请求误删新会话。 */
     public void deleteToken(AuthPrincipal principal) {
-        String jti = jwtTokenProvider.parseAccessToken(principal.token()).jti();
-        redisTemplate.delete(accessKey(jti));
-        redisTemplate.execute(COMPARE_AND_DELETE_SCRIPT, java.util.List.of(phoneLoginKey(principal.phone(), principal.deviceId())), jti);
+        JwtTokenProvider.JwtClaims claims = jwtTokenProvider.parseAccessToken(principal.token());
+        redisTemplate.delete(accessKey(claims.jti()));
+        for (String scope : COMPATIBLE_SCOPES) {
+            redisTemplate.execute(
+                    COMPARE_AND_DELETE_SCRIPT,
+                    java.util.List.of(sessionKey(claims.phone(), scope)),
+                    claims.jti()
+            );
+        }
     }
 
-    /** 删除 refresh token；非法 token 直接忽略。 */
     public void deleteRefreshToken(String refreshToken) {
         try {
             JwtTokenProvider.JwtClaims claims = jwtTokenProvider.parseRefreshToken(refreshToken);
             redisTemplate.delete(refreshKey(claims.jti()));
         } catch (IllegalArgumentException ignored) {
-            // Invalid refresh tokens do not need Redis cleanup.
+            // 非法 refresh token 无需清理。
         }
     }
 
-    /** 拼接 access token Redis key。 */
     private String accessKey(String jti) {
         return ACCESS_PREFIX + jti;
     }
 
-    /** 拼接 refresh token Redis key。 */
     private String refreshKey(String jti) {
         return REFRESH_PREFIX + jti;
     }
 
-    /** 拼接手机号当前登录态 Redis key。 */
-    private String phoneLoginKey(String phone, String deviceId) {
-        String normalizedDeviceId = StringUtils.hasText(deviceId) ? deviceId : "default";
-        return PHONE_LOGIN_PREFIX + phone + ":" + normalizedDeviceId;
+    private String sessionKey(String phone, String sessionScope) {
+        return SESSION_PREFIX + phone + ":" + normalizeScope(sessionScope);
     }
 
-    /** Token 签发结果。 */
+    private String normalizeScope(String value) {
+        return StringUtils.hasText(value) ? value.trim().toUpperCase() : ACCOUNT_SCOPE;
+    }
+
+    public enum AccessStatus {
+        VALID,
+        KICKED,
+        INVALID
+    }
+
+    public enum RefreshStatus {
+        VALID,
+        KICKED,
+        INVALID
+    }
+
+    public record AccessResolution(AccessStatus status, AuthPrincipal principal) {
+        public static AccessResolution valid(AuthPrincipal principal) {
+            return new AccessResolution(AccessStatus.VALID, principal);
+        }
+
+        public static AccessResolution kicked() {
+            return new AccessResolution(AccessStatus.KICKED, null);
+        }
+
+        public static AccessResolution invalid() {
+            return new AccessResolution(AccessStatus.INVALID, null);
+        }
+    }
+
+    public record RefreshResolution(RefreshStatus status, RefreshPrincipal principal) {
+        public static RefreshResolution valid(RefreshPrincipal principal) {
+            return new RefreshResolution(RefreshStatus.VALID, principal);
+        }
+
+        public static RefreshResolution kicked() {
+            return new RefreshResolution(RefreshStatus.KICKED, null);
+        }
+
+        public static RefreshResolution invalid() {
+            return new RefreshResolution(RefreshStatus.INVALID, null);
+        }
+    }
+
     public record TokenPair(String token, String refreshToken, Integer expireSeconds) {
     }
 
-    /** refresh token 校验通过后的主体信息。 */
-    public record RefreshPrincipal(Long userId, String phone, String deviceId, String accessJti, String refreshJti) {
+    public record RefreshPrincipal(
+            Long userId,
+            String phone,
+            String deviceId,
+            String sessionScope,
+            String accessJti,
+            String refreshJti
+    ) {
     }
 }

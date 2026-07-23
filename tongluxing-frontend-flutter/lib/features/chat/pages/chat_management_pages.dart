@@ -62,6 +62,8 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
         : ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
             children: [
+              _TripSummary(workspace: workspace),
+              const SizedBox(height: 26),
               Row(
                 children: [
                   Expanded(
@@ -80,8 +82,6 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                 ],
               ),
               const SizedBox(height: 14),
-              _TripSummary(workspace: workspace),
-              const SizedBox(height: 22),
               Wrap(
                 spacing: 14,
                 runSpacing: 16,
@@ -110,8 +110,7 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                       child: Column(
                         children: [
                           UserAvatar(
-                            nickname:
-                                m['nickname']?.toString() ?? '同路行用户',
+                            nickname: m['nickname']?.toString() ?? '同路行用户',
                             avatarImageKey:
                                 m['avatarImageKey']?.toString() ?? '',
                             avatarUrl: m['avatarUrl']?.toString() ?? '',
@@ -196,9 +195,13 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                   _Tool(
                     icon: LucideIcons.route,
                     label: '行程信息',
-                    onTap: () => _open(
-                      ChatTripWorkspacePage(conversation: widget.conversation),
-                    ),
+                    onTap: () {
+                      final tripId =
+                          workspace['tripId']?.toString() ??
+                          widget.conversation.bizId;
+                      if (tripId.isEmpty) return;
+                      _open(TripDetailPage(tripId: tripId));
+                    },
                   ),
                   _Tool(
                     icon: LucideIcons.mapPinned,
@@ -516,37 +519,28 @@ class _TripSummary extends StatelessWidget {
   const _TripSummary({required this.workspace});
   final Map<String, dynamic> workspace;
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(17),
-    decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        colors: [Color(0xFF285CFF), Color(0xFF5D83FF)],
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        workspace['tripName']?.toString() ?? '当前行程',
+        style: const TextStyle(
+          color: AppColors.text,
+          fontSize: 21,
+          fontWeight: FontWeight.w800,
+        ),
       ),
-      borderRadius: BorderRadius.circular(22),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          workspace['tripName']?.toString() ?? '当前行程',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          '${workspace['startName'] ?? '起点'} → ${workspace['endName'] ?? '目的地'}',
-          style: const TextStyle(color: Colors.white),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          '${workspace['departureTime'] ?? '时间待定'} · ${workspace['memberCount'] ?? 0}人 · ${workspace['vehicleCount'] ?? 0}辆',
-          style: const TextStyle(color: Colors.white70, fontSize: 12),
-        ),
-      ],
-    ),
+      const SizedBox(height: 9),
+      Text(
+        '${workspace['startName'] ?? '起点'} → ${workspace['endName'] ?? '目的地'}',
+        style: const TextStyle(color: AppColors.secondaryText, fontSize: 15),
+      ),
+      const SizedBox(height: 8),
+      Text(
+        '${workspace['departureTime'] ?? '时间待定'} · ${workspace['memberCount'] ?? 0}人 · ${workspace['vehicleCount'] ?? 0}辆',
+        style: const TextStyle(color: AppColors.muted, fontSize: 12),
+      ),
+    ],
   );
 }
 

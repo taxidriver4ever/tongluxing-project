@@ -11,6 +11,7 @@ import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.merchant.dto.*;
 import com.tongluxing.merchant.mapper.MerchantEcosystemMapper;
 import com.tongluxing.merchant.mapper.MerchantProfileMapper;
+import com.tongluxing.merchant.mapper.MerchantPartnerMapper;
 import com.tongluxing.merchant.service.MerchantEcosystemService;
 import com.tongluxing.merchant.vo.*;
 import com.tongluxing.user.support.CurrentUserContext;
@@ -20,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 public class MerchantEcosystemServiceImpl implements MerchantEcosystemService {
     private final CurrentUserContext currentUser;
     private final MerchantProfileMapper profileMapper;
+    private final MerchantPartnerMapper partnerMapper;
     private final MerchantEcosystemMapper mapper;
 
     private MerchantQueryDTO merchant() {
@@ -31,7 +33,8 @@ public class MerchantEcosystemServiceImpl implements MerchantEcosystemService {
     @Override public MerchantCenterOverviewVO overview(){
         MerchantQueryDTO m=merchant(); List<MerchantEcosystemQueryDTO> stores=mapper.stores(m.getMerchantId());
         List<MerchantEcosystemQueryDTO> offers=mapper.offersByMerchant(m.getMerchantId());
-        return new MerchantCenterOverviewVO(m.getMerchantId(),m.getMerchantName(),m.getMerchantLevel(),stores.size(),offers.size(),
+        var partner=partnerMapper.find(m.getMerchantId());
+        return new MerchantCenterOverviewVO(m.getMerchantId(),m.getMerchantName(),m.getMerchantLevel(),partner==null?"NONE":partner.applicationStatus(),stores.size(),offers.size(),
             offers.stream().filter(x->"PENDING".equals(x.getAuditStatus())).count(),
             offers.stream().filter(x->"APPROVED".equals(x.getAuditStatus())).count(),
             offers.stream().mapToLong(x->x.getStock()==null?0:x.getStock()).sum(),
@@ -70,6 +73,13 @@ public class MerchantEcosystemServiceImpl implements MerchantEcosystemService {
         LocalDateTime now=LocalDateTime.now();
         if(mapper.auditOffer(id,result,"REJECTED".equals(result)?trim(reason):"",reviewerId,now)!=1)throw new BusinessException(409,"优惠券已完成审核");
         if("APPROVED".equals(result)&&mapper.activateClaimTemplate(id,now)!=1)throw new BusinessException(ResultCode.INTERNAL_SERVER_ERROR,"可领取优惠券模板激活失败");
+        return offer(mapper.offer(id));
+    }
+    @Override @Transactional public MerchantCouponOfferVO manageOfferStatus(Long id,String status){
+        if(!List.of("ACTIVE","INACTIVE").contains(status))throw new BusinessException(ResultCode.BAD_REQUEST,"上下架状态不合法");
+        LocalDateTime now=LocalDateTime.now();
+        if(mapper.updateOfferStatus(id,status,now)!=1)throw new BusinessException(409,"仅已审核通过的优惠券可以上下架");
+        if(mapper.updateClaimTemplateStatus(id,status,now)!=1)throw new BusinessException(ResultCode.INTERNAL_SERVER_ERROR,"优惠券模板状态同步失败");
         return offer(mapper.offer(id));
     }
     @Override public PageResult<MerchantCouponOfferVO> marketplace(int page,int size){int p=Math.max(1,page),z=Math.min(50,Math.max(1,size));List<MerchantCouponOfferVO> list=mapper.marketOffers(LocalDateTime.now(),(p-1)*z,z).stream().map(this::offer).toList();return new PageResult<>(list,list.size(),p,z);}

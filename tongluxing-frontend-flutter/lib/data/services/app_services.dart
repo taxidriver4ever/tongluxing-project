@@ -13,7 +13,12 @@ class AuthService {
   }) async {
     final data = await api.post(
       '/v1/auth/password-login',
-      body: {'phone': phone, 'password': password, 'deviceId': deviceId},
+      body: {
+        'phone': phone,
+        'password': password,
+        'deviceId': deviceId,
+        'clientType': 'APP_DRIVER',
+      },
     );
     return LoginSession.fromJson(Map<String, dynamic>.from(data as Map));
   }
@@ -76,6 +81,39 @@ class MerchantEcosystemService {
   List<Map<String, dynamic>> _maps(dynamic data) => (data as List? ?? const [])
       .whereType<Map>()
       .map((e) => Map<String, dynamic>.from(e))
+      .toList();
+}
+
+class CouponWalletService {
+  const CouponWalletService(this.api);
+  final ApiClient api;
+
+  Future<List<Map<String, dynamic>>> mine(String status) async {
+    final data = await api.get(
+      '/v1/coupons/me',
+      query: {'status': status, 'page': '1', 'size': '100'},
+    );
+    return data is Map ? _maps(data['records']) : const [];
+  }
+
+  Future<List<Map<String, dynamic>>> claimable() async =>
+      _maps(await api.get('/v1/coupons/templates/claimable'));
+
+  Future<void> claim(String templateId) =>
+      api.post('/v1/coupons/templates/$templateId/claim');
+
+  Future<Map<String, dynamic>> detail(String id) async =>
+      Map<String, dynamic>.from(await api.get('/v1/coupons/me/$id') as Map);
+
+  Future<Map<String, dynamic>> createVerificationCode(
+    Map<String, dynamic> body,
+  ) async => Map<String, dynamic>.from(
+    await api.post('/v1/verifications/codes', body: body) as Map,
+  );
+
+  List<Map<String, dynamic>> _maps(dynamic data) => (data as List? ?? const [])
+      .whereType<Map>()
+      .map((item) => Map<String, dynamic>.from(item))
       .toList();
 }
 
@@ -210,10 +248,9 @@ class TripService {
     return _tripList(data);
   }
 
-  Future<Map<String, dynamic>> activeState() async =>
-      Map<String, dynamic>.from(
-        await api.get('/v1/trips/me/active-state') as Map,
-      );
+  Future<Map<String, dynamic>> activeState() async => Map<String, dynamic>.from(
+    await api.get('/v1/trips/me/active-state') as Map,
+  );
 
   Future<Map<String, dynamic>> checkTimeConflict({
     required DateTime departureTime,
@@ -248,6 +285,9 @@ class TripService {
   );
   Future<TripModel> end(String id) async => TripModel.fromJson(
     Map<String, dynamic>.from(await api.post('/v1/trips/$id/end') as Map),
+  );
+  Future<TripModel> cancel(String id) async => TripModel.fromJson(
+    Map<String, dynamic>.from(await api.post('/v1/trips/$id/cancel') as Map),
   );
 
   Future<Map<String, dynamic>> uploadTrackPoint({
@@ -411,6 +451,38 @@ class CompanionMatchService {
             )
             as Map,
       );
+
+  Future<List<CompanionMatchModel>> nearbyTrips({
+    required double latitude,
+    required double longitude,
+    int radiusMeters = 50000,
+  }) async {
+    final data = await api.get(
+      '/v1/matches/nearby-trips',
+      query: {
+        'latitude': latitude.toString(),
+        'longitude': longitude.toString(),
+        'radiusMeters': radiusMeters.toString(),
+        'limit': '20',
+      },
+    );
+    final list = data is Map ? (data['trips'] as List? ?? const []) : const [];
+    return list
+        .map(
+          (e) =>
+              CompanionMatchModel.fromJson(Map<String, dynamic>.from(e as Map)),
+        )
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> applyNearbyTrip(String tripId) async =>
+      Map<String, dynamic>.from(
+        await api.post(
+              '/v1/matches/nearby-trips/$tripId/apply',
+              body: {'message': '从附近招募行程看到你的路线，希望一起出发'},
+            )
+            as Map,
+      );
 }
 
 class SosService {
@@ -443,8 +515,12 @@ class SosService {
 class ChatService {
   const ChatService(this.api);
   final ApiClient api;
-  Future<List<ConversationModel>> conversations() async {
-    final data = await api.get('/v1/chats/conversations');
+  Future<List<ConversationModel>> conversations({String? title}) async {
+    final keyword = title?.trim() ?? '';
+    final data = await api.get(
+      '/v1/chats/conversations',
+      query: keyword.isEmpty ? null : {'title': keyword},
+    );
     final list = data is Map
         ? (data['conversations'] as List? ?? const [])
         : const [];

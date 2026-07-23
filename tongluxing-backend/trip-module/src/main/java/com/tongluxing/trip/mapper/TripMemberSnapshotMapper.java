@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import com.tongluxing.trip.entity.TripMemberSnapshot;
 
@@ -39,4 +40,23 @@ public interface TripMemberSnapshotMapper {
                  #{joinedAt}, #{createdAt}, #{updatedAt})
             """)
     void insert(TripMemberSnapshot member);
+
+    /** 开始行程前把确认名单外的非队长成员标记为不参加。 */
+    @Update("""
+            <script>
+            update trip_member_snapshot
+            set join_status = 'DECLINED', updated_at = #{now}
+            where trip_id = #{tripId}
+              and user_id != #{ownerUserId}
+              and join_status in ('APPROVED', 'PENDING')
+              and user_id not in
+              <foreach collection="confirmedUserIds" item="userId" open="(" separator="," close=")">
+                #{userId}
+              </foreach>
+            </script>
+            """)
+    int declineUnconfirmedMembers(@Param("tripId") Long tripId,
+                                   @Param("ownerUserId") Long ownerUserId,
+                                   @Param("confirmedUserIds") List<Long> confirmedUserIds,
+                                   @Param("now") java.time.LocalDateTime now);
 }

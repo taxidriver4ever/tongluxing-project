@@ -25,6 +25,14 @@
         </dependency>
         <dependency>
             <groupId>com.tongluxing</groupId>
+            <artifactId>growth-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongluxing</groupId>
+            <artifactId>coupon-module</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.tongluxing</groupId>
             <artifactId>vehicle-module</artifactId>
         </dependency>
         <dependency>

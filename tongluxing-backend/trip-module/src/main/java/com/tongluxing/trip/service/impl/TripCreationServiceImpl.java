@@ -1,5 +1,6 @@
 package com.tongluxing.trip.service.impl;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -116,6 +117,14 @@ public class TripCreationServiceImpl implements TripCreationService {
     }
 
     private void updateDraftEntity(TripCreationDraft draft, TripDraftSaveRequest request) {
+        LocationRequest effectiveStart = request.startLocation() != null
+                ? request.startLocation() : location(draft.getStartLocationJson());
+        LocationRequest effectiveEnd = request.destination() != null
+                ? request.destination() : location(draft.getEndLocationJson());
+        // 草稿保存接口与经停点是分步提交的，这里只校验起终点；
+        // 经停点冲突在新增/修改、路线规划和发布阶段再次强校验。
+        validateEndpoints(effectiveStart, effectiveEnd);
+
         if (request.title() != null) draft.setTitle(text(request.title()));
         if (request.description() != null) draft.setDescription(text(request.description()));
         if (request.startTime() != null) draft.setDepartureTime(parseTime(request.startTime()));
@@ -133,6 +142,7 @@ public class TripCreationServiceImpl implements TripCreationService {
         TripCreationDraft draft = requireEditableDraft(draftId);
         List<TripWaypoint> values = waypointMapper.findByDraftId(draftId);
         if (values.size() >= 5) throw bad("经停点最多 5 个");
+        ensureWaypointUnique(draft, values, request, null);
         TripWaypoint waypoint = waypoint(draftId, null, request,
                 request.sort() == null ? values.size() + 1 : request.sort());
         waypointMapper.insert(waypoint);
@@ -144,9 +154,10 @@ public class TripCreationServiceImpl implements TripCreationService {
     @Override
     @Transactional
     public TripCreationWaypointResponse updateWaypoint(Long draftId, Long waypointId, TripWaypointCommand request) {
-        requireEditableDraft(draftId);
         TripWaypoint current = waypointMapper.findDraftWaypoint(draftId, waypointId);
         if (current == null) throw notFound("经停点不存在");
+        TripCreationDraft draft = requireEditableDraft(draftId);
+        ensureWaypointUnique(draft, waypointMapper.findByDraftId(draftId), request, waypointId);
         TripWaypoint waypoint = waypoint(draftId, waypointId, request,
                 request.sort() == null ? current.getSeqNo() : request.sort());
         waypoint.setCreatedAt(current.getCreatedAt());
@@ -193,6 +204,7 @@ public class TripCreationServiceImpl implements TripCreationService {
         LocationRequest end = location(draft.getEndLocationJson());
         if (start == null || end == null) throw bad("请先选择起点和终点");
         List<TripWaypoint> waypoints = waypointMapper.findByDraftId(draftId);
+        validateRouteLocations(start, end, waypoints);
         RoutePlanResponse plan = mapService.planRoute(new RoutePlanRequest(dto(start), dto(end),
                 waypoints.stream().map(this::dto).toList()));
         LocalDateTime now = LocalDateTime.now();
@@ -262,14 +274,89 @@ public class TripCreationServiceImpl implements TripCreationService {
         if (!"DRAFT".equals(draft.getDraftStatus())) throw new BusinessException(409, "草稿状态不允许发布");
         if (!StringUtils.hasText(draft.getTitle())) throw bad("行程标题必填");
         if (draft.getDepartureTime() == null) throw bad("出发时间必填");
-        if (location(draft.getStartLocationJson()) == null) throw bad("起点必填");
-        if (location(draft.getEndLocationJson()) == null) throw bad("终点必填");
+        LocationRequest start = location(draft.getStartLocationJson());
+        LocationRequest end = location(draft.getEndLocationJson());
+        if (start == null) throw bad("起点必填");
+        if (end == null) throw bad("终点必填");
+        validateRouteLocations(start, end, waypointMapper.findByDraftId(draft.getId()));
         if (draft.getPeopleCount() == null) throw bad("预计人数必填");
         TripRoute route = routeMapper.findByDraftId(draft.getId());
         if (route == null || !"VALID".equals(route.getRouteStatus())) throw bad("请重新生成有效路线");
         if (waypointMapper.findByDraftId(draft.getId()).stream().anyMatch(v -> !WAYPOINT_TYPES.contains(v.getWaypointType()))) {
             throw bad("经停点类型不正确");
         }
+    }
+
+
+    private void validateEndpoints(LocationRequest start, LocationRequest end) {
+        if (start != null && end != null && sameLocation(start, end)) {
+            throw bad("起点和终点不能选择同一地点");
+        }
+    }
+
+    /** 对完整路线做统一唯一性校验。 */
+    private void validateDraftLocations(LocationRequest start, LocationRequest end, List<TripWaypoint> waypoints) {
+        validateEndpoints(start, end);
+        for (int i = 0; i < waypoints.size(); i++) {
+            TripWaypoint current = waypoints.get(i);
+            if (start != null && sameLocation(start, current)) throw bad("起点不能与经停点重复");
+            if (end != null && sameLocation(end, current)) throw bad("终点不能与经停点重复");
+            for (int j = i + 1; j < waypoints.size(); j++) {
+                if (sameLocation(current, waypoints.get(j))) throw bad("经停点不能重复选择");
+            }
+        }
+    }
+
+    private void ensureWaypointUnique(TripCreationDraft draft, List<TripWaypoint> existing,
+                                      TripWaypointCommand request, Long excludedWaypointId) {
+        LocationRequest candidate = new LocationRequest(
+                request.name(), request.address(), request.latitude(), request.longitude());
+        LocationRequest start = location(draft.getStartLocationJson());
+        LocationRequest end = location(draft.getEndLocationJson());
+        if (start != null && sameLocation(candidate, start)) throw bad("经停点不能与起点重复");
+        if (end != null && sameLocation(candidate, end)) throw bad("经停点不能与终点重复");
+        for (TripWaypoint value : existing) {
+            if (excludedWaypointId != null && excludedWaypointId.equals(value.getId())) continue;
+            if (sameLocation(candidate, value)) throw bad("经停点不能重复选择");
+        }
+    }
+
+    private void validateRouteLocations(LocationRequest start, LocationRequest end, List<TripWaypoint> waypoints) {
+        validateDraftLocations(start, end, waypoints);
+    }
+
+    private boolean sameLocation(LocationRequest left, LocationRequest right) {
+        if (left == null || right == null) return false;
+        if (near(left.latitude(), right.latitude()) && near(left.longitude(), right.longitude())) return true;
+        return sameText(left.name(), right.name())
+                && StringUtils.hasText(left.address())
+                && sameText(left.address(), right.address());
+    }
+
+    private boolean sameLocation(LocationRequest left, TripWaypoint right) {
+        if (left == null || right == null) return false;
+        if (near(left.latitude(), right.getLat()) && near(left.longitude(), right.getLng())) return true;
+        return sameText(left.name(), right.getPlaceName())
+                && StringUtils.hasText(left.address())
+                && sameText(left.address(), right.getPlaceAddress());
+    }
+
+    private boolean sameLocation(TripWaypoint left, TripWaypoint right) {
+        if (left == null || right == null) return false;
+        if (near(left.getLat(), right.getLat()) && near(left.getLng(), right.getLng())) return true;
+        return sameText(left.getPlaceName(), right.getPlaceName())
+                && StringUtils.hasText(left.getPlaceAddress())
+                && sameText(left.getPlaceAddress(), right.getPlaceAddress());
+    }
+
+    private boolean near(BigDecimal left, BigDecimal right) {
+        return left != null && right != null
+                && left.subtract(right).abs().compareTo(new BigDecimal("0.000001")) <= 0;
+    }
+
+    private boolean sameText(String left, String right) {
+        return StringUtils.hasText(left) && StringUtils.hasText(right)
+                && left.trim().replaceAll("\\s+", "").equalsIgnoreCase(right.trim().replaceAll("\\s+", ""));
     }
 
     private TripCreationDraft requireEditableDraft(Long draftId) {

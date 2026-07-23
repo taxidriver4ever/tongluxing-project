@@ -80,6 +80,13 @@ public class MatchController {
         return Result.success(matchService.getNearbyTrips(latitude, longitude, radiusMeters, limit));
     }
 
+    /** 从地图上的附近招募卡片直接提交入队申请。 */
+    @PostMapping("/nearby-trips/{tripId}/apply")
+    public Result<MatchApplyResponse> applyNearbyTrip(@PathVariable Long tripId,
+                                                       @RequestBody(required = false) Map<String, String> body) {
+        return Result.success(matchService.applyNearbyTrip(tripId, body == null ? null : body.get("message")));
+    }
+
     /**
      * 查询当前位置附近的公开活跃车队。
      *

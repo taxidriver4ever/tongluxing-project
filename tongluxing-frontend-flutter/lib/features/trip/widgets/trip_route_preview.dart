@@ -6,9 +6,17 @@ import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
 
 class TripRoutePreview extends StatelessWidget {
-  const TripRoutePreview({required this.points, this.route, super.key});
+  const TripRoutePreview({
+    required this.points,
+    this.route,
+    this.mapOnly = false,
+    this.mapHeight = 190,
+    super.key,
+  });
   final List<LocationSelection> points;
   final TripDraftRouteModel? route;
+  final bool mapOnly;
+  final double mapHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -16,6 +24,22 @@ class TripRoutePreview extends StatelessWidget {
       return const SizedBox(
         height: 180,
         child: Center(child: Text('请选择起点和终点')),
+      );
+    }
+    if (mapOnly) {
+      return SizedBox(
+        height: mapHeight,
+        width: double.infinity,
+        child: ColoredBox(
+          color: const Color(0xFFEFF4FA),
+          child: CustomPaint(
+            painter: const _MapBackdropPainter(),
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: CustomPaint(painter: _RoutePainter(points)),
+            ),
+          ),
+        ),
       );
     }
     return Container(
@@ -28,7 +52,7 @@ class TripRoutePreview extends StatelessWidget {
       child: Column(
         children: [
           SizedBox(
-            height: 190,
+            height: mapHeight,
             child: CustomPaint(painter: _RoutePainter(points)),
           ),
           const SizedBox(height: 10),
@@ -82,6 +106,42 @@ class TripRoutePreview extends StatelessWidget {
       ),
     );
   }
+}
+
+class _MapBackdropPainter extends CustomPainter {
+  const _MapBackdropPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final minor = Paint()
+      ..color = const Color(0xFFDCE4ED)
+      ..strokeWidth = 1.2;
+    final major = Paint()
+      ..color = const Color(0xFFD2DCE8)
+      ..strokeWidth = 5
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(-20, size.height * .28),
+      Offset(size.width + 30, size.height * .55),
+      major,
+    );
+    canvas.drawLine(
+      Offset(size.width * .18, -20),
+      Offset(size.width * .72, size.height + 20),
+      major,
+    );
+    for (var index = 1; index < 7; index++) {
+      final y = size.height * index / 7;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y - 24), minor);
+    }
+    for (var index = 1; index < 7; index++) {
+      final x = size.width * index / 7;
+      canvas.drawLine(Offset(x, 0), Offset(x - 20, size.height), minor);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _RoutePainter extends CustomPainter {

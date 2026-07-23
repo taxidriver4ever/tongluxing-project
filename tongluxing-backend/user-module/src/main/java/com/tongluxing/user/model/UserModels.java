@@ -46,13 +46,13 @@ public final class UserModels {
      * <p>字段均为可选，未传入表示保留原值。</p>
      */
     public record UpdateUserProfileRequest(
-            @Size(max = 32) String nickname,
+            @Size(max = 16) String nickname,
             @Size(max = 512) String avatarImageKey,
             @Min(0) @Max(2) Integer gender,
             LocalDate birthday,
-            @Size(max = 16) String cityCode,
-            @Size(max = 64) String cityName,
-            @Size(max = 200) String bio
+            @Size(max = 12) String cityCode,
+            @Size(max = 32) String cityName,
+            @Size(max = 100) String bio
     ) {
     }
 
@@ -316,7 +316,8 @@ public final class UserModels {
     /**
      * 用户主页聚合数据返回对象。
      */
-    public record UserHomepageVO(PublicProfileVO profile, GrowthSummaryVO growth, BadgeWallVO badges) {
+    public record UserHomepageVO(PublicProfileVO profile, GrowthSummaryVO growth, BadgeWallVO badges,
+                                 String ipProvince) {
     }
 
     /**

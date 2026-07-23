@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
+import '../../../app/routes.dart';
 import '../../../app/theme.dart';
 import '../../../common/widgets/app_widgets.dart';
 import '../../../data/models/app_models.dart';
@@ -54,13 +55,12 @@ class _TripDetailPageState extends State<TripDetailPage> {
           runningTripId != null &&
           runningTripId.isNotEmpty &&
           runningTripId != widget.tripId) {
-        final openCurrent = await showDialog<bool>(
+        final openCurrent =
+            await showDialog<bool>(
               context: context,
               builder: (dialogContext) => AlertDialog(
                 title: const Text('已有进行中的行程'),
-                content: Text(
-                  state['message']?.toString() ?? '同一时间只能进行一个行程。',
-                ),
+                content: Text(state['message']?.toString() ?? '同一时间只能进行一个行程。'),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(dialogContext, false),
@@ -105,17 +105,23 @@ class _TripDetailPageState extends State<TripDetailPage> {
       final result = await TripService(
         context.read<AppSession>().api,
       ).settle(widget.tripId);
-      await load();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            result.duplicate
-                ? '该行程已经完成结算'
-                : '结算完成，每位有效成员 +${result.pointsPerMember} 成长值',
-          ),
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          icon: const Icon(LucideIcons.sparkles, color: AppColors.primary),
+          title: Text(result.duplicate ? '该行程已经完成结算' : '结算完成'),
+          content: const Text('行程数据与结算结果已更新'),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('返回首页'),
+            ),
+          ],
         ),
       );
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.home, (_) => false);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -151,257 +157,457 @@ class _TripDetailPageState extends State<TripDetailPage> {
   @override
   Widget build(BuildContext context) {
     final currentUserId = context.watch<AppSession>().userId;
-    final isOwner = trip?.ownerUserId != null && trip!.ownerUserId == currentUserId;
+    final isOwner =
+        trip?.ownerUserId != null && trip!.ownerUserId == currentUserId;
     return Scaffold(
+      backgroundColor: Colors.white,
       body: AsyncPanel(
-      loading: loading && trip == null,
-      error: error,
-      onRetry: load,
-      child: trip == null
-          ? const SizedBox()
-          : CustomScrollView(
-              slivers: [
-                SliverAppBar(
-                  expandedHeight: 285,
-                  pinned: true,
-                  foregroundColor: Colors.white,
-                  backgroundColor: const Color(0xFF285CFF),
-                  flexibleSpace: FlexibleSpaceBar(
-                    background: Container(
-                      padding: const EdgeInsets.fromLTRB(22, 88, 22, 22),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF285CFF),
-                        borderRadius: BorderRadius.vertical(
-                          bottom: Radius.circular(32),
+        loading: loading && trip == null,
+        error: error,
+        onRetry: load,
+        child: trip == null
+            ? const SizedBox()
+            : CustomScrollView(
+                slivers: [
+                  SliverAppBar(
+                    expandedHeight: 108,
+                    pinned: true,
+                    foregroundColor: AppColors.text,
+                    backgroundColor: Colors.white,
+                    surfaceTintColor: Colors.white,
+                    flexibleSpace: const FlexibleSpaceBar(
+                      titlePadding: EdgeInsets.fromLTRB(18, 0, 18, 12),
+                      title: Text(
+                        '行程详情',
+                        style: TextStyle(
+                          color: AppColors.text,
+                          fontSize: 25,
+                          fontWeight: FontWeight.w900,
                         ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            trip!.title,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 25,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '${trip!.startName} → ${trip!.endName}',
-                            style: const TextStyle(color: Colors.white70),
-                          ),
-                          const Spacer(),
-                          Row(
-                            children: [
-                              const _GlassAction(
-                                icon: LucideIcons.users,
-                                label: '成员',
-                              ),
-                              _GlassAction(
-                                icon: LucideIcons.messageCircle,
-                                label: '进入群聊',
-                                onTap: openChat,
-                              ),
-                              const _GlassAction(
-                                icon: LucideIcons.route,
-                                label: '路线',
-                              ),
-                              const _GlassAction(
-                                icon: LucideIcons.share2,
-                                label: '分享',
-                              ),
-                            ],
-                          ),
-                        ],
                       ),
                     ),
                   ),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.all(22),
-                  sliver: SliverList.list(
-                    children: [
-                      const Text(
-                        '行程信息',
-                        style: TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w700,
+                  SliverToBoxAdapter(child: _RouteHeader(trip: trip!)),
+                  SliverToBoxAdapter(
+                    child: _TripDetailBody(
+                      trip: trip!,
+                      isOwner: isOwner,
+                      settling: settling,
+                      onOpenChat: openChat,
+                      onStart: start,
+                      onSettle: settle,
+                      onContinue: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => TripNavigationPage(trip: trip!),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      TlxCard(
-                        color: const Color(0xFFF6F8FC),
-                        child: Column(
-                          children: [
-                            _Info(
-                              label: '状态',
-                              value: tripStatusLabel(trip!.status),
-                            ),
-                            _Info(
-                              label: '出发时间',
-                              value: trip!.departureTime ?? '待确定',
-                            ),
-                            _Info(
-                              label: '车辆',
-                              value:
-                                  '${trip!.joinedVehicles} / ${trip!.maxVehicles}',
-                            ),
-                            _Info(
-                              label: '预计距离',
-                              value: trip!.distanceMeters == null
-                                  ? '待规划'
-                                  : '${(trip!.distanceMeters! / 1000).toStringAsFixed(0)} km',
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 22),
-                      const Text(
-                        '路线与经停点',
-                        style: TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      if (trip!.startLocation != null &&
-                          trip!.endLocation != null)
-                        TripRoutePreview(
-                          points: [
-                            trip!.startLocation!,
-                            ...trip!.waypoints,
-                            trip!.endLocation!,
-                          ],
-                        )
-                      else
-                        TlxCard(
-                          color: const Color(0xFFF6F8FC),
-                          child: Text(
-                            [
-                              trip!.startName,
-                              ...trip!.waypoints.map((e) => '途经 · ${e.name}'),
-                              trip!.endName,
-                            ].join('\n↓\n'),
-                            style: const TextStyle(height: 1.6),
-                          ),
-                        ),
-                      const SizedBox(height: 24),
-                      if (isOwner &&
-                          (trip!.status == 'RUNNING' ||
-                              trip!.status == 'ONGOING'))
-                        FilledButton(
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => TripNavigationPage(trip: trip!),
-                            ),
-                          ),
-                          child: const Text('继续导航'),
-                        )
-                      else if (isOwner &&
-                          (trip!.status == 'FINISHED' ||
-                              trip!.status == 'ENDED'))
-                        FilledButton.icon(
-                          onPressed: settling ? null : settle,
-                          icon: const Icon(LucideIcons.sparkles),
-                          label: Text(settling ? '正在结算…' : '结算成长值'),
-                        )
-                      else if (isOwner && trip!.status == 'SETTLED')
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE8F7EE),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                LucideIcons.circleCheck,
-                                color: Color(0xFF16A05D),
-                              ),
-                              SizedBox(width: 8),
-                              Text(
-                                '行程与成长值均已结算',
-                                style: TextStyle(fontWeight: FontWeight.w700),
-                              ),
-                            ],
-                          ),
-                        )
-                      else if (isOwner &&
-                          const ['PUBLISHED', 'READY', 'CONFIRMING']
-                              .contains(trip!.status))
-                        FilledButton(
-                          onPressed: start,
-                          child: const Text('开启行程'),
-                        ),
-                    ],
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
       ),
     );
   }
 }
 
-class _GlassAction extends StatelessWidget {
-  const _GlassAction({required this.icon, required this.label, this.onTap});
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
+class _RouteHeader extends StatelessWidget {
+  const _RouteHeader({required this.trip});
+  final TripModel trip;
+
   @override
-  Widget build(BuildContext context) => Expanded(
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-        height: 72,
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: .16),
-          border: Border.all(color: Colors.white30),
-          borderRadius: BorderRadius.circular(18),
+  Widget build(BuildContext context) {
+    if (trip.startLocation != null && trip.endLocation != null) {
+      return TripRoutePreview(
+        mapOnly: true,
+        mapHeight: 178,
+        points: [trip.startLocation!, ...trip.waypoints, trip.endLocation!],
+      );
+    }
+    return SizedBox(
+      height: 178,
+      child: ColoredBox(
+        color: const Color(0xFFEFF4FA),
+        child: CustomPaint(
+          painter: const _FallbackRoutePainter(),
+          child: const Center(
+            child: Icon(LucideIcons.route, size: 34, color: AppColors.primary),
+          ),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: Colors.white, size: 22),
-            const SizedBox(height: 5),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 10.5,
-                fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+}
+
+class _TripDetailBody extends StatelessWidget {
+  const _TripDetailBody({
+    required this.trip,
+    required this.isOwner,
+    required this.settling,
+    required this.onOpenChat,
+    required this.onStart,
+    required this.onSettle,
+    required this.onContinue,
+  });
+
+  final TripModel trip;
+  final bool isOwner;
+  final bool settling;
+  final VoidCallback onOpenChat;
+  final VoidCallback onStart;
+  final VoidCallback onSettle;
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+    color: Colors.white,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 34),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  trip.title,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.primarySoft,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(
+                  tripStatusLabel(trip.status),
+                  style: const TextStyle(
+                    color: AppColors.primaryDark,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(
+            trip.departureTime ?? '出发时间待确定',
+            style: const TextStyle(fontSize: 13, color: AppColors.muted),
+          ),
+          const SizedBox(height: 22),
+          _RouteAddresses(trip: trip),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              _Fact(
+                icon: LucideIcons.carFront,
+                value: '${trip.joinedVehicles}/${trip.maxVehicles} 辆',
+              ),
+              const SizedBox(width: 24),
+              _Fact(
+                icon: LucideIcons.gauge,
+                value: trip.distanceMeters == null
+                    ? '距离待规划'
+                    : '${(trip.distanceMeters! / 1000).toStringAsFixed(0)} km',
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          const Divider(height: 1, color: Color(0xFFE8EBEF)),
+          _DetailAction(
+            icon: LucideIcons.messageCircle,
+            label: '进入车队群聊',
+            onTap: onOpenChat,
+          ),
+          const Divider(height: 1, color: Color(0xFFE8EBEF)),
+          _DetailAction(
+            icon: LucideIcons.usersRound,
+            label: '成员与车辆',
+            value: '${trip.joinedVehicles} 辆车已加入',
+          ),
+          const Divider(height: 1, color: Color(0xFFE8EBEF)),
+          _DetailAction(
+            icon: LucideIcons.mapPinned,
+            label: '路线与经停点',
+            value: '${trip.waypoints.length} 个经停点',
+          ),
+          if (trip.description?.isNotEmpty == true) ...[
+            const Divider(height: 1, color: Color(0xFFE8EBEF)),
+            _DetailAction(
+              icon: LucideIcons.fileText,
+              label: '行程说明',
+              value: trip.description!,
             ),
           ],
-        ),
+          if (isOwner) ...[
+            const SizedBox(height: 18),
+            const Divider(height: 1, color: Color(0xFFE8EBEF)),
+            _LifecycleAction(
+              trip: trip,
+              settling: settling,
+              onStart: onStart,
+              onSettle: onSettle,
+              onContinue: onContinue,
+            ),
+          ],
+        ],
       ),
     ),
   );
 }
 
-class _Info extends StatelessWidget {
-  const _Info({required this.label, required this.value});
-  final String label;
-  final String value;
+class _RouteAddresses extends StatelessWidget {
+  const _RouteAddresses({required this.trip});
+  final TripModel trip;
+
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 8),
-    child: Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: const TextStyle(color: AppColors.secondaryText),
-          ),
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      SizedBox(
+        width: 26,
+        height: 54,
+        child: CustomPaint(painter: const _AddressLinePainter()),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              trip.startName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              trip.endName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ],
         ),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
-      ],
+      ),
+    ],
+  );
+}
+
+class _Fact extends StatelessWidget {
+  const _Fact({required this.icon, required this.value});
+  final IconData icon;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 17, color: AppColors.primary),
+      const SizedBox(width: 7),
+      Text(
+        value,
+        style: const TextStyle(fontSize: 13, color: AppColors.secondaryText),
+      ),
+    ],
+  );
+}
+
+class _DetailAction extends StatelessWidget {
+  const _DetailAction({
+    required this.icon,
+    required this.label,
+    this.value,
+    this.onTap,
+  });
+  final IconData icon;
+  final String label;
+  final String? value;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: SizedBox(
+      height: 54,
+      child: Row(
+        children: [
+          Icon(icon, size: 19, color: AppColors.primaryDark),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+          ),
+          if (value != null)
+            Flexible(
+              child: Text(
+                value!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: const TextStyle(fontSize: 12, color: AppColors.muted),
+              ),
+            ),
+          if (onTap != null) ...[
+            const SizedBox(width: 6),
+            const Icon(
+              LucideIcons.chevronRight,
+              size: 18,
+              color: AppColors.muted,
+            ),
+          ],
+        ],
+      ),
     ),
   );
+}
+
+class _LifecycleAction extends StatelessWidget {
+  const _LifecycleAction({
+    required this.trip,
+    required this.settling,
+    required this.onStart,
+    required this.onSettle,
+    required this.onContinue,
+  });
+  final TripModel trip;
+  final bool settling;
+  final VoidCallback onStart;
+  final VoidCallback onSettle;
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    if (trip.status == 'RUNNING' || trip.status == 'ONGOING') {
+      return _PrimaryAction(label: '继续导航', onTap: onContinue);
+    }
+    if (trip.status == 'FINISHED' || trip.status == 'ENDED') {
+      return _PrimaryAction(
+        label: settling ? '正在结算…' : '完成行程结算',
+        onTap: settling ? null : onSettle,
+      );
+    }
+    if (trip.status == 'SETTLED') {
+      return const SizedBox(
+        height: 54,
+        child: Row(
+          children: [
+            Icon(LucideIcons.circleCheck, color: AppColors.success, size: 20),
+            SizedBox(width: 12),
+            Text(
+              '行程已完成结算',
+              style: TextStyle(
+                color: AppColors.success,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (const ['PUBLISHED', 'READY', 'CONFIRMING'].contains(trip.status)) {
+      return _PrimaryAction(label: '开启行程', onTap: onStart);
+    }
+    return const SizedBox.shrink();
+  }
+}
+
+class _PrimaryAction extends StatelessWidget {
+  const _PrimaryAction({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: SizedBox(
+      height: 54,
+      child: Row(
+        children: [
+          const Icon(
+            LucideIcons.navigation,
+            color: AppColors.primary,
+            size: 20,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const Icon(
+            LucideIcons.chevronRight,
+            size: 18,
+            color: AppColors.primary,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _AddressLinePainter extends CustomPainter {
+  const _AddressLinePainter();
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerX = size.width / 2;
+    final line = Paint()
+      ..color = AppColors.primary
+      ..strokeWidth = 2;
+    canvas.drawLine(const Offset(13, 10), Offset(centerX, 44), line);
+    final point = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    final border = Paint()
+      ..color = AppColors.primary
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+    for (final y in [8.0, 46.0]) {
+      canvas.drawCircle(Offset(centerX, y), 4, point);
+      canvas.drawCircle(Offset(centerX, y), 4, border);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _FallbackRoutePainter extends CustomPainter {
+  const _FallbackRoutePainter();
+  @override
+  void paint(Canvas canvas, Size size) {
+    final road = Paint()
+      ..color = const Color(0xFFDCE6F2)
+      ..strokeWidth = 12
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(-10, size.height * .72),
+      Offset(size.width + 20, size.height * .28),
+      road,
+    );
+    canvas.drawLine(
+      Offset(size.width * .2, -10),
+      Offset(size.width * .7, size.height + 10),
+      road,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import com.tongluxing.growth.dto.GrowthQueryDTO;
+import com.tongluxing.growth.dto.GrowthEligibleUserDTO;
 
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
@@ -19,6 +20,25 @@ import org.apache.ibatis.annotations.Update;
  */
 @Mapper
 public interface GrowthMapper {
+
+    /** 查询指定等级下的有效用户，用于按月等级权益发券。 */
+    @Select("""
+            select user_id
+            from growth_account
+            where level_code = #{levelCode}
+              and deleted = 0
+            order by user_id
+            """)
+    List<Long> findUserIdsByLevel(@Param("levelCode") String levelCode);
+
+    @Select("""
+            select a.user_id userId,coalesce(p.city_code,'') cityCode
+            from growth_account a
+            left join user_profile p on p.user_id=a.user_id and p.deleted=0
+            where a.level_code=#{levelCode} and a.deleted=0
+            order by a.user_id
+            """)
+    List<GrowthEligibleUserDTO> findEligibleUsersByLevel(@Param("levelCode") String levelCode);
 
     /**
      * 查询用户成长账户。

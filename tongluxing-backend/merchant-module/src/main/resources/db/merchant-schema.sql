@@ -174,6 +174,37 @@ CREATE TABLE IF NOT EXISTS merchant_application_review (
   PRIMARY KEY (merchant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 普通商户升级为平台合作商的独立申请，不与首次商户认证混用。
+CREATE TABLE IF NOT EXISTS merchant_partner_application (
+  merchant_id BIGINT NOT NULL,
+  application_reason VARCHAR(500) NOT NULL,
+  cooperation_categories VARCHAR(255) NOT NULL DEFAULT '',
+  planned_monthly_stock INT NOT NULL DEFAULT 0,
+  application_status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  reject_reason VARCHAR(255) NOT NULL DEFAULT '',
+  reviewer_id BIGINT NULL,
+  reviewed_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (merchant_id),
+  KEY idx_partner_application_status (application_status, updated_at, deleted)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS merchant_partner_cancellation (
+  merchant_id BIGINT NOT NULL,
+  cancellation_reason VARCHAR(500) NOT NULL,
+  cancellation_status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  reject_reason VARCHAR(255) NOT NULL DEFAULT '',
+  reviewer_id BIGINT NULL,
+  requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_at DATETIME NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (merchant_id),
+  KEY idx_partner_cancellation_status (cancellation_status, updated_at, deleted)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 收款信息只允许审核通过后填写，不进入首轮入驻资料。
 CREATE TABLE IF NOT EXISTS merchant_settlement_account (
   merchant_id BIGINT NOT NULL,

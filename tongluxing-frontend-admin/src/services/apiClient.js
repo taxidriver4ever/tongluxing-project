@@ -1,8 +1,11 @@
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 const TOKEN_KEY = 'tongluxing_admin_token'
 const OPERATOR_KEY = 'tongluxing_admin_operator'
+const ACCOUNT_LOGGED_IN_ELSEWHERE_CODE = 40101
+const SESSION_HEARTBEAT_MS = 15_000
+let forcedLogoutHandling = false
 const LONG_FIELDS = ['id', 'applyId', 'certificationId', 'userId', 'creatorId', 'assignedAdminId', 'receiverId', 'vehicleId', 'auditUserId', 'auditLogId', 'operatorId',
-  'orderId', 'refundId', 'settlementId', 'verificationId', 'transactionId', 'merchantId', 'productId', 'bizId']
+  'orderId', 'refundId', 'settlementId', 'verificationId', 'transactionId', 'merchantId', 'productId', 'couponId', 'templateId', 'bizId']
 
 export class ApiError extends Error {
   constructor(message, { status = 0, code = 0, payload = null } = {}) {
@@ -34,6 +37,7 @@ export function getAdminToken() {
 }
 
 export function saveAdminSession(token, operator, remember = true) {
+  forcedLogoutHandling = false
   clearAdminSession()
   const storage = remember ? localStorage : sessionStorage
   storage.setItem(TOKEN_KEY, token)
@@ -87,10 +91,17 @@ export async function apiRequest(path, options = {}) {
       code: payload.code,
       payload,
     })
-    if ((response.status === 401 || response.status === 403)
+    if (Number(payload.code) === ACCOUNT_LOGGED_IN_ELSEWHERE_CODE) {
+      if (!forcedLogoutHandling) {
+        forcedLogoutHandling = true
+        window.alert(payload.message || '账号已在其他设备登录，请重新登录')
+        clearAdminSession()
+        window.dispatchEvent(new CustomEvent('admin-auth-expired', { detail: { reason: 'kicked' } }))
+      }
+    } else if ((response.status === 401 || response.status === 403)
       && !['/v1/admin/auth/login', '/v1/admin/auth/me'].includes(path)) {
       clearAdminSession()
-      window.dispatchEvent(new CustomEvent('admin-auth-expired'))
+      window.dispatchEvent(new CustomEvent('admin-auth-expired', { detail: { reason: 'expired' } }))
     }
     throw error
   }
@@ -98,3 +109,14 @@ export async function apiRequest(path, options = {}) {
 }
 
 export { API_BASE }
+
+function installAdminSessionHeartbeat() {
+  if (typeof window === 'undefined') return
+  if (globalThis.__tongluxingAdminHeartbeat) clearInterval(globalThis.__tongluxingAdminHeartbeat)
+  globalThis.__tongluxingAdminHeartbeat = window.setInterval(() => {
+    if (!getAdminToken() || forcedLogoutHandling) return
+    apiRequest('/v1/admin/auth/me').catch(() => {})
+  }, SESSION_HEARTBEAT_MS)
+}
+
+installAdminSessionHeartbeat()

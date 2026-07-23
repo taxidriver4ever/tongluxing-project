@@ -161,6 +161,9 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                           ),
                           if (p['cityName']?.toString().isNotEmpty == true)
                             _Tag(p['cityName'].toString()),
+                          _Tag(
+                            'IP：${data?['ipProvince']?.toString().isNotEmpty == true ? data!['ipProvince'] : '未知'}',
+                          ),
                         ],
                       ),
                     ],
@@ -230,6 +233,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
   final city = TextEditingController();
   final bio = TextEditingController();
   final ImagePicker picker = ImagePicker();
+  String cityCode = '';
 
   int gender = 0;
   bool loading = true;
@@ -259,6 +263,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
       final p = await UserProfileService(api).me();
       nickname.text = p['nickname']?.toString() ?? '';
       city.text = p['cityName']?.toString() ?? '';
+      cityCode = p['cityCode']?.toString() ?? '';
       bio.text = p['bio']?.toString() ?? '';
       gender = (p['gender'] as num?)?.toInt() ?? 0;
       avatarImageKey = p['avatarImageKey']?.toString() ?? '';
@@ -306,6 +311,18 @@ class _EditProfilePageState extends State<EditProfilePage> {
   }
 
   Future<void> save() async {
+    if (nickname.text.trim().isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('昵称不能为空')));
+      return;
+    }
+    if (cityCode.isEmpty || city.text.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请选择常住城市')));
+      return;
+    }
     setState(() => saving = true);
     try {
       final api = context.read<AppSession>().api;
@@ -326,6 +343,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
       await UserProfileService(api).update({
         'nickname': nickname.text.trim(),
         'avatarImageKey': nextAvatarKey,
+        'cityCode': cityCode,
         'cityName': city.text.trim(),
         'bio': bio.text.trim(),
         'gender': gender,
@@ -406,7 +424,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
               const SizedBox(height: 24),
               TextField(
                 controller: nickname,
-                decoration: const InputDecoration(labelText: '昵称'),
+                maxLength: 16,
+                decoration: const InputDecoration(
+                  labelText: '昵称',
+                  counterText: '最多 16 个字',
+                ),
               ),
               const SizedBox(height: 14),
               DropdownButtonFormField<int>(
@@ -422,14 +444,22 @@ class _EditProfilePageState extends State<EditProfilePage> {
               const SizedBox(height: 14),
               TextField(
                 controller: city,
-                decoration: const InputDecoration(labelText: '常住城市'),
+                readOnly: true,
+                onTap: saving ? null : _chooseCity,
+                decoration: const InputDecoration(
+                  labelText: '常住城市',
+                  hintText: '请选择城市',
+                  suffixIcon: Icon(LucideIcons.chevronDown),
+                ),
               ),
               const SizedBox(height: 14),
               TextField(
                 controller: bio,
+                maxLength: 100,
                 maxLines: 4,
                 decoration: const InputDecoration(
                   labelText: '个人简介',
+                  counterText: '最多 100 个字',
                   alignLabelWithHint: true,
                   contentPadding: EdgeInsets.fromLTRB(16, 18, 16, 16),
                 ),
@@ -442,6 +472,154 @@ class _EditProfilePageState extends State<EditProfilePage> {
             ],
           ),
   );
+
+  Future<void> _chooseCity() async {
+    final selected = await showModalBottomSheet<_CityOption>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const _CityPickerSheet(),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      cityCode = selected.code;
+      city.text = selected.name;
+    });
+  }
+}
+
+class _CityOption {
+  const _CityOption(this.code, this.province, this.name);
+  final String code;
+  final String province;
+  final String name;
+}
+
+const _cityOptions = <_CityOption>[
+  _CityOption('110100', '北京', '北京市'),
+  _CityOption('120100', '天津', '天津市'),
+  _CityOption('130100', '河北', '石家庄市'),
+  _CityOption('140100', '山西', '太原市'),
+  _CityOption('150100', '内蒙古', '呼和浩特市'),
+  _CityOption('210100', '辽宁', '沈阳市'),
+  _CityOption('210200', '辽宁', '大连市'),
+  _CityOption('220100', '吉林', '长春市'),
+  _CityOption('230100', '黑龙江', '哈尔滨市'),
+  _CityOption('310100', '上海', '上海市'),
+  _CityOption('320100', '江苏', '南京市'),
+  _CityOption('320200', '江苏', '无锡市'),
+  _CityOption('320500', '江苏', '苏州市'),
+  _CityOption('330100', '浙江', '杭州市'),
+  _CityOption('330200', '浙江', '宁波市'),
+  _CityOption('330300', '浙江', '温州市'),
+  _CityOption('340100', '安徽', '合肥市'),
+  _CityOption('350100', '福建', '福州市'),
+  _CityOption('350200', '福建', '厦门市'),
+  _CityOption('360100', '江西', '南昌市'),
+  _CityOption('370100', '山东', '济南市'),
+  _CityOption('370200', '山东', '青岛市'),
+  _CityOption('410100', '河南', '郑州市'),
+  _CityOption('420100', '湖北', '武汉市'),
+  _CityOption('430100', '湖南', '长沙市'),
+  _CityOption('440100', '广东', '广州市'),
+  _CityOption('440300', '广东', '深圳市'),
+  _CityOption('440400', '广东', '珠海市'),
+  _CityOption('440500', '广东', '汕头市'),
+  _CityOption('440600', '广东', '佛山市'),
+  _CityOption('441300', '广东', '惠州市'),
+  _CityOption('441900', '广东', '东莞市'),
+  _CityOption('445100', '广东', '潮州市'),
+  _CityOption('445200', '广东', '揭阳市'),
+  _CityOption('450100', '广西', '南宁市'),
+  _CityOption('460100', '海南', '海口市'),
+  _CityOption('460200', '海南', '三亚市'),
+  _CityOption('500100', '重庆', '重庆市'),
+  _CityOption('510100', '四川', '成都市'),
+  _CityOption('520100', '贵州', '贵阳市'),
+  _CityOption('530100', '云南', '昆明市'),
+  _CityOption('540100', '西藏', '拉萨市'),
+  _CityOption('610100', '陕西', '西安市'),
+  _CityOption('620100', '甘肃', '兰州市'),
+  _CityOption('630100', '青海', '西宁市'),
+  _CityOption('640100', '宁夏', '银川市'),
+  _CityOption('650100', '新疆', '乌鲁木齐市'),
+  _CityOption('810000', '香港', '香港特别行政区'),
+  _CityOption('820000', '澳门', '澳门特别行政区'),
+  _CityOption('710000', '台湾', '台北市'),
+];
+
+class _CityPickerSheet extends StatefulWidget {
+  const _CityPickerSheet();
+
+  @override
+  State<_CityPickerSheet> createState() => _CityPickerSheetState();
+}
+
+class _CityPickerSheetState extends State<_CityPickerSheet> {
+  String keyword = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _cityOptions
+        .where(
+          (item) =>
+              keyword.isEmpty ||
+              item.name.contains(keyword) ||
+              item.province.contains(keyword),
+        )
+        .toList();
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * .72,
+        child: Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 18, 20, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '选择常住城市',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  Text('仅可从列表选择', style: TextStyle(color: AppColors.muted)),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: TextField(
+                onChanged: (value) => setState(() => keyword = value.trim()),
+                decoration: const InputDecoration(
+                  hintText: '搜索省份或城市',
+                  prefixIcon: Icon(LucideIcons.search),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView.separated(
+                itemCount: filtered.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (_, index) {
+                  final item = filtered[index];
+                  return ListTile(
+                    title: Text(item.name),
+                    subtitle: Text(item.province),
+                    trailing: const Icon(LucideIcons.chevronRight, size: 18),
+                    onTap: () => Navigator.pop(context, item),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _Tag extends StatelessWidget {

@@ -54,9 +54,9 @@ onMounted(loadRecords)
       <div v-if="message" class="notice" :class="success ? 'success' : 'danger'">{{ message }}</div>
       <form class="form-grid" @submit.prevent="submit">
         <label><span>账户类型</span><select v-model="form.accountType"><option value="CORPORATE">对公账户</option><option value="LEGAL_PERSON">法人银行卡</option></select></label>
-        <label><span>开户名称</span><input v-model="form.accountName" required></label>
-        <label class="full"><span>开户行</span><input v-model="form.bankName" required></label>
-        <label class="full"><span>收款账号</span><input v-model="form.accountNo" required autocomplete="off"></label>
+        <label><span>开户名称</span><input v-model="form.accountName" required maxlength="128"></label>
+        <label class="full"><span>开户行</span><input v-model="form.bankName" required maxlength="128"></label>
+        <label class="full"><span>收款账号</span><input v-model="form.accountNo" required maxlength="64" autocomplete="off"></label>
         <div class="security-note full"><ShieldCheck />账号仅用于平台结算，提交后按敏感数据处理。</div>
         <button class="btn primary full submit" :disabled="loading">{{ loading ? '正在保存…' : '保存收款账户' }}</button>
       </form>

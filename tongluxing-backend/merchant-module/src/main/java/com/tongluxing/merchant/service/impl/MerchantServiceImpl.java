@@ -50,6 +50,7 @@ import com.tongluxing.merchant.mapper.MerchantPromotionStatsMapper;
 import com.tongluxing.merchant.mapper.MerchantRewardPoolConfigMapper;
 import com.tongluxing.merchant.mapper.MerchantUserRelationMapper;
 import com.tongluxing.merchant.service.MerchantService;
+import com.tongluxing.merchant.service.MerchantPartnerService;
 import com.tongluxing.merchant.vo.MerchantAssessmentVO;
 import com.tongluxing.merchant.vo.MerchantCouponPoolVO;
 import com.tongluxing.merchant.vo.MerchantProductVO;
@@ -95,6 +96,7 @@ public class MerchantServiceImpl implements MerchantService {
     private final MerchantPromotionStatsMapper promotionStatsMapper;
     private final MerchantUserRelationMapper userRelationMapper;
     private final MerchantAuditLogMapper auditLogMapper;
+    private final MerchantPartnerService partnerService;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
 
@@ -411,6 +413,9 @@ public class MerchantServiceImpl implements MerchantService {
     public MerchantCouponPoolVO createCouponPool(CreateMerchantCouponPoolRequest request, String requestId) {
         Long userId = currentUser.requireUserId();
         MerchantQueryDTO merchant = requireApprovedMerchant();
+        if (!partnerService.isApprovedPartner(merchant.getMerchantId())) {
+            throw new BusinessException(403, "仅审核通过的合作商可以提交合作商券");
+        }
         String idemKey = idemKey(IDEM_COUPON, requestId);
         MerchantCouponPoolVO cached = idemGet(idemKey, MerchantCouponPoolVO.class);
         if (cached != null) {
@@ -423,7 +428,7 @@ public class MerchantServiceImpl implements MerchantService {
                 merchant.getMerchantId(),
                 trim(request.couponName()),
                 trim(request.couponType()),
-                trim(request.sourceType()),
+                "PARTNER",
                 request.thresholdAmount() == null ? BigDecimal.ZERO : request.thresholdAmount(),
                 request.discountAmount() == null ? BigDecimal.ZERO : request.discountAmount(),
                 request.discountRate() == null ? BigDecimal.ZERO : request.discountRate(),
@@ -651,10 +656,10 @@ public class MerchantServiceImpl implements MerchantService {
     }
 
     private void validateCouponPool(CreateMerchantCouponPoolRequest request) {
-        if (!List.of("MERCHANT_NEWBIE", "REWARD_POOL").contains(request.sourceType())) {
+        if (!List.of("MERCHANT_NEWBIE", "REWARD_POOL", "PARTNER").contains(request.sourceType())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "券来源类型不合法");
         }
-        if (!List.of("MERCHANT_DEDUCT", "PLATFORM_SUBSIDY", "MONTHLY_RECONCILE").contains(request.settlementMode())) {
+        if (!List.of("MERCHANT_DEDUCT", "PLATFORM_SUBSIDY", "MONTHLY_RECONCILE", "FREE_SPONSOR").contains(request.settlementMode())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "结算方式不合法");
         }
         boolean hasAmount = request.discountAmount() != null && request.discountAmount().signum() > 0;

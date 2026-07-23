@@ -2,6 +2,7 @@ package com.tongluxing.admin.controller;
 
 import org.springframework.web.bind.annotation.*;
 import com.tongluxing.admin.dto.AdminAuditRequest;
+import com.tongluxing.admin.dto.MerchantCouponStatusRequest;
 import com.tongluxing.admin.vo.PageResult;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.merchant.service.MerchantEcosystemService;
@@ -16,4 +17,5 @@ public class AdminMerchantCouponController {
     @GetMapping public Result<PageResult<MerchantCouponOfferVO>> page(@RequestParam(required=false) String status,@RequestParam(defaultValue="1") int page,@RequestParam(defaultValue="20") int size){var r=service.offersForAdmin(status,page,size);return Result.success(new PageResult<>(r.records(),r.total(),r.page(),r.size()));}
     @GetMapping("/{couponId}") public Result<MerchantCouponOfferVO> detail(@PathVariable Long couponId){return Result.success(service.offerForAdmin(couponId));}
     @PostMapping("/{couponId}/audit") public Result<MerchantCouponOfferVO> audit(@PathVariable Long couponId,@Valid @RequestBody AdminAuditRequest r){return Result.success(service.auditOffer(couponId,r.auditResult(),r.rejectReason(),currentUser.requireUserId()));}
+    @PutMapping("/{couponId}/status") public Result<MerchantCouponOfferVO> status(@PathVariable Long couponId,@Valid @RequestBody MerchantCouponStatusRequest r){currentUser.requireUserId();return Result.success(service.manageOfferStatus(couponId,r.status()));}
 }

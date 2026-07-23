@@ -11,7 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
-import com.tongluxing.growth.integration.GrowthFacade;
 import com.tongluxing.invite.integration.InviteFacade;
 import com.tongluxing.trip.entity.Trip;
 import com.tongluxing.trip.entity.TripMemberSnapshot;
@@ -33,14 +32,14 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class TripSettlementServiceImpl implements TripSettlementService {
-    private static final int COMPLETION_POINTS = 100;
+    /** 行程结束不再发固定奖励；成长值统一由 driver-track 每累计 50 公里发放。 */
+    private static final int COMPLETION_POINTS = 0;
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final CurrentUserContext currentUserContext;
     private final TripMapper tripMapper;
     private final TripMemberSnapshotMapper memberMapper;
     private final TripAuditLogMapper auditLogMapper;
-    private final GrowthFacade growthFacade;
     private final InviteFacade inviteFacade;
     private final StringRedisTemplate redisTemplate;
 
@@ -62,8 +61,6 @@ public class TripSettlementServiceImpl implements TripSettlementService {
 
         String bizId = "trip-settlement:" + tripId;
         for (TripMemberSnapshot member : members) {
-            growthFacade.grant(member.getUserId(), "TEAM_TRIP_COMPLETED", bizId,
-                    COMPLETION_POINTS, "完成行程「" + trip.getTitle() + "」成长值结算");
             inviteFacade.completeFirstTeam(member.getUserId(), tripId, bizId);
         }
 
@@ -79,7 +76,7 @@ public class TripSettlementServiceImpl implements TripSettlementService {
                 "{\"status\":\"FINISHED\"}",
                 "{\"status\":\"SETTLED\",\"pointsPerMember\":" + COMPLETION_POINTS
                         + ",\"memberCount\":" + members.size() + "}",
-                "完成成长值结算", settledAt);
+                "完成行程状态结算，成长值按累计每50公里实时发放", settledAt);
         clearCaches(userId, tripId);
         trip.setStatus("SETTLED");
         trip.setUpdatedAt(settledAt);

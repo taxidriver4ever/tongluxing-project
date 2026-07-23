@@ -1,0 +1,38 @@
+/* 商家工作台表单细节：给光标、文字和边框留出稳定呼吸空间。 */
+.form-grid input,
+.form-grid select,
+.form-grid textarea {
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.form-grid input,
+.form-grid select {
+  padding-inline: 13px;
+}
+
+.form-grid textarea {
+  min-height: 96px;
+  padding: 12px 13px;
+  line-height: 1.7;
+}
+
+.form-grid input::placeholder,
+.form-grid textarea::placeholder {
+  color: #a2adb5;
+}
+
+.btn.danger {
+  border-color: #f0caca;
+  background: #fff4f4;
+  color: var(--danger);
+}
+
+.btn.danger:hover {
+  border-color: #df9999;
+  color: #bd3434;
+}
+
+.panel-body {
+  padding: 19px;
+}

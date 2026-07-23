@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import com.tongluxing.coupon.dto.CouponIssueRequest;
+import com.tongluxing.coupon.dto.AdminCouponTemplateVO;
 import org.springframework.web.bind.annotation.*;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.coupon.integration.CouponFacade.CouponIssueResult;
@@ -67,6 +68,11 @@ public class CouponController {
     @PostMapping("/v1/coupons/templates/{id}/claim")
     public Result<CouponIssueResult> claim(@PathVariable Long id) {
         return Result.success(service.claim(id));
+    }
+
+    @GetMapping("/v1/coupons/templates/claimable")
+    public Result<List<AdminCouponTemplateVO>> claimable() {
+        return Result.success(service.claimableTemplates());
     }
 
     /**

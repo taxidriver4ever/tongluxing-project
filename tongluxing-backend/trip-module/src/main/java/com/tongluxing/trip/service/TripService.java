@@ -48,6 +48,11 @@ public interface TripService {
     TripResponse startTrip(Long tripId);
 
     /**
+     * 按行程确认卡的确认名单开始驾驶；未确认或已拒绝的成员不会进入本次行程。
+     */
+    TripResponse startTrip(Long tripId, List<Long> confirmedParticipantUserIds);
+
+    /**
      * 结束行程。
      */
     TripResponse endTrip(Long tripId);

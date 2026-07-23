@@ -16,13 +16,24 @@ class MainShellPage extends StatefulWidget {
 
 class _MainShellPageState extends State<MainShellPage> {
   int index = 0;
-  static const pages = [
-    MapHomePage(),
-    ChatIndexPage(),
-    TripHomePage(),
-    ShopHomePage(),
-    ProfilePage(),
+  final profileKey = GlobalKey<ProfilePageState>();
+
+  late final List<Widget> pages = [
+    const MapHomePage(),
+    const ChatIndexPage(),
+    const TripHomePage(),
+    const ShopHomePage(),
+    ProfilePage(key: profileKey),
   ];
+
+  void selectTab(int value) {
+    setState(() => index = value);
+    if (value == 4) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => profileKey.currentState?.refresh(),
+      );
+    }
+  }
   @override
   Widget build(BuildContext context) => Scaffold(
     // IndexedStack 默认用 loose 约束布局子页面。地图页以 Stack 为根节点，
@@ -34,7 +45,7 @@ class _MainShellPageState extends State<MainShellPage> {
       backgroundColor: Colors.white,
       indicatorColor: AppColors.primarySoft,
       selectedIndex: index,
-      onDestinationSelected: (value) => setState(() => index = value),
+      onDestinationSelected: selectTab,
       destinations: const [
         NavigationDestination(
           icon: Icon(LucideIcons.map),

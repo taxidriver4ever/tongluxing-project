@@ -60,11 +60,6 @@ class _LoginPageState extends State<LoginPage> {
               onLogin: _login,
               onWechatLogin: () => _message('App 不提供注册，请先在微信小程序完成注册和密码设置'),
             ),
-            const SizedBox(height: 34),
-            const Text(
-              '联调账号：13888888888  密码：12345678',
-              style: TextStyle(color: AppColors.muted, fontSize: 13),
-            ),
           ],
         ),
       ),

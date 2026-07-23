@@ -7,39 +7,28 @@ import '../../../app/theme.dart';
 import '../../../common/widgets/app_widgets.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
+import '../../../data/services/location_snapshot.dart';
+import 'companion_discovery_page.dart';
+import 'nearby_trips_page.dart';
 import 'trip_create_page.dart';
 import 'trip_detail_page.dart';
 import 'trip_drafts_page.dart';
-import 'companion_discovery_page.dart';
+import 'trip_overview_page.dart';
 
 class TripHomePage extends StatefulWidget {
   const TripHomePage({super.key});
+
   @override
   State<TripHomePage> createState() => _TripHomePageState();
 }
 
 class _TripHomePageState extends State<TripHomePage> {
   bool loading = true;
+  bool nearbyLoading = true;
   String? error;
-  List<TripModel> trips = [];
-  List<TripModel> history = [];
   TripModel? current;
-  String activeFilter = 'PUBLISHED';
-  String historyFilter = 'FINISHED';
+  List<CompanionMatchModel> nearbyTrips = [];
 
-  List<TripModel> get filteredTrips => trips.where((trip) {
-    if (activeFilter == 'RUNNING') {
-      return trip.status == 'RUNNING' || trip.status == 'ONGOING';
-    }
-    return trip.status == 'PUBLISHED';
-  }).toList();
-
-  List<TripModel> get filteredHistory => history.where((trip) {
-    if (historyFilter == 'FINISHED') {
-      return trip.status == 'FINISHED' || trip.status == 'ENDED';
-    }
-    return trip.status == 'SETTLED';
-  }).toList();
   @override
   void initState() {
     super.initState();
@@ -47,22 +36,28 @@ class _TripHomePageState extends State<TripHomePage> {
   }
 
   Future<void> load() async {
-    setState(() => loading = true);
+    setState(() {
+      loading = true;
+      nearbyLoading = true;
+    });
+    final api = context.read<AppSession>().api;
     try {
-      final service = TripService(context.read<AppSession>().api);
-      final values = await Future.wait([
-        service.mine(),
-        service.current(),
-        service.mine(scope: 'history'),
-      ]);
-      trips = values[0] as List<TripModel>;
-      current = values[1] as TripModel?;
-      history = values[2] as List<TripModel>;
+      current = await TripService(api).current();
       error = null;
     } catch (e) {
       error = e.toString();
     }
     if (mounted) setState(() => loading = false);
+
+    final point = LocationSnapshot.current ?? LocationSnapshot.demoFallback;
+    try {
+      nearbyTrips = await CompanionMatchService(
+        api,
+      ).nearbyTrips(latitude: point.latitude, longitude: point.longitude);
+    } catch (_) {
+      nearbyTrips = [];
+    }
+    if (mounted) setState(() => nearbyLoading = false);
   }
 
   Future<void> _openCreateTrip() async {
@@ -73,14 +68,18 @@ class _TripHomePageState extends State<TripHomePage> {
     if (changed == true && mounted) load();
   }
 
+  void _open(Widget page) =>
+      Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+
   @override
   Widget build(BuildContext context) => SafeArea(
     child: Column(
       children: [
         PageHeading(
           '行程',
-          subtitle: '管理你的自驾旅程，寻找同行伙伴',
+          subtitle: '安排下一段旅程，也遇见附近同路的人',
           action: IconButton.filled(
+            tooltip: '创建行程',
             onPressed: _openCreateTrip,
             icon: const Icon(LucideIcons.plus),
           ),
@@ -93,102 +92,118 @@ class _TripHomePageState extends State<TripHomePage> {
             child: RefreshIndicator(
               onRefresh: load,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(22, 0, 22, 28),
+                padding: const EdgeInsets.fromLTRB(22, 0, 22, 34),
                 children: [
-                  if (current != null) _DrivingCard(trip: current!),
-                  const SizedBox(height: 16),
-                  _DraftEntry(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const TripDraftsPage()),
-                    ),
+                  _NavigationHero(
+                    trip: current,
+                    onCreate: _openCreateTrip,
+                    onContinue: current == null
+                        ? null
+                        : () => _open(
+                            TripDetailPage(
+                              tripId: current!.id,
+                              initial: current!,
+                            ),
+                          ),
+                  ),
+                  const SizedBox(height: 18),
+                  GridView.count(
+                    crossAxisCount: 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    childAspectRatio: 1.28,
+                    children: [
+                      _ActionCard(
+                        icon: LucideIcons.route,
+                        title: '我的行程',
+                        subtitle: '招募 · 进行 · 取消',
+                        color: const Color(0xFFE7F1FF),
+                        onTap: () =>
+                            _open(const TripOverviewPage(historyMode: false)),
+                      ),
+                      _ActionCard(
+                        icon: LucideIcons.history,
+                        title: '历史与结算',
+                        subtitle: '完成 · 已结算',
+                        color: const Color(0xFFEDF4FF),
+                        onTap: () =>
+                            _open(const TripOverviewPage(historyMode: true)),
+                      ),
+                      _ActionCard(
+                        icon: LucideIcons.filePenLine,
+                        title: '我的草稿',
+                        subtitle: '继续编辑未发布行程',
+                        color: const Color(0xFFF0F6FF),
+                        onTap: () => _open(const TripDraftsPage()),
+                      ),
+                      _ActionCard(
+                        icon: LucideIcons.usersRound,
+                        title: '发现同行',
+                        subtitle: '按路线寻找伙伴',
+                        color: const Color(0xFFE5F3FF),
+                        onTap: () => _open(const CompanionDiscoveryPage()),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 26),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '附近招募',
+                              style: TextStyle(
+                                fontSize: 21,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            SizedBox(height: 3),
+                            Text(
+                              '正在招募同路伙伴的公开行程',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => _open(const NearbyTripsPage()),
+                        child: const Text('查看全部'),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
-                  _DiscoverEntry(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const CompanionDiscoveryPage(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    '我的行程',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 10),
-                  _StatusSelector(
-                    value: activeFilter,
-                    options: const {'PUBLISHED': '招募中', 'RUNNING': '进行中'},
-                    onChanged: (value) => setState(() => activeFilter = value),
-                  ),
-                  if (filteredTrips.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 30),
-                      child: Center(
-                        child: Text(
-                          '当前筛选下暂无行程',
-                          style: TextStyle(color: AppColors.muted),
-                        ),
-                      ),
+                  if (nearbyLoading)
+                    const SizedBox(
+                      height: 154,
+                      child: Center(child: CircularProgressIndicator()),
                     )
+                  else if (nearbyTrips.isEmpty)
+                    _NearbyEmpty(onTap: () => _open(const NearbyTripsPage()))
                   else
-                    ...filteredTrips.map(
-                      (trip) => _TripCard(
-                        trip: trip,
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                TripDetailPage(tripId: trip.id, initial: trip),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ...[
-                    const SizedBox(height: 28),
-                    const Text(
-                      '历史与结算',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    _StatusSelector(
-                      value: historyFilter,
-                      options: const {'FINISHED': '已完成', 'SETTLED': '已结算'},
-                      onChanged: (value) =>
-                          setState(() => historyFilter = value),
-                    ),
-                    if (filteredHistory.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 28),
-                        child: Center(
-                          child: Text(
-                            '当前筛选下暂无历史行程',
-                            style: TextStyle(color: AppColors.muted),
-                          ),
-                        ),
-                      ),
-                    ...filteredHistory
-                        .take(10)
-                        .map(
-                          (trip) => _TripCard(
-                            trip: trip,
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => TripDetailPage(
-                                  tripId: trip.id,
-                                  initial: trip,
-                                ),
-                              ),
+                    SizedBox(
+                      height: 166,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: nearbyTrips.take(6).length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 12),
+                        itemBuilder: (_, index) => _NearbyPreviewCard(
+                          trip: nearbyTrips[index],
+                          onTap: () => _open(
+                            CompanionMatchDetailPage(
+                              matchId: '',
+                              initial: nearbyTrips[index],
                             ),
                           ),
                         ),
-                  ],
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -199,220 +214,244 @@ class _TripHomePageState extends State<TripHomePage> {
   );
 }
 
-class _StatusSelector extends StatelessWidget {
-  const _StatusSelector({
-    required this.value,
-    required this.options,
-    required this.onChanged,
+class _NavigationHero extends StatelessWidget {
+  const _NavigationHero({
+    required this.trip,
+    required this.onCreate,
+    required this.onContinue,
   });
-  final String value;
-  final Map<String, String> options;
-  final ValueChanged<String> onChanged;
 
-  @override
-  Widget build(BuildContext context) => Wrap(
-    spacing: 8,
-    children: options.entries
-        .map(
-          (entry) => ChoiceChip(
-            label: Text(entry.value),
-            selected: value == entry.key,
-            onSelected: (_) => onChanged(entry.key),
-          ),
-        )
-        .toList(),
-  );
-}
+  final TripModel? trip;
+  final VoidCallback onCreate;
+  final VoidCallback? onContinue;
 
-class _DrivingCard extends StatelessWidget {
-  const _DrivingCard({required this.trip});
-  final TripModel trip;
   @override
   Widget build(BuildContext context) => Container(
+    height: 192,
     padding: const EdgeInsets.all(22),
     decoration: BoxDecoration(
-      color: const Color(0xFF285CFF),
-      borderRadius: BorderRadius.circular(24),
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFF246ED8), Color(0xFF58A5FF)],
+      ),
+      borderRadius: BorderRadius.circular(28),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x303A86FF),
+          blurRadius: 24,
+          offset: Offset(0, 12),
+        ),
+      ],
     ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    child: Stack(
       children: [
-        const Text(
-          '正在驾驶中',
-          style: TextStyle(color: Colors.white70, fontSize: 13),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          '${trip.startName}\n↓\n${trip.endName}',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            height: 1.35,
+        const Positioned(
+          right: -12,
+          top: -16,
+          child: Icon(
+            LucideIcons.navigation,
+            size: 138,
+            color: Color(0x28FFFFFF),
           ),
         ),
-        const SizedBox(height: 14),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: Colors.white,
-            foregroundColor: AppColors.primary,
-          ),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => TripDetailPage(tripId: trip.id, initial: trip),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              trip == null ? '下一段旅程' : '继续导航',
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
             ),
-          ),
-          child: const Text('继续导航'),
+            const SizedBox(height: 9),
+            Text(
+              trip == null
+                  ? '准备好，就出发'
+                  : '${trip!.startName}  →  ${trip!.endName}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                height: 1.3,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const Spacer(),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(0, 44),
+                backgroundColor: Colors.white,
+                foregroundColor: AppColors.primaryDark,
+              ),
+              onPressed: onContinue ?? onCreate,
+              icon: Icon(
+                trip == null ? LucideIcons.plus : LucideIcons.navigation,
+                size: 18,
+              ),
+              label: Text(trip == null ? '创建行程' : '继续导航'),
+            ),
+          ],
         ),
       ],
     ),
   );
 }
 
-class _DraftEntry extends StatelessWidget {
-  const _DraftEntry({required this.onTap});
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(20),
-    child: Container(
-      padding: const EdgeInsets.all(17),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF5F8FF),
-        border: Border.all(color: const Color(0xFFDBE7FF)),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: const Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: Color(0xFFE4EDFF),
-            child: Icon(LucideIcons.filePenLine, color: AppColors.primary),
-          ),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('我的草稿', style: TextStyle(fontWeight: FontWeight.w700)),
-                Text(
-                  '继续编辑、删除或发布未完成行程',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.secondaryText,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Icon(LucideIcons.chevronRight),
-        ],
-      ),
-    ),
-  );
-}
+class _ActionCard extends StatelessWidget {
+  const _ActionCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+  });
 
-class _DiscoverEntry extends StatelessWidget {
-  const _DiscoverEntry({required this.onTap});
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
   final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(20),
-    child: Container(
-      padding: const EdgeInsets.all(17),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFF1F5FF), Color(0xFFF8FAFF)],
-        ),
-        border: Border.all(color: const Color(0xFFD7E3FF)),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: const Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: Color(0xFF285CFF),
-            child: Icon(LucideIcons.usersRound, color: Colors.white),
-          ),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('发现同行', style: TextStyle(fontWeight: FontWeight.w700)),
-                Text(
-                  '按路线、目的地和出发时间寻找伙伴',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.secondaryText,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Icon(LucideIcons.chevronRight),
-        ],
-      ),
-    ),
-  );
-}
 
-class _TripCard extends StatelessWidget {
-  const _TripCard({required this.trip, required this.onTap});
-  final TripModel trip;
-  final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 14),
+  Widget build(BuildContext context) => Material(
+    color: color,
+    borderRadius: BorderRadius.circular(24),
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(22),
-      child: TlxCard(
-        color: const Color(0xFFF6F8FC),
+      borderRadius: BorderRadius.circular(24),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    trip.title,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.primarySoft,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    tripStatusLabel(trip.status),
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .88),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 20, color: AppColors.primaryDark),
             ),
-            const SizedBox(height: 14),
-            Text('${trip.startName}\n│\n${trip.endName}'),
-            const SizedBox(height: 12),
+            const Spacer(),
             Text(
-              '出发：${trip.departureTime ?? '待确定'}  ·  车辆 ${trip.joinedVehicles}/${trip.maxVehicles}',
+              title,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
+                fontSize: 11,
                 color: AppColors.secondaryText,
-                fontSize: 13,
               ),
             ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _NearbyPreviewCard extends StatelessWidget {
+  const _NearbyPreviewCard({required this.trip, required this.onTap});
+  final CompanionMatchModel trip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 228,
+    child: Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    LucideIcons.mapPinned,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySoft,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      '招募中',
+                      style: TextStyle(fontSize: 11, color: AppColors.primary),
+                    ),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Text(
+                trip.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                '${trip.startName} → ${trip.endName}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.secondaryText,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                trip.departureTime,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: AppColors.muted),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _NearbyEmpty extends StatelessWidget {
+  const _NearbyEmpty({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: const Color(0xFFEDF5FF),
+    borderRadius: BorderRadius.circular(22),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(22),
+      child: const Padding(
+        padding: EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Icon(LucideIcons.mapPinned, color: AppColors.primary),
+            SizedBox(width: 12),
+            Expanded(child: Text('附近暂时没有招募行程，点击查看全部')),
+            Icon(LucideIcons.chevronRight, color: AppColors.muted),
           ],
         ),
       ),

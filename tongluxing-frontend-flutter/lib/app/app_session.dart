@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -12,11 +13,26 @@ class AppSession extends ChangeNotifier {
   static const _userIdKey = 'tlx_user_id';
   static const _deviceIdKey = 'tlx_device_id';
 
-  AppSession(this.api);
+  AppSession(this.api) {
+    api.onSessionInvalidated = _handleSessionInvalidated;
+  }
+
   final ApiClient api;
+  Timer? _sessionHeartbeat;
   String? userId;
+  String? forcedLogoutMessage;
   bool initialized = false;
   bool get signedIn => api.token?.isNotEmpty == true;
+  bool get hasForcedLogout => forcedLogoutMessage?.isNotEmpty == true;
+
+  void _handleSessionInvalidated(SessionInvalidation event) {
+    if (hasForcedLogout) return;
+    // 先停止后续请求继续携带已失效 token；持久化 token 在用户确认弹窗后删除。
+    _stopSessionHeartbeat();
+    api.token = null;
+    forcedLogoutMessage = event.message;
+    notifyListeners();
+  }
 
   Future<void> initialize() async {
     final storage = await SharedPreferences.getInstance();
@@ -31,8 +47,9 @@ class AppSession extends ChangeNotifier {
         storedToken,
         storedRefreshToken,
       );
-      if (!restored) await _clearStoredSession(storage);
+      if (!restored && !hasForcedLogout) await _clearStoredSession(storage);
     }
+    if (signedIn) _startSessionHeartbeat();
     initialized = true;
     notifyListeners();
   }
@@ -50,6 +67,7 @@ class AppSession extends ChangeNotifier {
         userId = storage.getString(_userIdKey);
         return true;
       } on ApiException catch (error) {
+        if (hasForcedLogout) return false;
         // 网络暂时不可达时保留未过期会话；401/403 才视为服务端已撤销。
         if (error.statusCode == null) {
           userId = storage.getString(_userIdKey);
@@ -57,7 +75,7 @@ class AppSession extends ChangeNotifier {
         }
       }
     }
-    if (refreshToken?.isNotEmpty != true) return false;
+    if (refreshToken?.isNotEmpty != true || hasForcedLogout) return false;
     api.token = null;
     try {
       final refreshed = await AuthService(api).refresh(refreshToken!);
@@ -100,6 +118,7 @@ class AppSession extends ChangeNotifier {
     final session = await AuthService(
       api,
     ).passwordLogin(phone, password, deviceId: deviceId);
+    forcedLogoutMessage = null;
     api.token = session.token;
     userId = session.userId;
     await storage.setString(_accessTokenKey, session.token);
@@ -111,18 +130,52 @@ class AppSession extends ChangeNotifier {
     if (session.userId != null) {
       await storage.setString(_userIdKey, session.userId!);
     }
+    _startSessionHeartbeat();
+    notifyListeners();
+  }
+
+  void _startSessionHeartbeat() {
+    _sessionHeartbeat?.cancel();
+    if (!signedIn || api.useDemo) return;
+    _sessionHeartbeat = Timer.periodic(const Duration(seconds: 15), (_) async {
+      if (!signedIn || hasForcedLogout) return;
+      try {
+        await AuthService(api).currentUser();
+      } on ApiException {
+        // 40101 会由 ApiClient 统一触发剔除弹窗；网络错误和普通过期不重复打扰。
+      }
+    });
+  }
+
+  void _stopSessionHeartbeat() {
+    _sessionHeartbeat?.cancel();
+    _sessionHeartbeat = null;
+  }
+
+  Future<void> confirmForcedLogout() async {
+    _stopSessionHeartbeat();
+    final storage = await SharedPreferences.getInstance();
+    await _clearStoredSession(storage);
+    forcedLogoutMessage = null;
     notifyListeners();
   }
 
   Future<void> logout() async {
+    _stopSessionHeartbeat();
     try {
       await AuthService(api).logout();
     } catch (_) {}
-    api.token = null;
-    userId = null;
+    forcedLogoutMessage = null;
     final storage = await SharedPreferences.getInstance();
     await _clearStoredSession(storage);
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _stopSessionHeartbeat();
+    api.onSessionInvalidated = null;
+    super.dispose();
   }
 
   Future<void> _clearStoredSession(SharedPreferences storage) async {

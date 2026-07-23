@@ -6,7 +6,7 @@ export const hasSession = () => Boolean(getToken())
 
 export async function loginMerchant({ phone, password, remember }) {
   const login = await apiRequest('/v1/auth/password-login', {
-    method: 'POST', body: JSON.stringify({ phone: phone.trim(), password, deviceId: getOrCreateDeviceId() }),
+    method: 'POST', body: JSON.stringify({ phone: phone.trim(), password, deviceId: getOrCreateDeviceId(), clientType: 'MERCHANT_WEB' }),
   })
   const user = { userId: String(login.userId), phone: phone.trim() }
   saveSession(login.token, user, remember)

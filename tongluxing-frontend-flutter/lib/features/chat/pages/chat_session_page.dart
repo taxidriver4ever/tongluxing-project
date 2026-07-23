@@ -182,6 +182,31 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
       ),
       body: Column(
         children: [
+          if (widget.conversation.status == 'HISTORY')
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              color: AppColors.primarySoft,
+              child: const Row(
+                children: [
+                  Icon(
+                    LucideIcons.history,
+                    size: 17,
+                    color: AppColors.primaryDark,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '该行程已结束，当前为历史车队群。聊天与历史资料仍会保留。',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.primaryDark,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (announcement != null)
             Material(
               color: const Color(0xFFFFF7E8),

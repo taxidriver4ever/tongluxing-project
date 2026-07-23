@@ -341,6 +341,332 @@ class CompanionMatchModel {
       );
 }
 
+class TripSearchResultModel {
+  const TripSearchResultModel({
+    required this.tripId,
+    required this.ownerUserId,
+    required this.ownerNickname,
+    required this.title,
+    required this.startName,
+    required this.endName,
+    required this.departureTime,
+    required this.matchScore,
+    required this.currentMembers,
+    required this.maxMembers,
+    required this.remainingSeats,
+    required this.status,
+    required this.joinable,
+    this.ownerAvatarImageKey = '',
+    this.waypoints = const [],
+    this.estimatedEndTime,
+    this.vehicleSummary = '未公开车辆',
+    this.startDistanceMeters = 0,
+    this.endDistanceMeters = 0,
+  });
+
+  final String tripId;
+  final String ownerUserId;
+  final String ownerNickname;
+  final String ownerAvatarImageKey;
+  final String title;
+  final String startName;
+  final String endName;
+  final List<String> waypoints;
+  final String departureTime;
+  final String? estimatedEndTime;
+  final String vehicleSummary;
+  final int matchScore;
+  final int currentMembers;
+  final int maxMembers;
+  final int remainingSeats;
+  final int startDistanceMeters;
+  final int endDistanceMeters;
+  final String status;
+  final bool joinable;
+
+  factory TripSearchResultModel.fromJson(Map<String, dynamic> json) =>
+      TripSearchResultModel(
+        tripId: json['tripId']?.toString() ?? '',
+        ownerUserId: json['ownerUserId']?.toString() ?? '',
+        ownerNickname: json['ownerNickname']?.toString() ?? '同路行车友',
+        ownerAvatarImageKey: json['ownerAvatarImageKey']?.toString() ?? '',
+        title: json['title']?.toString() ?? '同行行程',
+        startName: json['startName']?.toString() ?? '起点',
+        endName: json['endName']?.toString() ?? '终点',
+        waypoints: (json['waypoints'] as List? ?? const [])
+            .map((e) => e.toString())
+            .toList(),
+        departureTime: json['departureTime']?.toString() ?? '',
+        estimatedEndTime: json['estimatedEndTime']?.toString(),
+        vehicleSummary: json['vehicleSummary']?.toString() ?? '未公开车辆',
+        matchScore: _int(json['matchScore']) ?? 0,
+        currentMembers: _int(json['currentMemberCount']) ?? 0,
+        maxMembers: _int(json['maxMemberCount']) ?? 0,
+        remainingSeats: _int(json['remainingSeats']) ?? 0,
+        startDistanceMeters: _int(json['startDistanceMeters']) ?? 0,
+        endDistanceMeters: _int(json['endDistanceMeters']) ?? 0,
+        status: json['status']?.toString() ?? 'PUBLISHED',
+        joinable: json['joinable'] == true,
+      );
+}
+
+class DiscoverOwnerModel {
+  const DiscoverOwnerModel({
+    required this.userId,
+    required this.nickname,
+    this.avatarImageKey = '',
+    this.levelCode = 'LV1',
+    this.certificationStatus = 'UNVERIFIED',
+    this.rating = 0,
+    this.totalTripCount = 0,
+    this.totalDistanceMeters = 0,
+    this.lastActiveAt = '',
+    this.badgeCount = 0,
+    this.followed = false,
+  });
+
+  final String userId;
+  final String nickname;
+  final String avatarImageKey;
+  final String levelCode;
+  final String certificationStatus;
+  final double rating;
+  final int totalTripCount;
+  final int totalDistanceMeters;
+  final String lastActiveAt;
+  final int badgeCount;
+  final bool followed;
+
+  factory DiscoverOwnerModel.fromJson(Map<String, dynamic> json) =>
+      DiscoverOwnerModel(
+        userId: json['userId']?.toString() ?? '',
+        nickname: json['nickname']?.toString() ?? '同路行车友',
+        avatarImageKey: json['avatarImageKey']?.toString() ?? '',
+        levelCode: json['levelCode']?.toString() ?? 'LV1',
+        certificationStatus:
+            json['certificationStatus']?.toString() ?? 'UNVERIFIED',
+        rating: (json['rating'] as num?)?.toDouble() ?? 0,
+        totalTripCount: _int(json['totalTripCount']) ?? 0,
+        totalDistanceMeters: _int(json['totalDistanceMeters']) ?? 0,
+        lastActiveAt: json['lastActiveAt']?.toString() ?? '',
+        badgeCount: _int(json['badgeCount']) ?? 0,
+        followed: json['followed'] == true,
+      );
+}
+
+class TripDiscoverModel {
+  const TripDiscoverModel({
+    required this.tripId,
+    required this.title,
+    required this.status,
+    required this.startName,
+    required this.endName,
+    required this.departureTime,
+    required this.owner,
+    this.waypoints = const [],
+    this.estimatedDays = 1,
+    this.description = '',
+    this.joinedVehicleCount = 0,
+    this.maxVehicleCount = 0,
+    this.memberCount = 0,
+    this.maxMemberCount = 0,
+    this.remainingSeats = 0,
+    this.matchScore = 0,
+    this.distanceMeters,
+    this.tags = const [],
+    this.coverImageKey = '',
+    this.relationshipStatus = 'NONE',
+  });
+
+  final String tripId;
+  final String title;
+  final String status;
+  final String startName;
+  final List<String> waypoints;
+  final String endName;
+  final String departureTime;
+  final int estimatedDays;
+  final String description;
+  final int joinedVehicleCount;
+  final int maxVehicleCount;
+  final int memberCount;
+  final int maxMemberCount;
+  final int remainingSeats;
+  final int matchScore;
+  final int? distanceMeters;
+  final List<String> tags;
+  final String coverImageKey;
+  final String relationshipStatus;
+  final DiscoverOwnerModel owner;
+
+  factory TripDiscoverModel.fromJson(Map<String, dynamic> json) =>
+      TripDiscoverModel(
+        tripId: json['tripId']?.toString() ?? '',
+        title: json['title']?.toString() ?? '同行行程',
+        status: json['status']?.toString() ?? 'PUBLISHED',
+        startName: json['startName']?.toString() ?? '起点',
+        waypoints: (json['waypoints'] as List? ?? const [])
+            .map((e) => e.toString())
+            .toList(),
+        endName: json['endName']?.toString() ?? '终点',
+        departureTime: json['departureTime']?.toString() ?? '',
+        estimatedDays: _int(json['estimatedDays']) ?? 1,
+        description: json['description']?.toString() ?? '',
+        joinedVehicleCount: _int(json['joinedVehicleCount']) ?? 0,
+        maxVehicleCount: _int(json['maxVehicleCount']) ?? 0,
+        memberCount: _int(json['memberCount']) ?? 0,
+        maxMemberCount: _int(json['maxMemberCount']) ?? 0,
+        remainingSeats: _int(json['remainingSeats']) ?? 0,
+        matchScore: _int(json['matchScore']) ?? 0,
+        distanceMeters: _int(json['distanceMeters']),
+        tags: (json['tags'] as List? ?? const [])
+            .map((e) => e.toString())
+            .toList(),
+        coverImageKey: json['coverImageKey']?.toString() ?? '',
+        relationshipStatus: json['relationshipStatus']?.toString() ?? 'NONE',
+        owner: DiscoverOwnerModel.fromJson(
+          Map<String, dynamic>.from(json['owner'] as Map? ?? const {}),
+        ),
+      );
+}
+
+class TripPublicMemberModel {
+  const TripPublicMemberModel({
+    required this.userId,
+    required this.nickname,
+    this.avatarImageKey = '',
+    this.role = 'MEMBER',
+    this.certificationStatus = 'UNVERIFIED',
+    this.totalTripCount = 0,
+    this.totalDistanceMeters = 0,
+  });
+  final String userId;
+  final String nickname;
+  final String avatarImageKey;
+  final String role;
+  final String certificationStatus;
+  final int totalTripCount;
+  final int totalDistanceMeters;
+
+  factory TripPublicMemberModel.fromJson(Map<String, dynamic> json) =>
+      TripPublicMemberModel(
+        userId: json['userId']?.toString() ?? '',
+        nickname: json['nickname']?.toString() ?? '车队成员',
+        avatarImageKey: json['avatarImageKey']?.toString() ?? '',
+        role: json['role']?.toString() ?? 'MEMBER',
+        certificationStatus:
+            json['certificationStatus']?.toString() ?? 'UNVERIFIED',
+        totalTripCount: _int(json['totalTripCount']) ?? 0,
+        totalDistanceMeters: _int(json['totalDistanceMeters']) ?? 0,
+      );
+}
+
+class TripPublicDetailModel {
+  const TripPublicDetailModel({
+    required this.trip,
+    required this.owner,
+    required this.members,
+    this.routePolyline = '',
+    this.routeDistanceMeters = 0,
+    this.routeDurationSeconds = 0,
+    this.vehicleRequirement = '',
+    this.budgetDescription = '',
+    this.costSharingType = '',
+    this.meetingPoint = '',
+    this.notes = '',
+    this.announcement = '',
+    this.joinRequirement = '',
+    this.ownerTrip = false,
+    this.allowConsultation = false,
+    this.allowApply = false,
+    this.joinable = false,
+    this.favorited = false,
+  });
+  final TripDiscoverModel trip;
+  final DiscoverOwnerModel owner;
+  final List<TripPublicMemberModel> members;
+  final String routePolyline;
+  final int routeDistanceMeters;
+  final int routeDurationSeconds;
+  final String vehicleRequirement;
+  final String budgetDescription;
+  final String costSharingType;
+  final String meetingPoint;
+  final String notes;
+  final String announcement;
+  final String joinRequirement;
+  final bool ownerTrip;
+  final bool allowConsultation;
+  final bool allowApply;
+  final bool joinable;
+  final bool favorited;
+
+  factory TripPublicDetailModel.fromJson(Map<String, dynamic> json) {
+    final owner = DiscoverOwnerModel.fromJson(
+      Map<String, dynamic>.from(json['owner'] as Map? ?? const {}),
+    );
+    return TripPublicDetailModel(
+      trip: TripDiscoverModel.fromJson({...json, 'owner': json['owner']}),
+      owner: owner,
+      members: (json['members'] as List? ?? const [])
+          .map(
+            (e) => TripPublicMemberModel.fromJson(
+              Map<String, dynamic>.from(e as Map),
+            ),
+          )
+          .toList(),
+      routePolyline: json['routePolyline']?.toString() ?? '',
+      routeDistanceMeters: _int(json['routeDistanceMeters']) ?? 0,
+      routeDurationSeconds: _int(json['routeDurationSeconds']) ?? 0,
+      vehicleRequirement: json['vehicleRequirement']?.toString() ?? '',
+      budgetDescription: json['budgetDescription']?.toString() ?? '',
+      costSharingType: json['costSharingType']?.toString() ?? '',
+      meetingPoint: json['meetingPoint']?.toString() ?? '',
+      notes: json['notes']?.toString() ?? '',
+      announcement: json['announcement']?.toString() ?? '',
+      joinRequirement: json['joinRequirement']?.toString() ?? '',
+      ownerTrip: json['ownerTrip'] == true,
+      allowConsultation: json['allowConsultation'] == true,
+      allowApply: json['allowApply'] == true,
+      joinable: json['joinable'] == true,
+      favorited: json['favorited'] == true,
+    );
+  }
+}
+
+class TripApplicationModel {
+  const TripApplicationModel({
+    required this.applicationId,
+    required this.tripId,
+    required this.applicantUserId,
+    required this.status,
+    required this.message,
+    this.reviewMessage,
+    this.vehicleId,
+    this.createdAt = '',
+  });
+  final String applicationId;
+  final String tripId;
+  final String applicantUserId;
+  final String status;
+  final String message;
+  final String? reviewMessage;
+  final String? vehicleId;
+  final String createdAt;
+
+  factory TripApplicationModel.fromJson(Map<String, dynamic> json) =>
+      TripApplicationModel(
+        applicationId: json['applicationId']?.toString() ?? '',
+        tripId: json['tripId']?.toString() ?? '',
+        applicantUserId: json['applicantUserId']?.toString() ?? '',
+        status: json['applicationStatus']?.toString() ?? 'PENDING',
+        message: json['applyMessage']?.toString() ?? '',
+        reviewMessage: json['reviewMessage']?.toString(),
+        vehicleId: json['applicantVehicleId']?.toString(),
+        createdAt: json['createdAt']?.toString() ?? '',
+      );
+}
+
 class ConversationModel {
   const ConversationModel({
     required this.id,

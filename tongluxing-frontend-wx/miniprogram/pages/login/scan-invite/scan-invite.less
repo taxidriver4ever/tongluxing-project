@@ -1,1 +1,150 @@
-.invite-page{min-height:100vh;position:relative;background:#F7F9FE;color:#111827;padding-top:env(safe-area-inset-top)}.page-content{padding:56rpx 64rpx 48rpx}.brand{margin-top:18rpx;color:#3A86FF;font-size:64rpx;font-weight:700;text-align:center}.form-card{margin-top:138rpx;padding:64rpx 36rpx;border-radius:64rpx;background:#FFF}.title{font-size:52rpx;font-weight:700;text-align:center}.desc{margin:28rpx 0 56rpx;color:#667085;font-size:27rpx;line-height:1.7;text-align:center}.scan-box{height:224rpx;border:3rpx dashed #D0D5DD;border-radius:38rpx;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#667085;font-size:27rpx}.scan-box image{width:60rpx;height:60rpx;margin-bottom:18rpx}.or{margin:38rpx 0 26rpx;display:flex;align-items:center;gap:24rpx;color:#98A2B3;font-size:24rpx}.or view{flex:1;height:2rpx;background:#E5E7EB}.field{height:104rpx;padding:0 40rpx;border-radius:36rpx;background:#F2F4F8;font-size:30rpx;text-transform:uppercase}.action{width:100%;height:108rpx;margin-top:34rpx;border:0;border-radius:54rpx;background:#3A86FF;color:#FFF;font-size:32rpx;font-weight:600}.action::after{border:0}.skip-top{position:absolute;z-index:5;top:calc(env(safe-area-inset-top) + 30rpx);right:40rpx;padding:18rpx 24rpx;color:#3A86FF;font-size:28rpx;font-weight:600}.skip-bottom{margin-top:36rpx;color:#98A2B3;font-size:25rpx;text-align:center}.back{position:absolute;z-index:5;top:calc(env(safe-area-inset-top) + 18rpx);left:32rpx;width:76rpx;height:76rpx;border-radius:26rpx;display:flex;align-items:center;justify-content:center;background:#FFF;box-shadow:0 10rpx 30rpx rgba(16,24,40,.09)}.back image{width:40rpx;height:40rpx}
+.invite-page {
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+  background: #f7f9fe;
+  color: #111827;
+  padding-top: env(safe-area-inset-top);
+  box-sizing: border-box;
+}
+
+.page-content {
+  padding: 92rpx 64rpx 72rpx;
+  box-sizing: border-box;
+}
+
+.brand {
+  margin-top: 18rpx;
+  color: #3a86ff;
+  font-size: 64rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.form-card {
+  margin-top: 158rpx;
+  padding: 64rpx 36rpx 68rpx;
+  border-radius: 64rpx;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.title {
+  font-size: 52rpx;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.desc {
+  margin: 28rpx 0 56rpx;
+  color: #667085;
+  font-size: 27rpx;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.scan-box {
+  height: 224rpx;
+  border: 3rpx dashed #d0d5dd;
+  border-radius: 38rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #667085;
+  font-size: 27rpx;
+  box-sizing: border-box;
+}
+
+.scan-box image {
+  width: 60rpx;
+  height: 60rpx;
+  margin-bottom: 18rpx;
+}
+
+.or {
+  margin: 38rpx 0 26rpx;
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  color: #98a2b3;
+  font-size: 24rpx;
+}
+
+.or view {
+  flex: 1;
+  height: 2rpx;
+  background: #e5e7eb;
+}
+
+.field {
+  height: 104rpx;
+  padding: 0 40rpx;
+  border-radius: 36rpx;
+  background: #f2f4f8;
+  font-size: 30rpx;
+  text-transform: uppercase;
+  box-sizing: border-box;
+}
+
+.action {
+  width: 100%;
+  height: 108rpx;
+  margin-top: 34rpx;
+  border: 0;
+  border-radius: 54rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #3a86ff;
+  color: #fff;
+  font-size: 32rpx;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.action::after {
+  border: 0;
+}
+
+.skip-top {
+  position: absolute;
+  z-index: 5;
+  top: calc(env(safe-area-inset-top) + 36rpx);
+  right: 40rpx;
+  padding: 14rpx 18rpx;
+  color: #3a86ff;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.skip-bottom {
+  margin-top: 36rpx;
+  color: #98a2b3;
+  font-size: 25rpx;
+  text-align: center;
+}
+
+.back {
+  position: absolute;
+  z-index: 5;
+  top: calc(env(safe-area-inset-top) + 34rpx);
+  left: 36rpx;
+  width: 72rpx;
+  height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.back-arrow {
+  width: 25rpx;
+  height: 25rpx;
+  border-left: 5rpx solid #111827;
+  border-bottom: 5rpx solid #111827;
+  transform: rotate(45deg);
+  box-sizing: border-box;
+}

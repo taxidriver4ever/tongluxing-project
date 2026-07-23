@@ -173,6 +173,20 @@ public final class UserModels {
         }
     }
 
+    /** 当前用户与目标用户的关注关系及公开计数。 */
+    public record FollowStatusVO(
+            Long userId, Boolean following, Boolean followedByTarget, Boolean mutual,
+            Long followerCount, Long followingCount
+    ) {
+    }
+
+    /** 粉丝/关注列表中的公开用户摘要。 */
+    public record FollowUserVO(
+            Long userId, String nickname, String avatarImageKey, String certificationStatus,
+            Integer totalTripCount, Long totalDistanceMeters, LocalDateTime followedAt
+    ) {
+    }
+
     /**
      * 成长值概览返回对象。
      */
@@ -317,7 +331,7 @@ public final class UserModels {
      * 用户主页聚合数据返回对象。
      */
     public record UserHomepageVO(PublicProfileVO profile, GrowthSummaryVO growth, BadgeWallVO badges,
-                                 String ipProvince) {
+                                 String ipProvince, FollowStatusVO follow) {
     }
 
     /**

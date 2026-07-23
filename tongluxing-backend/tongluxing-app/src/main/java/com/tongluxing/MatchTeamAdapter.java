@@ -7,6 +7,9 @@ import org.springframework.stereotype.Component;
 import com.tongluxing.match.integration.MatchTeamPort;
 import com.tongluxing.team.entity.Team;
 import com.tongluxing.team.mapper.TeamMapper;
+import com.tongluxing.team.mapper.TeamJoinApplicationMapper;
+import com.tongluxing.team.mapper.TeamMemberMapper;
+import com.tongluxing.user.mapper.UserDomainMapper;
 import com.tongluxing.team.dto.JoinTeamApplicationRequest;
 import com.tongluxing.team.service.TeamService;
 
@@ -21,7 +24,10 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class MatchTeamAdapter implements MatchTeamPort {
     private final TeamMapper teamMapper;
+    private final TeamMemberMapper teamMemberMapper;
+    private final TeamJoinApplicationMapper applicationMapper;
     private final TeamService teamService;
+    private final UserDomainMapper userMapper;
 
     /**
      * 查询公开活跃车队，作为匹配推荐候选池。
@@ -43,9 +49,45 @@ public class MatchTeamAdapter implements MatchTeamPort {
     }
 
     @Override
-    public Long apply(Long teamId, String message) {
+    public boolean hasActiveMembershipOrPending(Long teamId, Long userId) {
+        var member = teamMemberMapper.findByTeamAndUser(teamId, userId);
+        return (member != null && "ACTIVE".equals(member.getMemberStatus()))
+                || applicationMapper.findPending(teamId, userId) != null;
+    }
+
+    @Override
+    public String relationshipStatus(Long teamId, Long userId) {
+        Team team = teamMapper.findById(teamId);
+        if (team != null && userId.equals(team.getOwnerUserId())) {
+            return "OWNER";
+        }
+        var member = teamMemberMapper.findByTeamAndUser(teamId, userId);
+        if (member != null && "ACTIVE".equals(member.getMemberStatus())) {
+            return "JOINED";
+        }
+        var application = applicationMapper.findLatest(teamId, userId);
+        return application == null ? "NONE" : application.getApplicationStatus();
+    }
+
+    @Override
+    public List<MatchMemberDTO> listPublicMembers(Long teamId, int limit) {
+        return teamMemberMapper.findActiveByTeamId(teamId).stream().limit(Math.max(1, Math.min(limit, 50)))
+                .map(member -> {
+                    var profile = userMapper.findProfile(member.getUserId());
+                    return new MatchMemberDTO(member.getUserId(),
+                            profile == null || profile.getNickname() == null || profile.getNickname().isBlank()
+                                    ? member.getNicknameSnapshot() : profile.getNickname(),
+                            profile == null ? null : profile.getAvatarImageKey(), member.getMemberRole(),
+                            profile == null ? "UNSUBMITTED" : profile.getCertificationStatus(),
+                            profile == null ? 0 : profile.getTotalTripCount(),
+                            profile == null ? 0L : profile.getTotalDistanceMeters());
+                }).toList();
+    }
+
+    @Override
+    public Long apply(Long teamId, String message, Long applicantVehicleId, String joinQuestionJson) {
         return Long.valueOf(teamService.apply(teamId,
-                new JoinTeamApplicationRequest(null, message, null)).applicationId());
+                new JoinTeamApplicationRequest(applicantVehicleId, message, joinQuestionJson)).applicationId());
     }
 
     /**
@@ -56,6 +98,7 @@ public class MatchTeamAdapter implements MatchTeamPort {
      */
     private MatchTeamDTO toDTO(Team team) {
         return new MatchTeamDTO(team.getId(), team.getTripId(), team.getOwnerUserId(), team.getTeamName(),
+                team.getTeamDesc(), team.getNotice(),
                 team.getStartName(), team.getEndName(), team.getDepartureTime(), team.getCurrentMemberCount(),
                 team.getMaxMemberCount());
     }

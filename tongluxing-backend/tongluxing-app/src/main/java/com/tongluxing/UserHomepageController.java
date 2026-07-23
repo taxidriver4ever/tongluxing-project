@@ -24,6 +24,7 @@ public class UserHomepageController {
         String province = ipProvinceResolver.resolve(
                 account == null ? null : account.getLastLoginIp(), profile.cityName());
         return Result.success(new UserHomepageVO(profile,
-                growthService.getSummary(userId), growthService.getBadgeWall(userId), province));
+                growthService.getSummary(userId), growthService.getBadgeWall(userId), province,
+                userService.getFollowStatus(userId)));
     }
 }

@@ -23,7 +23,9 @@ import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.user.mapper.UserDomainMapper;
+import com.tongluxing.user.mapper.UserFollowMapper;
 import com.tongluxing.user.dto.UserQueryDTO;
+import com.tongluxing.user.dto.UserFollowQueryDTO;
 import com.tongluxing.user.model.UserModels.CertificationRequest;
 import com.tongluxing.user.model.UserModels.CertificationVO;
 import com.tongluxing.user.model.UserModels.DrivingLicenseAuditDetailVO;
@@ -32,6 +34,8 @@ import com.tongluxing.user.model.UserModels.PageResult;
 import com.tongluxing.user.model.UserModels.PublicProfileVO;
 import com.tongluxing.user.model.UserModels.UpdateUserProfileRequest;
 import com.tongluxing.user.model.UserModels.UserProfileVO;
+import com.tongluxing.user.model.UserModels.FollowStatusVO;
+import com.tongluxing.user.model.UserModels.FollowUserVO;
 import com.tongluxing.user.service.UserService;
 import com.tongluxing.user.support.CurrentUserContext;
 
@@ -57,6 +61,7 @@ public class UserServiceImpl implements UserService {
 
     private final CurrentUserContext currentUserContext;
     private final UserDomainMapper mapper;
+    private final UserFollowMapper followMapper;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
 
@@ -228,6 +233,73 @@ public class UserServiceImpl implements UserService {
                 profile.cityName(), profile.bio(), profile.drivingLicenseCertificationStatus(),
                 row.getTotalTripCount(), row.getTotalDistanceMeters(), row.getTotalDurationMinutes(),
                 row.getCompletedWaypointCount());
+    }
+
+    @Override
+    @Transactional
+    public FollowStatusVO follow(Long userId) {
+        Long currentUserId = currentUserContext.requireUserId();
+        if (currentUserId.equals(userId)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "不能关注自己");
+        }
+        getPublicProfile(userId);
+        if (followMapper.exists(currentUserId, userId) == 0) {
+            try {
+                followMapper.insert(SnowflakeIdGenerator.nextId(), currentUserId, userId, LocalDateTime.now());
+            } catch (DuplicateKeyException ignored) {
+                // 并发重复关注按幂等成功处理。
+            }
+        }
+        return followStatus(currentUserId, userId);
+    }
+
+    @Override
+    @Transactional
+    public FollowStatusVO unfollow(Long userId) {
+        Long currentUserId = currentUserContext.requireUserId();
+        if (!currentUserId.equals(userId)) {
+            followMapper.delete(currentUserId, userId);
+        }
+        return followStatus(currentUserId, userId);
+    }
+
+    @Override
+    public FollowStatusVO getFollowStatus(Long userId) {
+        return followStatus(currentUserContext.requireUserId(), userId);
+    }
+
+    @Override
+    public List<FollowUserVO> getFollowers(Long userId, int page, int size) {
+        getPublicProfile(userId);
+        int safePage = Math.max(1, page);
+        int safeSize = Math.max(1, Math.min(size, 50));
+        return followMapper.followers(userId, (safePage - 1) * safeSize, safeSize).stream()
+                .map(this::followUser).toList();
+    }
+
+    @Override
+    public List<FollowUserVO> getFollowing(Long userId, int page, int size) {
+        getPublicProfile(userId);
+        int safePage = Math.max(1, page);
+        int safeSize = Math.max(1, Math.min(size, 50));
+        return followMapper.following(userId, (safePage - 1) * safeSize, safeSize).stream()
+                .map(this::followUser).toList();
+    }
+
+    private FollowStatusVO followStatus(Long currentUserId, Long targetUserId) {
+        boolean following = !currentUserId.equals(targetUserId)
+                && followMapper.exists(currentUserId, targetUserId) > 0;
+        boolean followedByTarget = !currentUserId.equals(targetUserId)
+                && followMapper.exists(targetUserId, currentUserId) > 0;
+        return new FollowStatusVO(targetUserId, following, followedByTarget,
+                following && followedByTarget, followMapper.countFollowers(targetUserId),
+                followMapper.countFollowing(targetUserId));
+    }
+
+    private FollowUserVO followUser(UserFollowQueryDTO row) {
+        return new FollowUserVO(row.getUserId(), row.getNickname(), row.getAvatarImageKey(),
+                row.getCertificationStatus(), row.getTotalTripCount(), row.getTotalDistanceMeters(),
+                row.getFollowedAt());
     }
 
     /**

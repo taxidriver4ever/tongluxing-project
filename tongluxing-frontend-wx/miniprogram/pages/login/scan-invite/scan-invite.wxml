@@ -1,5 +1,7 @@
 <view class="invite-page">
-  <view wx:if="{{profileMode}}" class="back" bindtap="back"><image src="/assets/icons/chevron-left.svg" /></view>
+  <view wx:if="{{profileMode}}" class="back" bindtap="back" aria-label="返回">
+    <view class="back-arrow"></view>
+  </view>
   <view wx:else class="skip-top" bindtap="skip">跳过</view>
   <view class="page-content">
     <view class="brand">同路行</view>

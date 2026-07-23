@@ -107,11 +107,14 @@ public interface TeamMapper {
      */
     @Update("""
             update team
-            set current_member_count = current_member_count + 1, updated_at = #{now}
+            set current_member_count = current_member_count + #{memberCount}, updated_at = #{now}
             where id = #{teamId} and team_status = 'ACTIVE' and deleted = 0
-              and current_member_count < max_member_count
+              and current_member_count + #{memberCount} <= max_member_count
             """)
-    int incrementMemberCount(@Param("teamId") Long teamId, @Param("now") LocalDateTime now);
+    int incrementMemberCount(
+            @Param("teamId") Long teamId,
+            @Param("memberCount") Integer memberCount,
+            @Param("now") LocalDateTime now);
 
     /**
      * 成员退出时扣减车队人数，保留队长至少一人。

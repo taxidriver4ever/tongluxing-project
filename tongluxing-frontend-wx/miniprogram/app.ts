@@ -1,6 +1,6 @@
 import { getCurrentUser } from "./api/auth"
-import { getToken, isInviteViewedLocally, isPasswordSetLocally } from "./utils/auth-storage"
-import { LOGIN_PAGE, onboardingRoute } from "./utils/onboarding"
+import { getToken, isPasswordSetLocally } from "./utils/auth-storage"
+import { authenticatedRoute, LOGIN_PAGE } from "./utils/onboarding"
 
 function currentRoute(): string {
   const pages = getCurrentPages()
@@ -15,9 +15,8 @@ async function bootstrap(): Promise<void> {
 
   try {
     const me = await getCurrentUser()
-    const route = onboardingRoute({
-      passwordSet: me.passwordSet || isPasswordSetLocally(),
-      miniInviteOnboardingCompleted: me.miniInviteOnboardingCompleted || isInviteViewedLocally()
+    const route = authenticatedRoute({
+      passwordSet: me.passwordSet || isPasswordSetLocally()
     })
     if (currentRoute() !== route) wx.reLaunch({ url: route })
   } catch (_error) {

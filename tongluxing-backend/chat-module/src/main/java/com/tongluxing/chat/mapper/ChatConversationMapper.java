@@ -48,7 +48,7 @@ public interface ChatConversationMapper {
             from chat_conversation c
             join chat_conversation_member m on m.conversation_id = c.id and m.deleted = 0
             where m.user_id = #{userId} and m.member_status = 'ACTIVE'
-              and c.conversation_status = 'ACTIVE' and c.deleted = 0
+              and c.conversation_status in ('ACTIVE','HISTORY') and c.deleted = 0
             <if test="title != null and title != ''">
               and lower(c.conversation_name) like concat('%', lower(#{title}), '%')
             </if>
@@ -92,4 +92,12 @@ public interface ChatConversationMapper {
             where id = #{conversationId} and conversation_status = 'ACTIVE' and deleted = 0
             """)
     int archive(@Param("conversationId") Long conversationId, @Param("now") LocalDateTime now);
+
+    /** 行程结束后转为历史群，保留成员、消息以及继续聊天能力。 */
+    @Update("""
+            update chat_conversation
+            set conversation_status='HISTORY', updated_at=#{now}
+            where id=#{conversationId} and conversation_status='ACTIVE' and deleted=0
+            """)
+    int markHistory(@Param("conversationId") Long conversationId, @Param("now") LocalDateTime now);
 }

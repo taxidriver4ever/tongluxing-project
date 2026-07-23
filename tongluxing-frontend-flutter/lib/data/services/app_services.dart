@@ -262,7 +262,7 @@ class TripService {
           body: {
             'departureTime': departureTime.toIso8601String(),
             'estimatedDays': estimatedDays,
-            if (excludeTripId != null) 'excludeTripId': excludeTripId,
+            'excludeTripId': excludeTripId,
           },
         )
         as Map,
@@ -483,6 +483,203 @@ class CompanionMatchService {
             )
             as Map,
       );
+}
+
+class TripDiscoveryService {
+  const TripDiscoveryService(this.api);
+  final ApiClient api;
+
+  Future<Map<String, dynamic>> discover({
+    String? keyword,
+    String sort = 'RECOMMENDED',
+    double? latitude,
+    double? longitude,
+    String? referenceTripId,
+    String? startCity,
+    String? destination,
+    DateTime? departureDateFrom,
+    DateTime? departureDateTo,
+    String? vehicleType,
+    int? minimumRemainingSeats,
+    int page = 1,
+    int size = 10,
+  }) async => Map<String, dynamic>.from(
+    await api.get(
+          '/v1/trips/discover',
+          query: {
+            if (keyword?.trim().isNotEmpty == true) 'keyword': keyword!.trim(),
+            'sort': sort,
+            if (latitude != null) 'latitude': latitude.toString(),
+            if (longitude != null) 'longitude': longitude.toString(),
+            if (referenceTripId?.isNotEmpty == true)
+              'referenceTripId': referenceTripId!,
+            if (startCity?.trim().isNotEmpty == true)
+              'startCity': startCity!.trim(),
+            if (destination?.trim().isNotEmpty == true)
+              'destination': destination!.trim(),
+            if (departureDateFrom != null)
+              'departureDateFrom': departureDateFrom
+                  .toIso8601String()
+                  .substring(0, 10),
+            if (departureDateTo != null)
+              'departureDateTo': departureDateTo.toIso8601String().substring(
+                0,
+                10,
+              ),
+            if (vehicleType?.isNotEmpty == true) 'vehicleType': vehicleType!,
+            if (minimumRemainingSeats != null)
+              'minimumRemainingSeats': minimumRemainingSeats.toString(),
+            'page': page.toString(),
+            'size': size.toString(),
+          },
+        )
+        as Map,
+  );
+
+  Future<TripPublicDetailModel> publicDetail(String tripId) async =>
+      TripPublicDetailModel.fromJson(
+        Map<String, dynamic>.from(
+          await api.get('/v1/trips/$tripId/public-detail') as Map,
+        ),
+      );
+
+  Future<bool> favorite(String tripId) async =>
+      await api.post('/v1/trips/$tripId/favorite') == true;
+
+  Future<bool> unfavorite(String tripId) async =>
+      await api.delete('/v1/trips/$tripId/favorite') == true;
+
+  Future<Map<String, dynamic>> consult(
+    String tripId, {
+    required String content,
+  }) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/trips/$tripId/consultations',
+          body: {'content': content},
+        )
+        as Map,
+  );
+
+  Future<Map<String, dynamic>> search({
+    required LocationSelection start,
+    required LocationSelection end,
+    required List<LocationSelection> waypoints,
+    required DateTime departureStart,
+    required DateTime departureEnd,
+    int radiusMeters = 50000,
+    int timeToleranceMinutes = 180,
+    int minimumRemainingSeats = 1,
+    String? vehicleType,
+    bool carpoolAllowed = false,
+    bool driverVerified = false,
+    String sortBy = 'MATCH_SCORE',
+    int page = 1,
+    int size = 20,
+  }) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/trips/search',
+          body: {
+            'startName': start.name,
+            'startLatitude': start.latitude,
+            'startLongitude': start.longitude,
+            'endName': end.name,
+            'endLatitude': end.latitude,
+            'endLongitude': end.longitude,
+            'waypoints': waypoints
+                .map(
+                  (point) => {
+                    'name': point.name,
+                    'latitude': point.latitude,
+                    'longitude': point.longitude,
+                  },
+                )
+                .toList(),
+            'departureStart': departureStart.toIso8601String(),
+            'departureEnd': departureEnd.toIso8601String(),
+            'radiusMeters': radiusMeters,
+            'timeToleranceMinutes': timeToleranceMinutes,
+            'minimumRemainingSeats': minimumRemainingSeats,
+            if (vehicleType?.isNotEmpty == true) 'vehicleType': vehicleType,
+            'carpoolAllowed': carpoolAllowed,
+            'driverVerified': driverVerified,
+            'sortBy': sortBy,
+            'page': page,
+            'size': size,
+          },
+        )
+        as Map,
+  );
+
+  Future<Map<String, dynamic>> detail(String tripId) async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/trips/$tripId/discovery-detail') as Map,
+      );
+
+  Future<TripApplicationModel> apply(
+    String tripId, {
+    required String message,
+    required bool selfDrive,
+    String? vehicleId,
+    int companionCount = 1,
+  }) async {
+    final data = Map<String, dynamic>.from(
+      await api.post(
+            '/v1/trips/$tripId/applications',
+            body: {
+              'message': message,
+              'selfDrive': selfDrive,
+              'applicantVehicleId': int.tryParse(vehicleId ?? ''),
+              'companionCount': companionCount,
+            },
+          )
+          as Map,
+    );
+    return TripApplicationModel(
+      applicationId: data['applicationId']?.toString() ?? '',
+      tripId: data['tripId']?.toString() ?? tripId,
+      applicantUserId: '',
+      status: data['status']?.toString() ?? 'PENDING',
+      message: message,
+      vehicleId: vehicleId,
+    );
+  }
+
+  Future<List<TripApplicationModel>> myApplications() async {
+    final data = await api.get('/v1/trips/applications/my');
+    return (data as List? ?? const [])
+        .map(
+          (e) => TripApplicationModel.fromJson(
+            Map<String, dynamic>.from(e as Map),
+          ),
+        )
+        .toList();
+  }
+
+  Future<List<TripApplicationModel>> tripApplications(String tripId) async {
+    final data = await api.get('/v1/trips/$tripId/applications');
+    return (data as List? ?? const [])
+        .map(
+          (e) => TripApplicationModel.fromJson(
+            Map<String, dynamic>.from(e as Map),
+          ),
+        )
+        .toList();
+  }
+
+  Future<TripApplicationModel> review(
+    String applicationId, {
+    required bool approve,
+    String? reason,
+  }) async => TripApplicationModel.fromJson(
+    Map<String, dynamic>.from(
+      await api.post(
+            '/v1/trips/applications/$applicationId/'
+            '${approve ? 'approve' : 'reject'}',
+            body: {'reason': reason ?? ''},
+          )
+          as Map,
+    ),
+  );
 }
 
 class SosService {

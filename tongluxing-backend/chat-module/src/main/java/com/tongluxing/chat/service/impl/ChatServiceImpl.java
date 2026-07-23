@@ -202,14 +202,14 @@ public class ChatServiceImpl implements ChatService {
             }
             conversation = conversationMapper.findByBiz("TRIP", tripId);
         }
-        if (conversation == null || !"ACTIVE".equals(conversation.getConversationStatus())) {
+        if (conversation == null || !List.of("ACTIVE", "HISTORY").contains(conversation.getConversationStatus())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "行程群聊尚未创建或已结束");
         }
         requireActiveMember(conversation.getId(), userId);
         return toConversationResponse(conversation);
     }
 
-    /** 行程结束后先保留结束通知，再退出成员、归档本地会话并按配置销毁云群组。 */
+    /** 行程结束后转为历史群：保留成员、云群组和全部消息，只关闭实时行程能力。 */
     @Override
     @Transactional
     public void closeTripConversation(Long tripId) {
@@ -217,13 +217,9 @@ public class ChatServiceImpl implements ChatService {
         if (conversation == null || !"ACTIVE".equals(conversation.getConversationStatus())) {
             return;
         }
-        persistSystemMessage(conversation.getId(), "行程已结束，群聊已归档，历史风险记录将按安全策略保留");
-        if ("TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()) {
-            tencentImService.destroyGroup(conversation.getProviderConversationKey());
-        }
+        persistSystemMessage(conversation.getId(), "该行程已结束，当前为历史车队群；仍可继续交流和查看历史消息");
         LocalDateTime now = LocalDateTime.now();
-        memberMapper.exitAll(conversation.getId(), now);
-        conversationMapper.archive(conversation.getId(), now);
+        conversationMapper.markHistory(conversation.getId(), now);
     }
 
     /** 查询当前用户参与的有效会话列表。 */
@@ -328,6 +324,36 @@ public class ChatServiceImpl implements ChatService {
             tencentImService.addGroupMember(conversation.getProviderConversationKey(), TencentImServiceImpl.toImUserId(userId));
         }
         return toMemberResponse(addMemberInternal(conversationId, userId, "MEMBER"));
+    }
+
+    @Override
+    @Transactional
+    public void addApprovedTripMember(Long tripId, Long userId) {
+        ChatConversation conversation = conversationMapper.findByBiz("TRIP", tripId);
+        if (conversation == null) {
+            TripResponse trip = tripService.getTrip(tripId);
+            List<Long> members = tripService.getMembers(tripId).stream()
+                    .filter(member -> "OWNER".equals(member.joinStatus()) || "APPROVED".equals(member.joinStatus()))
+                    .map(member -> Long.valueOf(member.userId()))
+                    .distinct()
+                    .toList();
+            prepareTripConversation(tripId, trip.title(), Long.valueOf(trip.userId()), members);
+            conversation = conversationMapper.findByBiz("TRIP", tripId);
+        }
+        if (conversation == null || !"ACTIVE".equals(conversation.getConversationStatus())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "行程群聊尚未就绪");
+        }
+        ChatConversationMember before = memberMapper.findByConversationAndUser(conversation.getId(), userId);
+        if (before != null && "ACTIVE".equals(before.getMemberStatus())) {
+            return;
+        }
+        if ("TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()
+                && StringUtils.hasText(conversation.getProviderConversationKey())) {
+            tencentImService.addGroupMember(conversation.getProviderConversationKey(),
+                    TencentImServiceImpl.toImUserId(userId));
+        }
+        addMemberInternal(conversation.getId(), userId, "MEMBER");
+        persistSystemMessage(conversation.getId(), publicName(userId) + " 已通过行程申请并加入群聊");
     }
 
     /** 当前用户退出会话，并同步移除腾讯云 IM 群成员。 */

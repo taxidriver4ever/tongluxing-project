@@ -2,6 +2,7 @@ package com.tongluxing.team.service.impl;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 import org.springframework.stereotype.Service;
 import org.springframework.context.ApplicationEventPublisher;
@@ -30,6 +31,8 @@ import com.tongluxing.team.vo.TeamMemberListResponse;
 import com.tongluxing.team.vo.TeamMemberResponse;
 import com.tongluxing.team.vo.TeamResponse;
 import com.tongluxing.user.support.CurrentUserContext;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import lombok.RequiredArgsConstructor;
 
@@ -49,6 +52,7 @@ public class TeamServiceImpl implements TeamService {
     private final TeamTripPort tripPort;
     private final CurrentUserContext currentUserContext;
     private final ApplicationEventPublisher eventPublisher;
+    private final ObjectMapper objectMapper;
 
     /**
      * 创建车队：校验行程归属和重复车队后，写入车队及队长成员。
@@ -120,6 +124,15 @@ public class TeamServiceImpl implements TeamService {
         if (team.getOwnerUserId().equals(userId)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "队长无需申请入队");
         }
+        TeamTripDTO trip = tripPort.getTrip(team.getTripId());
+        if (trip == null || !"PUBLISHED".equals(trip.status()) || !"ACTIVE".equals(team.getTeamStatus())
+                || !Integer.valueOf(1).equals(team.getPublicFlag())) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "行程当前不接受申请");
+        }
+        int requestedMembers = requestedMemberCount(request.joinQuestionJson());
+        if (team.getCurrentMemberCount() + requestedMembers > team.getMaxMemberCount()) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "剩余名额不足");
+        }
         TeamMember existedMember = memberMapper.findByTeamAndUser(teamId, userId);
         if (existedMember != null && "ACTIVE".equals(existedMember.getMemberStatus())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "你已经是该车队成员");
@@ -173,9 +186,14 @@ public class TeamServiceImpl implements TeamService {
         application.setReviewedAt(now);
         application.setUpdatedAt(now);
         if ("APPROVED".equals(status)) {
+            TeamTripDTO targetTrip = tripPort.getTrip(team.getTripId());
+            if (targetTrip == null || !"PUBLISHED".equals(targetTrip.status())) {
+                throw new BusinessException(ResultCode.BUSINESS_ERROR, "行程已停止招募，不能通过申请");
+            }
             // 仅当目标行程已经进行中时，校验申请人是否正在其他行程中。
             ensureNoOtherRunningTrip(application.getApplicantUserId(), team.getTripId());
-            int incremented = teamMapper.incrementMemberCount(team.getId(), now);
+            int requestedMembers = requestedMemberCount(application.getJoinQuestionJson());
+            int incremented = teamMapper.incrementMemberCount(team.getId(), requestedMembers, now);
             if (incremented == 0) {
                 throw new BusinessException(ResultCode.BUSINESS_ERROR, "车队已满或不可加入");
             }
@@ -185,6 +203,27 @@ public class TeamServiceImpl implements TeamService {
         eventPublisher.publishEvent(new TeamApplicationReviewedEvent(team.getId(), team.getTripId(),
                 application.getApplicantUserId(), status));
         return toApplicationResponse(application);
+    }
+
+    @Override
+    public List<TeamApplicationResponse> getMyApplications() {
+        return applicationMapper.findByApplicantUserId(currentUserContext.requireUserId()).stream()
+                .map(this::toApplicationResponse)
+                .toList();
+    }
+
+    @Override
+    public List<TeamApplicationResponse> getTripApplications(Long tripId) {
+        Team team = teamMapper.findAnyActiveByTripId(tripId);
+        if (team == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "行程车队不存在");
+        }
+        if (!team.getOwnerUserId().equals(currentUserContext.requireUserId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "仅队长可查看申请列表");
+        }
+        return applicationMapper.findByTripId(tripId).stream()
+                .map(this::toApplicationResponse)
+                .toList();
     }
 
     /**
@@ -255,6 +294,24 @@ public class TeamServiceImpl implements TeamService {
         member.setCreatedAt(now);
         member.setUpdatedAt(now);
         memberMapper.insert(member);
+    }
+
+    /**
+     * 申请中的同行人数计入车队容量；旧申请或非法值按一人处理。
+     */
+    private int requestedMemberCount(String joinQuestionJson) {
+        if (!StringUtils.hasText(joinQuestionJson)) {
+            return 1;
+        }
+        try {
+            JsonNode count = objectMapper.readTree(joinQuestionJson).get("companionCount");
+            if (count == null || !count.canConvertToInt()) {
+                return 1;
+            }
+            return Math.max(1, Math.min(count.asInt(), 8));
+        } catch (Exception ignored) {
+            return 1;
+        }
     }
 
     /**

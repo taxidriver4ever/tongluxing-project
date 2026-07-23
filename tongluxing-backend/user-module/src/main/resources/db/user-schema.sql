@@ -67,6 +67,28 @@ create table if not exists user_statistics (
     primary key (user_id)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
 
+create table if not exists user_follow (
+    id bigint not null,
+    follower_user_id bigint not null,
+    followed_user_id bigint not null,
+    created_at datetime not null default current_timestamp,
+    primary key (id),
+    unique key uk_user_follow_relation (follower_user_id, followed_user_id),
+    key idx_user_follow_followed (followed_user_id, created_at),
+    key idx_user_follow_follower (follower_user_id, created_at)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+
+create table if not exists user_follow (
+    id bigint not null,
+    follower_user_id bigint not null,
+    followed_user_id bigint not null,
+    created_at datetime not null default current_timestamp,
+    primary key (id),
+    unique key uk_user_follow_relation (follower_user_id, followed_user_id),
+    key idx_user_follow_followed (followed_user_id, created_at),
+    key idx_user_follow_follower (follower_user_id, created_at)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
+
 create table if not exists user_statistics (
     user_id bigint not null,
     total_trip_count int not null default 0,

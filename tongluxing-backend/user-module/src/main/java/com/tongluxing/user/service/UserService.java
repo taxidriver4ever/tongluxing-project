@@ -8,6 +8,9 @@ import com.tongluxing.user.model.UserModels.PageResult;
 import com.tongluxing.user.model.UserModels.PublicProfileVO;
 import com.tongluxing.user.model.UserModels.UpdateUserProfileRequest;
 import com.tongluxing.user.model.UserModels.UserProfileVO;
+import com.tongluxing.user.model.UserModels.FollowStatusVO;
+import com.tongluxing.user.model.UserModels.FollowUserVO;
+import java.util.List;
 
 /**
  * 用户模块业务服务接口。
@@ -57,4 +60,14 @@ public interface UserService {
      * 仅供已完成会话成员权限校验的内部模块调用。</p>
      */
     PublicProfileVO getChatMemberProfile(Long userId);
+
+    FollowStatusVO follow(Long userId);
+
+    FollowStatusVO unfollow(Long userId);
+
+    FollowStatusVO getFollowStatus(Long userId);
+
+    List<FollowUserVO> getFollowers(Long userId, int page, int size);
+
+    List<FollowUserVO> getFollowing(Long userId, int page, int size);
 }

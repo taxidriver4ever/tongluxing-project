@@ -1,5 +1,7 @@
 package com.tongluxing.team.service;
 
+import java.util.List;
+
 import com.tongluxing.team.dto.CreateTeamRequest;
 import com.tongluxing.team.dto.JoinTeamApplicationRequest;
 import com.tongluxing.team.dto.ReviewTeamApplicationRequest;
@@ -36,6 +38,12 @@ public interface TeamService {
      * 审批入队申请。
      */
     TeamApplicationResponse review(Long applicationId, ReviewTeamApplicationRequest request);
+
+    /** 查询当前用户提交的入队申请。 */
+    List<TeamApplicationResponse> getMyApplications();
+
+    /** 队长查询自己指定行程收到的申请。 */
+    List<TeamApplicationResponse> getTripApplications(Long tripId);
 
     /**
      * 成员退出车队。

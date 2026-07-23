@@ -8,6 +8,7 @@ import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
+import '../../../data/services/follow_service.dart';
 import '../widgets/user_avatar.dart';
 
 class PublicProfilePage extends StatefulWidget {
@@ -22,6 +23,7 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
   Map<String, dynamic>? data;
   String? error;
   String avatarUrl = '';
+  bool followBusy = false;
 
   bool get isOwner =>
       widget.userId == context.read<AppSession>().userId?.toString();
@@ -48,6 +50,34 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
       error = e.toString();
     }
     if (mounted) setState(() {});
+  }
+
+  Future<void> _toggleFollow() async {
+    if (isOwner || followBusy) return;
+    final follow = Map<String, dynamic>.from(
+      data?['follow'] as Map? ?? const {},
+    );
+    final currentlyFollowing = follow['following'] == true;
+    setState(() => followBusy = true);
+    try {
+      final service = FollowService(context.read<AppSession>().api);
+      final value = currentlyFollowing
+          ? await service.unfollow(widget.userId)
+          : await service.follow(widget.userId);
+      if (!mounted) return;
+      data = {...?data, 'follow': value};
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(value['following'] == true ? '已关注' : '已取消关注')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      if (mounted) setState(() => followBusy = false);
+    }
   }
 
   Future<bool> _editProfile() async {
@@ -84,6 +114,9 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
       data?['badges'] as Map? ?? const {},
     );
     final earned = badges['earned'] as List? ?? const [];
+    final follow = Map<String, dynamic>.from(
+      data?['follow'] as Map? ?? const {},
+    );
     return Scaffold(
       appBar: AppBar(
         title: const Text('个人主页'),
@@ -166,20 +199,34 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                           ),
                         ],
                       ),
+                      if (!isOwner) ...[
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: 150,
+                          child: follow['following'] == true
+                              ? OutlinedButton.icon(
+                                  onPressed: followBusy ? null : _toggleFollow,
+                                  icon: const Icon(LucideIcons.userRoundCheck),
+                                  label: Text(
+                                    follow['mutual'] == true ? '互相关注' : '已关注',
+                                  ),
+                                )
+                              : FilledButton.icon(
+                                  onPressed: followBusy ? null : _toggleFollow,
+                                  icon: const Icon(LucideIcons.userRoundPlus),
+                                  label: const Text('关注'),
+                                ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
                 const SizedBox(height: 18),
                 Row(
                   children: [
-                    _Stat('出行次数', '${p['totalTripCount'] ?? 0}', '次'),
-                    _Stat(
-                      '累计里程',
-                      (((p['totalDistanceMeters'] as num?) ?? 0) / 1000)
-                          .toStringAsFixed(1),
-                      'km',
-                    ),
-                    _Stat('经停点', '${p['completedWaypointCount'] ?? 0}', '个'),
+                    _Stat('关注', '${follow['followingCount'] ?? 0}', '人'),
+                    _Stat('粉丝', '${follow['followerCount'] ?? 0}', '人'),
+                    _Stat('出行', '${p['totalTripCount'] ?? 0}', '次'),
                   ],
                 ),
                 const SizedBox(height: 18),

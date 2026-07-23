@@ -31,7 +31,7 @@ public interface ChatService {
     /** 查询当前成员可访问的行程群聊。 */
     ConversationResponse getTripConversation(Long tripId);
 
-    /** 行程结束时写入系统消息并归档群聊。 */
+    /** 行程结束时写入系统消息并转换为可继续聊天的历史群。 */
     void closeTripConversation(Long tripId);
 
     /** 查询当前登录用户参与的有效会话。 */
@@ -45,6 +45,9 @@ public interface ChatService {
 
     /** 添加用户为会话成员。 */
     ConversationMemberResponse addMember(Long conversationId, Long userId);
+
+    /** 行程入队申请通过后，由内部事件授予对应群聊成员权限。 */
+    void addApprovedTripMember(Long tripId, Long userId);
 
     /** 当前登录用户退出会话。 */
     void exitMe(Long conversationId);

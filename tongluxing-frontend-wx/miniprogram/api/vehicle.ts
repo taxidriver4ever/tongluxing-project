@@ -67,9 +67,16 @@ export interface VehicleAuthSubmitRequest {
   vehicleModel: string
   plateNumber: string
   vehicleColor: string
-  driverLicenseImages: string[]
+  driverLicenseImages?: string[]
   registrationLicenseImages: string[]
   vehicleImages: string[]
+}
+
+
+export interface VehicleAuthEligibility {
+  eligible: boolean
+  status: string
+  reason: string
 }
 
 export interface VehicleAuthStatus {
@@ -130,7 +137,11 @@ export function getPublicVehicleCard(vehicleId: number): Promise<PublicVehicleCa
   return request<PublicVehicleCard>("/v1/vehicles/" + vehicleId + "/public-card")
 }
 
-/** 产品车辆认证闭环提交接口；当前图片按普通 URL/临时路径保存。 */
+export function getVehicleAuthEligibility(plateNumber: string): Promise<VehicleAuthEligibility> {
+  return request<VehicleAuthEligibility>("/v1/vehicle/auth/eligibility?plateNumber=" + encodeURIComponent(plateNumber))
+}
+
+/** 产品车辆认证闭环提交接口。图片先上传对象存储，再提交 objectKey。 */
 export function submitVehicleAuth(data: VehicleAuthSubmitRequest): Promise<VehicleAuthStatus> {
   return request<VehicleAuthStatus>("/v1/vehicle/auth/submit", { method: "POST", data })
 }

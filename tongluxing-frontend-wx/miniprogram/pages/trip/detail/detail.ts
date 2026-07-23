@@ -1,4 +1,6 @@
 import { Trip, getTrip } from "../../../api/trip"
+import { getTripConversation } from "../../../api/chat"
+import { promptDownloadApp } from "../../../utils/app-download"
 
 interface TripDetailView extends Trip {
   distanceText: string
@@ -25,7 +27,15 @@ Page({
   },
   back() { wx.navigateBack({ fail: () => wx.reLaunch({ url: "/pages/trip/trip" }) }) },
   editRoute() { wx.navigateTo({ url: "/pages/trip/create/create" }) },
-  members() { wx.navigateTo({ url: "/pages/team/members/members" }) },
-  chat() { wx.navigateTo({ url: "/pages/chat/session/session?id=CHAT01" }) },
-  start() { if (this.data.trip) wx.navigateTo({ url: "/pages/trip/start/start?tripId=" + this.data.trip.tripId }) }
+  members() { if (this.data.trip) wx.navigateTo({ url: "/pages/team/members/members?tripId=" + this.data.trip.tripId }) },
+  async chat() {
+    if (!this.data.trip) return
+    try {
+      const conversation = await getTripConversation(this.data.trip.tripId)
+      wx.navigateTo({ url: "/pages/chat/session/session?id=" + conversation.conversationId })
+    } catch (error) {
+      wx.showToast({ title: error instanceof Error ? error.message : "该行程暂未创建群聊", icon: "none" })
+    }
+  },
+  start() { promptDownloadApp("开启行程和实时导航") }
 })

@@ -1,1 +1,19 @@
-<view class="invite-page"><view class="back" bindtap="goBack"><image src="/assets/icons/chevron-left.svg" /></view><view class="status-space"></view><view class="page-content"><view class="brand">同路行</view><view class="form-card"><view class="title">填写邀请信息</view><view class="desc"><view>扫描邀请二维码</view><view>加入同路行社区</view></view><view class="scan-box" bindtap="scan"><image class="scan-icon" style="width:57rpx;height:57rpx" src="/assets/icons/scan-line.svg"/><view>从手机相册选择二维码</view></view><view class="action" bindtap="scan">扫描邀请码</view><view class="skip" bindtap="skip">暂时跳过</view></view></view></view>
+<view class="invite-page">
+  <view wx:if="{{profileMode}}" class="back" bindtap="back"><image src="/assets/icons/chevron-left.svg" /></view>
+  <view wx:else class="skip-top" bindtap="skip">跳过</view>
+  <view class="page-content">
+    <view class="brand">同路行</view>
+    <view class="form-card">
+      <view class="title">填写邀请码</view>
+      <view class="desc">可从相册选择邀请二维码，也可以直接输入邀请码</view>
+      <view class="scan-box" bindtap="chooseFromAlbum">
+        <image src="/assets/icons/scan-line.svg"/>
+        <view>从手机相册选择二维码</view>
+      </view>
+      <view class="or"><view></view><text>或直接输入</text><view></view></view>
+      <input class="field" maxlength="16" placeholder="请输入邀请码" value="{{code}}" bindinput="codeInput" confirm-type="done" bindconfirm="submit" />
+      <button class="action" loading="{{loading}}" disabled="{{loading}}" bindtap="submit">验证并绑定</button>
+      <view wx:if="{{!profileMode}}" class="skip-bottom" bindtap="skip">暂时跳过</view>
+    </view>
+  </view>
+</view>

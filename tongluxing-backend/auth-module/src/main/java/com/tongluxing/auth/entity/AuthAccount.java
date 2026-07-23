@@ -24,6 +24,9 @@ public class AuthAccount {
     /** 账号状态：1 正常，2 禁用。 */
     private Integer accountStatus;
 
+    /** 小程序邀请码引导是否已完成：0 未完成，1 已进入过邀请码页。 */
+    private Integer miniInviteOnboardingCompleted;
+
     /** 最近一次登录时间。 */
     private LocalDateTime lastLoginTime;
 

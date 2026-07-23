@@ -1,1 +1,39 @@
-<view class="invite-page"><view class="header"><view class="back" bindtap="back"><image src="/assets/icons/chevron-left.svg"/></view><view class="header-title">邀请好友</view><view></view></view><scroll-view scroll-y class="page"><view class="hero"><view class="road"><view class="tree left"></view><view class="tree right"></view><view class="car-body"><view class="person p1">林</view><view class="person p2">陈</view><view class="person p3">周</view></view></view></view><view class="intro">邀请同行伙伴加入同路行，<view>一起出发，分享每一段自驾旅程。</view><view class="invite-code" bindtap="copy">我的邀请码 <text>TLX2026</text></view></view><view class="wave"></view><view class="summary"><view class="summary-item"><view class="summary-value">12</view><view class="summary-label">累计邀请好友</view></view><view class="summary-item"><view class="summary-value">600</view><view class="summary-label">已获得成长值</view></view><view class="reward"><text>好友注册 <text class="reward-value">+50</text></text><text>完成首次行程 <text class="reward-value">+100</text></text></view></view><view class="section-title">已邀请好友</view><view class="invite-list"><view wx:for="{{friends}}" wx:key="name" class="invite-row"><view class="avatar">{{item.avatar}}</view><view class="person-info"><view class="person-name">{{item.name}}</view><view class="person-date">{{item.date}}</view></view><view class="state {{item.joined ? 'joined' : ''}}">{{item.joined ? '已加入' : '3 天后失效'}}<view wx:if="{{!item.joined}}">发送提醒</view></view></view></view><button class="btn" open-type="share">生成邀请二维码</button></scroll-view></view>
+<view class="page-shell invite-page">
+  <td-topbar title="邀请好友" />
+  <scroll-view scroll-y class="page-content">
+    <view wx:if="{{loading}}" class="state card">正在生成邀请二维码…</view>
+    <view wx:elif="{{error}}" class="state card"><text>{{error}}</text><view class="retry" bindtap="load">重新加载</view></view>
+    <block wx:elif="{{code && qr && summary}}">
+      <view class="hero">
+        <view class="hero-title">邀请好友一起出发</view>
+        <view class="hero-copy">好友完成注册后，你将获得成长值</view>
+        <view class="qr-box"><image src="{{qrImage}}" mode="aspectFit" /></view>
+        <view class="code" bindtap="copyCode">邀请码　{{code.inviteCode}}</view>
+        <view class="expire">有效至 {{expiresText}} · 每 7 天自动更换</view>
+      </view>
+
+      <view class="metrics card">
+        <view><text>{{summary.validInviteCount || 0}}</text><label>有效邀请</label></view>
+        <view><text>{{summary.nextRewardNeed || 0}}</text><label>下一档还差</label></view>
+        <view><text>{{summary.grantedRuleCodes.length}}</text><label>已获规则</label></view>
+      </view>
+
+      <view class="actions">
+        <view class="primary" bindtap="saveQr"><image src="/assets/icons/download.svg" />保存二维码</view>
+        <view class="secondary" bindtap="copyLink"><image src="/assets/icons/copy.svg" />复制邀请链接</view>
+      </view>
+
+      <view class="guide card">
+        <view class="guide-title"><image src="/assets/icons/info.svg" />邀请奖励使用教程</view>
+        <view class="step"><view class="num">1</view><view><text>保存邀请二维码</text><label>点击上方按钮，图片会真实保存到手机相册。</label></view></view>
+        <view class="step"><view class="num">2</view><view><text>把二维码发给好友</text><label>好友可以从相册选择二维码，也可以直接扫码识别。</label></view></view>
+        <view class="step"><view class="num">3</view><view><text>好友完成注册并设置密码</text><label>首次注册必须设置密码，随后可以绑定你的邀请码。</label></view></view>
+        <view class="step"><view class="num">4</view><view><text>系统自动绑定并发放奖励</text><label>邀请码验签成功后自动绑定，无需上传截图审核。</label></view></view>
+      </view>
+
+      <view class="validate" bindtap="validate">验证当前二维码是否有效</view>
+      <button class="share" open-type="share">分享给微信好友</button>
+      <view class="safe-tip">二维码带有服务端签名，过期、被篡改或已停用时会被拒绝。</view>
+    </block>
+  </scroll-view>
+</view>

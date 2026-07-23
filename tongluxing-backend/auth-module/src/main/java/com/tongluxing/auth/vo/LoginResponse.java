@@ -14,6 +14,8 @@ public record LoginResponse(
         Boolean isNewUser,
         /** 当前账号是否已经设置密码。 */
         Boolean passwordSet,
+        /** 小程序邀请码引导是否已经完成。 */
+        Boolean miniInviteOnboardingCompleted,
         /** access token 有效期，单位秒。 */
         Integer expireSeconds
 ) {

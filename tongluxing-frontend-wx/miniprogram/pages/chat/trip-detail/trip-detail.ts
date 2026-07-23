@@ -1,3 +1,3 @@
-import { CoreTrip, getMockTrip } from "../../../data/mock-core"
-
-Page({ data: { trip: {} as CoreTrip }, onLoad() { getMockTrip("T1001").then(trip => this.setData({ trip })) }, open() { wx.navigateTo({ url: "/pages/trip/detail/detail?tripId=T1001" }) } })
+import { Trip, getTrip } from "../../../api/trip"
+interface TripView extends Trip{distanceText:string;durationText:string;statusText:string}
+Page({data:{loading:true,trip:null as TripView|null},onLoad(options:Record<string,string>){void this.load(String(options.tripId||""))},async load(id:string){if(!id){wx.showToast({title:"缺少行程编号",icon:"none"});return}try{const trip=await getTrip(id);this.setData({trip:{...trip,distanceText:Math.round((trip.routeDistance||0)/1000)+" km",durationText:((trip.routeDuration||0)/3600).toFixed(1)+" h",statusText:({PUBLISHED:"招募中",READY:"待出发",ONGOING:"进行中",ENDED:"已结束",SETTLED:"已结算",CANCELLED:"已取消"} as Record<string,string>)[trip.status]||trip.status}})}catch(error){wx.showToast({title:error instanceof Error?error.message:"行程加载失败",icon:"none"})}finally{this.setData({loading:false})}},open(){if(this.data.trip)wx.navigateTo({url:"/pages/trip/detail/detail?tripId="+this.data.trip.tripId})}})

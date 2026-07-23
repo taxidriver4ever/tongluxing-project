@@ -1,12 +1,14 @@
 <view class="message-page">
-  <scroll-view scroll-y class="page">
-    <view class="header" style="padding-top:{{contentTop}}px"><view class="title">消息</view><view class="actions"><view class="circle" bindtap="friendRequests"><image src="/assets/icons/users-round.svg"/><view class="notice">2</view></view></view></view>
-    <view class="search"><image src="/assets/icons/search.svg"/><text>搜索聊天记录</text></view>
-    <view class="list">
-      <view wx:for="{{chats}}" wx:key="id" class="item" data-id="{{item.id}}" bindtap="open"><view class="avatar">{{item.avatar}}</view><view class="content"><view class="name">{{item.title}}</view><view class="preview">{{item.preview}}</view></view><view class="right"><view class="time">{{item.time}}</view><view wx:if="{{item.unread}}" class="badge">{{item.unread}}</view></view></view>
-      <view class="item" bindtap="friendRequests"><view class="avatar"><image src="/assets/icons/users-round.svg"/></view><view class="content"><view class="name">好友申请</view><view class="preview">张三请求添加你为好友</view></view><view class="right"><view class="badge">2</view></view></view>
-    </view>
-    <view class="tab-spacer"></view>
-  </scroll-view>
-  <td-tabbar active="message"/>
+  <view class="page" style="padding-top:{{contentTop}}px">
+    <view class="header"><view class="title">消息</view><view class="circle" bindtap="friendRequests"><image src="/assets/icons/user-plus.svg"/></view></view>
+    <view class="search"><image src="/assets/icons/search.svg"/><input placeholder="搜索会话标题" value="{{keyword}}" bindinput="search"/><image wx:if="{{keyword}}" class="clear" src="/assets/icons/x.svg" bindtap="clear"/></view>
+    <view wx:if="{{loading}}" class="state">正在加载会话…</view>
+    <view wx:elif="{{!chats.length}}" class="state"><image src="/assets/icons/message-circle.svg"/><view class="state-title">{{keyword ? '没有匹配的会话标题' : '暂时没有行程群聊'}}</view><view>{{keyword ? '换一个标题关键词试试' : '发布行程或加入车队后，可在这里与同行成员沟通'}}</view></view>
+    <scroll-view wx:else scroll-y class="list">
+      <view wx:for="{{chats}}" wx:key="conversationId" class="item {{item.pinned ? 'pinned' : ''}}" data-id="{{item.conversationId}}" bindtap="open" bindlongpress="togglePin">
+        <view class="avatar">{{item.avatarText}}</view><view class="content"><view class="name-row"><view class="name">{{item.conversationName}}</view><view class="time">{{item.displayTime}}</view></view><view class="preview">{{item.lastMessagePreview || '暂无新消息'}}</view></view><view wx:if="{{item.unreadCount}}" class="badge">{{item.unreadCount}}</view>
+      </view>
+      <view class="tab-spacer"></view>
+    </scroll-view>
+  </view><td-tabbar active="message"/>
 </view>

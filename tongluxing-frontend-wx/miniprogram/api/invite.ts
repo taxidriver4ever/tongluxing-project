@@ -13,6 +13,21 @@ export interface InviteCode {
   enabled: boolean
 }
 
+
+export interface InviteQr {
+  inviteCode: string
+  qrToken: string
+  qrContent: string
+  qrImageBase64: string
+  generatedAt: string
+  expiresAt: string
+  remainingSeconds: number
+}
+
+export function getMyInviteQr(): Promise<InviteQr> {
+  return request<InviteQr>("/v1/invites/me/qr")
+}
+
 export interface InviteBindRequest {
   inviteCode: string
 }
@@ -73,4 +88,19 @@ export function getInvitationList(status?: string, page: number = 1, size: numbe
 
 export function getInviteRewardProgress(): Promise<InviteRewardProgress> {
   return request<InviteRewardProgress>("/v1/invites/me/rewards")
+}
+
+export interface InviteQrValidation {
+  valid: boolean
+  status: string
+  inviteCode: string | null
+  expiresAt: string | null
+}
+
+export function validateInviteQr(token: string): Promise<InviteQrValidation> {
+  return request<InviteQrValidation>("/v1/invites/qr/validate?token=" + encodeURIComponent(token))
+}
+
+export function bindInviteCode(inviteCode: string): Promise<InviteBindResult> {
+  return bindInvite({ inviteCode })
 }

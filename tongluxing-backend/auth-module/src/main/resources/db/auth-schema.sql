@@ -3,6 +3,7 @@ create table if not exists auth_account (
     user_id bigint not null,
     phone varchar(20) not null,
     account_status tinyint not null default 1 comment '1 normal, 2 disabled',
+    mini_invite_onboarding_completed tinyint not null default 0 comment '0 pending, 1 completed',
     last_login_time datetime null,
     last_login_ip varchar(64) null,
     created_at datetime not null,
@@ -83,9 +84,9 @@ create table if not exists auth_user_role (
 -- App 小闭环联调账号：13888888888 / 12345678。
 -- 密码只保存 BCrypt hash，不在数据库保存明文。
 insert ignore into auth_account
-    (id, user_id, phone, account_status, created_at, updated_at, deleted)
+    (id, user_id, phone, account_status, mini_invite_onboarding_completed, created_at, updated_at, deleted)
 values
-    (900000000000000001, 900000000000000101, '13888888888', 1, now(), now(), 0);
+    (900000000000000001, 900000000000000101, '13888888888', 1, 1, now(), now(), 0);
 
 insert ignore into auth_password_credential
     (id, user_id, password_hash, password_version, password_status,

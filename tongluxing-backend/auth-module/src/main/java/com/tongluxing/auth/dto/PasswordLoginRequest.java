@@ -11,13 +11,13 @@ public record PasswordLoginRequest(
         String phone,
 
         @NotBlank(message = "密码不能为空")
-        @Size(min = 8, max = 32, message = "密码长度需为8-32位")
+        @Size(min = 6, max = 32, message = "密码长度需为6-32位")
         String password,
 
         String deviceId,
 
         /** 客户端类型只用于设备审计；所有客户端统一执行账号级单点登录。 */
-        @Pattern(regexp = "APP_DRIVER|MERCHANT_WEB", message = "客户端类型不正确")
+        @Pattern(regexp = "APP_DRIVER|MERCHANT_WEB|MINI_PROGRAM", message = "客户端类型不正确")
         String clientType
 ) {
 }

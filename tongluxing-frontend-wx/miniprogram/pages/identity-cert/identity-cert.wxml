@@ -1,41 +1,5 @@
-<view class="page-shell identity-page">
-  <td-topbar title="实名认证" placeholder="提交真实姓名和证件信息" action="证" />
-  <scroll-view scroll-y class="page-content">
-    <view class="status-card card">
-      <view class="status-title">当前实名状态</view>
-      <view class="pill {{status === 'APPROVED' ? 'green' : status === 'PENDING' ? 'orange' : status === 'REJECTED' ? 'red' : ''}}">
-        {{status === 'APPROVED' ? '已实名' : status === 'PENDING' ? '审核中' : status === 'REJECTED' ? '审核拒绝' : '未提交'}}
-      </view>
-      <view wx:if="{{idCardNoMask}}" class="status-sub">证件号：{{idCardNoMask}}</view>
-      <view wx:if="{{rejectReason}}" class="reject-text">拒绝原因：{{rejectReason}}</view>
-    </view>
-
-    <view class="form-card card">
-      <view class="field">
-        <view class="label">真实姓名</view>
-        <input class="input" value="{{form.realName}}" data-field="realName" bindinput="onInput" maxlength="64" placeholder="请输入真实姓名" disabled="{{status === 'PENDING' || status === 'APPROVED'}}" />
-      </view>
-      <view class="field">
-        <view class="label">身份证号</view>
-        <input class="input" value="{{form.idCardNo}}" data-field="idCardNo" bindinput="onInput" placeholder="请输入身份证号" disabled="{{status === 'PENDING' || status === 'APPROVED'}}" />
-      </view>
-      <view class="field">
-        <view class="label">行驶证图片标识</view>
-        <input class="input" value="{{form.drivingLicenseImageKey}}" data-field="drivingLicenseImageKey" bindinput="onInput" placeholder="ImageKey，例如 cert/license.jpg" disabled="{{status === 'PENDING' || status === 'APPROVED'}}" />
-      </view>
-      <view class="field">
-        <view class="label">人脸图片标识</view>
-        <input class="input" value="{{form.faceImageKey}}" data-field="faceImageKey" bindinput="onInput" placeholder="/static/upload/cert.jpg" disabled="{{status === 'PENDING' || status === 'APPROVED'}}" />
-      </view>
-    </view>
-
-    <view class="notice">
-      <view class="notice-title">隐私保护</view>
-      <view>身份证号会加密保存，页面只展示脱敏结果。审核中不允许重复提交。</view>
-    </view>
-
-    <view wx:if="{{status !== 'PENDING' && status !== 'APPROVED'}}" class="btn submit-btn {{loading ? 'gray' : ''}}" bindtap="onSubmit">
-      {{loading ? '提交中...' : '提交实名认证'}}
-    </view>
-  </scroll-view>
-</view>
+<view class="page-shell identity-page"><td-topbar title="驾驶证认证"/><view class="page-content">
+ <view class="status-card card"><view class="status-row"><view><view class="status-title">当前认证状态</view><view class="status-sub">认证后可在公开主页展示驾驶资质</view></view><view class="pill {{status === 'APPROVED' ? 'green' : status === 'PENDING' ? 'orange' : status === 'REJECTED' ? 'red' : ''}}">{{status === 'APPROVED' ? '已认证' : status === 'PENDING' ? '审核中' : status === 'REJECTED' ? '审核拒绝' : '未提交'}}</view></view><view wx:if="{{rejectReason}}" class="reject-text">拒绝原因：{{rejectReason}}</view></view>
+ <view class="form-card card"><view class="field"><view class="label">驾驶证姓名</view><input class="input" value="{{form.holderName}}" data-field="holderName" bindinput="onInput" maxlength="64" placeholder="请输入驾驶证上的姓名" disabled="{{status === 'PENDING' || status === 'APPROVED'}}"/></view><view class="field"><view class="label">驾驶证号</view><input class="input" value="{{form.licenseNo}}" data-field="licenseNo" bindinput="onInput" placeholder="请输入驾驶证号" disabled="{{status === 'PENDING' || status === 'APPROVED'}}"/></view><view class="field"><view class="label">准驾车型</view><input class="input" value="{{form.vehicleClass}}" data-field="vehicleClass" bindinput="onInput" placeholder="如：C1" disabled="{{status === 'PENDING' || status === 'APPROVED'}}"/></view><view class="field"><view class="label">签发机关（选填）</view><input class="input" value="{{form.issuingAuthority}}" data-field="issuingAuthority" bindinput="onInput" placeholder="请输入签发机关" disabled="{{status === 'PENDING' || status === 'APPROVED'}}"/></view><view class="images"><view class="upload" data-side="front" bindtap="choose"><image wx:if="{{frontPath}}" src="{{frontPath}}" mode="aspectFill"/><block wx:else><image class="upload-icon" src="/assets/icons/contact.svg"/><text>驾驶证正面（必填）</text></block></view><view class="upload" data-side="back" bindtap="choose"><image wx:if="{{backPath}}" src="{{backPath}}" mode="aspectFill"/><block wx:else><image class="upload-icon" src="/assets/icons/file-pen-line.svg"/><text>驾驶证背面（必填）</text></block></view></view></view>
+ <view class="notice"><view class="notice-title">资料安全</view><view>驾驶证号会加密保存，审核页面只展示脱敏信息。认证审核中或已通过时不能重复提交。</view></view><view wx:if="{{status !== 'PENDING' && status !== 'APPROVED'}}" class="primary-btn submit-btn {{loading ? 'disabled' : ''}}" bindtap="onSubmit">{{loading ? '提交中…' : status === 'REJECTED' ? '重新提交认证' : '提交驾驶证认证'}}</view>
+</view></view>

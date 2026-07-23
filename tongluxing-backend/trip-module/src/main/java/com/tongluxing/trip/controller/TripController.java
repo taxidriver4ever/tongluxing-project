@@ -8,10 +8,12 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.trip.dto.CreateTripRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
@@ -105,8 +107,17 @@ public class TripController {
      * 开始当前用户拥有的行程。
      */
     @PostMapping("/{tripId}/start")
-    public Result<TripResponse> startTrip(@PathVariable Long tripId) {
+    public Result<TripResponse> startTrip(
+            @PathVariable Long tripId,
+            @RequestHeader(value = "X-Client-Type", required = false) String clientType) {
+        rejectMiniProgramStart(clientType);
         return Result.success(tripService.startTrip(tripId));
+    }
+
+    private void rejectMiniProgramStart(String clientType) {
+        if ("MINI_PROGRAM".equalsIgnoreCase(clientType)) {
+            throw new BusinessException("小程序暂不支持开启行程，请下载同路行 App 使用此功能");
+        }
     }
 
     /**

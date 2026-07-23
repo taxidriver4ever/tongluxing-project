@@ -81,11 +81,6 @@ export const mockBadges = [
   { code: "MILEAGE_10000", name: "万里征途", desc: "累计同行10000公里", earned: false, mark: "10K" }
 ]
 
-export const mockCoupons = [
-  { id: "C1001", title: "自驾补给券", amount: "20", threshold: "满100元可用", expiry: "2026-08-31", status: "available" },
-  { id: "C1002", title: "车辆养护券", amount: "50", threshold: "满299元可用", expiry: "2026-09-15", status: "available" },
-  { id: "C1003", title: "同行新人券", amount: "10", threshold: "无门槛", expiry: "2026-07-31", status: "expiring" }
-]
 
 export const mockFriendRequests = [
   { id: "F01", avatar: "王", name: "王子轩", note: "来自川西慢游车队", accepted: false },

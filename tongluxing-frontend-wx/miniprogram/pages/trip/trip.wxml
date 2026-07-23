@@ -1,18 +1,24 @@
 <view class="trip-page">
   <scroll-view scroll-y class="page">
-    <view class="header" style="padding-top:{{contentTop}}px">
-      <view class="header-title">行程</view>
-      <view class="header-desc">管理你的自驾旅程，寻找同行伙伴</view>
-    </view>
-    <view class="driving">
-      <view class="status">正在驾驶中</view>
-      <view class="route">广州</view><view class="route-arrow">↓</view><view class="route">成都</view>
-      <view class="info"><view>已行驶<text>320km</text></view><view>剩余<text>1280km</text></view><view>状态<text>正常</text></view></view>
-      <view class="continue" bindtap="goStart">继续导航</view>
-    </view>
-    <view class="section"><view class="section-head"><view class="title">我的行程</view><view class="all" bindtap="goList">查看全部</view></view><view class="trip-card" data-id="T1001" bindtap="goDetail"><view class="card-top"><view class="trip-name">川藏318自驾</view><view class="tag">招募中</view></view><view class="route-small">广州<text class="line">｜</text>成都</view><view class="info2"><view>出发时间：2026-07-15 08:00</view><view>预计距离：1600km</view><view>车辆：5 / 20</view></view></view></view>
-    <view class="section"><view class="title">发现同行</view><scroll-view scroll-x class="recommend"><view class="small">广州 → 成都<text>匹配度86%</text><view>距离你5km</view></view><view class="small">深圳 → 拉萨<text>匹配度72%</text><view>路线相似</view></view><view class="small">广州 → 重庆<text>匹配度65%</text></view></scroll-view></view>
-    <view class="tab-spacer"></view>
-  </scroll-view>
-  <td-tabbar active="trip" />
+    <view class="heading" style="padding-top:{{contentTop}}px"><view><view class="heading-title">行程</view><view class="heading-sub">安排下一段旅程，也遇见附近同路的人</view></view><view class="add" bindtap="goCreate"><image src="/assets/icons/plus.svg"/></view></view>
+    <view wx:if="{{loading}}" class="loading">正在加载行程…</view>
+    <block wx:else>
+      <view class="hero">
+        <image class="hero-icon" src="/assets/icons/navigation.svg"/>
+        <view class="hero-small">{{currentTrip ? '当前行程' : '下一段旅程'}}</view>
+        <view class="hero-title">{{currentTrip ? currentTrip.startName + '  →  ' + currentTrip.endName : '准备好，就出发'}}</view>
+        <view wx:if="{{currentTrip}}" class="hero-buttons"><view class="white-btn" bindtap="goCurrent">查看行程</view><view class="white-btn outline" bindtap="downloadApp">下载App开启</view></view>
+        <view wx:else class="white-btn single" bindtap="goCreate">＋ 创建行程</view>
+      </view>
+      <view class="grid">
+        <view class="action-card a1" bindtap="goOverview"><view class="circle"><image src="/assets/icons/route.svg"/></view><view class="action-title">我的行程</view><view class="action-sub">招募 · 进行 · 取消</view></view>
+        <view class="action-card a2" bindtap="goHistory"><view class="circle"><image src="/assets/icons/history.svg"/></view><view class="action-title">历史与结算</view><view class="action-sub">完成 · 已结算</view></view>
+        <view class="action-card a3" bindtap="goDrafts"><view class="circle"><image src="/assets/icons/file-pen-line.svg"/></view><view class="action-title">我的草稿</view><view class="action-sub">继续编辑未发布行程</view></view>
+        <view class="action-card a4" bindtap="goDiscovery"><view class="circle"><image src="/assets/icons/users-round.svg"/></view><view class="action-title">发现同行</view><view class="action-sub">按路线寻找伙伴</view></view>
+      </view>
+      <view class="nearby-head"><view><view class="nearby-title">附近招募</view><view class="nearby-sub">正在招募同路伙伴的公开行程</view></view><view class="more" bindtap="goNearby">查看全部</view></view>
+      <view wx:if="{{!nearby.length}}" class="nearby-empty" bindtap="goNearby"><image src="/assets/icons/map-pinned.svg"/><text>附近暂时没有招募行程，点击查看全部</text><image src="/assets/icons/chevron-right.svg"/></view>
+      <scroll-view wx:else scroll-x class="nearby-list"><view wx:for="{{nearby}}" wx:key="tripId" class="nearby-card" data-id="{{item.tripId}}" bindtap="goNearbyDetail"><view class="nearby-top"><image src="/assets/icons/map-pinned.svg"/><text>招募中</text></view><view class="nearby-name">{{item.title}}</view><view class="nearby-route">{{item.startName}} → {{item.endName}}</view><view class="nearby-time">{{item.departureTime}}</view></view></scroll-view>
+    </block><view class="tab-spacer"></view>
+  </scroll-view><td-tabbar active="trip"/>
 </view>

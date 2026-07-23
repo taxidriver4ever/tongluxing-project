@@ -69,6 +69,13 @@ public class AuthController {
         return Result.success();
     }
 
+    /** 小程序邀请码引导页一旦展示即标记完成，中途退出后不再强制进入。 */
+    @PostMapping("/mini-onboarding/invite-viewed")
+    public Result<Void> completeMiniInviteOnboarding(@RequestHeader("Authorization") String authorization) {
+        authService.completeMiniInviteOnboarding(authorization);
+        return Result.success();
+    }
+
     /** App 驾驶端手机号验证码登录；与小程序共用同一 userId。 */
     @PostMapping("/app/login")
     public Result<LoginResponse> appLogin(@Valid @RequestBody AppLoginRequest request) {

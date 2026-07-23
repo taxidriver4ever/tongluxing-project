@@ -17,7 +17,9 @@
     "strict": true,
     "strictPropertyInitialization": true,
     "skipLibCheck": true,
-    "lib": ["ES2020"],
+    "lib": [
+      "ES2020"
+    ],
     "typeRoots": [
       "./typings"
     ]
@@ -26,10 +28,6 @@
     "./**/*.ts"
   ],
   "exclude": [
-    "node_modules",
-    "miniprogram/pages/groupbuy/**",
-    "miniprogram/pages/order/**",
-    "miniprogram/pages/merchant/**",
-    "miniprogram/pages/publish-trip/**"
+    "node_modules"
   ]
 }

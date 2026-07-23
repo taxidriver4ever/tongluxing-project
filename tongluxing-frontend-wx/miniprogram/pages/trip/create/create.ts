@@ -8,10 +8,34 @@ import {
 const DRAFT_KEY = "current_trip_creation_draft_id"
 const TYPE_VALUES: CreationWaypointType[] = ["MEETING", "REST", "HOTEL", "CHECK_IN"]
 
+function defaultDepartureDate(): string {
+  const value = new Date()
+  value.setDate(value.getDate() + 1)
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, "0")
+  const day = String(value.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function normalizeLocationText(value?: string): string {
+  return String(value || "").trim().replace(/\s+/g, "").toLowerCase()
+}
+
+function sameLocation(left?: TripLocation | null, right?: TripLocation | null): boolean {
+  if (!left || !right) return false
+  const coordinateMatched = Math.abs(left.latitude - right.latitude) <= 0.000001
+    && Math.abs(left.longitude - right.longitude) <= 0.000001
+  if (coordinateMatched) return true
+  const leftAddress = normalizeLocationText(left.address)
+  return normalizeLocationText(left.name) === normalizeLocationText(right.name)
+    && leftAddress.length > 0
+    && leftAddress === normalizeLocationText(right.address)
+}
+
 Page({
   data: {
     loading: true, saving: false, publishing: false, step: 1, draftId: "",
-    title: "", description: "", date: "2026-08-01", time: "08:00", expectPeople: 5, durationDays: 1,
+    title: "", description: "", date: defaultDepartureDate(), time: "08:00", expectPeople: 5, durationDays: 1,
     startLocation: null as TripLocation | null, destination: null as TripLocation | null,
     waypoints: [] as CreationWaypoint[], route: null as CreationDraft["route"] | null,
     routeDistanceText: "--", routeDurationText: "--",
@@ -28,7 +52,7 @@ Page({
     finally { this.setData({ loading: false }) }
   },
   applyDraft(draft: CreationDraft) {
-    const parts = (draft.startTime || "2026-08-01 08:00:00").split(" ")
+    const parts = (draft.startTime || `${defaultDepartureDate()} 08:00:00`).split(" ")
     this.setData({ draftId: draft.draftId, title: draft.title || "", description: draft.description || "",
       date: parts[0], time: (parts[1] || "08:00").slice(0, 5), expectPeople: draft.expectPeople || 5,
       durationDays: draft.durationDays || 1, startLocation: draft.startLocation || null,
@@ -49,9 +73,41 @@ Page({
   plusDays() { this.setData({ durationDays: Math.min(365, this.data.durationDays + 1) }) },
   chooseLocation(e: WechatMiniprogram.TouchEvent) {
     const target = String(e.currentTarget.dataset.target)
-    wx.chooseLocation({ success: location => { const value: TripLocation = { name: location.name || location.address,
-      address: location.address, latitude: Number(location.latitude), longitude: Number(location.longitude) }; this.setData({ [target]: value, route: null }); this.applyRouteText(null) },
-      fail: error => { if (error.errMsg.indexOf("cancel") < 0) wx.showToast({ title: "地点选择失败", icon: "none" }) } })
+    wx.chooseLocation({ success: location => {
+      const value: TripLocation = { name: location.name || location.address,
+        address: location.address, latitude: Number(location.latitude), longitude: Number(location.longitude) }
+      const conflict = target === "startLocation" ? this.conflictForStart(value) : this.conflictForDestination(value)
+      if (conflict) { wx.showToast({ title: conflict, icon: "none" }); return }
+      this.setData({ [target]: value, route: null }); this.applyRouteText(null)
+    }, fail: error => { if (error.errMsg.indexOf("cancel") < 0) wx.showToast({ title: "地点选择失败", icon: "none" }) } })
+  },
+  conflictForStart(value: TripLocation): string {
+    if (sameLocation(value, this.data.destination)) return "起点不能与终点相同"
+    if (this.data.waypoints.some(item => sameLocation(value, item))) return "起点不能与经停点相同"
+    return ""
+  },
+  conflictForDestination(value: TripLocation): string {
+    if (sameLocation(value, this.data.startLocation)) return "终点不能与起点相同"
+    if (this.data.waypoints.some(item => sameLocation(value, item))) return "终点不能与经停点相同"
+    return ""
+  },
+  conflictForWaypoint(value: TripLocation): string {
+    if (sameLocation(value, this.data.startLocation)) return "经停点不能与起点相同"
+    if (sameLocation(value, this.data.destination)) return "经停点不能与终点相同"
+    if (this.data.waypoints.some(item => sameLocation(value, item))) return "经停点不能重复选择"
+    return ""
+  },
+  routeConflict(): string {
+    if (sameLocation(this.data.startLocation, this.data.destination)) return "起点不能与终点相同"
+    for (let index = 0; index < this.data.waypoints.length; index += 1) {
+      const current = this.data.waypoints[index]
+      if (sameLocation(current, this.data.startLocation)) return "经停点不能与起点相同"
+      if (sameLocation(current, this.data.destination)) return "经停点不能与终点相同"
+      for (let next = index + 1; next < this.data.waypoints.length; next += 1) {
+        if (sameLocation(current, this.data.waypoints[next])) return "经停点不能重复选择"
+      }
+    }
+    return ""
   },
   async saveBasics(showToast = true): Promise<boolean> {
     if (!this.data.title.trim()) { wx.showToast({ title: "请填写行程标题", icon: "none" }); return false }
@@ -70,13 +126,17 @@ Page({
   previous() { if (this.data.step > 1) this.setData({ step: this.data.step - 1 }) },
   selectStep(e: WechatMiniprogram.TouchEvent) { const step = Number(e.currentTarget.dataset.step); if (step <= this.data.step) this.setData({ step }) },
   async planRoute() { if (!this.data.startLocation || !this.data.destination) { wx.showToast({ title: "请先选择起点和终点", icon: "none" }); return }
+    const conflict = this.routeConflict(); if (conflict) { wx.showToast({ title: conflict, icon: "none" }); return }
     if (!await this.saveBasics(false)) return; wx.showLoading({ title: "正在规划" })
     try { const route = await planCreationRoute(this.data.draftId); this.setData({ route }); this.applyRouteText(route) }
     catch (error) { wx.showToast({ title: this.message(error), icon: "none" }) } finally { wx.hideLoading() } },
   addWaypoint() { if (this.data.waypoints.length >= 5) { wx.showToast({ title: "最多添加 5 个经停点", icon: "none" }); return }
-    wx.chooseLocation({ success: async location => { try { await addCreationWaypoint(this.data.draftId, {
-      name: location.name || location.address, address: location.address, latitude: Number(location.latitude), longitude: Number(location.longitude),
-      type: TYPE_VALUES[this.data.waypointTypeIndex], sort: this.data.waypoints.length + 1, stayMinutes: 30 }); await this.refreshDraft()
+    wx.chooseLocation({ success: async location => { try {
+      const value: TripLocation = { name: location.name || location.address, address: location.address,
+        latitude: Number(location.latitude), longitude: Number(location.longitude) }
+      const conflict = this.conflictForWaypoint(value); if (conflict) { wx.showToast({ title: conflict, icon: "none" }); return }
+      await addCreationWaypoint(this.data.draftId, { ...value,
+        type: TYPE_VALUES[this.data.waypointTypeIndex], sort: this.data.waypoints.length + 1, stayMinutes: 30 }); await this.refreshDraft()
     } catch (error) { wx.showToast({ title: this.message(error), icon: "none" }) } } }) },
   async changeWaypointType(e: any) { const index = Number(e.currentTarget.dataset.index), waypoint = this.data.waypoints[index]
     try { await updateCreationWaypoint(this.data.draftId, waypoint.waypointId, { name: waypoint.name, address: waypoint.address,

@@ -1,2 +1,2 @@
-import { mockBadges } from "../../../data/mock-core"
-Page({ data: { badges: mockBadges }, back() { wx.navigateBack() } })
+import { Badge, getBadgeWall } from "../../../api/growth"
+Page({ data:{loading:true,earned:[] as Badge[],locked:[] as Badge[]}, back(){wx.navigateBack()}, onShow(){void this.load()}, async load(){this.setData({loading:true});try{const wall=await getBadgeWall();this.setData({earned:wall.earned,locked:wall.locked})}catch(error){wx.showToast({title:error instanceof Error?error.message:"勋章加载失败",icon:"none"})}finally{this.setData({loading:false})}} })

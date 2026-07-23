@@ -193,6 +193,7 @@ public class AuthServiceImpl implements AuthService {
                 account.getUserId(),
                 false,
                 true,
+                isMiniInviteOnboardingCompleted(account),
                 tokenPair.expireSeconds()
         );
     }
@@ -232,6 +233,14 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(409, "账号已经设置密码");
         }
         createPasswordCredential(principal.userId(), request.password());
+    }
+
+    /** 邀请码引导页展示后立即落库，确保用户中途退出后不再被强制跳回。 */
+    @Override
+    @Transactional
+    public void completeMiniInviteOnboarding(String authorization) {
+        AuthPrincipal principal = resolvePrincipal(authorization);
+        accountMapper.completeMiniInviteOnboarding(principal.userId(), LocalDateTime.now());
     }
 
     /** App 驾驶端手机号验证码登录。 */
@@ -300,6 +309,7 @@ public class AuthServiceImpl implements AuthService {
                 account.getUserId(),
                 false,
                 hasPasswordCredential(account.getUserId()),
+                isMiniInviteOnboardingCompleted(account),
                 tokenPair.expireSeconds()
         );
     }
@@ -341,16 +351,17 @@ public class AuthServiceImpl implements AuthService {
                 account.getUserId(),
                 isNewUser,
                 passwordSet,
+                isMiniInviteOnboardingCompleted(account),
                 tokenPair.expireSeconds()
         );
     }
 
 
-    /** 密码登录只允许 App 与商家 Web；两者共享同一个单点登录会话域。 */
+    /** 密码登录允许 App、商家 Web 与小程序；统一执行账号级单点登录。 */
     private String passwordClientType(String value) {
         if (!StringUtils.hasText(value)) return CLIENT_APP_DRIVER;
         String normalized = value.trim().toUpperCase();
-        if (!Set.of(CLIENT_APP_DRIVER, CLIENT_MERCHANT_WEB).contains(normalized)) {
+        if (!Set.of(CLIENT_APP_DRIVER, CLIENT_MERCHANT_WEB, CLIENT_MINI_PROGRAM).contains(normalized)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "客户端类型不正确");
         }
         return normalized;
@@ -473,7 +484,13 @@ public class AuthServiceImpl implements AuthService {
         if (account == null) {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "登录状态已失效");
         }
-        return new CurrentUserResponse(account.getUserId(), maskPhone(account.getPhone()), "LOGIN");
+        return new CurrentUserResponse(
+                account.getUserId(),
+                maskPhone(account.getPhone()),
+                "LOGIN",
+                hasPasswordCredential(account.getUserId()),
+                isMiniInviteOnboardingCompleted(account)
+        );
     }
 
     /** 使用 refresh token 换取新的 access token。 */
@@ -529,11 +546,16 @@ public class AuthServiceImpl implements AuthService {
         account.setId(SnowflakeIdGenerator.nextId());
         account.setUserId(SnowflakeIdGenerator.nextId());
         account.setPhone(phone);
+        account.setMiniInviteOnboardingCompleted(0);
         account.setLastLoginIp(ip);
         account.setCreatedAt(now);
         account.setUpdatedAt(now);
         accountMapper.insert(account);
         return accountMapper.findByPhone(phone);
+    }
+
+    private boolean isMiniInviteOnboardingCompleted(AuthAccount account) {
+        return account != null && Integer.valueOf(1).equals(account.getMiniInviteOnboardingCompleted());
     }
 
     /** 更新账号最近登录信息。 */

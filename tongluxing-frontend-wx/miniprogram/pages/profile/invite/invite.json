@@ -1,1 +1,1 @@
-{ "navigationStyle": "custom", "usingComponents": { "td-topbar": "/components/td-topbar/td-topbar" } }
+{"usingComponents":{"td-topbar":"../../../components/td-topbar/td-topbar"},"enableShareAppMessage":true}

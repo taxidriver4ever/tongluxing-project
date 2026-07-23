@@ -1,27 +1,23 @@
+const KEY = "tlx-mini-privacy-settings"
+interface PrivacySettings { profileVisible:boolean; phoneVisible:boolean; tripVisible:boolean; locationVisible:boolean; allowTeamInvite:boolean; allowPrivateMessage:boolean }
+const DEFAULTS: PrivacySettings = { profileVisible:true, phoneVisible:false, tripVisible:true, locationVisible:true, allowTeamInvite:true, allowPrivateMessage:true }
+
 Component({
-  data: {
-    loading: false,
-    privacy: {
-      profileVisible: true,
-      phoneVisible: false,
-      tripVisible: true,
-      locationVisible: true,
-      allowTeamInvite: true,
-      allowPrivateMessage: true
+  data: { loading:false, privacy:DEFAULTS },
+  lifetimes: {
+    attached() {
+      const saved = wx.getStorageSync(KEY) as PrivacySettings | ""
+      if (saved) this.setData({ privacy: { ...DEFAULTS, ...saved } })
     }
   },
   methods: {
     onSwitch(event: WechatMiniprogram.CustomEvent) {
-      const key = event.currentTarget.dataset.key
-      if (!key) {
-        return
-      }
-      this.setData({
-        ["privacy." + key]: event.detail.value
-      })
+      const key = String(event.currentTarget.dataset.key || "")
+      if (key) this.setData({ ["privacy." + key]: event.detail.value })
     },
     onSave() {
-      wx.showToast({ title: "当前后端暂未提供隐私设置接口", icon: "none" })
+      wx.setStorageSync(KEY, this.data.privacy)
+      wx.showToast({ title:"设置已保存", icon:"success" })
     }
   }
 })

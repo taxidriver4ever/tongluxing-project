@@ -1,39 +1,33 @@
-import { getToken } from "./utils/auth-storage"
+import { getCurrentUser } from "./api/auth"
+import { getToken, isInviteViewedLocally, isPasswordSetLocally } from "./utils/auth-storage"
+import { LOGIN_PAGE, onboardingRoute } from "./utils/onboarding"
 
-const LOGIN_PAGE = "/pages/login/login"
-const MAIN_PAGE = "/pages/index/index"
-
-function getCurrentRoute(): string {
+function currentRoute(): string {
   const pages = getCurrentPages()
-  if (pages.length === 0) {
-    return ""
-  }
-  return "/" + pages[pages.length - 1].route
+  return pages.length ? "/" + pages[pages.length - 1].route : ""
 }
 
-function routeByAuthState(): void {
-  const token = getToken()
-  const currentRoute = getCurrentRoute()
-
-  if (token) {
-    if (currentRoute !== MAIN_PAGE) {
-      wx.reLaunch({
-        url: MAIN_PAGE
-      })
-    }
+async function bootstrap(): Promise<void> {
+  if (!getToken()) {
+    if (currentRoute() !== LOGIN_PAGE) wx.reLaunch({ url: LOGIN_PAGE })
     return
   }
 
-  if (currentRoute !== LOGIN_PAGE) {
-    wx.reLaunch({
-      url: LOGIN_PAGE
+  try {
+    const me = await getCurrentUser()
+    const route = onboardingRoute({
+      passwordSet: me.passwordSet || isPasswordSetLocally(),
+      miniInviteOnboardingCompleted: me.miniInviteOnboardingCompleted || isInviteViewedLocally()
     })
+    if (currentRoute() !== route) wx.reLaunch({ url: route })
+  } catch (_error) {
+    // request.ts 会统一处理 401；网络暂时不可用时不反复打断当前页面。
   }
 }
 
 App<IAppOption>({
   onLaunch() {
-    setTimeout(routeByAuthState, 0)
+    void bootstrap()
   },
   globalData: {}
 })

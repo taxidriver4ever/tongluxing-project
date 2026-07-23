@@ -1,22 +1,19 @@
-<view class="profile-page">
-  <scroll-view scroll-y class="page">
-    <view class="header" style="padding-top:{{contentTop}}px">
-      <view class="title-row"><view class="title">我的</view><view class="notice" bindtap="goSettings"><image src="/assets/icons/bell.svg"/></view></view>
-      <view class="profile" bindtap="goEdit"><view class="avatar">用</view><view class="user"><view class="name">用户昵称</view><view class="level">Lv.5 自驾达人</view><view class="desc">探索更多自驾旅程</view></view></view>
-    </view>
-    <view class="stats"><view class="stat"><view class="num">3200</view><view class="label">累计公里</view></view><view class="stat"><view class="num">1280</view><view class="label">同路值</view></view><view class="stat" bindtap="goBadges"><view class="num">8</view><view class="label">勋章</view></view><view class="stat"><view class="num">12</view><view class="label">行程</view></view></view>
-    <view class="section"><view class="growth" bindtap="goGrowth"><view class="growth-title">当前等级</view><view class="growth-num">Lv.5</view><view class="progress"><view class="bar"></view></view></view></view>
-    <view class="section">
-      <view class="section-title">我的服务</view>
-      <view class="service-card">
-        <view class="item" bindtap="goVehicle"><view class="left"><view class="icon"><image src="/assets/icons/car-front.svg"/></view><view class="text">我的车辆</view></view><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
-        <view class="item" bindtap="goBadges"><view class="left"><view class="icon"><image src="/assets/icons/award.svg"/></view><view class="text">我的勋章</view></view><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
-        <view class="item" bindtap="goGrowth"><view class="left"><view class="icon"><image src="/assets/icons/chart.svg"/></view><view class="text">成长中心</view></view><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
-        <view class="item" bindtap="goInvite"><view class="left"><view class="icon"><image src="/assets/icons/user-plus.svg"/></view><view class="text">邀请好友</view></view><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
-        <view class="item" bindtap="goCoupon"><view class="left"><view class="icon"><image src="/assets/icons/ticket.svg"/></view><view class="text">我的券包</view></view><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
-      </view>
-    </view>
-    <view class="tab-spacer"></view>
-  </scroll-view>
-  <td-tabbar active="profile"/>
-</view>
+<view class="profile-page"><scroll-view scroll-y class="page"><view class="content" style="padding-top:{{contentTop}}px">
+  <view class="top"><view class="round" bindtap="goPublic"><image src="/assets/icons/user-search.svg"/></view><view class="top-actions"><view bindtap="goEdit"><image src="/assets/icons/pencil.svg"/></view><view bindtap="goSettings"><image src="/assets/icons/settings.svg"/></view></view></view>
+  <view class="avatar" bindtap="goPublic"><image wx:if="{{avatarUrl}}" src="{{avatarUrl}}" mode="aspectFill"/><image wx:else src="/assets/icons/user-round.svg"/></view>
+  <view class="nickname">{{profile && profile.nickname ? profile.nickname : '同路行用户'}}</view>
+  <view class="group">
+    <view class="row" bindtap="goLicense"><image src="/assets/icons/contact.svg"/><text>驾驶证认证</text><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+    <view class="row" bindtap="goVehicle"><image src="/assets/icons/car-front.svg"/><text>我的车辆</text><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+    <view class="row" bindtap="goBadges"><image src="/assets/icons/medal.svg"/><text>我的勋章</text><view class="meta">{{badgeCount}}</view><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+    <view class="row" bindtap="goInvite"><image src="/assets/icons/user-plus.svg"/><text>邀请好友</text><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+    <view class="row" bindtap="fillInvite"><image src="/assets/icons/scan-line.svg"/><text>填写邀请码</text><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+  </view>
+  <view class="group">
+    <view class="row" bindtap="goEdit"><image src="/assets/icons/user-round-cog.svg"/><text>个人资料</text><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+    <view class="row" bindtap="goCertification"><image src="/assets/icons/shield-check.svg"/><text>认证状态</text><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+    <view class="row" bindtap="goSettings"><image src="/assets/icons/settings.svg"/><text>设置</text><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+    <view class="row" bindtap="goSupport"><image src="/assets/icons/headphones.svg"/><text>客服与投诉</text><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+    <view class="row danger" bindtap="signOut"><image src="/assets/icons/log-out.svg"/><text>退出登录</text><image class="arrow" src="/assets/icons/chevron-right.svg"/></view>
+  </view><view class="tab-spacer"></view>
+</view></scroll-view><td-tabbar active="profile"/></view>

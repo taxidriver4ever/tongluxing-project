@@ -1,41 +1,23 @@
 <view class="page-shell edit-page">
-  <td-topbar title="编辑资料" placeholder="保存后刷新个人中心" action="编" />
+  <td-topbar title="编辑资料" />
   <scroll-view scroll-y class="page-content">
-    <view class="form-card card">
-      <view class="field">
-        <view class="label">昵称</view>
-        <input class="input" value="{{form.nickname}}" data-field="nickname" bindinput="onInput" maxlength="32" placeholder="请输入昵称" />
+    <view class="avatar-section">
+      <view class="avatar" bindtap="chooseAvatar">
+        <image wx:if="{{avatarUrl}}" src="{{avatarUrl}}" mode="aspectFill" />
+        <image wx:else src="/assets/icons/user-round.svg" />
+        <view class="camera">编辑</view>
       </view>
-      <view class="field">
-        <view class="label">头像图片标识</view>
-        <input class="input" value="{{form.avatarImageKey}}" data-field="avatarImageKey" bindinput="onInput" placeholder="/static/upload/avatar.jpg" />
-      </view>
-      <view class="field">
-        <view class="label">性别</view>
-        <view class="seg-row">
-          <view class="seg {{form.gender === 0 ? 'active' : ''}}" data-gender="0" bindtap="onGenderChange">未知</view>
-          <view class="seg {{form.gender === 1 ? 'active' : ''}}" data-gender="1" bindtap="onGenderChange">男</view>
-          <view class="seg {{form.gender === 2 ? 'active' : ''}}" data-gender="2" bindtap="onGenderChange">女</view>
-        </view>
-      </view>
-      <view class="field">
-        <view class="label">生日</view>
-        <input class="input" value="{{form.birthday}}" data-field="birthday" bindinput="onInput" placeholder="1996-08-16" />
-      </view>
-      <view class="field">
-        <view class="label">城市</view>
-        <input class="input" value="{{form.cityName}}" data-field="cityName" bindinput="onInput" maxlength="64" placeholder="广州" />
-      </view>
-      <view class="field">
-        <view class="label">城市编码</view>
-        <input class="input" value="{{form.cityCode}}" data-field="cityCode" bindinput="onInput" maxlength="32" placeholder="440100" />
-      </view>
-      <view class="field">
-        <view class="label">个人简介</view>
-        <textarea class="textarea" value="{{form.bio}}" data-field="bio" bindinput="onInput" maxlength="160" placeholder="喜欢周末自驾和露营" />
-      </view>
+      <view class="avatar-tip">{{uploading ? '正在上传头像…' : '点击头像从相册或相机选择'}}</view>
     </view>
 
-    <view class="btn save-btn {{loading ? 'gray' : ''}}" bindtap="onSave">{{loading ? '保存中...' : '保存资料'}}</view>
+    <view class="form-card card">
+      <view class="field"><view class="label">昵称</view><input class="input" value="{{form.nickname}}" data-field="nickname" bindinput="onInput" maxlength="32" placeholder="请输入昵称" /></view>
+      <view class="field"><view class="label">性别</view><view class="seg-row"><view class="seg {{form.gender === 0 ? 'active' : ''}}" data-gender="0" bindtap="onGenderChange">未知</view><view class="seg {{form.gender === 1 ? 'active' : ''}}" data-gender="1" bindtap="onGenderChange">男</view><view class="seg {{form.gender === 2 ? 'active' : ''}}" data-gender="2" bindtap="onGenderChange">女</view></view></view>
+      <view class="field"><view class="label">生日</view><picker mode="date" value="{{form.birthday}}" bindchange="onBirthdayChange"><view class="input picker-value">{{form.birthday || '请选择生日'}}</view></picker></view>
+      <view class="field"><view class="label">城市</view><input class="input" value="{{form.cityName}}" data-field="cityName" bindinput="onInput" maxlength="64" placeholder="例如：广州" /></view>
+      <view class="field"><view class="label">城市编码</view><input class="input" value="{{form.cityCode}}" data-field="cityCode" bindinput="onInput" maxlength="32" placeholder="例如：440100" /></view>
+      <view class="field"><view class="label">个人简介</view><textarea class="textarea" value="{{form.bio}}" data-field="bio" bindinput="onInput" maxlength="160" placeholder="喜欢周末自驾和露营" /><view class="counter">{{form.bio.length}} / 160</view></view>
+    </view>
+    <view class="btn save-btn {{loading || uploading ? 'gray' : ''}}" bindtap="onSave">{{loading ? '保存中…' : uploading ? '头像上传中…' : '保存资料'}}</view>
   </scroll-view>
 </view>

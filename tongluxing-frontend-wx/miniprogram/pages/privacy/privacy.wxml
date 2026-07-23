@@ -3,7 +3,7 @@
   <scroll-view scroll-y class="page-content">
     <view class="notice">
       <view class="notice-title">隐私提示</view>
-      <view>手机号默认不公开。当前后端暂未提供隐私设置接口，本页仅保留用户端入口和交互样式。</view>
+      <view>手机号默认不公开。当前版本会在本机保存你的隐私偏好；涉及定位和相册的系统权限仍以微信授权设置为准。</view>
     </view>
 
     <view class="card setting-card">

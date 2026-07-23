@@ -2,6 +2,7 @@ package com.tongluxing.chat.group;
 import java.util.*;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.Result;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,6 @@ public class ChatGroupController {
  @PostMapping("/trip-confirmations") public Result<Map<String,Object>> createConfirmation(@PathVariable Long conversationId){return Result.success(service.createTripConfirmation(conversationId));}
  @GetMapping("/trip-confirmations/{id}") public Result<Map<String,Object>> confirmation(@PathVariable Long conversationId,@PathVariable Long id){return Result.success(service.confirmationDetails(conversationId,id));}
  @PostMapping("/trip-confirmations/{id}/respond") public Result<Map<String,Object>> respond(@PathVariable Long conversationId,@PathVariable Long id,@Valid @RequestBody TripConfirmationRespondRequest r){return Result.success(service.respondConfirmation(conversationId,id,r));}
- @PostMapping("/trip-confirmations/{id}/start") public Result<Map<String,Object>> start(@PathVariable Long conversationId,@PathVariable Long id){return Result.success(service.startConfirmedTrip(conversationId,id));}
+ @PostMapping("/trip-confirmations/{id}/start") public Result<Map<String,Object>> start(@PathVariable Long conversationId,@PathVariable Long id,@RequestHeader(value="X-Client-Type",required=false)String clientType){if("MINI_PROGRAM".equalsIgnoreCase(clientType)){throw new BusinessException("小程序暂不支持开启行程，请下载同路行 App 使用此功能");}return Result.success(service.startConfirmedTrip(conversationId,id));}
  @PostMapping("/close") public Result<Void> close(@PathVariable Long conversationId){service.close(conversationId);return Result.success();}
 }

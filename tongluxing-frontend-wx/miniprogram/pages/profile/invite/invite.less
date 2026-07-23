@@ -1,2 +1,32 @@
-.invite-page { min-height:100vh; position:relative; background:#FFFFFF; }.header { position:absolute; z-index:5; top:env(safe-area-inset-top); right:43rpx; left:43rpx; height:111rpx; display:grid; grid-template-columns:71rpx 1fr 71rpx; align-items:center; }.back { display:flex; align-items:center; }.back image { width:39rpx; height:39rpx; }.header-title { font-family:Georgia,"Songti SC",serif; font-size:52rpx; font-weight:800; text-align:center; }.page { height:100vh; padding:calc(env(safe-area-inset-top) + 111rpx) 43rpx 50rpx; box-sizing:border-box; }.hero { height:482rpx; display:flex; align-items:center; justify-content:center; }.road { position:relative; width:536rpx; height:300rpx; border-radius:50%; background:#F4F7FD; }.tree { position:absolute; bottom:79rpx; width:18rpx; height:129rpx; border-radius:9rpx; background:#9CB6F5; }.tree::before { content:""; position:absolute; top:-25rpx; left:-36rpx; width:89rpx; height:89rpx; border-radius:50%; background:#EAF2FF; }.tree.left { left:50rpx; }.tree.right { right:50rpx; }.car-body { position:absolute; right:82rpx; bottom:54rpx; left:82rpx; height:86rpx; border-radius:36rpx 45rpx 18rpx 18rpx; background:linear-gradient(90deg,#285CFF,#5F83F8); }.person { position:absolute; top:-57rpx; width:61rpx; height:61rpx; border:7rpx solid #FFFFFF; border-radius:50%; display:flex; align-items:center; justify-content:center; background:#F07A58; color:#FFFFFF; font-size:21rpx; }.p1 { left:57rpx; }.p2 { left:154rpx; background:#173F46; }.p3 { right:43rpx; background:#F1B54D; }.intro { padding:0 25rpx 32rpx; color:#344054; font-size:27rpx; font-weight:600; line-height:1.65; text-align:center; }.invite-code { display:inline-flex; margin-top:13rpx; padding:9rpx 21rpx; border-radius:999rpx; gap:11rpx; background:#EAF2FF; color:#285CFF; font-size:21rpx; }.invite-code text { font-weight:700; letter-spacing:2rpx; }.wave { height:21rpx; margin:5rpx 0 25rpx; border-top:3rpx dashed #E3E9F2; }.summary { margin-bottom:34rpx; display:grid; grid-template-columns:1fr 1fr; gap:18rpx; }.summary-item { padding:21rpx 25rpx; border-radius:27rpx; background:#F8FAFD; }.summary-value { font-family:Georgia,serif; font-size:38rpx; font-weight:800; }.summary-label { margin-top:5rpx; color:#98A2B3; font-size:20rpx; }.reward { grid-column:1/-1; padding:16rpx 23rpx; border-radius:23rpx; display:flex; justify-content:space-between; background:#EAF2FF; color:#667085; font-size:20rpx; }.reward b { color:#285CFF; }.section-title { margin:0 0 18rpx; font-family:Georgia,"Songti SC",serif; font-size:41rpx; font-weight:800; }.invite-row { min-height:118rpx; display:flex; align-items:center; border-bottom:2rpx dashed #E4E9F2; }.avatar { width:75rpx; height:75rpx; margin-right:20rpx; border-radius:50%; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#6F91FF,#285CFF); color:#FFFFFF; font-weight:700; }.person-info { flex:1; }.person-name { font-size:25rpx; font-weight:700; }.person-date { margin-top:7rpx; color:#98A2B3; font-size:20rpx; }.state { color:#98A2B3; font-size:21rpx; text-align:right; }.state view { margin-top:9rpx; color:#285CFF; font-weight:700; }.state.joined { color:#285CFF; font-weight:700; }.btn { height:86rpx; margin-top:32rpx; border:0; border-radius:43rpx; display:flex; align-items:center; justify-content:center; background:#285CFF; color:#FFFFFF; font-size:25rpx; font-weight:700; box-shadow:0 14rpx 36rpx rgba(40,92,255,.22); }.btn::after { border:0; }
-.reward-value { color:#285CFF; font-weight:700; }
+.invite-page { background:#F7F9FE; }
+.state { padding:48rpx 28rpx; text-align:center; color:var(--muted); }
+.retry { margin:22rpx auto 0; color:var(--primary); font-weight:800; }
+.hero { padding:46rpx 34rpx 38rpx; border-radius:48rpx; background:var(--primary); color:#fff; text-align:center; }
+.hero-title { font-size:40rpx; font-weight:900; }
+.hero-copy { margin-top:12rpx; color:rgba(255,255,255,.75); font-size:24rpx; }
+.qr-box { width:410rpx; height:410rpx; margin:38rpx auto 24rpx; padding:20rpx; border-radius:38rpx; background:#fff; }
+.qr-box image { width:100%; height:100%; }
+.code { font-size:31rpx; font-weight:900; letter-spacing:3rpx; }
+.expire { margin-top:12rpx; color:rgba(255,255,255,.72); font-size:21rpx; }
+.metrics { margin-top:24rpx; padding:30rpx 10rpx; display:grid; grid-template-columns:repeat(3,1fr); }
+.metrics view { display:flex; flex-direction:column; align-items:center; border-right:1rpx solid var(--line); }
+.metrics view:last-child { border-right:0; }
+.metrics text { color:var(--title); font-size:36rpx; font-weight:900; }
+.metrics label { margin-top:8rpx; color:var(--muted); font-size:21rpx; }
+.actions { margin-top:24rpx; display:grid; grid-template-columns:1fr 1fr; gap:16rpx; }
+.actions view { height:88rpx; border-radius:24rpx; display:flex; align-items:center; justify-content:center; gap:10rpx; font-size:24rpx; font-weight:800; }
+.actions image { width:32rpx; height:32rpx; }
+.primary { background:var(--primary); color:#fff; }
+.primary image { filter:brightness(0) invert(1); }
+.secondary { background:#EAF3FF; color:var(--primary); }
+.guide { margin-top:24rpx; padding:30rpx; }
+.guide-title { display:flex; align-items:center; gap:12rpx; color:var(--title); font-size:28rpx; font-weight:900; }
+.guide-title image { width:36rpx; height:36rpx; }
+.step { display:flex; gap:20rpx; margin-top:26rpx; }
+.num { width:48rpx; height:48rpx; border-radius:50%; flex:0 0 auto; display:flex; align-items:center; justify-content:center; background:#EAF3FF; color:var(--primary); font-weight:900; }
+.step text { display:block; color:var(--title); font-size:25rpx; font-weight:850; }
+.step label { display:block; margin-top:7rpx; color:var(--muted); font-size:22rpx; line-height:1.5; }
+.validate { margin-top:22rpx; color:var(--primary); text-align:center; font-size:24rpx; font-weight:800; }
+.share { margin-top:18rpx; height:88rpx; border:0; border-radius:44rpx; background:var(--primary); color:#fff; font-size:26rpx; font-weight:800; }
+.share::after { border:0; }
+.safe-tip { padding:20rpx 12rpx 50rpx; color:var(--muted); text-align:center; font-size:20rpx; line-height:1.5; }

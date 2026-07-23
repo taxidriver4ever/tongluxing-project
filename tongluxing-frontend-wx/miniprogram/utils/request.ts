@@ -46,7 +46,8 @@ export function request<T>(url: string, options?: RequestOptions): Promise<T> {
   const requestOptions = options || {}
   const token = getToken()
   const header: Record<string, string> = {
-    "content-type": "application/json"
+    "content-type": "application/json",
+    "X-Client-Type": "MINI_PROGRAM"
   }
 
   if (token) {

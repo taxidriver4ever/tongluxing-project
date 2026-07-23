@@ -37,6 +37,9 @@ public interface AuthService {
     /** 当前登录用户首次设置密码。 */
     void setPassword(String authorization, SetPasswordRequest request);
 
+    /** 标记小程序邀请码引导已经展示过。 */
+    void completeMiniInviteOnboarding(String authorization);
+
     /** App 驾驶端手机号验证码登录。 */
     LoginResponse appLogin(AppLoginRequest request);
 

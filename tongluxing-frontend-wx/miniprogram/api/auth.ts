@@ -1,25 +1,15 @@
 import { request } from "../utils/request"
 
-export interface SendSmsCodeRequest {
+export interface PasswordLoginRequest {
   phone: string
-  scene: "login"
-}
-
-export interface SendSmsCodeResponse {
-  expireSeconds: number
-}
-
-export interface LoginRequest {
-  phone: string
-  code: string
+  password: string
   deviceId: string
+  clientType: "MINI_PROGRAM"
 }
 
 export interface WxPhoneLoginRequest {
   code?: string
-  mockPhone?: string
-  deviceId?: string
-  inviteCode?: string
+  deviceId: string
 }
 
 export interface LoginResponse {
@@ -28,25 +18,21 @@ export interface LoginResponse {
   userId: number
   isNewUser: boolean
   passwordSet: boolean
+  miniInviteOnboardingCompleted: boolean
   expireSeconds: number
-}
-
-export function setPassword(password: string): Promise<void> {
-  return request<void>("/v1/auth/set-password", { method: "POST", data: { password } })
 }
 
 export interface CurrentUser {
   userId: number
   phone: string
   loginStatus: string
-}
-
-export interface RefreshTokenRequest {
-  refreshToken: string
+  passwordSet: boolean
+  miniInviteOnboardingCompleted: boolean
 }
 
 export interface RefreshTokenResponse {
   token: string
+  refreshToken: string
   expireSeconds: number
 }
 
@@ -54,25 +40,20 @@ export interface LogoutResponse {
   success: boolean
 }
 
-export function sendSmsCode(data: SendSmsCodeRequest): Promise<SendSmsCodeResponse> {
-  return request<SendSmsCodeResponse>("/v1/auth/sms-code", {
-    method: "POST",
-    data
-  })
-}
-
-export function login(data: LoginRequest): Promise<LoginResponse> {
-  return request<LoginResponse>("/v1/auth/login", {
-    method: "POST",
-    data
-  })
+export function passwordLogin(data: PasswordLoginRequest): Promise<LoginResponse> {
+  return request<LoginResponse>("/v1/auth/password-login", { method: "POST", data })
 }
 
 export function wxPhoneLogin(data: WxPhoneLoginRequest): Promise<LoginResponse> {
-  return request<LoginResponse>("/v1/auth/wx-phone-login", {
-    method: "POST",
-    data
-  })
+  return request<LoginResponse>("/v1/auth/wx-phone-login", { method: "POST", data })
+}
+
+export function setPassword(password: string): Promise<void> {
+  return request<void>("/v1/auth/set-password", { method: "POST", data: { password } })
+}
+
+export function completeMiniInviteOnboarding(): Promise<void> {
+  return request<void>("/v1/auth/mini-onboarding/invite-viewed", { method: "POST" })
 }
 
 export function getCurrentUser(): Promise<CurrentUser> {
@@ -80,14 +61,12 @@ export function getCurrentUser(): Promise<CurrentUser> {
 }
 
 export function logout(): Promise<LogoutResponse> {
-  return request<LogoutResponse>("/v1/auth/logout", {
-    method: "POST"
-  })
+  return request<LogoutResponse>("/v1/auth/logout", { method: "POST" })
 }
 
-export function refreshToken(data: RefreshTokenRequest): Promise<RefreshTokenResponse> {
+export function refreshToken(refreshTokenValue: string): Promise<RefreshTokenResponse> {
   return request<RefreshTokenResponse>("/v1/auth/refresh-token", {
     method: "POST",
-    data
+    data: { refreshToken: refreshTokenValue }
   })
 }

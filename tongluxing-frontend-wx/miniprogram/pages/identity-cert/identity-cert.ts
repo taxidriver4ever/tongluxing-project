@@ -1,63 +1,11 @@
-import { submitCertification } from "../../api/user"
-
-Component({
-  data: {
-    loading: false,
-    status: "UNSUBMITTED",
-    rejectReason: "",
-    idCardNoMask: "",
-    form: {
-      realName: "",
-      idCardNo: "",
-      drivingLicenseImageKey: "",
-      faceImageKey: ""
-    }
-  },
-  lifetimes: {
-    attached() {
-      this.loadStatus()
-    }
-  },
-  methods: {
-    async loadStatus() {
-      this.setData({ status: "UNSUBMITTED", rejectReason: "", idCardNoMask: "" })
-    },
-    onInput(event: any) {
-      const field = event.currentTarget.dataset.field
-      if (!field) {
-        return
-      }
-      this.setData({
-        ["form." + field]: event.detail.value
-      })
-    },
-    async onSubmit() {
-      if (this.data.status === "PENDING") {
-        wx.showToast({ title: "实名审核中，请勿重复提交", icon: "none" })
-        return
-      }
-      if (!this.data.form.realName || !this.data.form.idCardNo || !this.data.form.drivingLicenseImageKey || !this.data.form.faceImageKey) {
-        wx.showToast({ title: "请填写实名资料和图片标识", icon: "none" })
-        return
-      }
-
-      this.setData({ loading: true })
-      try {
-        const result = await submitCertification(this.data.form)
-        this.setData({
-          status: result.certificationStatus,
-          rejectReason: result.rejectReason || "",
-          idCardNoMask: ""
-        })
-        wx.showToast({ title: "实名资料已提交", icon: "success" })
-      } catch (error) {
-        wx.showToast({ title: this.getErrorMessage(error), icon: "none" })
-      } finally {
-        this.setData({ loading: false })
-      }
-    },
-    getErrorMessage(error: unknown): string {
-      return error instanceof Error ? error.message : "网络异常，请稍后重试"
-    }
-  }
+import { Certification, getLatestCertification, submitCertification } from "../../api/user"
+import { uploadImage } from "../../api/storage"
+Page({
+ data:{loading:true,status:"UNSUBMITTED",rejectReason:"",form:{holderName:"",licenseNo:"",vehicleClass:"C1",issuingAuthority:""},frontPath:"",backPath:""},
+ onShow(){void this.loadStatus()},
+ async loadStatus(){try{const result=await getLatestCertification();this.apply(result)}catch(error){wx.showToast({title:error instanceof Error?error.message:"认证状态加载失败",icon:"none"})}finally{this.setData({loading:false})}},
+ apply(result:Certification){this.setData({status:result.status||"UNSUBMITTED",rejectReason:result.rejectReason||""})},
+ onInput(event:WechatMiniprogram.Input){const field=String(event.currentTarget.dataset.field||"");if(field)this.setData({["form."+field]:event.detail.value})},
+ choose(event:WechatMiniprogram.TouchEvent){if(this.data.status==="PENDING"||this.data.status==="APPROVED")return;const side=String(event.currentTarget.dataset.side);wx.chooseMedia({count:1,mediaType:["image"],sourceType:["album","camera"],success:result=>{const file=result.tempFiles[0];if(file)this.setData({[side+"Path"]:file.tempFilePath})}})},
+ async onSubmit(){if(this.data.loading)return;if(this.data.status==="PENDING"){wx.showToast({title:"驾驶证审核中，请勿重复提交",icon:"none"});return}if(this.data.status==="APPROVED"){wx.showToast({title:"驾驶证已经认证",icon:"none"});return}const form=this.data.form;if(!form.holderName.trim()||!form.licenseNo.trim()||!form.vehicleClass.trim()||!this.data.frontPath||!this.data.backPath){wx.showToast({title:"请填写资料并上传驾驶证正面和背面",icon:"none"});return}this.setData({loading:true});wx.showLoading({title:"正在上传"});try{const front=await uploadImage(this.data.frontPath,"USER_DRIVER_LICENSE_FRONT");const back=this.data.backPath?await uploadImage(this.data.backPath,"USER_DRIVER_LICENSE_BACK"):"";const result=await submitCertification({holderName:form.holderName.trim(),licenseNo:form.licenseNo.trim(),vehicleClass:form.vehicleClass.trim(),issuingAuthority:form.issuingAuthority.trim(),licenseFrontImageKey:front,licenseBackImageKey:back,recognitionSource:"MANUAL_UPLOAD"});this.apply(result);wx.showToast({title:"驾驶证资料已提交",icon:"success"})}catch(error){wx.showToast({title:error instanceof Error?error.message:"提交失败",icon:"none"})}finally{wx.hideLoading();this.setData({loading:false})}}
 })

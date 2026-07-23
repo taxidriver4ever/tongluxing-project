@@ -1,6 +1,38 @@
-<view class="sos-overlay">
-  <view class="sos-home" style="{{homeStyle}}" bindtap="goHome">首页</view>
-  <view class="sos-num">3</view>
-  <view class="title">正在触发 SOS</view>
-  <view class="copy">松手取消。继续长按将发送你的位置、车辆信息、车上人数给平台客服、当前车队和紧急联系人。</view>
+<view class="page-shell sos-page">
+  <td-topbar title="确认发送 SOS" />
+  <scroll-view scroll-y class="page-content">
+    <view class="warning card">
+      <view class="siren"><image src="/assets/icons/shield-alert.svg" /></view>
+      <view class="warning-title">是否在当前地点发送 SOS？</view>
+      <view class="warning-copy">提交后，平台运营后台会立即看到求助位置并进行受理。</view>
+    </view>
+
+    <view class="location card" bindtap="openMap">
+      <image src="/assets/icons/map-pinned.svg" />
+      <view class="location-main">
+        <view class="location-title">当前位置</view>
+        <view class="location-copy">{{address}}</view>
+        <view wx:if="{{accuracy}}" class="accuracy">定位精度约 {{accuracy}} 米</view>
+      </view>
+      <image class="arrow" src="/assets/icons/chevron-right.svg" />
+    </view>
+
+    <view wx:if="{{!latitude}}" class="relocate" bindtap="locate">重新获取位置</view>
+
+    <view class="message-card card">
+      <view class="label">补充求助信息（选填）</view>
+      <textarea value="{{message}}" bindinput="onMessage" maxlength="500" placeholder="例如：车辆故障、人员受伤、被困位置等" />
+      <view class="counter">{{message.length}} / 500</view>
+    </view>
+
+    <view class="notice">
+      <view>• 当前版本不会自动拨打 110 或 120。</view>
+      <view>• 如有人身危险，请优先直接拨打当地报警或急救电话。</view>
+      <view>• 请勿恶意或重复提交虚假求助。</view>
+    </view>
+
+    <view class="submit {{sending || !latitude ? 'disabled' : ''}}" bindtap="submit">
+      {{sending ? '正在发送…' : '确认发送 SOS'}}
+    </view>
+  </scroll-view>
 </view>

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -8,16 +6,12 @@ import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
-import '../../../data/services/follow_service.dart';
 import '../../../data/services/location_snapshot.dart';
-import '../../chat/pages/chat_session_page.dart';
-import '../../chat/private_chat_flow.dart';
-import '../../profile/pages/profile_system_pages.dart';
-import '../../profile/widgets/user_avatar.dart';
 import '../widgets/trip_discovery_theme.dart';
 import 'trip_discovery_detail_page.dart';
 import 'trip_discovery_filter_sheet.dart';
 import 'trip_discovery_widgets.dart';
+import 'trip_search_results_page.dart';
 
 class TripDiscoveryPage extends StatefulWidget {
   const TripDiscoveryPage({super.key});
@@ -27,15 +21,19 @@ class TripDiscoveryPage extends StatefulWidget {
 }
 
 class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
-  static const tabs = ['目的地', '起点', '路线', '发起人'];
+  static const _sortTabs = <({String label, String value})>[
+    (label: '顺路优先', value: 'ROUTE_MATCH'),
+    (label: '附近优先', value: 'NEARBY'),
+    (label: '时间优先', value: 'DEPARTURE_TIME'),
+  ];
+
   final search = TextEditingController();
+  final searchFocus = FocusNode();
   final scroll = ScrollController();
-  Timer? debounce;
-  int tabIndex = 0;
-  String sort = 'RECOMMENDED';
+
+  String sort = 'ROUTE_MATCH';
   TripDiscoveryFilter filter = const TripDiscoveryFilter();
   List<TripDiscoverModel> trips = const [];
-  List<Map<String, dynamic>> users = const [];
   bool loading = true;
   bool loadingMore = false;
   bool hasMore = true;
@@ -43,19 +41,12 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
   int requestSerial = 0;
   String? error;
 
-  bool get showingUsers => tabIndex == 3;
-  String get placeholder => switch (tabIndex) {
-    0 => '搜索目的地 / 城市 / 景点',
-    1 => '搜索出发地 / 集合点',
-    2 => '搜索路线关键词 / 经停点',
-    _ => '搜索昵称 / 用户 ID',
-  };
-
   @override
   void initState() {
     super.initState();
+    searchFocus.addListener(_refreshSearchPanel);
     scroll.addListener(() {
-      if (!showingUsers && scroll.position.extentAfter < 360) {
+      if (scroll.position.extentAfter < 360) {
         _load(reset: false);
       }
     });
@@ -64,16 +55,16 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
 
   @override
   void dispose() {
-    debounce?.cancel();
     search.dispose();
+    searchFocus
+      ..removeListener(_refreshSearchPanel)
+      ..dispose();
     scroll.dispose();
     super.dispose();
   }
 
-  void _searchChanged(String _) {
-    setState(() {});
-    debounce?.cancel();
-    debounce = Timer(const Duration(milliseconds: 360), () => _load(reset: true));
+  void _refreshSearchPanel() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _load({required bool reset}) async {
@@ -83,62 +74,43 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
         error = null;
       });
     } else {
-      if (loading || loadingMore || !hasMore || showingUsers) return;
+      if (loading || loadingMore || !hasMore) return;
       setState(() => loadingMore = true);
     }
     final serial = ++requestSerial;
     final targetPage = reset ? 1 : page + 1;
     try {
-      if (showingUsers) {
-        final result = await UserDiscoveryService(context.read<AppSession>().api)
-            .search(keyword: search.text, page: 1, size: 30);
-        if (!mounted || serial != requestSerial) return;
-        setState(() {
-          users = result;
-          trips = const [];
-          page = 1;
-          hasMore = false;
-        });
-      } else {
-        final point = LocationSnapshot.current ?? LocationSnapshot.demoFallback;
-        final keyword = search.text.trim();
-        final result = await TripDiscoveryService(context.read<AppSession>().api)
-            .discover(
-              keyword: tabIndex == 2 ? keyword : null,
-              startCity: tabIndex == 1 && keyword.isNotEmpty
-                  ? keyword
-                  : filter.startCity,
-              destination: tabIndex == 0 && keyword.isNotEmpty
-                  ? keyword
-                  : filter.destination,
-              sort: sort,
-              latitude: point.latitude,
-              longitude: point.longitude,
-              departureDateFrom: filter.departureFrom,
-              departureDateTo: filter.departureTo,
-              vehicleType: filter.vehicleType,
-              minimumRemainingSeats: filter.minimumRemainingSeats,
-              page: targetPage,
-              size: 8,
-            );
-        if (!mounted || serial != requestSerial) return;
-        final values =
-            (result['records'] as List? ?? result['items'] as List? ?? const [])
-                .map(
-                  (e) => TripDiscoverModel.fromJson(
-                    Map<String, dynamic>.from(e as Map),
-                  ),
-                )
-                .toList();
-        final total = (result['total'] as num?)?.toInt() ?? values.length;
-        setState(() {
-          trips = reset ? values : [...trips, ...values];
-          users = const [];
-          page = targetPage;
-          hasMore = targetPage * 8 < total;
-        });
-      }
-      error = null;
+      final point = LocationSnapshot.current ?? LocationSnapshot.demoFallback;
+      final result = await TripDiscoveryService(context.read<AppSession>().api)
+          .discover(
+            sort: sort,
+            latitude: point.latitude,
+            longitude: point.longitude,
+            startCity: filter.startCity,
+            destination: filter.destination,
+            departureDateFrom: filter.departureFrom,
+            departureDateTo: filter.departureTo,
+            vehicleType: filter.vehicleType,
+            minimumRemainingSeats: filter.minimumRemainingSeats,
+            page: targetPage,
+            size: 8,
+          );
+      if (!mounted || serial != requestSerial) return;
+      final values =
+          (result['records'] as List? ?? result['items'] as List? ?? const [])
+              .map(
+                (e) => TripDiscoverModel.fromJson(
+                  Map<String, dynamic>.from(e as Map),
+                ),
+              )
+              .toList();
+      final total = (result['total'] as num?)?.toInt() ?? values.length;
+      setState(() {
+        trips = reset ? values : [...trips, ...values];
+        page = targetPage;
+        hasMore = targetPage * 8 < total;
+        error = null;
+      });
     } catch (e) {
       if (!mounted || serial != requestSerial) return;
       setState(() => error = e.toString());
@@ -153,37 +125,26 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
   }
 
   Future<void> _openFilter() async {
+    searchFocus.unfocus();
     final next = await TripDiscoveryFilterSheet.show(context, filter);
     if (next == null || !mounted) return;
     setState(() => filter = next);
     await _load(reset: true);
   }
 
-  Future<void> _toggleFollow(int index) async {
-    final row = users[index];
-    final id = row['userId']?.toString() ?? '';
-    if (id.isEmpty) return;
-    try {
-      final service = FollowService(context.read<AppSession>().api);
-      final value = row['following'] == true
-          ? await service.unfollow(id)
-          : await service.follow(id);
-      if (!mounted) return;
-      setState(() => users[index] = {...row, ...value});
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-      }
-    }
-  }
-
-  Future<void> _startChat(String userId) async {
-    final conversation = await startPrivateChatFlow(context, userId);
-    if (conversation == null || !mounted) return;
+  Future<void> _openSearch({
+    String? keyword,
+    int initialTab = 0,
+  }) async {
+    final value = (keyword ?? search.text).trim();
+    searchFocus.unfocus();
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ChatSessionPage(conversation: conversation),
+        builder: (_) => TripSearchResultsPage(
+          initialKeyword: value,
+          initialTab: initialTab,
+        ),
       ),
     );
   }
@@ -191,53 +152,42 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      _SearchHeader(
+      _DiscoverySearchEntry(
         controller: search,
-        placeholder: placeholder,
-        onChanged: _searchChanged,
+        focusNode: searchFocus,
+        onChanged: (_) => setState(() {}),
+        onSearch: () => _openSearch(),
         onClear: () {
           search.clear();
-          _searchChanged('');
+          setState(() {});
         },
       ),
-      Container(
-        color: Colors.white,
-        child: Row(
-          children: List.generate(
-            tabs.length,
-            (index) => Expanded(
-              child: _SearchTab(
-                label: tabs[index],
-                active: tabIndex == index,
-                onTap: () {
-                  if (tabIndex == index) return;
-                  setState(() => tabIndex = index);
-                  _load(reset: true);
-                },
-              ),
-            ),
-          ),
+      if (searchFocus.hasFocus)
+        _SearchSuggestionPanel(
+          keyword: search.text.trim(),
+          onSelected: (keyword, tab) =>
+              _openSearch(keyword: keyword, initialTab: tab),
         ),
+      _MainSortBar(
+        items: _sortTabs,
+        selected: sort,
+        filterActive: filter.active,
+        onSort: (value) {
+          if (value == sort) return;
+          setState(() => sort = value);
+          _load(reset: true);
+        },
+        onFilter: _openFilter,
       ),
-      if (!showingUsers)
-        _FilterStrip(
-          sort: sort,
-          filterActive: filter.active,
-          onSort: (value) {
-            setState(() => sort = value);
-            _load(reset: true);
-          },
-          onFilter: _openFilter,
-        ),
       Expanded(child: _body()),
     ],
   );
 
   Widget _body() {
-    if (loading && trips.isEmpty && users.isEmpty) {
+    if (loading && trips.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (error != null && trips.isEmpty && users.isEmpty) {
+    if (error != null && trips.isEmpty) {
       return _DiscoveryState(
         icon: LucideIcons.wifiOff,
         title: '加载失败',
@@ -246,48 +196,13 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
         onTap: () => _load(reset: true),
       );
     }
-    if (showingUsers) {
-      if (users.isEmpty) {
-        return _DiscoveryState(
-          icon: LucideIcons.userSearch,
-          title: '没有找到相关发起人',
-          subtitle: '换一个昵称或用户 ID 试试',
-          button: '清空搜索',
-          onTap: () {
-            search.clear();
-            _load(reset: true);
-          },
-        );
-      }
-      return RefreshIndicator(
-        onRefresh: () => _load(reset: true),
-        child: ListView.separated(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
-          itemCount: users.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 8),
-          itemBuilder: (_, index) => _UserResultCard(
-            data: users[index],
-            onOpen: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => PublicProfilePage(
-                  userId: users[index]['userId']?.toString() ?? '',
-                ),
-              ),
-            ),
-            onFollow: () => _toggleFollow(index),
-            onChat: () => _startChat(users[index]['userId']?.toString() ?? ''),
-          ),
-        ),
-      );
-    }
     if (trips.isEmpty) {
       return _DiscoveryState(
         icon: LucideIcons.routeOff,
-        title: '没有找到合适的公开行程',
-        subtitle: '试试更换关键词或放宽筛选条件',
-        button: '调整筛选',
-        onTap: _openFilter,
+        title: '暂时没有合适的公开行程',
+        subtitle: '可以调整筛选，或搜索指定路线',
+        button: '去搜索',
+        onTap: () => _openSearch(),
       );
     }
     return RefreshIndicator(
@@ -323,81 +238,70 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
   }
 }
 
-class _SearchHeader extends StatelessWidget {
-  const _SearchHeader({
+class _DiscoverySearchEntry extends StatelessWidget {
+  const _DiscoverySearchEntry({
     required this.controller,
-    required this.placeholder,
+    required this.focusNode,
     required this.onChanged,
+    required this.onSearch,
     required this.onClear,
   });
+
   final TextEditingController controller;
-  final String placeholder;
+  final FocusNode focusNode;
   final ValueChanged<String> onChanged;
+  final VoidCallback onSearch;
   final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) => Container(
     color: Colors.white,
-    padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-    child: SizedBox(
-      height: 40,
-      child: TextField(
-        controller: controller,
-        onChanged: onChanged,
-        onSubmitted: onChanged,
-        textInputAction: TextInputAction.search,
-        style: const TextStyle(fontSize: 13.5),
-        decoration: InputDecoration(
-          hintText: placeholder,
-          prefixIcon: const Icon(LucideIcons.search, size: 18),
-          suffixIcon: controller.text.isEmpty
-              ? null
-              : IconButton(
-                  onPressed: onClear,
-                  icon: const Icon(LucideIcons.x, size: 17),
-                ),
-          filled: true,
-          fillColor: const Color(0xFFF3F6FA),
-          contentPadding: EdgeInsets.zero,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
-        ),
+    padding: const EdgeInsets.fromLTRB(12, 8, 12, 9),
+    child: Container(
+      height: 42,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F6FA),
+        borderRadius: BorderRadius.circular(12),
       ),
-    ),
-  );
-}
-
-class _SearchTab extends StatelessWidget {
-  const _SearchTab({required this.label, required this.active, required this.onTap});
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    child: SizedBox(
-      height: 43,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
+      child: Row(
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 14,
-              color: active ? AppColors.primary : AppColors.secondaryText,
-              fontWeight: active ? FontWeight.w900 : FontWeight.w600,
+          const SizedBox(width: 12),
+          const Icon(LucideIcons.search, size: 18, color: AppColors.muted),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              focusNode: focusNode,
+              onChanged: onChanged,
+              onSubmitted: (_) => onSearch(),
+              textInputAction: TextInputAction.search,
+              style: const TextStyle(fontSize: 13.5),
+              decoration: const InputDecoration(
+                hintText: '搜索目的地、起点、路线或发起人',
+                border: InputBorder.none,
+                isCollapsed: true,
+                hintStyle: TextStyle(color: AppColors.muted),
+              ),
             ),
           ),
-          const SizedBox(height: 8),
-          Container(
-            width: 24,
-            height: 3,
-            decoration: BoxDecoration(
-              color: active ? AppColors.primary : Colors.transparent,
-              borderRadius: BorderRadius.circular(99),
+          if (controller.text.isNotEmpty)
+            IconButton(
+              onPressed: onClear,
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(LucideIcons.circleX, size: 17),
+            ),
+          Container(width: 1, height: 20, color: const Color(0xFFDCE3EC)),
+          TextButton(
+            onPressed: onSearch,
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 13),
+              minimumSize: const Size(0, 42),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text(
+              '搜索',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
             ),
           ),
         ],
@@ -406,207 +310,219 @@ class _SearchTab extends StatelessWidget {
   );
 }
 
-class _FilterStrip extends StatelessWidget {
-  const _FilterStrip({
-    required this.sort,
-    required this.filterActive,
-    required this.onSort,
-    required this.onFilter,
+class _SearchSuggestionPanel extends StatelessWidget {
+  const _SearchSuggestionPanel({
+    required this.keyword,
+    required this.onSelected,
   });
-  final String sort;
-  final bool filterActive;
-  final ValueChanged<String> onSort;
-  final VoidCallback onFilter;
 
-  @override
-  Widget build(BuildContext context) => Container(
-    height: 43,
-    color: const Color(0xFFF8FAFC),
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-    child: ListView(
-      scrollDirection: Axis.horizontal,
-      children: [
-        _FilterChipButton('RECOMMENDED', '综合排序', sort, onSort),
-        _FilterChipButton('DEPARTURE_TIME', '时间', sort, onSort),
-        _FilterChipButton('NEARBY', '距离', sort, onSort),
-        _ActionChipButton(
-          label: filterActive ? '筛选已启用' : '筛选',
-          icon: LucideIcons.listFilter,
-          active: filterActive,
-          onTap: onFilter,
-        ),
-      ],
-    ),
-  );
-}
-
-class _FilterChipButton extends StatelessWidget {
-  const _FilterChipButton(this.value, this.label, this.selected, this.onTap);
-  final String value;
-  final String label;
-  final String selected;
-  final ValueChanged<String> onTap;
+  final String keyword;
+  final void Function(String keyword, int tab) onSelected;
 
   @override
   Widget build(BuildContext context) {
-    final active = value == selected;
-    return Padding(
-      padding: const EdgeInsets.only(right: 7),
-      child: InkWell(
-        onTap: () => onTap(value),
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: active ? AppColors.primarySoft : Colors.white,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: active ? AppColors.primary : AppColors.secondaryText,
-              fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+    final suggestions = keyword.isEmpty
+        ? const <({String label, String keyword, int tab, IconData icon})>[
+            (
+              label: '深圳周末自驾',
+              keyword: '深圳',
+              tab: 0,
+              icon: LucideIcons.flame,
             ),
-          ),
+            (
+              label: '广州出发',
+              keyword: '广州',
+              tab: 1,
+              icon: LucideIcons.mapPin,
+            ),
+            (
+              label: '沿海路线',
+              keyword: '沿海',
+              tab: 2,
+              icon: LucideIcons.route,
+            ),
+          ]
+        : <({String label, String keyword, int tab, IconData icon})>[
+            (
+              label: '搜索“$keyword”相关目的地',
+              keyword: keyword,
+              tab: 0,
+              icon: LucideIcons.mapPinned,
+            ),
+            (
+              label: '搜索“$keyword”相关起点',
+              keyword: keyword,
+              tab: 1,
+              icon: LucideIcons.navigation,
+            ),
+            (
+              label: '搜索“$keyword”相关路线',
+              keyword: keyword,
+              tab: 2,
+              icon: LucideIcons.route,
+            ),
+            (
+              label: '搜索发起人“$keyword”',
+              keyword: keyword,
+              tab: 3,
+              icon: LucideIcons.userSearch,
+            ),
+          ];
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE4EAF1)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x100F172A),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 5),
+              child: Row(
+                children: [
+                  Text(
+                    keyword.isEmpty ? '热门搜索' : '搜索提示',
+                    style: const TextStyle(
+                      color: AppColors.secondaryText,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ...suggestions.map(
+              (item) => InkWell(
+                onTap: () => onSelected(item.keyword, item.tab),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 9,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(item.icon, size: 16, color: AppColors.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          item.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                      const Icon(
+                        LucideIcons.chevronRight,
+                        size: 16,
+                        color: AppColors.muted,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _ActionChipButton extends StatelessWidget {
-  const _ActionChipButton({
-    required this.label,
-    required this.icon,
-    required this.active,
-    required this.onTap,
+class _MainSortBar extends StatelessWidget {
+  const _MainSortBar({
+    required this.items,
+    required this.selected,
+    required this.filterActive,
+    required this.onSort,
+    required this.onFilter,
   });
-  final String label;
-  final IconData icon;
-  final bool active;
-  final VoidCallback onTap;
+
+  final List<({String label, String value})> items;
+  final String selected;
+  final bool filterActive;
+  final ValueChanged<String> onSort;
+  final VoidCallback onFilter;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(8),
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11),
-      decoration: BoxDecoration(
-        color: active ? AppColors.primarySoft : Colors.white,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 14, color: active ? AppColors.primary : AppColors.muted),
-          const SizedBox(width: 5),
-          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-        ],
-      ),
-    ),
-  );
-}
-
-class _UserResultCard extends StatelessWidget {
-  const _UserResultCard({
-    required this.data,
-    required this.onOpen,
-    required this.onFollow,
-    required this.onChat,
-  });
-  final Map<String, dynamic> data;
-  final VoidCallback onOpen;
-  final VoidCallback onFollow;
-  final VoidCallback onChat;
-
-  String get followText {
-    if (data['mutual'] == true) return '互相关注';
-    if (data['following'] == true) return '已关注';
-    if (data['followedByTarget'] == true) return '回关';
-    return '关注';
-  }
-
-  @override
-  Widget build(BuildContext context) => Material(
+  Widget build(BuildContext context) => Container(
+    height: 46,
     color: Colors.white,
-    borderRadius: BorderRadius.circular(12),
-    child: InkWell(
-      onTap: onOpen,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            UserAvatar(
-              nickname: data['nickname']?.toString() ?? '同路行用户',
-              avatarImageKey: data['avatarImageKey']?.toString() ?? '',
-              radius: 23,
-            ),
-            const SizedBox(width: 11),
-            Expanded(
+    decoration: const BoxDecoration(
+      border: Border(bottom: BorderSide(color: Color(0xFFEAEFF5))),
+    ),
+    child: Row(
+      children: [
+        ...items.map(
+          (item) => Expanded(
+            child: InkWell(
+              onTap: () => onSort(item.value),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          data['nickname']?.toString().trim().isNotEmpty == true
-                              ? data['nickname'].toString()
-                              : '同路行用户',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900),
-                        ),
-                      ),
-                      if (data['certificationStatus'] == 'APPROVED')
-                        const Icon(LucideIcons.badgeCheck, size: 16, color: AppColors.primary),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
                   Text(
-                    data['bio']?.toString().trim().isNotEmpty == true
-                        ? data['bio'].toString()
-                        : '愿每一次出发都有同路人',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                    item.label,
+                    style: TextStyle(
+                      color: selected == item.value
+                          ? AppColors.primary
+                          : AppColors.secondaryText,
+                      fontSize: 13.5,
+                      fontWeight: selected == item.value
+                          ? FontWeight.w900
+                          : FontWeight.w600,
+                    ),
                   ),
-                  const SizedBox(height: 7),
-                  Text(
-                    '${data['cityName']?.toString().isNotEmpty == true ? data['cityName'] : '未填写常驻地'} · '
-                    '${data['totalTripCount'] ?? 0} 次行程 · ${data['followerCount'] ?? 0} 粉丝',
-                    style: const TextStyle(fontSize: 11.5, color: AppColors.secondaryText),
-                  ),
-                  const SizedBox(height: 9),
-                  Row(
-                    children: [
-                      SizedBox(
-                        height: 32,
-                        child: data['following'] == true
-                            ? OutlinedButton(onPressed: onFollow, child: Text(followText))
-                            : FilledButton(onPressed: onFollow, child: Text(followText)),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        height: 32,
-                        child: OutlinedButton.icon(
-                          onPressed: onChat,
-                          icon: const Icon(LucideIcons.messageCircle, size: 15),
-                          label: const Text('发起私聊'),
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 24,
+                    height: 3,
+                    decoration: BoxDecoration(
+                      color: selected == item.value
+                          ? AppColors.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
                   ),
                 ],
               ),
             ),
-          ],
+          ),
         ),
-      ),
+        InkWell(
+          onTap: onFilter,
+          child: SizedBox(
+            width: 48,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Icon(
+                  LucideIcons.listFilter,
+                  size: 20,
+                  color: filterActive ? AppColors.primary : AppColors.muted,
+                ),
+                if (filterActive)
+                  const Positioned(
+                    right: 10,
+                    top: 10,
+                    child: CircleAvatar(
+                      radius: 3.5,
+                      backgroundColor: AppColors.primary,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -619,6 +535,7 @@ class _DiscoveryState extends StatelessWidget {
     required this.button,
     required this.onTap,
   });
+
   final IconData icon;
   final String title;
   final String subtitle;
@@ -633,12 +550,16 @@ class _DiscoveryState extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 42, color: AppColors.muted),
-          const SizedBox(height: 10),
-          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 12),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
           const SizedBox(height: 5),
-          Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.muted)),
-          const SizedBox(height: 13),
-          OutlinedButton(onPressed: onTap, child: Text(button)),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.muted, fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+          FilledButton(onPressed: onTap, child: Text(button)),
         ],
       ),
     ),

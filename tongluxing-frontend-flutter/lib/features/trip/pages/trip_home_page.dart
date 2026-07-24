@@ -233,7 +233,7 @@ class _MyTripsPageState extends State<_MyTripsPage> {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: AppColors.text,
-              fontSize: 26,
+              fontSize: 22,
               height: 1.15,
               fontWeight: FontWeight.w500,
             ),
@@ -243,7 +243,7 @@ class _MyTripsPageState extends State<_MyTripsPage> {
             '轻松规划下一段同行旅程',
             style: TextStyle(color: AppColors.muted, fontSize: 12.5),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           _DashboardGrid(
             current: current,
             onCurrent: () => current == null
@@ -394,76 +394,56 @@ class _DashboardGrid extends StatelessWidget {
   final VoidCallback onCreate;
 
   @override
-  Widget build(BuildContext context) {
-    const gap = 10.0;
-    return Column(
-      children: [
-        SizedBox(
-          height: 194,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: _CurrentJourneyCard(
-                  trip: current,
-                  onTap: onCurrent,
-                ),
-              ),
-              const SizedBox(width: gap),
-              Expanded(
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: _ActionTile(
-                        icon: LucideIcons.calendarDays,
-                        label: '行程计划',
-                        color: const Color(0xFFE7EEFF),
-                        onTap: onPlan,
-                      ),
-                    ),
-                    const SizedBox(height: gap),
-                    Expanded(
-                      child: _ActionTile(
-                        icon: LucideIcons.filePenLine,
-                        label: '行程草稿',
-                        color: const Color(0xFFDDEEFF),
-                        onTap: onDrafts,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+  Widget build(BuildContext context) => Column(
+    children: [
+      SizedBox(
+        height: 124,
+        child: _CurrentJourneyCard(trip: current, onTap: onCurrent),
+      ),
+      const SizedBox(height: 10),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 9),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(17),
+          border: Border.all(color: const Color(0xFFE4EBF4)),
         ),
-        const SizedBox(height: gap),
-        SizedBox(
-          height: 92,
-          child: Row(
-            children: [
-              Expanded(
-                child: _ActionTile(
-                  icon: LucideIcons.history,
-                  label: '历史行程',
-                  color: const Color(0xFFE6F0FF),
-                  onTap: onHistory,
-                ),
+        child: Row(
+          children: [
+            Expanded(
+              child: _QuickAction(
+                icon: LucideIcons.calendarDays,
+                label: '行程计划',
+                onTap: onPlan,
               ),
-              const SizedBox(width: gap),
-              Expanded(
-                child: _ActionTile(
-                  icon: LucideIcons.mapPinned,
-                  label: '创建行程',
-                  color: const Color(0xFFD9ECFF),
-                  onTap: onCreate,
-                ),
+            ),
+            Expanded(
+              child: _QuickAction(
+                icon: LucideIcons.filePenLine,
+                label: '行程草稿',
+                onTap: onDrafts,
               ),
-            ],
-          ),
+            ),
+            Expanded(
+              child: _QuickAction(
+                icon: LucideIcons.history,
+                label: '历史行程',
+                onTap: onHistory,
+              ),
+            ),
+            Expanded(
+              child: _QuickAction(
+                icon: LucideIcons.mapPinned,
+                label: '创建行程',
+                emphasized: true,
+                onTap: onCreate,
+              ),
+            ),
+          ],
         ),
-      ],
-    );
-  }
+      ),
+    ],
+  );
 }
 
 class _CurrentJourneyCard extends StatelessWidget {
@@ -475,7 +455,7 @@ class _CurrentJourneyCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
     color: Colors.transparent,
-    borderRadius: BorderRadius.circular(19),
+    borderRadius: BorderRadius.circular(18),
     clipBehavior: Clip.antiAlias,
     child: InkWell(
       onTap: onTap,
@@ -484,57 +464,86 @@ class _CurrentJourneyCard extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF79B9F5), Color(0xFF175FC6)],
+            colors: [Color(0xFF70B5F4), Color(0xFF1761C8)],
           ),
         ),
         child: Stack(
           children: [
             const Positioned(
-              right: -20,
-              top: 42,
+              right: -12,
+              bottom: -30,
               child: Icon(
                 LucideIcons.mountainSnow,
-                size: 120,
-                color: Color(0x38FFFFFF),
+                size: 128,
+                color: Color(0x2EFFFFFF),
               ),
             ),
-            Positioned(
-              left: 13,
-              right: 13,
-              bottom: 14,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(15, 13, 14, 13),
+              child: Row(
                 children: [
-                  Text(
-                    trip?.title ?? '规划下一段旅程',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 19,
-                      height: 1.05,
-                      fontWeight: FontWeight.w800,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0x2EFFFFFF),
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                          child: Text(
+                            trip == null ? '下一段旅程' : '当前行程',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          trip?.title ?? '规划下一段旅程',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          trip == null
+                              ? '点击创建行程，寻找同路伙伴'
+                              : '${trip!.startName} → ${trip!.endName} · ${_dateLabel(trip!.departureTime)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11.5,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    trip == null
-                        ? '点击开始创建'
-                        : '${trip!.startName} → ${trip!.endName}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 11.5),
-                  ),
-                  if (trip?.departureTime != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      _dateLabel(trip!.departureTime),
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 10.5,
-                      ),
+                  const SizedBox(width: 12),
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: const BoxDecoration(
+                      color: Color(0xDFFFFFFF),
+                      shape: BoxShape.circle,
                     ),
-                  ],
+                    child: const Icon(
+                      LucideIcons.chevronRight,
+                      color: AppColors.primaryDark,
+                      size: 20,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -545,52 +554,53 @@ class _CurrentJourneyCard extends StatelessWidget {
   );
 }
 
-class _ActionTile extends StatelessWidget {
-  const _ActionTile({
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({
     required this.icon,
     required this.label,
-    required this.color,
     required this.onTap,
+    this.emphasized = false,
   });
 
   final IconData icon;
   final String label;
-  final Color color;
   final VoidCallback onTap;
+  final bool emphasized;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: color,
-    borderRadius: BorderRadius.circular(19),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(19),
-      child: Padding(
-        padding: const EdgeInsets.all(13),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: const BoxDecoration(
-                color: Color(0xCCFFFFFF),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: AppColors.primaryDark, size: 18),
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(12),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: emphasized ? AppColors.primary : AppColors.primarySoft,
+              shape: BoxShape.circle,
             ),
-            const Spacer(),
-            Text(
-              label,
-              maxLines: 1,
-              style: const TextStyle(
-                fontSize: 16.5,
-                fontWeight: FontWeight.w700,
-              ),
+            child: Icon(
+              icon,
+              size: 17,
+              color: emphasized ? Colors.white : AppColors.primary,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     ),
   );

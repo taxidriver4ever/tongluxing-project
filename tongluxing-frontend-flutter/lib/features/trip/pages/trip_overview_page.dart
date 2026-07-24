@@ -116,6 +116,16 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
     }
   }
 
+  Future<void> openDetail(TripModel trip) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TripDetailPage(tripId: trip.id, initial: trip),
+      ),
+    );
+    if (mounted) await load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final options = widget.historyMode
@@ -127,25 +137,22 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
             'CANCELLED': '已取消',
           };
     return Scaffold(
-      appBar: AppBar(title: Text(widget.historyMode ? '历史与结算' : '我的行程')),
+      backgroundColor: const Color(0xFFF4F7FB),
+      appBar: AppBar(
+        title: Text(widget.historyMode ? '历史与结算' : '我的行程'),
+      ),
       body: RefreshIndicator(
         onRefresh: load,
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
           children: [
-            Wrap(
-              spacing: 8,
-              children: options.entries
-                  .map(
-                    (entry) => ChoiceChip(
-                      label: Text(entry.value),
-                      selected: filter == entry.key,
-                      onSelected: (_) => setState(() => filter = entry.key),
-                    ),
-                  )
-                  .toList(),
+            _StatusTabBar(
+              options: options,
+              selected: filter,
+              onChanged: (value) => setState(() => filter = value),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 12),
             if (loading)
               const Center(
                 child: Padding(
@@ -154,77 +161,26 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
                 ),
               )
             else if (error != null)
-              Center(child: Text(error!))
+              _OverviewEmpty(
+                icon: LucideIcons.wifiOff,
+                title: '加载失败',
+                subtitle: error!,
+              )
             else if (visible.isEmpty)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(40),
-                  child: Text('当前栏目暂无行程'),
-                ),
+              const _OverviewEmpty(
+                icon: LucideIcons.calendarDays,
+                title: '当前栏目暂无行程',
+                subtitle: '其他状态的行程可以在上方切换查看',
               )
             else
               ...visible.map(
-                (trip) => Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                trip.title,
-                                style: const TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              _label(trip.status),
-                              style: const TextStyle(color: AppColors.primary),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Text('${trip.startName} → ${trip.endName}'),
-                        const SizedBox(height: 6),
-                        Text(
-                          trip.departureTime ?? '待确定',
-                          style: const TextStyle(
-                            color: AppColors.secondaryText,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            TextButton.icon(
-                              onPressed: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => TripDetailPage(
-                                    tripId: trip.id,
-                                    initial: trip,
-                                  ),
-                                ),
-                              ),
-                              icon: const Icon(LucideIcons.eye),
-                              label: const Text('查看'),
-                            ),
-                            const Spacer(),
-                            if (trip.status == 'PUBLISHED')
-                              OutlinedButton.icon(
-                                onPressed: () => cancel(trip),
-                                icon: const Icon(LucideIcons.x),
-                                label: const Text('取消行程'),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
+                (trip) => _TripOverviewCard(
+                  trip: trip,
+                  statusLabel: _label(trip.status),
+                  onTap: () => openDetail(trip),
+                  onCancel: trip.status == 'PUBLISHED'
+                      ? () => cancel(trip)
+                      : null,
                 ),
               ),
           ],
@@ -241,4 +197,260 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
     'SETTLED' => '已结算',
     _ => '已完成',
   };
+}
+
+class _StatusTabBar extends StatelessWidget {
+  const _StatusTabBar({
+    required this.options,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final Map<String, String> options;
+  final String selected;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(4),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(13),
+      border: Border.all(color: const Color(0xFFE2E9F2)),
+    ),
+    child: Row(
+      children: options.entries
+          .map(
+            (entry) => Expanded(
+              child: InkWell(
+                onTap: () => onChanged(entry.key),
+                borderRadius: BorderRadius.circular(10),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: selected == entry.key
+                        ? AppColors.primarySoft
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    entry.value,
+                    style: TextStyle(
+                      color: selected == entry.key
+                          ? AppColors.primary
+                          : AppColors.secondaryText,
+                      fontSize: 12.5,
+                      fontWeight: selected == entry.key
+                          ? FontWeight.w900
+                          : FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          )
+          .toList(),
+    ),
+  );
+}
+
+class _TripOverviewCard extends StatelessWidget {
+  const _TripOverviewCard({
+    required this.trip,
+    required this.statusLabel,
+    required this.onTap,
+    this.onCancel,
+  });
+
+  final TripModel trip;
+  final String statusLabel;
+  final VoidCallback onTap;
+  final VoidCallback? onCancel;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(15),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 13, 10, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      trip.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySoft,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  if (onCancel != null)
+                    PopupMenuButton<String>(
+                      padding: EdgeInsets.zero,
+                      icon: const Icon(
+                        LucideIcons.ellipsisVertical,
+                        size: 18,
+                        color: AppColors.muted,
+                      ),
+                      onSelected: (value) {
+                        if (value == 'cancel') onCancel!();
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'cancel',
+                          child: Row(
+                            children: [
+                              Icon(
+                                LucideIcons.circleX,
+                                size: 17,
+                                color: AppColors.danger,
+                              ),
+                              SizedBox(width: 8),
+                              Text('取消行程'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+              const SizedBox(height: 9),
+              Row(
+                children: [
+                  const Icon(
+                    LucideIcons.route,
+                    size: 14,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '${trip.startName} → ${trip.endName}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.secondaryText,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(
+                    LucideIcons.calendarDays,
+                    size: 14,
+                    color: AppColors.muted,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _overviewDateLabel(trip.departureTime),
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ),
+                  const Text(
+                    '查看详情',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  const Icon(
+                    LucideIcons.chevronRight,
+                    size: 16,
+                    color: AppColors.primary,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _OverviewEmpty extends StatelessWidget {
+  const _OverviewEmpty({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 34),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(15),
+    ),
+    child: Column(
+      children: [
+        Icon(icon, size: 34, color: AppColors.muted),
+        const SizedBox(height: 11),
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+        const SizedBox(height: 5),
+        Text(
+          subtitle,
+          textAlign: TextAlign.center,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: AppColors.muted, fontSize: 12),
+        ),
+      ],
+    ),
+  );
+}
+
+String _overviewDateLabel(String? raw) {
+  final value = DateTime.tryParse(raw ?? '');
+  if (value == null) return '出发时间待确定';
+  String two(int number) => number.toString().padLeft(2, '0');
+  return '${value.year}-${two(value.month)}-${two(value.day)} '
+      '${two(value.hour)}:${two(value.minute)} 出发';
 }

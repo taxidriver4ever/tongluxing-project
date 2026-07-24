@@ -50,7 +50,7 @@ public interface MatchService {
 
     /** 不要求用户先发布行程的公共发现信息流。 */
     TripDiscoverPageResponse discoverTrips(
-            String keyword, String sort, Double latitude, Double longitude, Long referenceTripId,
+            String keyword, String searchType, String sort, Double latitude, Double longitude, Long referenceTripId,
             String startCity, String destination, String departureDateFrom, String departureDateTo,
             String vehicleType, Integer minimumRemainingSeats, Integer page, Integer size);
 

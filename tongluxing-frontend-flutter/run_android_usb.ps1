@@ -1,8 +1,9 @@
-﻿param(
+param(
     [string]$DeviceId,
     [string]$BackendRoot,
     [switch]$ConfigureOnly,
     [switch]$ForceClean,
+    [switch]$ForcePubGet,
     [switch]$SkipPrebuild
 )
 
@@ -179,14 +180,11 @@ $buildRoot = Join-Path $PSScriptRoot 'build'
 
 Push-Location $PSScriptRoot
 try {
-    # 覆盖补丁或手动删除 APK 后，Flutter 的旧增量状态可能仍认为构建已完成，
-    # 随后 aapt 会去读取一个不存在的 app-debug.apk，并误报 Manifest 缺失。
-    $hasStaleBuildState = (Test-Path -LiteralPath $buildRoot) -and -not (Test-Path -LiteralPath $apkPath)
-
-    if ($ForceClean -or $hasStaleBuildState) {
-        if ($hasStaleBuildState -and -not $ForceClean) {
-            Write-Warning 'Detected stale Flutter build state: build directory exists but app-debug.apk is missing.'
-        }
+    # 不再因为 APK 暂时不存在就自动 flutter clean。
+    # 本脚本后面会明确执行 flutter build apk，缺少 APK 本身不代表缓存损坏。
+    # 自动 clean 会删除 .dart_tool 等依赖状态，迫使每次重新 pub get，反而容易触发
+    # Windows 桌面插件的符号链接权限检查。
+    if ($ForceClean) {
         Write-Host 'Cleaning Flutter/Gradle incremental build state...'
         & flutter clean
         if ($LASTEXITCODE -ne 0) {
@@ -194,17 +192,83 @@ try {
         }
     }
 
-    Write-Host 'Resolving Flutter dependencies...'
-    & flutter pub get
-    if ($LASTEXITCODE -ne 0) {
-        throw 'flutter pub get failed.'
+    $pubspecPath = Join-Path $PSScriptRoot 'pubspec.yaml'
+    $pubspecLockPath = Join-Path $PSScriptRoot 'pubspec.lock'
+    $packageConfigPath = Join-Path $PSScriptRoot '.dart_tool\package_config.json'
+    $pluginDependenciesPath = Join-Path $PSScriptRoot '.flutter-plugins-dependencies'
+
+    $needsPubGet = $ForcePubGet -or
+        -not (Test-Path -LiteralPath $packageConfigPath) -or
+        -not (Test-Path -LiteralPath $pluginDependenciesPath)
+
+    if (-not $needsPubGet) {
+        $dependencyInputTimes = @(
+            (Get-Item -LiteralPath $pubspecPath).LastWriteTimeUtc
+        )
+        if (Test-Path -LiteralPath $pubspecLockPath) {
+            $dependencyInputTimes += (Get-Item -LiteralPath $pubspecLockPath).LastWriteTimeUtc
+        }
+
+        $dependencyOutputTimes = @(
+            (Get-Item -LiteralPath $packageConfigPath).LastWriteTimeUtc,
+            (Get-Item -LiteralPath $pluginDependenciesPath).LastWriteTimeUtc
+        )
+
+        $latestDependencyInput = $dependencyInputTimes |
+            Sort-Object -Descending |
+            Select-Object -First 1
+        $oldestDependencyOutput = $dependencyOutputTimes |
+            Sort-Object |
+            Select-Object -First 1
+
+        $needsPubGet = $latestDependencyInput -gt $oldestDependencyOutput
+    }
+
+    if ($needsPubGet) {
+        Write-Host 'Resolving Flutter dependencies...'
+
+        # 这里只运行 Android。项目仍带有 windows/ 平台目录，而 image_picker、
+        # url_launcher 等依赖又包含 Windows 插件实现。Flutter pub get 在 Windows
+        # 主机上会顺便为这些桌面插件创建 .plugin_symlinks，从而要求开发人员模式
+        # 或管理员权限。临时隐藏 windows/，只让本轮依赖生成面向 Android；完成后
+        # 原样恢复 Windows 工程，不删除、不修改其中任何文件。
+        $windowsPlatformPath = Join-Path $PSScriptRoot 'windows'
+        $windowsPlatformBackupPath = Join-Path $PSScriptRoot '.windows_android_pub_get_backup'
+        $windowsPlatformTemporarilyHidden = $false
+
+        try {
+            if (Test-Path -LiteralPath $windowsPlatformPath) {
+                if (Test-Path -LiteralPath $windowsPlatformBackupPath) {
+                    throw "Temporary Windows platform backup already exists: $windowsPlatformBackupPath"
+                }
+
+                Move-Item -LiteralPath $windowsPlatformPath -Destination $windowsPlatformBackupPath
+                $windowsPlatformTemporarilyHidden = $true
+                Write-Host 'Temporarily disabled the Windows desktop platform for Android dependency resolution.'
+            }
+
+            & flutter pub get
+            if ($LASTEXITCODE -ne 0) {
+                throw 'flutter pub get failed.'
+            }
+        } finally {
+            if ($windowsPlatformTemporarilyHidden) {
+                if (Test-Path -LiteralPath $windowsPlatformPath) {
+                    Remove-Item -LiteralPath $windowsPlatformPath -Recurse -Force
+                }
+                Move-Item -LiteralPath $windowsPlatformBackupPath -Destination $windowsPlatformPath
+                Write-Host 'Restored the Windows desktop platform directory.'
+            }
+        }
+    } else {
+        Write-Host 'Flutter dependencies are unchanged; skipping flutter pub get.'
     }
 
     if (-not $SkipPrebuild) {
         # 先明确生成 APK。这样真正的 Dart/Gradle 编译错误会直接显示，
         # 不会被最后的“AndroidManifest.xml not found”误导信息覆盖。
         Write-Host 'Prebuilding debug APK...'
-        & flutter build apk --debug "--dart-define=API_BASE_URL=$apiBaseUrl"
+        & flutter build apk --debug --no-pub "--dart-define=API_BASE_URL=$apiBaseUrl"
         if ($LASTEXITCODE -ne 0) {
             throw 'Debug APK build failed. Fix the compile error printed above before running on the phone.'
         }
@@ -245,6 +309,7 @@ try {
     Write-Host "Launching through ASCII APK path: $asciiApkPath"
     $flutterRunArgs = @(
         'run',
+        '--no-pub',
         '-d',
         $DeviceId,
         "--use-application-binary=$asciiApkPath",

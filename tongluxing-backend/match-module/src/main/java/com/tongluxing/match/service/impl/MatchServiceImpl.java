@@ -275,7 +275,7 @@ public class MatchServiceImpl implements MatchService {
 
     @Override
     public TripDiscoverPageResponse discoverTrips(
-            String keyword, String sort, Double latitude, Double longitude, Long referenceTripId,
+            String keyword, String searchType, String sort, Double latitude, Double longitude, Long referenceTripId,
             String startCity, String destination, String departureDateFrom, String departureDateTo,
             String vehicleType, Integer minimumRemainingSeats, Integer page, Integer size) {
         Long userId = currentUserContext.requireUserId();
@@ -283,6 +283,7 @@ public class MatchServiceImpl implements MatchService {
         int safeSize = size == null ? 12 : Math.max(1, Math.min(size, 30));
         int requiredSeats = minimumRemainingSeats == null ? 1 : Math.max(1, minimumRemainingSeats);
         String normalizedKeyword = normalizeLocation(keyword);
+        String normalizedSearchType = normalizeSearchType(searchType);
         LocalDate from = parseDate(departureDateFrom);
         LocalDate to = parseDate(departureDateTo);
         MatchTripDTO reference = referenceTripId == null ? null : requireOwnedReference(referenceTripId, userId);
@@ -298,7 +299,8 @@ public class MatchServiceImpl implements MatchService {
             int max = team.maxMemberCount() == null ? 1 : team.maxMemberCount();
             if (max - current < requiredSeats) continue;
             List<String> waypoints = waypointNames(trip.waypointsJson());
-            if (StringUtils.hasText(normalizedKeyword) && !discoverText(trip, waypoints).contains(normalizedKeyword)) continue;
+            if (StringUtils.hasText(normalizedKeyword)
+                    && !matchesKeyword(trip, waypoints, normalizedKeyword, normalizedSearchType)) continue;
             if (StringUtils.hasText(startCity) && !normalizeLocation(trip.startName()).contains(normalizeLocation(startCity))) continue;
             if (StringUtils.hasText(destination) && !normalizeLocation(trip.endName()).contains(normalizeLocation(destination))) continue;
             if (from != null && trip.departureTime().toLocalDate().isBefore(from)) continue;
@@ -513,6 +515,25 @@ public class MatchServiceImpl implements MatchService {
         return tags;
     }
 
+
+    private boolean matchesKeyword(MatchTripDTO trip, List<String> waypoints,
+                                   String keyword, String searchType) {
+        return switch (searchType) {
+            case "DESTINATION" -> normalizeLocation(trip.endName()).contains(keyword);
+            case "ORIGIN" -> normalizeLocation(trip.startName()).contains(keyword);
+            case "ROUTE" -> normalizeLocation(String.join(" ", valueOrEmpty(trip.title()),
+                    valueOrEmpty(trip.startName()), valueOrEmpty(trip.endName()),
+                    String.join(" ", waypoints))).contains(keyword);
+            default -> discoverText(trip, waypoints).contains(keyword);
+        };
+    }
+
+    private String normalizeSearchType(String value) {
+        if (!StringUtils.hasText(value)) return "ALL";
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        return List.of("DESTINATION", "ORIGIN", "ROUTE").contains(normalized)
+                ? normalized : "ALL";
+    }
     private String discoverText(MatchTripDTO trip, List<String> waypoints) {
         return normalizeLocation(String.join(" ", valueOrEmpty(trip.title()), valueOrEmpty(trip.startName()),
                 valueOrEmpty(trip.endName()), valueOrEmpty(trip.ownerNickname()), String.join(" ", waypoints)));

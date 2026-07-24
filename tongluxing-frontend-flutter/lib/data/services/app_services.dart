@@ -495,6 +495,7 @@ class TripDiscoveryService {
 
   Future<Map<String, dynamic>> discover({
     String? keyword,
+    String? searchType,
     String sort = 'RECOMMENDED',
     double? latitude,
     double? longitude,
@@ -512,6 +513,8 @@ class TripDiscoveryService {
           '/v1/trips/discover',
           query: {
             if (keyword?.trim().isNotEmpty == true) 'keyword': keyword!.trim(),
+            if (searchType?.trim().isNotEmpty == true)
+              'searchType': searchType!.trim(),
             'sort': sort,
             if (latitude != null) 'latitude': latitude.toString(),
             if (longitude != null) 'longitude': longitude.toString(),

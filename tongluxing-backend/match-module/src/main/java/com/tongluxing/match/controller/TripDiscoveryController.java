@@ -49,6 +49,7 @@ public class TripDiscoveryController {
     @GetMapping("/discover")
     public Result<TripDiscoverPageResponse> discover(
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String searchType,
             @RequestParam(defaultValue = "RECOMMENDED") String sort,
             @RequestParam(required = false) Double latitude,
             @RequestParam(required = false) Double longitude,
@@ -61,7 +62,7 @@ public class TripDiscoveryController {
             @RequestParam(required = false) Integer minimumRemainingSeats,
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "12") Integer size) {
-        return Result.success(matchService.discoverTrips(keyword, sort, latitude, longitude, referenceTripId,
+        return Result.success(matchService.discoverTrips(keyword, searchType, sort, latitude, longitude, referenceTripId,
                 startCity, destination, departureDateFrom, departureDateTo, vehicleType,
                 minimumRemainingSeats, page, size));
     }

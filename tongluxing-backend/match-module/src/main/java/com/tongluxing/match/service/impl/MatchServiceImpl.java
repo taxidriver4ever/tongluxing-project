@@ -350,7 +350,8 @@ public class MatchServiceImpl implements MatchService {
                 || Boolean.TRUE.equals(follow.mutual()) || "JOINED".equals(relationship));
         return new TripPublicDetailResponse(String.valueOf(trip.tripId()), trip.title(), trip.status(),
                 trip.startName(), waypointNames(trip.waypointsJson()), trip.endName(), format(trip.departureTime()),
-                trip.estimatedDays(), trip.description(), trip.routePolyline(), trip.routeDistance(),
+                trip.estimatedDays(), trip.description(), trip.coverImageKey(),
+                trip.routePolyline(), trip.routeDistance(),
                 trip.routeDuration(), trip.joinedVehicleCount(), trip.maxVehicleCount(), current, max,
                 Math.max(0, max - current), trip.vehicleSummary(), null, null, trip.startName(), trip.remark(),
                 team.notice(), team.teamDesc(), discoverTags(trip), discoverOwner(trip, userId), members,
@@ -458,7 +459,8 @@ public class MatchServiceImpl implements MatchService {
         return new TripDiscoverCardResponse(String.valueOf(trip.tripId()), trip.title(), trip.status(),
                 trip.startName(), waypoints, trip.endName(), format(trip.departureTime()), trip.estimatedDays(),
                 trip.description(), trip.joinedVehicleCount(), trip.maxVehicleCount(), current, max,
-                Math.max(0, max - current), score, distance < 0 ? null : distance, discoverTags(trip), null,
+                Math.max(0, max - current), score, distance < 0 ? null : distance,
+                discoverTags(trip), trip.coverImageKey(),
                 teamPort.relationshipStatus(team.teamId(), currentUserId), discoverOwner(trip, currentUserId));
     }
 

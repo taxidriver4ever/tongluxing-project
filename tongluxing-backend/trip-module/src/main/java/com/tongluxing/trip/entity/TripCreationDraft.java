@@ -11,6 +11,7 @@ public class TripCreationDraft {
     private Long userId;
     private String title;
     private String description;
+    private String coverImageKey;
     private String startLocationJson;
     private String endLocationJson;
     private LocalDateTime departureTime;

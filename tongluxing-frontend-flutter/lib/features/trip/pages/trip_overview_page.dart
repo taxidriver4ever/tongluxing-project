@@ -9,8 +9,13 @@ import '../../../data/services/app_services.dart';
 import 'trip_detail_page.dart';
 
 class TripOverviewPage extends StatefulWidget {
-  const TripOverviewPage({required this.historyMode, super.key});
+  const TripOverviewPage({
+    required this.historyMode,
+    this.initialFilter,
+    super.key,
+  });
   final bool historyMode;
+  final String? initialFilter;
 
   @override
   State<TripOverviewPage> createState() => _TripOverviewPageState();
@@ -21,11 +26,14 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
   String? error;
   List<TripModel> active = [];
   List<TripModel> history = [];
-  late String filter = widget.historyMode ? 'FINISHED' : 'PUBLISHED';
+  late String filter;
 
   @override
   void initState() {
     super.initState();
+    filter =
+        widget.initialFilter ??
+        (widget.historyMode ? 'FINISHED' : 'PUBLISHED');
     WidgetsBinding.instance.addPostFrameCallback((_) => load());
   }
 
@@ -49,10 +57,22 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
   }
 
   List<TripModel> get visible {
-    final source = filter == 'CANCELLED' || widget.historyMode
+    final source =
+        filter == 'CANCELLED' ||
+            filter == 'FINISHED' ||
+            filter == 'SETTLED' ||
+            widget.historyMode
         ? history
         : active;
     return source.where((trip) {
+      if (filter == 'PUBLISHED') {
+        return trip.status == 'PUBLISHED' || trip.status == 'RECRUITING';
+      }
+      if (filter == 'READY') {
+        return trip.status == 'READY' ||
+            trip.status == 'CONFIRMING' ||
+            trip.status == 'WAITING';
+      }
       if (filter == 'RUNNING')
         return trip.status == 'RUNNING' || trip.status == 'ONGOING';
       if (filter == 'FINISHED')
@@ -100,7 +120,12 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
   Widget build(BuildContext context) {
     final options = widget.historyMode
         ? const {'FINISHED': '已完成', 'SETTLED': '已结算'}
-        : const {'PUBLISHED': '招募中', 'RUNNING': '进行中', 'CANCELLED': '已取消'};
+        : const {
+            'PUBLISHED': '招募中',
+            'READY': '待出发',
+            'RUNNING': '进行中',
+            'CANCELLED': '已取消',
+          };
     return Scaffold(
       appBar: AppBar(title: Text(widget.historyMode ? '历史与结算' : '我的行程')),
       body: RefreshIndicator(
@@ -209,7 +234,8 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
   }
 
   String _label(String status) => switch (status) {
-    'PUBLISHED' => '招募中',
+    'PUBLISHED' || 'RECRUITING' => '招募中',
+    'READY' || 'CONFIRMING' || 'WAITING' => '待出发',
     'RUNNING' || 'ONGOING' => '进行中',
     'CANCELLED' => '已取消',
     'SETTLED' => '已结算',

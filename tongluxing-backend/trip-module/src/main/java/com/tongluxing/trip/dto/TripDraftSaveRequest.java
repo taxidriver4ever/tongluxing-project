@@ -12,6 +12,7 @@ public record TripDraftSaveRequest(
         @Valid LocationRequest startLocation,
         @Valid LocationRequest destination,
         @Size(max = 1000) String description,
+        @Size(max = 512) String coverImageKey,
         @Min(1) @Max(20) Integer expectPeople,
         @Min(1) @Max(365) Integer durationDays
 ) { }

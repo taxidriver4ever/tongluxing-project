@@ -199,57 +199,109 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage>
     super.build(context);
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
-          child: TextField(
-            controller: search,
-            textInputAction: TextInputAction.search,
-            onChanged: _onSearch,
-            onSubmitted: (_) => refresh(),
-            decoration: InputDecoration(
-              hintText: '搜索目的地、路线、经停点或发起人',
-              prefixIcon: const Icon(LucideIcons.search),
-              suffixIcon: search.text.isEmpty
-                  ? null
-                  : IconButton(
-                      onPressed: () {
-                        search.clear();
-                        setState(() {});
-                        refresh();
-                      },
-                      icon: const Icon(LucideIcons.x),
+        Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [AppColors.primaryDark, Color(0xFF3999F5)],
+            ),
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
+          child: Container(
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x1A143F75),
+                  blurRadius: 16,
+                  offset: Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                const SizedBox(width: 14),
+                const Icon(LucideIcons.search, size: 20, color: AppColors.muted),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: search,
+                    textInputAction: TextInputAction.search,
+                    onChanged: (value) {
+                      setState(() {});
+                      _onSearch(value);
+                    },
+                    onSubmitted: (_) => refresh(),
+                    decoration: const InputDecoration(
+                      hintText: '搜索目的地/路线/发起人',
+                      filled: false,
+                      isDense: true,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
                     ),
-              fillColor: Colors.white,
+                  ),
+                ),
+                if (search.text.isNotEmpty)
+                  IconButton(
+                    onPressed: () {
+                      search.clear();
+                      setState(() {});
+                      refresh();
+                    },
+                    icon: const Icon(LucideIcons.x, size: 18),
+                  ),
+                const VerticalDivider(width: 1, indent: 10, endIndent: 10),
+                const SizedBox(width: 10),
+                const Icon(LucideIcons.mapPin, size: 17, color: AppColors.primary),
+                const SizedBox(width: 4),
+                const Text('全国', style: TextStyle(fontWeight: FontWeight.w700)),
+                const Icon(LucideIcons.chevronDown, size: 15),
+                const SizedBox(width: 12),
+              ],
             ),
           ),
         ),
-        SizedBox(
+        Container(
           height: 58,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+          ),
           child: ListView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             children: [
               _SortButton('RECOMMENDED', '推荐', sort, changeSort),
               _SortButton('NEARBY', '附近', sort, changeSort),
               _SortButton('DEPARTURE_TIME', '即将出发', sort, changeSort),
               _SortButton('ROUTE_MATCH', '顺路优先', sort, changeSort),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: ActionChip(
-                  avatar: Icon(
-                    LucideIcons.listFilter,
-                    size: 16,
-                    color: filter.active ? Colors.white : AppColors.primaryDark,
+              InkWell(
+                onTap: openFilter,
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      Icon(
+                        LucideIcons.listFilter,
+                        size: 18,
+                        color: filter.active ? AppColors.primary : AppColors.secondaryText,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        '筛选',
+                        style: TextStyle(
+                          color: filter.active ? AppColors.primary : AppColors.secondaryText,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
-                  label: const Text('筛选'),
-                  labelStyle: TextStyle(
-                    color: filter.active ? Colors.white : AppColors.primaryDark,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  backgroundColor: filter.active
-                      ? AppColors.primary
-                      : Colors.white,
-                  onPressed: openFilter,
                 ),
               ),
             ],
@@ -328,20 +380,55 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage>
 
 class _SortButton extends StatelessWidget {
   const _SortButton(this.value, this.label, this.selected, this.onTap);
+
   final String value;
   final String label;
   final String selected;
   final ValueChanged<String> onTap;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 4),
-    child: ChoiceChip(
-      label: Text(label),
-      selected: selected == value,
-      onSelected: (_) => onTap(value),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final active = selected == value;
+    return InkWell(
+      onTap: () => onTap(value),
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: value == 'DEPARTURE_TIME' ? 92 : 76,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: active ? AppColors.primary : AppColors.secondaryText,
+                    fontSize: 14,
+                    fontWeight: active ? FontWeight.w900 : FontWeight.w600,
+                  ),
+                ),
+                if (value == 'ROUTE_MATCH') ...[
+                  const SizedBox(width: 3),
+                  const Icon(LucideIcons.chevronDown, size: 14),
+                ],
+              ],
+            ),
+            const SizedBox(height: 6),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: active ? 24 : 0,
+              height: 3,
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _DiscoveryState extends StatelessWidget {

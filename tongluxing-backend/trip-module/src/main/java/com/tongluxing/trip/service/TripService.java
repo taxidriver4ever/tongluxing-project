@@ -6,6 +6,7 @@ import com.tongluxing.trip.dto.CreateTripRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
 import com.tongluxing.trip.dto.TripTimeConflictRequest;
 import com.tongluxing.trip.vo.ActiveTripStateResponse;
+import com.tongluxing.trip.vo.MyTripDashboardResponse;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
 import com.tongluxing.trip.vo.TripResponse;
@@ -28,6 +29,9 @@ public interface TripService {
 
     /** 查询当前用户拥有或参加的进行中行程。 */
     ActiveTripStateResponse getActiveTripState();
+
+    /** App「我的行程」首页聚合数据。 */
+    MyTripDashboardResponse getMyTripDashboard();
 
     /** 检查预计出发时间是否与已发布行程重叠；仅返回提醒。 */
     TripTimeConflictResponse checkTimeConflict(TripTimeConflictRequest request);

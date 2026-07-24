@@ -20,8 +20,8 @@ class _MainShellPageState extends State<MainShellPage> {
 
   late final List<Widget> pages = [
     const MapHomePage(),
-    const ChatIndexPage(),
     const TripHomePage(),
+    const ChatIndexPage(),
     const ShopHomePage(),
     ProfilePage(key: profileKey),
   ];
@@ -53,17 +53,17 @@ class _MainShellPageState extends State<MainShellPage> {
           label: '地图',
         ),
         NavigationDestination(
+          icon: Icon(LucideIcons.route),
+          selectedIcon: Icon(LucideIcons.route, color: AppColors.primary),
+          label: '行程',
+        ),
+        NavigationDestination(
           icon: Icon(LucideIcons.messageCircle),
           selectedIcon: Icon(
             LucideIcons.messageCircle,
             color: AppColors.primary,
           ),
           label: '消息',
-        ),
-        NavigationDestination(
-          icon: Icon(LucideIcons.route),
-          selectedIcon: Icon(LucideIcons.route, color: AppColors.primary),
-          label: '行程',
         ),
         NavigationDestination(
           icon: Icon(LucideIcons.store),

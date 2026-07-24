@@ -53,6 +53,7 @@ import com.tongluxing.trip.service.TripFinishedEvent;
 import com.tongluxing.trip.service.TripPublishedEvent;
 import com.tongluxing.trip.service.TripStartedEvent;
 import com.tongluxing.trip.vo.ActiveTripStateResponse;
+import com.tongluxing.trip.vo.MyTripDashboardResponse;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
 import com.tongluxing.trip.vo.TripResponse;
@@ -159,6 +160,29 @@ public class TripServiceImpl implements TripService {
         TripListResponse response = new TripListResponse(trips.stream().map(this::toResponseWithoutChildren).toList());
         writeJson(cacheKey, response, Duration.ofMinutes(5));
         return response;
+    }
+
+    /**
+     * 聚合 App「我的行程」首页数据。当前进行中的行程优先展示，
+     * 其余待出发行程按出发时间升序，历史预览按出发时间倒序。
+     */
+    @Override
+    public MyTripDashboardResponse getMyTripDashboard() {
+        Long userId = currentUserContext.requireUserId();
+        List<Trip> active = tripMapper.findActiveByUserId(userId);
+        List<Trip> history = tripMapper.findHistoryByUserId(userId, 12);
+        TripResponse current = getCurrentDrivingTrip();
+        String currentId = current == null ? null : current.tripId();
+        List<TripResponse> upcoming = active.stream()
+                .filter(trip -> currentId == null || !currentId.equals(String.valueOf(trip.getId())))
+                .limit(8)
+                .map(this::toResponseWithoutChildren)
+                .toList();
+        List<TripResponse> recent = history.stream()
+                .limit(6)
+                .map(this::toResponseWithoutChildren)
+                .toList();
+        return new MyTripDashboardResponse(current, upcoming, recent, active.size(), history.size());
     }
 
     /** 查询当前用户拥有或参加的进行中行程状态。 */
@@ -409,6 +433,7 @@ public class TripServiceImpl implements TripService {
                 : displayName(request.startLocation().name(), request.startLocation().address()) + "到"
                 + displayName(request.endLocation().name(), request.endLocation().address()));
         trip.setDescription(StringUtils.hasText(request.description()) ? normalize(request.description()) : normalize(request.remark()));
+        trip.setCoverImageKey(normalize(request.coverImageKey()));
         trip.setExpectedPeople(request.expectedPeople() == null ? request.maxVehicleCount() : request.expectedPeople());
         fillLocations(trip, request.startLocation(), request.endLocation());
         trip.setRouteSummary(normalize(request.routeSummary()));
@@ -435,6 +460,7 @@ public class TripServiceImpl implements TripService {
                 : displayName(request.startLocation().name(), request.startLocation().address()) + "到"
                 + displayName(request.endLocation().name(), request.endLocation().address()));
         trip.setDescription(StringUtils.hasText(request.description()) ? normalize(request.description()) : normalize(request.remark()));
+        trip.setCoverImageKey(normalize(request.coverImageKey()));
         trip.setExpectedPeople(request.expectedPeople() == null ? request.maxVehicleCount() : request.expectedPeople());
         fillLocations(trip, request.startLocation(), request.endLocation());
         trip.setRouteSummary(normalize(request.routeSummary()));
@@ -707,6 +733,7 @@ public class TripServiceImpl implements TripService {
                 String.valueOf(trip.getVehicleId()),
                 trip.getTitle(),
                 trip.getDescription(),
+                trip.getCoverImageKey(),
                 trip.getExpectedPeople(),
                 trip.getStartName(),
                 trip.getStartLat(),

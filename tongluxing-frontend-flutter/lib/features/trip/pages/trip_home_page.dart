@@ -6,6 +6,7 @@ import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
+import '../../profile/widgets/user_avatar.dart';
 import 'trip_create_page.dart';
 import 'trip_detail_page.dart';
 import 'trip_discovery_page.dart';
@@ -14,6 +15,7 @@ import 'trip_overview_page.dart';
 
 class TripHomePage extends StatefulWidget {
   const TripHomePage({super.key});
+
   @override
   State<TripHomePage> createState() => _TripHomePageState();
 }
@@ -23,85 +25,97 @@ class _TripHomePageState extends State<TripHomePage> {
 
   @override
   Widget build(BuildContext context) => SafeArea(
-    child: Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [AppColors.primaryDark, Color(0xFF479EFF)],
+    bottom: false,
+    child: ColoredBox(
+      color: const Color(0xFFF4F7FC),
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 5),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [AppColors.primaryDark, Color(0xFF3999F5)],
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _TopTab(
+                  label: '发现行程',
+                  active: section == 0,
+                  onTap: () => setState(() => section = 0),
+                ),
+                const SizedBox(width: 46),
+                _TopTab(
+                  label: '我的行程',
+                  active: section == 1,
+                  onTap: () => setState(() => section = 1),
+                ),
+              ],
             ),
           ),
-          child: Row(
-            children: [
-              Expanded(
-                child: _Tab(
-                  '发现行程',
-                  0,
-                  section,
-                  () => setState(() => section = 0),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _Tab(
-                  '我的行程',
-                  1,
-                  section,
-                  () => setState(() => section = 1),
-                ),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ColoredBox(
-            color: const Color(0xFFF3F7FC),
+          Expanded(
             child: IndexedStack(
               index: section,
               children: const [TripDiscoveryPage(), _MyTripsPage()],
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     ),
   );
 }
 
-class _Tab extends StatelessWidget {
-  const _Tab(this.label, this.value, this.selected, this.onTap);
+class _TopTab extends StatelessWidget {
+  const _TopTab({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
   final String label;
-  final int value;
-  final int selected;
+  final bool active;
   final VoidCallback onTap;
+
   @override
-  Widget build(BuildContext context) {
-    final active = selected == value;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        height: 44,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: active ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: active ? AppColors.primaryDark : Colors.white70,
-            fontSize: 17,
-            fontWeight: FontWeight.w800,
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(12),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: active ? Colors.white : Colors.white70,
+              fontSize: 17,
+              fontWeight: active ? FontWeight.w900 : FontWeight.w600,
+            ),
           ),
-        ),
+          const SizedBox(height: 5),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: active ? 34 : 0,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(99),
+            ),
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
 }
 
 class _MyTripsPage extends StatefulWidget {
   const _MyTripsPage();
+
   @override
   State<_MyTripsPage> createState() => _MyTripsPageState();
 }
@@ -109,7 +123,11 @@ class _MyTripsPage extends StatefulWidget {
 class _MyTripsPageState extends State<_MyTripsPage>
     with AutomaticKeepAliveClientMixin {
   TripModel? current;
+  List<TripModel> upcoming = const [];
+  List<TripModel> recent = const [];
+  Map<String, dynamic> profile = const {};
   bool loading = true;
+  String? error;
 
   @override
   bool get wantKeepAlive => true;
@@ -121,186 +139,635 @@ class _MyTripsPageState extends State<_MyTripsPage>
   }
 
   Future<void> load() async {
-    try {
-      current = await TripService(context.read<AppSession>().api).current();
-    } catch (_) {
-      current = null;
+    if (mounted) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
     }
-    if (mounted) setState(() => loading = false);
+    try {
+      final api = context.read<AppSession>().api;
+      final values = await Future.wait<dynamic>([
+        TripService(api).dashboard(),
+        UserProfileService(api).me(),
+      ]);
+      final dashboard = Map<String, dynamic>.from(values[0] as Map);
+      TripModel? nextCurrent;
+      if (dashboard['currentTrip'] is Map) {
+        nextCurrent = TripModel.fromJson(
+          Map<String, dynamic>.from(dashboard['currentTrip'] as Map),
+        );
+      }
+      final nextUpcoming = _tripList(dashboard['upcomingTrips']);
+      final nextRecent = _tripList(dashboard['recentTrips']);
+      if (mounted) {
+        setState(() {
+          current = nextCurrent;
+          upcoming = nextUpcoming;
+          recent = nextRecent;
+          profile = Map<String, dynamic>.from(values[1] as Map);
+        });
+      }
+    } catch (e) {
+      // 兼容尚未部署聚合接口的旧后端，自动回退到原有接口。
+      try {
+        final api = context.read<AppSession>().api;
+        final values = await Future.wait<dynamic>([
+          TripService(api).current(),
+          TripService(api).mine(),
+          TripService(api).mine(scope: 'history'),
+          UserProfileService(api).me(),
+        ]);
+        if (mounted) {
+          setState(() {
+            current = values[0] as TripModel?;
+            upcoming = List<TripModel>.from(values[1] as List);
+            recent = List<TripModel>.from(values[2] as List);
+            profile = Map<String, dynamic>.from(values[3] as Map);
+          });
+        }
+      } catch (fallbackError) {
+        if (mounted) setState(() => error = fallbackError.toString());
+      }
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
   }
 
-  void open(Widget page) => Navigator.push(
-    context,
-    MaterialPageRoute(builder: (_) => page),
-  ).then((_) => load());
+  List<TripModel> _tripList(dynamic value) => (value as List? ?? const [])
+      .whereType<Map>()
+      .map((e) => TripModel.fromJson(Map<String, dynamic>.from(e)))
+      .toList();
+
+  Future<void> open(Widget page) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+    if (mounted) await load();
+  }
+
+  String get nickname {
+    final value = profile['nickname']?.toString().trim() ?? '';
+    return value.isEmpty ? '同路行车友' : value;
+  }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    if (loading && profile.isEmpty && current == null && upcoming.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
     return RefreshIndicator(
       onRefresh: load,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 34),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 34),
         children: [
-          if (loading)
-            const SizedBox(
-              height: 128,
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else
-            _CurrentTrip(
-              trip: current,
-              onTap: current == null
-                  ? () => open(const TripCreatePage())
-                  : () => open(
-                      TripDetailPage(tripId: current!.id, initial: current),
-                    ),
+          _DashboardHeader(profile: profile),
+          const SizedBox(height: 22),
+          Text(
+            '你好，$nickname',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 31,
+              height: 1.15,
+              fontWeight: FontWeight.w500,
             ),
-          const SizedBox(height: 18),
+          ),
+          const SizedBox(height: 6),
           const Text(
-            '行程管理',
-            style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
+            '轻松规划下一段同行旅程',
+            style: TextStyle(color: AppColors.muted, fontSize: 14),
           ),
-          const SizedBox(height: 12),
-          _ManageTile(
-            icon: LucideIcons.radioTower,
-            title: '招募中的行程',
-            subtitle: '管理公开招募、成员申请和行程信息',
-            onTap: () => open(const TripOverviewPage(historyMode: false)),
+          const SizedBox(height: 24),
+          _DashboardGrid(
+            current: current,
+            onCurrent: () => current == null
+                ? open(const TripCreatePage())
+                : open(TripDetailPage(tripId: current!.id, initial: current)),
+            onPlan: () => open(
+              const TripOverviewPage(
+                historyMode: false,
+                initialFilter: 'PUBLISHED',
+              ),
+            ),
+            onDrafts: () => open(const TripDraftsPage()),
+            onHistory: () => open(const TripOverviewPage(historyMode: true)),
+            onCreate: () => open(const TripCreatePage()),
           ),
-          _ManageTile(
-            icon: LucideIcons.calendarClock,
-            title: '待出发的行程',
-            subtitle: '查看已发布并准备开启的行程',
-            onTap: () => open(const TripOverviewPage(historyMode: false)),
+          const SizedBox(height: 28),
+          Row(
+            children: [
+              const Text(
+                '即将出发',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => open(
+                  const TripOverviewPage(
+                    historyMode: false,
+                    initialFilter: 'READY',
+                  ),
+                ),
+                child: const Text('查看全部'),
+              ),
+            ],
           ),
-          _ManageTile(
-            icon: LucideIcons.navigation,
-            title: '进行中的行程',
-            subtitle: '进入导航、成员位置与群聊',
-            onTap: () => open(const TripOverviewPage(historyMode: false)),
-          ),
-          _ManageTile(
-            icon: LucideIcons.history,
-            title: '历史行程',
-            subtitle: '已完成、已结算与历史车队群',
-            onTap: () => open(const TripOverviewPage(historyMode: true)),
-          ),
-          _ManageTile(
-            icon: LucideIcons.filePenLine,
-            title: '行程草稿',
-            subtitle: '继续编辑七天内保存的草稿',
-            onTap: () => open(const TripDraftsPage()),
-          ),
-          const SizedBox(height: 14),
-          FilledButton.icon(
-            onPressed: () => open(const TripCreatePage()),
-            icon: const Icon(LucideIcons.plus),
-            label: const Text('创建新行程'),
-          ),
+          const SizedBox(height: 10),
+          if (error != null && upcoming.isEmpty)
+            _InlineError(message: error!, onRetry: load)
+          else if (upcoming.isEmpty)
+            _EmptyUpcoming(onCreate: () => open(const TripCreatePage()))
+          else
+            SizedBox(
+              height: 170,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: upcoming.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 12),
+                itemBuilder: (context, index) {
+                  final trip = upcoming[index];
+                  return _UpcomingTripCard(
+                    trip: trip,
+                    onTap: () => open(
+                      TripDetailPage(tripId: trip.id, initial: trip),
+                    ),
+                  );
+                },
+              ),
+            ),
+          if (recent.isNotEmpty) ...[
+            const SizedBox(height: 28),
+            Row(
+              children: [
+                const Text(
+                  '最近完成',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => open(
+                    const TripOverviewPage(historyMode: true),
+                  ),
+                  child: const Text('查看历史'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...recent.take(2).map(
+              (trip) => _RecentTripTile(
+                trip: trip,
+                onTap: () => open(
+                  TripDetailPage(tripId: trip.id, initial: trip),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _CurrentTrip extends StatelessWidget {
-  const _CurrentTrip({required this.trip, required this.onTap});
-  final TripModel? trip;
-  final VoidCallback onTap;
+class _DashboardHeader extends StatelessWidget {
+  const _DashboardHeader({required this.profile});
+
+  final Map<String, dynamic> profile;
+
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(24),
-    child: Ink(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppColors.primaryDark, Color(0xFF58A5FF)],
-        ),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  trip == null ? '还没有进行中的行程' : '当前进行中的行程',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  trip?.title ?? '规划下一段同行路线',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                if (trip != null) ...[
-                  const SizedBox(height: 7),
-                  Text(
-                    '${trip!.startName} → ${trip!.endName}',
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                ],
-              ],
-            ),
+  Widget build(BuildContext context) {
+    final nickname = profile['nickname']?.toString() ?? '同路行用户';
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFDCE9F9)),
           ),
-          const SizedBox(width: 12),
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: Colors.white,
-            child: Icon(
-              trip == null ? LucideIcons.plus : LucideIcons.navigation,
-              color: AppColors.primaryDark,
-            ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(LucideIcons.navigation, size: 18),
+              SizedBox(width: 8),
+              Text(
+                '同路行 1.0',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              SizedBox(width: 5),
+              Icon(LucideIcons.chevronDown, size: 16),
+            ],
+          ),
+        ),
+        const Spacer(),
+        UserAvatar(
+          nickname: nickname,
+          avatarImageKey: profile['avatarImageKey']?.toString() ?? '',
+          radius: 21,
+        ),
+      ],
+    );
+  }
+}
+
+class _DashboardGrid extends StatelessWidget {
+  const _DashboardGrid({
+    required this.current,
+    required this.onCurrent,
+    required this.onPlan,
+    required this.onDrafts,
+    required this.onHistory,
+    required this.onCreate,
+  });
+
+  final TripModel? current;
+  final VoidCallback onCurrent;
+  final VoidCallback onPlan;
+  final VoidCallback onDrafts;
+  final VoidCallback onHistory;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final gap = 12.0;
+      final half = (constraints.maxWidth - gap) / 2;
+      return Column(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: half,
+                height: 230,
+                child: _CurrentJourneyCard(
+                  trip: current,
+                  onTap: onCurrent,
+                ),
+              ),
+              SizedBox(width: gap),
+              SizedBox(
+                width: half,
+                height: 230,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: _ActionTile(
+                        icon: LucideIcons.calendarDays,
+                        label: '行程计划',
+                        color: const Color(0xFFE7EEFF),
+                        onTap: onPlan,
+                      ),
+                    ),
+                    SizedBox(height: gap),
+                    Expanded(
+                      child: _ActionTile(
+                        icon: LucideIcons.filePenLine,
+                        label: '行程草稿',
+                        color: const Color(0xFFDDEEFF),
+                        onTap: onDrafts,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: gap),
+          Row(
+            children: [
+              SizedBox(
+                width: half,
+                height: 112,
+                child: _ActionTile(
+                  icon: LucideIcons.history,
+                  label: '历史行程',
+                  color: const Color(0xFFE6F0FF),
+                  onTap: onHistory,
+                ),
+              ),
+              SizedBox(width: gap),
+              SizedBox(
+                width: half,
+                height: 112,
+                child: _ActionTile(
+                  icon: LucideIcons.mapPinned,
+                  label: '创建行程',
+                  color: const Color(0xFFD9ECFF),
+                  onTap: onCreate,
+                ),
+              ),
+            ],
           ),
         ],
+      );
+    },
+  );
+}
+
+class _CurrentJourneyCard extends StatelessWidget {
+  const _CurrentJourneyCard({required this.trip, required this.onTap});
+
+  final TripModel? trip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    borderRadius: BorderRadius.circular(24),
+    clipBehavior: Clip.antiAlias,
+    child: InkWell(
+      onTap: onTap,
+      child: Ink(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF79B9F5), Color(0xFF175FC6)],
+          ),
+        ),
+        child: Stack(
+          children: [
+            const Positioned(
+              right: -20,
+              top: 42,
+              child: Icon(
+                LucideIcons.mountainSnow,
+                size: 145,
+                color: Color(0x38FFFFFF),
+              ),
+            ),
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 18,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    trip?.title ?? '规划下一段旅程',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 23,
+                      height: 1.05,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    trip == null
+                        ? '点击开始创建'
+                        : '${trip!.startName} → ${trip!.endName}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                  ),
+                  if (trip?.departureTime != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _dateLabel(trip!.departureTime),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     ),
   );
 }
 
-class _ManageTile extends StatelessWidget {
-  const _ManageTile({
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({
     required this.icon,
-    required this.title,
-    required this.subtitle,
+    required this.label,
+    required this.color,
     required this.onTap,
   });
+
   final IconData icon;
-  final String title;
-  final String subtitle;
+  final String label;
+  final Color color;
   final VoidCallback onTap;
+
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: 10),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-    ),
-    child: ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-      leading: CircleAvatar(
-        backgroundColor: AppColors.primarySoft,
-        child: Icon(icon, color: AppColors.primary),
-      ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-      subtitle: Text(
-        subtitle,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 12),
-      ),
-      trailing: const Icon(LucideIcons.chevronRight),
+  Widget build(BuildContext context) => Material(
+    color: color,
+    borderRadius: BorderRadius.circular(24),
+    child: InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(24),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: const BoxDecoration(
+                color: Color(0xCCFFFFFF),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: AppColors.primaryDark, size: 21),
+            ),
+            const Spacer(),
+            Text(
+              label,
+              maxLines: 1,
+              style: const TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
     ),
   );
+}
+
+class _UpcomingTripCard extends StatelessWidget {
+  const _UpcomingTripCard({required this.trip, required this.onTap});
+
+  final TripModel trip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 178,
+    child: Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(22),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 96,
+              width: double.infinity,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFFB8D9FF), Color(0xFF4D91DE)],
+                ),
+              ),
+              child: const Icon(
+                LucideIcons.mountain,
+                color: Colors.white70,
+                size: 48,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 9, 12, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    trip.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    _dateLabel(trip.departureTime),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _RecentTripTile extends StatelessWidget {
+  const _RecentTripTile({required this.trip, required this.onTap});
+
+  final TripModel trip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    margin: const EdgeInsets.only(bottom: 10),
+    child: ListTile(
+      onTap: onTap,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      leading: const CircleAvatar(
+        backgroundColor: AppColors.primarySoft,
+        child: Icon(LucideIcons.flag, color: AppColors.primary),
+      ),
+      title: Text(
+        trip.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w800),
+      ),
+      subtitle: Text('${trip.startName} → ${trip.endName}'),
+      trailing: const Icon(LucideIcons.chevronRight, size: 19),
+    ),
+  );
+}
+
+class _EmptyUpcoming extends StatelessWidget {
+  const _EmptyUpcoming({required this.onCreate});
+
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(22),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(22),
+    ),
+    child: Row(
+      children: [
+        const CircleAvatar(
+          radius: 25,
+          backgroundColor: AppColors.primarySoft,
+          child: Icon(LucideIcons.calendarPlus, color: AppColors.primary),
+        ),
+        const SizedBox(width: 14),
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '还没有即将出发的行程',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              SizedBox(height: 3),
+              Text(
+                '创建行程后会在这里展示',
+                style: TextStyle(color: AppColors.muted, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        TextButton(onPressed: onCreate, child: const Text('去创建')),
+      ],
+    ),
+  );
+}
+
+class _InlineError extends StatelessWidget {
+  const _InlineError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: Row(
+      children: [
+        const Icon(LucideIcons.wifiOff, color: AppColors.muted),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            message,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppColors.muted),
+          ),
+        ),
+        TextButton(onPressed: onRetry, child: const Text('重试')),
+      ],
+    ),
+  );
+}
+
+String _dateLabel(String? raw) {
+  final value = DateTime.tryParse(raw ?? '');
+  if (value == null) return '时间待定';
+  return '${value.month.toString().padLeft(2, '0')}月${value.day.toString().padLeft(2, '0')}日';
 }

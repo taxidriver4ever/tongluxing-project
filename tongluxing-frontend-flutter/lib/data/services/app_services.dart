@@ -252,6 +252,10 @@ class TripService {
     await api.get('/v1/trips/me/active-state') as Map,
   );
 
+  Future<Map<String, dynamic>> dashboard() async => Map<String, dynamic>.from(
+    await api.get('/v1/trips/me/dashboard') as Map,
+  );
+
   Future<Map<String, dynamic>> checkTimeConflict({
     required DateTime departureTime,
     int estimatedDays = 1,

@@ -13,6 +13,7 @@ public record TripPublicDetailResponse(
         String departureTime,
         Integer estimatedDays,
         String description,
+        String coverImageKey,
         String routePolyline,
         Integer routeDistanceMeters,
         Integer routeDurationSeconds,

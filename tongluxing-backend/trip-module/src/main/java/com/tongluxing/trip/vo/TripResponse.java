@@ -12,6 +12,7 @@ public record TripResponse(
         String vehicleId,
         String title,
         String description,
+        String coverImageKey,
         Integer expectedPeople,
         String startName,
         BigDecimal startLat,

@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
+import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
+import '../../../data/services/app_services.dart';
 import '../../profile/widgets/user_avatar.dart';
 
 class TripDiscoveryCard extends StatelessWidget {
   const TripDiscoveryCard({required this.trip, required this.onTap, super.key});
+
   final TripDiscoverModel trip;
   final VoidCallback onTap;
 
@@ -16,97 +20,137 @@ class TripDiscoveryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
     color: Colors.white,
-    borderRadius: BorderRadius.circular(22),
+    borderRadius: BorderRadius.circular(20),
+    clipBehavior: Clip.antiAlias,
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(22),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(15, 13, 15, 13),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 _Pill(
-                  '推荐度 ${trip.matchScore}%',
-                  AppColors.primarySoft,
+                  '顺路度 ${trip.matchScore}%',
+                  const Color(0xFFDDEEFF),
                   AppColors.primaryDark,
                 ),
                 const Spacer(),
-                _Pill(
-                  trip.status == 'RECRUITING' ? '招募中' : '公开招募',
-                  const Color(0xFFFFF2E8),
-                  const Color(0xFFF97316),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (trip.matchScore >= 90) ...[
+                      const Icon(
+                        LucideIcons.flame,
+                        color: Color(0xFFFF6B35),
+                        size: 14,
+                      ),
+                      const SizedBox(width: 3),
+                    ],
+                    Text(
+                      trip.matchScore >= 90 ? '热门招募中' : '招募中',
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            Text(
-              trip.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 7),
-            Text(
-              route,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600, height: 1.35),
-            ),
-            const SizedBox(height: 11),
+            const SizedBox(height: 9),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(
-                  LucideIcons.calendarDays,
-                  size: 16,
-                  color: AppColors.primary,
-                ),
-                const SizedBox(width: 6),
                 Expanded(
-                  child: Text(
-                    '${formatDiscoverTime(trip.departureTime)} · 预计${trip.estimatedDays}天',
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppColors.secondaryText,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        trip.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontSize: 18,
+                          height: 1.2,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        route,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.secondaryText,
+                          fontSize: 13,
+                          height: 1.3,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          const Icon(
+                            LucideIcons.calendarDays,
+                            size: 14,
+                            color: AppColors.secondaryText,
+                          ),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              '${formatDiscoverDate(trip.departureTime)} 出发 · 预计${trip.estimatedDays}天',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.secondaryText,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                if (trip.distanceMeters != null)
-                  Text(
-                    distanceLabel(trip.distanceMeters!),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.muted,
-                    ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 122,
+                  height: 94,
+                  child: _TripCover(
+                    imageKey: trip.coverImageKey,
+                    score: trip.matchScore,
                   ),
+                ),
               ],
             ),
             if (trip.tags.isNotEmpty) ...[
-              const SizedBox(height: 10),
+              const SizedBox(height: 9),
               Wrap(
                 spacing: 7,
-                runSpacing: 7,
+                runSpacing: 6,
                 children: trip.tags
                     .take(3)
                     .map(
                       (tag) => _Pill(
                         tag,
-                        const Color(0xFFF1F5FA),
+                        const Color(0xFFF0F4FA),
                         AppColors.secondaryText,
                       ),
                     )
                     .toList(),
               ),
             ],
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             Row(
               children: [
                 UserAvatar(
                   nickname: trip.owner.nickname,
                   avatarImageKey: trip.owner.avatarImageKey,
-                  radius: 19,
+                  radius: 18,
                 ),
                 const SizedBox(width: 9),
                 Expanded(
@@ -121,43 +165,44 @@ class TripDiscoveryCard extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                fontWeight: FontWeight.w700,
+                                color: AppColors.text,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                           ),
                           const SizedBox(width: 6),
-                          Text(
-                            trip.owner.levelCode,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: AppColors.primary,
-                            ),
+                          _MiniTextTag(
+                            trip.owner.levelCode.toUpperCase(),
+                            const Color(0xFFDCEBFF),
+                            AppColors.primaryDark,
                           ),
                           if (trip.owner.rating > 0) ...[
                             const SizedBox(width: 5),
                             const Icon(
                               LucideIcons.star,
                               size: 12,
-                              color: Color(0xFFF59E0B),
+                              color: AppColors.primary,
                             ),
+                            const SizedBox(width: 2),
                             Text(
                               trip.owner.rating.toStringAsFixed(1),
                               style: const TextStyle(
+                                color: AppColors.primary,
                                 fontSize: 11,
-                                color: AppColors.primaryDark,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ],
                         ],
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 3),
                       Text(
-                        '${trip.owner.totalTripCount}次行程 · ${activeLabel(trip.owner.lastActiveAt)}',
+                        '发起行程 · ${activeLabel(trip.owner.lastActiveAt)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 11,
                           color: AppColors.muted,
+                          fontSize: 11,
                         ),
                       ),
                     ],
@@ -167,19 +212,43 @@ class TripDiscoveryCard extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(
-                      '${trip.joinedVehicleCount}/${trip.maxVehicleCount}辆 · ${trip.memberCount}人',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppColors.secondaryText,
-                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          LucideIcons.users,
+                          size: 14,
+                          color: AppColors.secondaryText,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${trip.joinedVehicleCount}/${trip.maxVehicleCount}辆车 · ${trip.memberCount}人',
+                          style: const TextStyle(
+                            color: AppColors.secondaryText,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 5),
-                    const Text(
-                      '查看详情',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [AppColors.primary, AppColors.primaryDark],
+                        ),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                      child: const Text(
+                        '查看详情',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                   ],
@@ -193,6 +262,89 @@ class TripDiscoveryCard extends StatelessWidget {
   );
 }
 
+class _TripCover extends StatefulWidget {
+  const _TripCover({required this.imageKey, required this.score});
+
+  final String imageKey;
+  final int score;
+
+  @override
+  State<_TripCover> createState() => _TripCoverState();
+}
+
+class _TripCoverState extends State<_TripCover> {
+  Future<String>? future;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (future == null && widget.imageKey.trim().isNotEmpty) {
+      future = StorageUploadService(
+        context.read<AppSession>().api,
+      ).downloadUrlByObjectKey(widget.imageKey);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: widget.score >= 85
+              ? const [Color(0xFF90CAF9), Color(0xFF266CC5)]
+              : const [Color(0xFFB3D7F7), Color(0xFF5B91CC)],
+        ),
+      ),
+      child: const Stack(
+        children: [
+          Positioned(
+            right: -8,
+            bottom: -5,
+            child: Icon(
+              LucideIcons.mountainSnow,
+              size: 82,
+              color: Color(0x66FFFFFF),
+            ),
+          ),
+          Positioned(
+            left: 9,
+            bottom: 8,
+            child: Row(
+              children: [
+                Icon(LucideIcons.images, size: 12, color: Colors.white),
+                SizedBox(width: 4),
+                Text(
+                  '行程风景',
+                  style: TextStyle(color: Colors.white, fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (future == null) return fallback;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: FutureBuilder<String>(
+        future: future,
+        builder: (context, snapshot) {
+          final url = snapshot.data ?? '';
+          if (url.isEmpty) return fallback;
+          return Image.network(
+            url,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => fallback,
+          );
+        },
+      ),
+    );
+  }
+}
+
 class RouteSketch extends StatelessWidget {
   const RouteSketch({
     required this.start,
@@ -201,6 +353,7 @@ class RouteSketch extends StatelessWidget {
     this.routePolyline = '',
     super.key,
   });
+
   final String start;
   final String end;
   final List<String> waypoints;
@@ -210,12 +363,10 @@ class RouteSketch extends StatelessWidget {
   Widget build(BuildContext context) {
     final points = [start, ...waypoints, end];
     return Container(
-      height: 172,
+      height: 190,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFF1F8FF), Color(0xFFE7F2FF)],
-        ),
+        color: const Color(0xFFF2F8FF),
         borderRadius: BorderRadius.circular(22),
       ),
       child: Stack(
@@ -229,17 +380,14 @@ class RouteSketch extends StatelessWidget {
             ),
           ),
           ...List.generate(points.length, (index) {
-            final left =
-                8 +
-                index *
-                    (MediaQuery.sizeOf(context).width - 94) /
-                    (points.length - 1).clamp(1, 5);
-            final top = index.isEven ? 73.0 : 39.0;
+            final usableWidth = MediaQuery.sizeOf(context).width - 104;
+            final left = 4 + index * usableWidth / (points.length - 1).clamp(1, 5);
+            final top = index.isEven ? 74.0 : 39.0;
             return Positioned(
-              left: left.clamp(8, MediaQuery.sizeOf(context).width - 95),
+              left: left.clamp(4, MediaQuery.sizeOf(context).width - 103),
               top: top,
               child: SizedBox(
-                width: 58,
+                width: 62,
                 child: Text(
                   points[index],
                   maxLines: 1,
@@ -247,18 +395,31 @@ class RouteSketch extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 11,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
             );
           }),
-          const Positioned(
-            left: 0,
+          Positioned(
+            right: 0,
             bottom: 0,
-            child: Text(
-              '行程参考路线',
-              style: TextStyle(fontSize: 11, color: AppColors.muted),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: const Row(
+                children: [
+                  Icon(LucideIcons.route, size: 13),
+                  SizedBox(width: 5),
+                  Text(
+                    '查看完整路线',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -285,12 +446,14 @@ class RouteSketch extends StatelessWidget {
 
 class _RoutePainter extends CustomPainter {
   const _RoutePainter(this.count, this.polyline);
+
   final int count;
   final List<Offset> polyline;
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = AppColors.primary
+      ..color = AppColors.primaryDark
       ..strokeWidth = 4
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -305,10 +468,10 @@ class _RoutePainter extends CustomPainter {
             (point.dx - minX) /
                 (maxX - minX).abs().clamp(.000001, double.infinity) *
                 (size.width - 56),
-        118 -
+        126 -
             (point.dy - minY) /
                 (maxY - minY).abs().clamp(.000001, double.infinity) *
-                62,
+                66,
       );
       final first = project(polyline.first);
       path.moveTo(first.dx, first.dy);
@@ -317,22 +480,22 @@ class _RoutePainter extends CustomPainter {
         path.lineTo(projected.dx, projected.dy);
       }
     } else {
-      path.moveTo(28, 105);
+      path.moveTo(28, 112);
       for (var i = 1; i < count; i++) {
         final x = 28 + i * (size.width - 56) / (count - 1).clamp(1, 5);
-        final y = i.isEven ? 105.0 : 70.0;
+        final y = i.isEven ? 112.0 : 76.0;
         path.quadraticBezierTo(x - 22, y, x, y);
       }
     }
     canvas.drawPath(path, paint);
     final dot = Paint()..color = Colors.white;
     final border = Paint()
-      ..color = AppColors.primary
+      ..color = AppColors.primaryDark
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3;
     for (var i = 0; i < count; i++) {
       final x = 28 + i * (size.width - 56) / (count - 1).clamp(1, 5);
-      final y = i.isEven ? 105.0 : 70.0;
+      final y = i.isEven ? 112.0 : 76.0;
       canvas.drawCircle(Offset(x, y), 6, dot);
       canvas.drawCircle(Offset(x, y), 6, border);
     }
@@ -345,31 +508,64 @@ class _RoutePainter extends CustomPainter {
 
 class _Pill extends StatelessWidget {
   const _Pill(this.text, this.background, this.foreground);
+
   final String text;
   final Color background;
   final Color foreground;
+
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
     decoration: BoxDecoration(
       color: background,
-      borderRadius: BorderRadius.circular(9),
+      borderRadius: BorderRadius.circular(8),
     ),
     child: Text(
       text,
       style: TextStyle(
-        fontSize: 11,
         color: foreground,
-        fontWeight: FontWeight.w700,
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
       ),
     ),
   );
 }
 
+class _MiniTextTag extends StatelessWidget {
+  const _MiniTextTag(this.text, this.background, this.foreground);
+
+  final String text;
+  final Color background;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(7),
+    ),
+    child: Text(
+      text,
+      style: TextStyle(
+        color: foreground,
+        fontSize: 10,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+  );
+}
+
+String formatDiscoverDate(String raw) {
+  final value = DateTime.tryParse(raw);
+  if (value == null) return raw.isEmpty ? '时间待定' : raw;
+  return '${value.month.toString().padLeft(2, '0')}月${value.day.toString().padLeft(2, '0')}日';
+}
+
 String formatDiscoverTime(String raw) {
   final value = DateTime.tryParse(raw);
   if (value == null) return raw.isEmpty ? '时间待定' : raw;
-  return '${value.month.toString().padLeft(2, '0')}月${value.day.toString().padLeft(2, '0')}日 ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+  return '${formatDiscoverDate(raw)} ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
 }
 
 String distanceLabel(int meters) =>

@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -31,6 +34,10 @@ class _TripCreatePageState extends State<TripCreatePage> {
   String? draftId;
   TripDraftRouteModel? route;
   final List<String> persistedWaypointIds = [];
+  Uint8List? coverBytes;
+  String coverFileName = '';
+  String coverImageKey = '';
+  String coverDownloadUrl = '';
 
   @override
   void initState() {
@@ -47,6 +54,10 @@ class _TripCreatePageState extends State<TripCreatePage> {
     waypoints.addAll(draft.waypoints.map((e) => e.location));
     persistedWaypointIds.addAll(draft.waypoints.map((e) => e.id));
     route = draft.route;
+    coverImageKey = draft.coverImageKey;
+    if (coverImageKey.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadCoverUrl());
+    }
   }
 
   @override
@@ -178,12 +189,67 @@ class _TripCreatePageState extends State<TripCreatePage> {
       '${value.hour.toString().padLeft(2, '0')}:'
       '${value.minute.toString().padLeft(2, '0')}:00';
 
+  Future<void> _loadCoverUrl() async {
+    try {
+      final value = await StorageUploadService(
+        context.read<AppSession>().api,
+      ).downloadUrlByObjectKey(coverImageKey);
+      if (mounted) setState(() => coverDownloadUrl = value);
+    } catch (_) {
+      // 已有封面加载失败不阻断草稿编辑，重新选择即可替换。
+    }
+  }
+
+  Future<void> _pickCover() async {
+    final image = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 88,
+      maxWidth: 1920,
+    );
+    if (image == null || !mounted) return;
+    final bytes = await image.readAsBytes();
+    if (bytes.length > 10 * 1024 * 1024) {
+      _showMessage('行程封面不能超过 10MB');
+      return;
+    }
+    setState(() {
+      coverBytes = bytes;
+      coverFileName = image.name;
+      coverDownloadUrl = '';
+    });
+  }
+
+  Future<void> _ensureCoverUploaded() async {
+    final bytes = coverBytes;
+    if (bytes == null) return;
+    final uploaded = await StorageUploadService(
+      context.read<AppSession>().api,
+    ).upload(
+      bizType: 'TRIP_COVER',
+      bizId: draftId ?? context.read<AppSession>().userId,
+      fileName: coverFileName.isEmpty ? 'trip-cover.jpg' : coverFileName,
+      bytes: bytes,
+    );
+    coverImageKey = uploaded['objectKey']?.toString() ?? '';
+    coverBytes = null;
+    if (coverImageKey.isNotEmpty) {
+      try {
+        coverDownloadUrl = await StorageUploadService(
+          context.read<AppSession>().api,
+        ).downloadUrlByObjectKey(coverImageKey);
+      } catch (_) {
+        coverDownloadUrl = '';
+      }
+    }
+  }
+
   Map<String, dynamic> _draftBody({bool includeRoute = false}) => {
     'title': title.text.trim().isEmpty ? null : title.text.trim(),
     'startTime': startTime == null ? null : _formatTime(startTime!),
     if (includeRoute) 'startLocation': start?.toJson(),
     if (includeRoute) 'destination': end?.toJson(),
     'description': description.text.trim(),
+    'coverImageKey': coverImageKey.isEmpty ? null : coverImageKey,
     'expectPeople': expectPeople,
     'durationDays': 1,
   };
@@ -211,6 +277,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
     if (step == 0 && draftId == null) {
       setState(() => submitting = true);
       try {
+        await _ensureCoverUploaded();
         final draft = await TripService(
           context.read<AppSession>().api,
         ).createDraft(_draftBody());
@@ -313,6 +380,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
     if (manageSubmitting) setState(() => submitting = true);
     try {
       final service = TripService(context.read<AppSession>().api);
+      await _ensureCoverUploaded();
       await service.updateDraft(id, _draftBody(includeRoute: true));
       for (final waypointId in persistedWaypointIds) {
         await service.deleteWaypoint(id, waypointId);
@@ -385,6 +453,12 @@ class _TripCreatePageState extends State<TripCreatePage> {
                 title: '填写基础信息',
                 subtitle: '内容会先保存为草稿，下次可以继续编辑',
                 children: [
+                  _TripCoverPicker(
+                    bytes: coverBytes,
+                    downloadUrl: coverDownloadUrl,
+                    onTap: submitting ? null : _pickCover,
+                  ),
+                  const SizedBox(height: 18),
                   TextField(
                     controller: title,
                     maxLength: 128,
@@ -493,6 +567,14 @@ class _TripCreatePageState extends State<TripCreatePage> {
                 title: '确认发布',
                 subtitle: '可以存入草稿，也可以确认后发布行程',
                 children: [
+                  if (coverBytes != null || coverDownloadUrl.isNotEmpty) ...[
+                    _TripCoverPicker(
+                      bytes: coverBytes,
+                      downloadUrl: coverDownloadUrl,
+                      onTap: null,
+                    ),
+                    const SizedBox(height: 18),
+                  ],
                   TripRoutePreview(points: _routePoints, route: route),
                   const SizedBox(height: 18),
                   _Summary(label: '标题', value: title.text.trim()),
@@ -583,6 +665,138 @@ class _TripCreatePageState extends State<TripCreatePage> {
       curve: Curves.easeOut,
     );
   }
+}
+
+class _TripCoverPicker extends StatelessWidget {
+  const _TripCoverPicker({
+    required this.bytes,
+    required this.downloadUrl,
+    required this.onTap,
+  });
+
+  final Uint8List? bytes;
+  final String downloadUrl;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = bytes != null
+        ? Image.memory(bytes!, fit: BoxFit.cover)
+        : downloadUrl.isNotEmpty
+        ? Image.network(
+            downloadUrl,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => _placeholder(),
+          )
+        : _placeholder();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            Text(
+              '旅游封面',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+            SizedBox(width: 6),
+            Text('选填', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: SizedBox(
+              width: double.infinity,
+              height: 176,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  image,
+                  if (onTap != null)
+                    Positioned(
+                      right: 12,
+                      bottom: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 13,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xCC10294F),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              LucideIcons.imagePlus,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              bytes == null && downloadUrl.isEmpty
+                                  ? '上传封面'
+                                  : '更换封面',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 7),
+        const Text(
+          '建议横图 16:9，最多 10MB；上传后仅在数据库保存对象 Key',
+          style: TextStyle(color: AppColors.muted, fontSize: 12),
+        ),
+      ],
+    );
+  }
+
+  Widget _placeholder() => Container(
+    decoration: const BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFF90CAF9), Color(0xFF246ED8)],
+      ),
+    ),
+    child: const Stack(
+      children: [
+        Positioned(
+          right: -16,
+          bottom: -20,
+          child: Icon(
+            LucideIcons.mountainSnow,
+            size: 180,
+            color: Color(0x50FFFFFF),
+          ),
+        ),
+        Center(
+          child: Text(
+            '让同行先看见这段旅程',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _StepPage extends StatelessWidget {

@@ -21,6 +21,7 @@ import com.tongluxing.trip.dto.TripTimeConflictRequest;
 import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.service.TripSettlementService;
 import com.tongluxing.trip.vo.ActiveTripStateResponse;
+import com.tongluxing.trip.vo.MyTripDashboardResponse;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
 import com.tongluxing.trip.vo.TripResponse;
@@ -62,6 +63,12 @@ public class TripController {
     @GetMapping("/me/active-state")
     public Result<ActiveTripStateResponse> getActiveTripState() {
         return Result.success(tripService.getActiveTripState());
+    }
+
+    /** App「我的行程」首页聚合数据。 */
+    @GetMapping("/me/dashboard")
+    public Result<MyTripDashboardResponse> getMyTripDashboard() {
+        return Result.success(tripService.getMyTripDashboard());
     }
 
     /** 发布前检查预计时间冲突；冲突仅提醒，用户仍可确认继续发布。 */

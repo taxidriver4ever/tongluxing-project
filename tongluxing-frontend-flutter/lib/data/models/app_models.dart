@@ -74,6 +74,7 @@ class TripDraftModel {
     this.startLocation,
     this.destination,
     this.description = '',
+    this.coverImageKey = '',
     this.expectPeople = 5,
     this.durationDays = 1,
     this.updatedAt,
@@ -87,6 +88,7 @@ class TripDraftModel {
   final LocationSelection? startLocation;
   final LocationSelection? destination;
   final String description;
+  final String coverImageKey;
   final int expectPeople;
   final int durationDays;
   final String? updatedAt;
@@ -109,6 +111,7 @@ class TripDraftModel {
           )
         : null,
     description: json['description']?.toString() ?? '',
+    coverImageKey: json['coverImageKey']?.toString() ?? '',
     expectPeople: _int(json['expectPeople']) ?? 5,
     durationDays: _int(json['durationDays']) ?? 1,
     updatedAt: json['updatedAt']?.toString(),
@@ -200,6 +203,7 @@ class TripModel {
     this.joinedVehicles = 0,
     this.maxVehicles = 0,
     this.description,
+    this.coverImageKey = '',
     this.waypoints = const [],
     this.startLocation,
     this.endLocation,
@@ -216,6 +220,7 @@ class TripModel {
   final int joinedVehicles;
   final int maxVehicles;
   final String? description;
+  final String coverImageKey;
   final List<LocationSelection> waypoints;
   final LocationSelection? startLocation;
   final LocationSelection? endLocation;
@@ -238,6 +243,7 @@ class TripModel {
     joinedVehicles: _int(json['joinedVehicleCount']) ?? 0,
     maxVehicles: _int(json['maxVehicleCount']) ?? 0,
     description: json['description']?.toString(),
+    coverImageKey: json['coverImageKey']?.toString() ?? '',
     waypoints: (json['waypoints'] as List? ?? const [])
         .whereType<Map>()
         .map((e) => LocationSelection.fromJson(Map<String, dynamic>.from(e)))

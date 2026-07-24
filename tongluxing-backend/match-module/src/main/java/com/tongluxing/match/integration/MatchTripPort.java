@@ -37,6 +37,7 @@ public interface MatchTripPort {
             String vehicleSummary,
             String title,
             String description,
+            String coverImageKey,
             String startName,
             String endName,
             Double startLatitude,

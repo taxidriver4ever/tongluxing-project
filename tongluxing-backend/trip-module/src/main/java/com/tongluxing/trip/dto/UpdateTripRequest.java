@@ -17,6 +17,7 @@ public record UpdateTripRequest(
         @NotNull Long vehicleId,
         @Size(max = 128) String title,
         @Size(max = 1000) String description,
+        @Size(max = 512) String coverImageKey,
         @Min(1) @Max(20) Integer expectedPeople,
         @Valid @NotNull LocationRequest startLocation,
         @Valid @NotNull LocationRequest endLocation,

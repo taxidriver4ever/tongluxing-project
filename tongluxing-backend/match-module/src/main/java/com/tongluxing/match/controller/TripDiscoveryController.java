@@ -67,14 +67,6 @@ public class TripDiscoveryController {
                 minimumRemainingSeats, page, size));
     }
 
-    @GetMapping("/users/{userId}/public")
-    public Result<TripDiscoverPageResponse> publicTripsByUser(
-            @PathVariable Long userId,
-            @RequestParam(defaultValue = "1") Integer page,
-            @RequestParam(defaultValue = "10") Integer size) {
-        return Result.success(matchService.getPublicTripsByUser(userId, page, size));
-    }
-
     @GetMapping("/{tripId}/public-detail")
     public Result<TripPublicDetailResponse> publicDetail(@PathVariable Long tripId) {
         return Result.success(matchService.getPublicTripDetail(tripId));

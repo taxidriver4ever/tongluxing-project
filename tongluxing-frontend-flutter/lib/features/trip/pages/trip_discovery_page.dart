@@ -456,8 +456,8 @@ class _MainSortBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     height: 46,
-    color: Colors.white,
     decoration: const BoxDecoration(
+      color: Colors.white,
       border: Border(bottom: BorderSide(color: Color(0xFFEAEFF5))),
     ),
     child: Row(

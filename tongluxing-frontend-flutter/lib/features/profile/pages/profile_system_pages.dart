@@ -44,9 +44,23 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
   Future<void> load() async {
     try {
       final api = context.read<AppSession>().api;
+      final homepageFuture = UserProfileService(api).homepage(widget.userId);
+      final publicTripsFuture = TripDiscoveryService(api)
+          .publicTripsByUser(widget.userId, size: 20)
+          .onError<ApiException>((error, stackTrace) {
+            if (error.statusCode == 404 || error.message.contains('No endpoint')) {
+              return <String, dynamic>{
+                'page': 1,
+                'size': 20,
+                'total': 0,
+                'records': <dynamic>[],
+              };
+            }
+            throw error;
+          });
       final values = await Future.wait<dynamic>([
-        UserProfileService(api).homepage(widget.userId),
-        TripDiscoveryService(api).publicTripsByUser(widget.userId, size: 20),
+        homepageFuture,
+        publicTripsFuture,
       ]);
       data = Map<String, dynamic>.from(values[0] as Map);
       final tripsData = Map<String, dynamic>.from(values[1] as Map);

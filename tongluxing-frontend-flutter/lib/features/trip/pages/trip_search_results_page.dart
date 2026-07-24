@@ -481,8 +481,8 @@ class _SearchTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     height: 48,
-    color: Colors.white,
     decoration: const BoxDecoration(
+      color: Colors.white,
       border: Border(bottom: BorderSide(color: Color(0xFFEDF0F4))),
     ),
     child: Row(

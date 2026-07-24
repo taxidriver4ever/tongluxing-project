@@ -9,6 +9,7 @@ import '../../../app/app_session.dart';
 import '../../../app/routes.dart';
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
+import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import '../../home/pages/search_location_page.dart';
 import '../widgets/trip_route_preview.dart';
@@ -201,22 +202,25 @@ class _TripCreatePageState extends State<TripCreatePage> {
   }
 
   Future<void> _pickCover() async {
-    final image = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 88,
-      maxWidth: 1920,
-    );
-    if (image == null || !mounted) return;
-    final bytes = await image.readAsBytes();
-    if (bytes.length > 10 * 1024 * 1024) {
-      _showMessage('行程封面不能超过 10MB');
-      return;
+    try {
+      final image = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 88,
+        maxWidth: 1920,
+      );
+      if (image == null || !mounted) return;
+      final bytes = await image.readAsBytes();
+      if (bytes.length > 10 * 1024 * 1024) {
+        throw ApiException('行程封面不能超过 10MB');
+      }
+      setState(() {
+        coverBytes = bytes;
+        coverFileName = image.name;
+        coverDownloadUrl = '';
+      });
+    } catch (e) {
+      if (mounted) _showMessage(e.toString());
     }
-    setState(() {
-      coverBytes = bytes;
-      coverFileName = image.name;
-      coverDownloadUrl = '';
-    });
   }
 
   Future<void> _ensureCoverUploaded() async {
@@ -230,7 +234,11 @@ class _TripCreatePageState extends State<TripCreatePage> {
       fileName: coverFileName.isEmpty ? 'trip-cover.jpg' : coverFileName,
       bytes: bytes,
     );
-    coverImageKey = uploaded['objectKey']?.toString() ?? '';
+    final uploadedKey = uploaded['objectKey']?.toString() ?? '';
+    if (uploadedKey.isEmpty) {
+      throw ApiException('行程封面上传结果缺少 objectKey');
+    }
+    coverImageKey = uploadedKey;
     coverBytes = null;
     if (coverImageKey.isNotEmpty) {
       try {

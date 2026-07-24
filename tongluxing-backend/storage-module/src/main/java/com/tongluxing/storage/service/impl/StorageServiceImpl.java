@@ -54,7 +54,7 @@ public class StorageServiceImpl implements StorageService {
             "VEHICLE_LICENSE_FRONT", "VEHICLE_LICENSE_BACK", "VEHICLE_PHOTO_FRONT",
             "VEHICLE_PHOTO_REAR", "VEHICLE_PHOTO_SIDE", "VEHICLE_PHOTO_OTHER",
             "MERCHANT_COVER", "MERCHANT_LICENSE", "MERCHANT_QUALIFICATION",
-            "MERCHANT_PRODUCT_IMAGE", "MERCHANT_QR", "CHAT_IMAGE"
+            "MERCHANT_PRODUCT_IMAGE", "MERCHANT_QR", "TRIP_COVER", "CHAT_IMAGE"
     );
     private static final java.util.Set<String> ALLOWED_IMAGE_CONTENT_TYPES = java.util.Set.of(
             "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"

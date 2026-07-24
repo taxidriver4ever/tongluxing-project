@@ -16,6 +16,7 @@ class MainShellPage extends StatefulWidget {
 
 class _MainShellPageState extends State<MainShellPage> {
   int index = 0;
+  final Set<int> loadedTabs = {0};
   final profileKey = GlobalKey<ProfilePageState>();
 
   late final List<Widget> pages = [
@@ -27,7 +28,10 @@ class _MainShellPageState extends State<MainShellPage> {
   ];
 
   void selectTab(int value) {
-    setState(() => index = value);
+    setState(() {
+      index = value;
+      loadedTabs.add(value);
+    });
     if (value == 4) {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => profileKey.currentState?.refresh(),
@@ -39,7 +43,17 @@ class _MainShellPageState extends State<MainShellPage> {
     // IndexedStack 默认用 loose 约束布局子页面。地图页以 Stack 为根节点，
     // loose 约束会让它只按顶部搜索框的高度收缩，从而把底部浮层顶到状态栏。
     // expand 可保证五个主页面始终获得完整的可用屏幕高度。
-    body: IndexedStack(sizing: StackFit.expand, index: index, children: pages),
+    // 主页面首次点击后再挂载，避免未显示页面在后台异步插入子节点。
+    body: IndexedStack(
+      sizing: StackFit.expand,
+      index: index,
+      children: List<Widget>.generate(
+        pages.length,
+        (tabIndex) => loadedTabs.contains(tabIndex)
+            ? pages[tabIndex]
+            : const SizedBox.expand(),
+      ),
+    ),
     bottomNavigationBar: NavigationBar(
       height: 72,
       backgroundColor: Colors.white,

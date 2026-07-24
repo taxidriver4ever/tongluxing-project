@@ -12,6 +12,7 @@ import '../../../data/services/location_snapshot.dart';
 import 'trip_discovery_detail_page.dart';
 import 'trip_discovery_filter_sheet.dart';
 import 'trip_discovery_widgets.dart';
+import '../widgets/trip_discovery_theme.dart';
 
 class TripDiscoveryPage extends StatefulWidget {
   const TripDiscoveryPage({super.key});
@@ -19,8 +20,7 @@ class TripDiscoveryPage extends StatefulWidget {
   State<TripDiscoveryPage> createState() => _TripDiscoveryPageState();
 }
 
-class _TripDiscoveryPageState extends State<TripDiscoveryPage>
-    with AutomaticKeepAliveClientMixin {
+class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
   final search = TextEditingController();
   final scroll = ScrollController();
   Timer? debounce;
@@ -35,8 +35,6 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage>
   String? error;
   int requestSerial = 0;
 
-  @override
-  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -163,7 +161,7 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage>
                   contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                   leading: const CircleAvatar(
                     backgroundColor: AppColors.primarySoft,
-                    child: Icon(LucideIcons.route, color: AppColors.primary),
+                    child: Icon(LucideIcons.route, color: TripDiscoveryColors.primary),
                   ),
                   title: Text(
                     trip.title,
@@ -196,7 +194,6 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
     return Column(
       children: [
         Container(
@@ -204,15 +201,19 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage>
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [AppColors.primaryDark, Color(0xFF3999F5)],
+              colors: [
+                TripDiscoveryColors.primaryDark,
+                TripDiscoveryColors.primary,
+                TripDiscoveryColors.sky,
+              ],
             ),
           ),
-          padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
           child: Container(
-            height: 48,
+            height: 44,
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(22),
               boxShadow: const [
                 BoxShadow(
                   color: Color(0x1A143F75),
@@ -223,13 +224,14 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage>
             ),
             child: Row(
               children: [
-                const SizedBox(width: 14),
-                const Icon(LucideIcons.search, size: 20, color: AppColors.muted),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
+                const Icon(LucideIcons.search, size: 18, color: TripDiscoveryColors.muted),
+                const SizedBox(width: 7),
                 Expanded(
                   child: TextField(
                     controller: search,
                     textInputAction: TextInputAction.search,
+                    style: const TextStyle(fontSize: 13.5),
                     onChanged: (value) {
                       setState(() {});
                       _onSearch(value);
@@ -237,6 +239,7 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage>
                     onSubmitted: (_) => refresh(),
                     decoration: const InputDecoration(
                       hintText: '搜索目的地/路线/发起人',
+                      hintStyle: TextStyle(fontSize: 13.5),
                       filled: false,
                       isDense: true,
                       border: InputBorder.none,
@@ -255,56 +258,85 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage>
                     },
                     icon: const Icon(LucideIcons.x, size: 18),
                   ),
-                const VerticalDivider(width: 1, indent: 10, endIndent: 10),
-                const SizedBox(width: 10),
-                const Icon(LucideIcons.mapPin, size: 17, color: AppColors.primary),
+                const VerticalDivider(width: 1, indent: 9, endIndent: 9),
+                const SizedBox(width: 8),
+                const Icon(LucideIcons.mapPin, size: 15, color: TripDiscoveryColors.primary),
                 const SizedBox(width: 4),
-                const Text('全国', style: TextStyle(fontWeight: FontWeight.w700)),
-                const Icon(LucideIcons.chevronDown, size: 15),
-                const SizedBox(width: 12),
+                const Text('全国', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                const Icon(LucideIcons.chevronDown, size: 13),
+                const SizedBox(width: 10),
               ],
             ),
           ),
         ),
         Container(
-          height: 58,
+          height: 54,
           decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+            color: Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
           ),
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            children: [
-              _SortButton('RECOMMENDED', '推荐', sort, changeSort),
-              _SortButton('NEARBY', '附近', sort, changeSort),
-              _SortButton('DEPARTURE_TIME', '即将出发', sort, changeSort),
-              _SortButton('ROUTE_MATCH', '顺路优先', sort, changeSort),
-              InkWell(
-                onTap: openFilter,
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
-                    children: [
-                      Icon(
-                        LucideIcons.listFilter,
-                        size: 18,
-                        color: filter.active ? AppColors.primary : AppColors.secondaryText,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        '筛选',
-                        style: TextStyle(
-                          color: filter.active ? AppColors.primary : AppColors.secondaryText,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 7,
+                  child: _SortButton('RECOMMENDED', '推荐', sort, changeSort),
+                ),
+                Expanded(
+                  flex: 7,
+                  child: _SortButton('NEARBY', '附近', sort, changeSort),
+                ),
+                Expanded(
+                  flex: 10,
+                  child: _SortButton(
+                    'DEPARTURE_TIME',
+                    '即将出发',
+                    sort,
+                    changeSort,
                   ),
                 ),
-              ),
-            ],
+                Expanded(
+                  flex: 10,
+                  child: _SortButton(
+                    'ROUTE_MATCH',
+                    '顺路优先',
+                    sort,
+                    changeSort,
+                  ),
+                ),
+                Expanded(
+                  flex: 8,
+                  child: InkWell(
+                    onTap: openFilter,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          LucideIcons.listFilter,
+                          size: 15,
+                          color: filter.active
+                              ? TripDiscoveryColors.primary
+                              : TripDiscoveryColors.secondaryText,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '筛选',
+                          style: TextStyle(
+                            color: filter.active
+                                ? TripDiscoveryColors.primary
+                                : TripDiscoveryColors.secondaryText,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         Expanded(child: _body()),
@@ -339,19 +371,19 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage>
       child: ListView.separated(
         controller: scroll,
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 30),
+        padding: const EdgeInsets.fromLTRB(12, 3, 12, 24),
         itemCount: trips.length + 1,
-        separatorBuilder: (_, _) => const SizedBox(height: 12),
+        separatorBuilder: (_, _) => const SizedBox(height: 9),
         itemBuilder: (context, index) {
           if (index == trips.length) {
             return Padding(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(14),
               child: Center(
                 child: loadingMore
                     ? const CircularProgressIndicator()
                     : Text(
                         hasMore ? '继续上滑加载' : '已经看到全部公开行程',
-                        style: const TextStyle(color: AppColors.muted),
+                        style: const TextStyle(color: TripDiscoveryColors.muted),
                       ),
               ),
             );
@@ -392,40 +424,40 @@ class _SortButton extends StatelessWidget {
     return InkWell(
       onTap: () => onTap(value),
       borderRadius: BorderRadius.circular(12),
-      child: SizedBox(
-        width: value == 'DEPARTURE_TIME' ? 92 : 76,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: active ? AppColors.primary : AppColors.secondaryText,
-                    fontSize: 14,
-                    fontWeight: active ? FontWeight.w900 : FontWeight.w600,
-                  ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: active
+                      ? TripDiscoveryColors.primary
+                      : TripDiscoveryColors.secondaryText,
+                  fontSize: 13,
+                  fontWeight: active ? FontWeight.w900 : FontWeight.w600,
                 ),
-                if (value == 'ROUTE_MATCH') ...[
-                  const SizedBox(width: 3),
-                  const Icon(LucideIcons.chevronDown, size: 14),
-                ],
-              ],
-            ),
-            const SizedBox(height: 6),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: active ? 24 : 0,
-              height: 3,
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(99),
               ),
+              if (value == 'ROUTE_MATCH') ...[
+                const SizedBox(width: 3),
+                const Icon(LucideIcons.chevronDown, size: 14),
+              ],
+            ],
+          ),
+          const SizedBox(height: 4),
+          Container(
+            width: 20,
+            height: 2.5,
+            decoration: BoxDecoration(
+              color: active
+                  ? TripDiscoveryColors.primary
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(99),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -451,15 +483,15 @@ class _DiscoveryState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 54, color: AppColors.muted),
-          const SizedBox(height: 16),
+          Icon(icon, size: 44, color: TripDiscoveryColors.muted),
+          const SizedBox(height: 12),
           Text(
             title,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
           ),
-          const SizedBox(height: 7),
-          Text(subtitle, style: const TextStyle(color: AppColors.muted)),
-          const SizedBox(height: 18),
+          const SizedBox(height: 5),
+          Text(subtitle, style: const TextStyle(color: TripDiscoveryColors.muted)),
+          const SizedBox(height: 14),
           OutlinedButton(onPressed: onTap, child: Text(button)),
         ],
       ),

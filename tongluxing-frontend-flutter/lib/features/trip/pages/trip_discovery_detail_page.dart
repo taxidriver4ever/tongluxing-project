@@ -13,6 +13,7 @@ import '../../profile/pages/profile_system_pages.dart';
 import '../../profile/widgets/user_avatar.dart';
 import 'trip_detail_page.dart';
 import 'trip_discovery_widgets.dart';
+import '../widgets/trip_discovery_theme.dart';
 
 class TripDiscoveryDetailPage extends StatefulWidget {
   const TripDiscoveryDetailPage({
@@ -236,194 +237,124 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
     final current = detail;
     final fallback = widget.initial;
     final trip = current?.trip ?? fallback;
-    return Scaffold(
-      backgroundColor: const Color(0xFFF3F7FC),
-      body: trip == null && loading
-          ? const Center(child: CircularProgressIndicator())
-          : trip == null
-          ? _Error(onRetry: load, message: error)
-          : RefreshIndicator(
-              onRefresh: load,
-              child: CustomScrollView(
-                slivers: [
-                  SliverAppBar(
-                    pinned: true,
-                    expandedHeight: 245,
-                    foregroundColor: Colors.white,
-                    backgroundColor: AppColors.primaryDark,
-                    actions: [
-                      IconButton(
-                        tooltip: saved ? '取消收藏' : '收藏',
-                        onPressed: actionBusy ? null : toggleFavorite,
-                        icon: Icon(saved ? LucideIcons.star : LucideIcons.star),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+      ),
+      child: Scaffold(
+        backgroundColor: TripDiscoveryColors.pageBackground,
+        body: trip == null && loading
+            ? const Center(child: CircularProgressIndicator())
+            : trip == null
+            ? _Error(onRetry: load, message: error)
+            : RefreshIndicator(
+                onRefresh: load,
+                edgeOffset: 76,
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverAppBar(
+                      pinned: true,
+                      expandedHeight: 350,
+                      toolbarHeight: 54,
+                      elevation: 0,
+                      scrolledUnderElevation: 0,
+                      foregroundColor: Colors.white,
+                      backgroundColor: TripDiscoveryColors.primaryDark,
+                      surfaceTintColor: Colors.transparent,
+                      leading: IconButton(
+                        tooltip: '返回',
+                        onPressed: () => Navigator.maybePop(context),
+                        icon: const Icon(LucideIcons.chevronLeft, size: 26),
                       ),
-                      IconButton(
-                        tooltip: '分享',
-                        onPressed: () async {
-                          await Clipboard.setData(
-                            ClipboardData(
-                              text: '同路行：${trip.title}（行程 ${trip.tripId}）',
-                            ),
-                          );
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('行程信息已复制，可分享给好友')),
-                            );
-                          }
-                        },
-                        icon: const Icon(LucideIcons.share2),
-                      ),
-                    ],
-                    flexibleSpace: FlexibleSpaceBar(
-                      background: Container(
-                        padding: const EdgeInsets.fromLTRB(22, 88, 22, 22),
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [AppColors.primaryDark, Color(0xFF42A5F5)],
+                      actions: [
+                        IconButton(
+                          tooltip: saved ? '取消收藏' : '收藏',
+                          onPressed: actionBusy ? null : toggleFavorite,
+                          icon: Icon(
+                            LucideIcons.star,
+                            color: saved ? const Color(0xFFFFD166) : Colors.white,
+                            size: 24,
                           ),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                _HeaderTag('顺路度 ${trip.matchScore}%'),
-                                const Spacer(),
-                                _HeaderTag(
-                                  trip.status == 'RECRUITING' ? '招募中' : '公开招募',
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 13),
-                            Text(
-                              trip.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 25,
-                                fontWeight: FontWeight.w900,
+                        IconButton(
+                          tooltip: '分享',
+                          onPressed: () async {
+                            await Clipboard.setData(
+                              ClipboardData(
+                                text: '同路行：${trip.title}（行程 ${trip.tripId}）',
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              [
-                                trip.startName,
-                                ...trip.waypoints,
-                                trip.endName,
-                              ].join(' → '),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              '${formatDiscoverTime(trip.departureTime)} · 预计${trip.estimatedDays}天 · ${trip.memberCount}/${trip.maxMemberCount}人',
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
+                            );
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('行程信息已复制，可分享给好友')),
+                              );
+                            }
+                          },
+                          icon: const Icon(LucideIcons.share2, size: 23),
                         ),
-                      ),
-                    ),
-                  ),
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-                    sliver: SliverList.list(
-                      children: [
-                        RouteSketch(
-                          start: trip.startName,
-                          waypoints: trip.waypoints,
-                          end: trip.endName,
+                        IconButton(
+                          tooltip: '更多',
+                          onPressed: () {},
+                          icon: const Icon(LucideIcons.ellipsis, size: 24),
+                        ),
+                        const SizedBox(width: 5),
+                      ],
+                      flexibleSpace: FlexibleSpaceBar(
+                        collapseMode: CollapseMode.pin,
+                        background: _DiscoveryHero(
+                          trip: trip,
                           routePolyline: current?.routePolyline ?? '',
                         ),
-                        const SizedBox(height: 14),
-                        if (current == null && loading)
-                          const Padding(
-                            padding: EdgeInsets.all(32),
-                            child: Center(child: CircularProgressIndicator()),
-                          )
-                        else if (current == null)
-                          _Error(onRetry: load, message: error)
-                        else ...[
-                          _OwnerCard(
-                            owner: current.owner,
-                            followed: followed,
-                            busy: actionBusy,
-                            onFollow: toggleFollow,
-                            onOpen: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => PublicProfilePage(
-                                  userId: current.owner.userId,
+                      ),
+                    ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 104),
+                      sliver: SliverList.list(
+                        children: [
+                          if (current == null && loading)
+                            const Padding(
+                              padding: EdgeInsets.all(42),
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          else if (current == null)
+                            _Error(onRetry: load, message: error)
+                          else ...[
+                            _OwnerCard(
+                              owner: current.owner,
+                              followed: followed,
+                              busy: actionBusy,
+                              onFollow: toggleFollow,
+                              onOpen: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => PublicProfilePage(
+                                    userId: current.owner.userId,
+                                  ),
                                 ),
-                              ),
-                            ).then((_) => load()),
-                          ),
-                          const SizedBox(height: 14),
-                          _DetailCard(detail: current),
-                          const SizedBox(height: 14),
-                          _MembersCard(detail: current),
+                              ).then((_) => load()),
+                            ),
+                            const SizedBox(height: 9),
+                            _TripInformationCard(detail: current),
+                          ],
                         ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-      bottomNavigationBar: current == null
-          ? null
-          : SafeArea(
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Color(0x16000000),
-                      blurRadius: 18,
-                      offset: Offset(0, -5),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: actionBusy ? null : consult,
-                        icon: const Icon(LucideIcons.messageCircle, size: 18),
-                        label: const Text('咨询队长'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: FilledButton.icon(
-                        onPressed: actionBusy ? null : _primaryAction(current),
-                        icon: actionBusy
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Icon(_primaryIcon(current)),
-                        label: Text(_primaryLabel(current)),
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
+        bottomNavigationBar: current == null
+            ? null
+            : _DetailBottomBar(
+                busy: actionBusy,
+                onConsult: consult,
+                onPrimary: _primaryAction(current),
+                primaryIcon: _primaryIcon(current),
+                primaryLabel: _primaryLabel(current),
+              ),
+      ),
     );
   }
 
@@ -465,6 +396,158 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
       : LucideIcons.send;
 }
 
+class _DiscoveryHero extends StatelessWidget {
+  const _DiscoveryHero({required this.trip, required this.routePolyline});
+
+  final TripDiscoverModel trip;
+  final String routePolyline;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: const BoxDecoration(
+      gradient: TripDiscoveryColors.headerGradient,
+    ),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(16, 64, 16, 11),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _HeroTag(
+                text: '顺路度 ${trip.matchScore}%',
+                foreground: TripDiscoveryColors.primary,
+                background: const Color(0xDDE6F5FF),
+              ),
+              const Spacer(),
+              _HeroTag(
+                text: trip.matchScore >= 90 ? '🔥 热门招募中' : '招募中',
+                foreground: Colors.white,
+                background: const Color(0x24FFFFFF),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            trip.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 23,
+              height: 1.15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            [trip.startName, ...trip.waypoints, trip.endName].join(' → '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 11),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const NeverScrollableScrollPhysics(),
+            child: Row(
+              children: [
+                _HeroMeta(
+                  icon: LucideIcons.calendarDays,
+                  text: '${formatDiscoverDate(trip.departureTime)} 出发',
+                ),
+                const SizedBox(width: 7),
+                _HeroMeta(
+                  icon: LucideIcons.clock3,
+                  text: '预计${trip.estimatedDays}天',
+                ),
+                const SizedBox(width: 7),
+                _HeroMeta(
+                  icon: LucideIcons.users,
+                  text:
+                      '${trip.joinedVehicleCount}/${trip.maxVehicleCount}辆车 · ${trip.memberCount}人',
+                ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          RouteSketch(
+            start: trip.startName,
+            waypoints: trip.waypoints,
+            end: trip.endName,
+            routePolyline: routePolyline,
+            height: 128,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _HeroTag extends StatelessWidget {
+  const _HeroTag({
+    required this.text,
+    required this.foreground,
+    required this.background,
+  });
+
+  final String text;
+  final Color foreground;
+  final Color background;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(7),
+    ),
+    child: Text(
+      text,
+      style: TextStyle(
+        color: foreground,
+        fontSize: 10.5,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+  );
+}
+
+class _HeroMeta extends StatelessWidget {
+  const _HeroMeta({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+    decoration: BoxDecoration(
+      color: const Color(0x1EFFFFFF),
+      borderRadius: BorderRadius.circular(9),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: Colors.white, size: 13),
+        const SizedBox(width: 5),
+        Text(
+          text,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _OwnerCard extends StatelessWidget {
   const _OwnerCard({
     required this.owner,
@@ -473,25 +556,29 @@ class _OwnerCard extends StatelessWidget {
     required this.onFollow,
     required this.onOpen,
   });
+
   final DiscoverOwnerModel owner;
   final bool followed;
   final bool busy;
   final VoidCallback onFollow;
   final VoidCallback onOpen;
+
   @override
   Widget build(BuildContext context) => _WhiteCard(
+    padding: const EdgeInsets.fromLTRB(15, 15, 15, 13),
     child: Column(
       children: [
         InkWell(
           onTap: onOpen,
+          borderRadius: BorderRadius.circular(14),
           child: Row(
             children: [
               UserAvatar(
                 nickname: owner.nickname,
                 avatarImageKey: owner.avatarImageKey,
-                radius: 28,
+                radius: 27,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -501,39 +588,79 @@ class _OwnerCard extends StatelessWidget {
                         Flexible(
                           child: Text(
                             owner.nickname,
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
+                              color: TripDiscoveryColors.text,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 7),
-                        Text(
-                          owner.levelCode,
-                          style: const TextStyle(color: AppColors.primary),
+                        const SizedBox(width: 6),
+                        _SmallLabel(
+                          owner.levelCode.toUpperCase(),
+                          const Color(0xFFFFEFD9),
+                          const Color(0xFF7A4C22),
                         ),
+                        if (owner.rating > 0) ...[
+                          const SizedBox(width: 5),
+                          _SmallLabel(
+                            '★ ${owner.rating.toStringAsFixed(1)}',
+                            const Color(0xFFE5F4FF),
+                            TripDiscoveryColors.primary,
+                          ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 5),
-                    Text(
-                      '${owner.certificationStatus == 'APPROVED' ? '认证车主' : '公开资料'} · ${activeLabel(owner.lastActiveAt)}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppColors.muted,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '发起行程 · ${activeLabel(owner.lastActiveAt)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: TripDiscoveryColors.secondaryText,
+                              fontSize: 10.5,
+                            ),
+                          ),
+                        ),
+                        if (owner.certificationStatus == 'APPROVED') ...[
+                          const SizedBox(width: 5),
+                          const _SmallLabel(
+                            '● 认证车主',
+                            Color(0xFFE5F4FF),
+                            TripDiscoveryColors.primary,
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),
               ),
-              OutlinedButton(
-                onPressed: busy ? null : onFollow,
-                child: Text(followed ? '已关注' : '+ 关注'),
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 34,
+                child: OutlinedButton(
+                  onPressed: busy ? null : onFollow,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: TripDiscoveryColors.primary,
+                    side: const BorderSide(
+                      color: TripDiscoveryColors.primary,
+                      width: 1.2,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    shape: const StadiumBorder(),
+                  ),
+                  child: Text(followed ? '已关注' : '+ 关注'),
+                ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 14),
         Row(
           children: [
             _OwnerStat('${owner.totalTripCount}', '发起行程'),
@@ -541,11 +668,7 @@ class _OwnerCard extends StatelessWidget {
               '${(owner.totalDistanceMeters / 1000).toStringAsFixed(0)}km+',
               '累计里程',
             ),
-            _OwnerStat('${owner.badgeCount}', '勋章'),
-            _OwnerStat(
-              owner.rating <= 0 ? '暂无' : owner.rating.toStringAsFixed(1),
-              '评分',
-            ),
+            _OwnerBadgeStat(owner.badgeCount),
           ],
         ),
       ],
@@ -553,88 +676,205 @@ class _OwnerCard extends StatelessWidget {
   );
 }
 
+class _SmallLabel extends StatelessWidget {
+  const _SmallLabel(this.text, this.background, this.foreground);
+
+  final String text;
+  final Color background;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(7),
+    ),
+    child: Text(
+      text,
+      style: TextStyle(
+        color: foreground,
+        fontSize: 9.5,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+  );
+}
+
 class _OwnerStat extends StatelessWidget {
   const _OwnerStat(this.value, this.label);
+
   final String value;
   final String label;
+
   @override
   Widget build(BuildContext context) => Expanded(
     child: Column(
       children: [
         Text(
           value,
-          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+          style: const TextStyle(
+            color: TripDiscoveryColors.text,
+            fontWeight: FontWeight.w900,
+            fontSize: 15,
+          ),
         ),
-        const SizedBox(height: 3),
+        const SizedBox(height: 5),
         Text(
           label,
-          style: const TextStyle(fontSize: 11, color: AppColors.muted),
+          style: const TextStyle(
+            fontSize: 10.5,
+            color: TripDiscoveryColors.secondaryText,
+          ),
         ),
       ],
     ),
   );
 }
 
-class _DetailCard extends StatelessWidget {
-  const _DetailCard({required this.detail});
+class _OwnerBadgeStat extends StatelessWidget {
+  const _OwnerBadgeStat(this.count);
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: Column(
+      children: [
+        const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _BadgeDot(Color(0xFFE99B16), '旅'),
+            _BadgeDot(Color(0xFF746154), '途'),
+            _BadgeDot(Color(0xFF81766A), '行'),
+            _BadgeDot(TripDiscoveryColors.primary, '者'),
+          ],
+        ),
+        const SizedBox(height: 5),
+        Text(
+          '$count枚勋章',
+          style: const TextStyle(
+            fontSize: 10.5,
+            color: TripDiscoveryColors.secondaryText,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _BadgeDot extends StatelessWidget {
+  const _BadgeDot(this.color, this.text);
+
+  final Color color;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 19,
+    height: 21,
+    margin: const EdgeInsets.symmetric(horizontal: 1),
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: color,
+      borderRadius: BorderRadius.circular(7),
+      border: Border.all(color: Colors.white, width: 1),
+    ),
+    child: Text(
+      text,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 9,
+        fontWeight: FontWeight.w900,
+      ),
+    ),
+  );
+}
+
+class _TripInformationCard extends StatelessWidget {
+  const _TripInformationCard({required this.detail});
+
   final TripPublicDetailModel detail;
+
+  String _value(String value) => value.trim().isEmpty ? '发起人暂未填写' : value;
+
   @override
   Widget build(BuildContext context) {
-    final values = <(IconData, String, String)>[
-      (LucideIcons.alignLeft, '行程说明', detail.trip.description),
-      (LucideIcons.car, '车辆要求', detail.vehicleRequirement),
-      (LucideIcons.walletCards, '费用预算', detail.budgetDescription),
-      (LucideIcons.handCoins, '分摊方式', detail.costSharingType),
-      (LucideIcons.mapPin, '集合地点', detail.meetingPoint),
-      (LucideIcons.circleAlert, '注意事项', detail.notes),
-      (LucideIcons.userRoundCheck, '加入要求', detail.joinRequirement),
-    ];
+    final visibleMembers = detail.members.take(5).toList();
+    final more = (detail.members.length - visibleMembers.length)
+        .clamp(0, 999)
+        .toInt();
     return _WhiteCard(
+      padding: const EdgeInsets.fromLTRB(15, 14, 15, 15),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
             '行程详情',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 14),
-          ...values.map(
-            (item) => Padding(
-              padding: const EdgeInsets.only(bottom: 13),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(item.$1, size: 18, color: AppColors.primary),
-                  const SizedBox(width: 10),
-                  SizedBox(
-                    width: 66,
-                    child: Text(
-                      item.$2,
-                      style: const TextStyle(color: AppColors.secondaryText),
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      item.$3.trim().isEmpty ? '发起人暂未填写' : item.$3,
-                      style: TextStyle(
-                        color: item.$3.trim().isEmpty
-                            ? AppColors.muted
-                            : AppColors.text,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            style: TextStyle(
+              color: TripDiscoveryColors.text,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
             ),
           ),
-          if (detail.trip.waypoints.isNotEmpty)
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: detail.trip.waypoints
-                  .map((e) => Chip(label: Text('经停 · $e')))
-                  .toList(),
+          const SizedBox(height: 8),
+          Text(
+            detail.trip.description.trim().isEmpty
+                ? '发起人暂未填写行程说明。'
+                : detail.trip.description,
+            style: const TextStyle(
+              color: TripDiscoveryColors.secondaryText,
+              fontSize: 12.5,
+              height: 1.55,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _InfoLine(
+            icon: LucideIcons.carFront,
+            text: '车型要求：${_value(detail.vehicleRequirement)}',
+          ),
+          _InfoLine(
+            icon: LucideIcons.walletCards,
+            text: '费用预算：${_value(detail.budgetDescription)}',
+          ),
+          _InfoLine(
+            icon: LucideIcons.mapPin,
+            text: '集合地点：${_value(detail.meetingPoint)}',
+          ),
+          if (detail.notes.trim().isNotEmpty)
+            _InfoLine(
+              icon: LucideIcons.circleAlert,
+              text: '注意事项：${detail.notes}',
+            ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 11),
+            child: Divider(height: 1, color: TripDiscoveryColors.divider),
+          ),
+          Text(
+            '行程成员（${detail.trip.memberCount}人）',
+            style: const TextStyle(
+              color: TripDiscoveryColors.text,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 11),
+          if (visibleMembers.isEmpty)
+            const Text(
+              '暂无可展示的公开成员资料',
+              style: TextStyle(color: TripDiscoveryColors.muted),
+            )
+          else
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ...visibleMembers.map(
+                  (member) => _MemberTile(member: member),
+                ),
+                if (more > 0)
+                  _MemberMore(count: more),
+              ],
             ),
         ],
       ),
@@ -642,71 +882,261 @@ class _DetailCard extends StatelessWidget {
   }
 }
 
-class _MembersCard extends StatelessWidget {
-  const _MembersCard({required this.detail});
-  final TripPublicDetailModel detail;
+class _InfoLine extends StatelessWidget {
+  const _InfoLine({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
   @override
-  Widget build(BuildContext context) => _WhiteCard(
-    child: Column(
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 5.5),
+    child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          '行程成员（${detail.trip.memberCount}/${detail.trip.maxMemberCount}）',
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 14),
-        SizedBox(
-          height: 83,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: detail.members.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 17),
-            itemBuilder: (_, index) {
-              final member = detail.members[index];
-              return InkWell(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PublicProfilePage(userId: member.userId),
-                  ),
-                ),
-                child: SizedBox(
-                  width: 58,
-                  child: Column(
-                    children: [
-                      UserAvatar(
-                        nickname: member.nickname,
-                        avatarImageKey: member.avatarImageKey,
-                        radius: 23,
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        member.role == 'OWNER'
-                            ? '${member.nickname}·队长'
-                            : member.nickname,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: member.role == 'OWNER'
-                              ? AppColors.primary
-                              : AppColors.text,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
+        Icon(icon, size: 17, color: TripDiscoveryColors.primary),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              color: TripDiscoveryColors.secondaryText,
+              fontSize: 12,
+              height: 1.35,
+            ),
           ),
-        ),
-        const Text(
-          '仅展示成员公开资料，不显示手机号、证件或完整车牌。',
-          style: TextStyle(fontSize: 11, color: AppColors.muted),
         ),
       ],
     ),
   );
+}
+
+class _MemberTile extends StatelessWidget {
+  const _MemberTile({required this.member});
+
+  final TripPublicMemberModel member;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: () => Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PublicProfilePage(userId: member.userId),
+      ),
+    ),
+    borderRadius: BorderRadius.circular(12),
+    child: SizedBox(
+      width: 42,
+      child: Column(
+        children: [
+          UserAvatar(
+            nickname: member.nickname,
+            avatarImageKey: member.avatarImageKey,
+            radius: 19,
+          ),
+          const SizedBox(height: 5),
+          Text(
+            member.nickname,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: TripDiscoveryColors.text,
+              fontSize: 9.5,
+            ),
+          ),
+          if (member.role == 'OWNER')
+            const Text(
+              '队长',
+              style: TextStyle(
+                color: TripDiscoveryColors.primary,
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _MemberMore extends StatelessWidget {
+  const _MemberMore({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 42,
+    child: Column(
+      children: [
+        Container(
+          width: 42,
+          height: 42,
+          alignment: Alignment.center,
+          decoration: const BoxDecoration(
+            color: Color(0xFFF0F3F7),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            LucideIcons.ellipsis,
+            color: TripDiscoveryColors.secondaryText,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          '更多$count人',
+          maxLines: 1,
+          style: const TextStyle(
+            color: TripDiscoveryColors.secondaryText,
+            fontSize: 9,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _DetailBottomBar extends StatelessWidget {
+  const _DetailBottomBar({
+    required this.busy,
+    required this.onConsult,
+    required this.onPrimary,
+    required this.primaryIcon,
+    required this.primaryLabel,
+  });
+
+  final bool busy;
+  final VoidCallback onConsult;
+  final VoidCallback? onPrimary;
+  final IconData primaryIcon;
+  final String primaryLabel;
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    child: Container(
+      margin: const EdgeInsets.fromLTRB(10, 5, 10, 6),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x160A2E58),
+            blurRadius: 18,
+            offset: Offset(0, -4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 4,
+            child: _BottomAction(
+              icon: LucideIcons.messageCircle,
+              label: '咨询队长',
+              onTap: busy ? null : onConsult,
+              outlined: true,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            flex: 6,
+            child: _BottomAction(
+              icon: primaryIcon,
+              label: primaryLabel,
+              onTap: busy ? null : onPrimary,
+              loading: busy,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _BottomAction extends StatelessWidget {
+  const _BottomAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.outlined = false,
+    this.loading = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final bool outlined;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Opacity(
+      opacity: enabled ? 1 : .55,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(28),
+          child: Ink(
+            height: 44,
+            decoration: BoxDecoration(
+              gradient: outlined || !enabled
+                  ? null
+                  : TripDiscoveryColors.buttonGradient,
+              color: outlined ? Colors.white : (enabled ? null : Colors.grey),
+              borderRadius: BorderRadius.circular(28),
+              border: outlined
+                  ? Border.all(
+                      color: TripDiscoveryColors.primary,
+                      width: 1.2,
+                    )
+                  : null,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (loading)
+                  const SizedBox(
+                    width: 15,
+                    height: 15,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                else
+                  Icon(
+                    icon,
+                    size: 17,
+                    color: outlined
+                        ? TripDiscoveryColors.primary
+                        : Colors.white,
+                  ),
+                const SizedBox(width: 7),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: outlined
+                          ? TripDiscoveryColors.primary
+                          : Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _ApplyRequest {
@@ -821,15 +1251,24 @@ class _ApplySheetState extends State<_ApplySheet> {
 }
 
 class _WhiteCard extends StatelessWidget {
-  const _WhiteCard({required this.child});
+  const _WhiteCard({required this.child, this.padding = const EdgeInsets.all(18)});
+
   final Widget child;
+  final EdgeInsetsGeometry padding;
+
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(18),
+    padding: padding,
     decoration: BoxDecoration(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(22),
-      boxShadow: const [BoxShadow(color: Color(0x09000000), blurRadius: 14)],
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x0A173A63),
+          blurRadius: 14,
+          offset: Offset(0, 3),
+        ),
+      ],
     ),
     child: child,
   );

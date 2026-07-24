@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -12,6 +13,7 @@ import 'trip_detail_page.dart';
 import 'trip_discovery_page.dart';
 import 'trip_drafts_page.dart';
 import 'trip_overview_page.dart';
+import '../widgets/trip_discovery_theme.dart';
 
 class TripHomePage extends StatefulWidget {
   const TripHomePage({super.key});
@@ -24,47 +26,55 @@ class _TripHomePageState extends State<TripHomePage> {
   int section = 0;
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    bottom: false,
-    child: ColoredBox(
-      color: const Color(0xFFF4F7FC),
-      child: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 5),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [AppColors.primaryDark, Color(0xFF3999F5)],
+  Widget build(BuildContext context) => AnnotatedRegion<SystemUiOverlayStyle>(
+    value: const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      statusBarBrightness: Brightness.dark,
+    ),
+    child: Column(
+      children: [
+        Container(
+          width: double.infinity,
+          decoration: const BoxDecoration(
+            gradient: TripDiscoveryColors.headerGradient,
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 7),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _TopTab(
+                    label: '发现行程',
+                    active: section == 0,
+                    onTap: () => setState(() => section = 0),
+                  ),
+                  const SizedBox(width: 42),
+                  _TopTab(
+                    label: '我的行程',
+                    active: section == 1,
+                    onTap: () => setState(() => section = 1),
+                  ),
+                ],
               ),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _TopTab(
-                  label: '发现行程',
-                  active: section == 0,
-                  onTap: () => setState(() => section = 0),
-                ),
-                const SizedBox(width: 46),
-                _TopTab(
-                  label: '我的行程',
-                  active: section == 1,
-                  onTap: () => setState(() => section = 1),
-                ),
-              ],
+          ),
+        ),
+        Expanded(
+          child: ColoredBox(
+            color: TripDiscoveryColors.pageBackground,
+            // 只挂载当前页，避免“我的行程”在隐藏状态加载数据并触发布局断言。
+            child: KeyedSubtree(
+              key: ValueKey<int>(section),
+              child: section == 0
+                  ? const TripDiscoveryPage()
+                  : const _MyTripsPage(),
             ),
           ),
-          Expanded(
-            child: IndexedStack(
-              index: section,
-              children: const [TripDiscoveryPage(), _MyTripsPage()],
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     ),
   );
 }
@@ -85,7 +95,7 @@ class _TopTab extends StatelessWidget {
     onTap: onTap,
     borderRadius: BorderRadius.circular(12),
     child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -93,17 +103,16 @@ class _TopTab extends StatelessWidget {
             label,
             style: TextStyle(
               color: active ? Colors.white : Colors.white70,
-              fontSize: 17,
+              fontSize: 16,
               fontWeight: active ? FontWeight.w900 : FontWeight.w600,
             ),
           ),
           const SizedBox(height: 5),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: active ? 34 : 0,
-            height: 4,
+          Container(
+            width: 27,
+            height: 3,
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: active ? Colors.white : Colors.transparent,
               borderRadius: BorderRadius.circular(99),
             ),
           ),
@@ -120,17 +129,13 @@ class _MyTripsPage extends StatefulWidget {
   State<_MyTripsPage> createState() => _MyTripsPageState();
 }
 
-class _MyTripsPageState extends State<_MyTripsPage>
-    with AutomaticKeepAliveClientMixin {
+class _MyTripsPageState extends State<_MyTripsPage> {
   TripModel? current;
   List<TripModel> upcoming = const [];
   List<TripModel> recent = const [];
   Map<String, dynamic> profile = const {};
   bool loading = true;
   String? error;
-
-  @override
-  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -211,7 +216,6 @@ class _MyTripsPageState extends State<_MyTripsPage>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
     if (loading && profile.isEmpty && current == null && upcoming.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -219,17 +223,17 @@ class _MyTripsPageState extends State<_MyTripsPage>
       onRefresh: load,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 34),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
         children: [
           _DashboardHeader(profile: profile),
-          const SizedBox(height: 22),
+          const SizedBox(height: 17),
           Text(
             '你好，$nickname',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: AppColors.text,
-              fontSize: 31,
+              fontSize: 26,
               height: 1.15,
               fontWeight: FontWeight.w500,
             ),
@@ -237,9 +241,9 @@ class _MyTripsPageState extends State<_MyTripsPage>
           const SizedBox(height: 6),
           const Text(
             '轻松规划下一段同行旅程',
-            style: TextStyle(color: AppColors.muted, fontSize: 14),
+            style: TextStyle(color: AppColors.muted, fontSize: 12.5),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 18),
           _DashboardGrid(
             current: current,
             onCurrent: () => current == null
@@ -255,12 +259,12 @@ class _MyTripsPageState extends State<_MyTripsPage>
             onHistory: () => open(const TripOverviewPage(historyMode: true)),
             onCreate: () => open(const TripCreatePage()),
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 22),
           Row(
             children: [
               const Text(
                 '即将出发',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
               ),
               const Spacer(),
               TextButton(
@@ -281,7 +285,7 @@ class _MyTripsPageState extends State<_MyTripsPage>
             _EmptyUpcoming(onCreate: () => open(const TripCreatePage()))
           else
             SizedBox(
-              height: 170,
+              height: 150,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: upcoming.length,
@@ -298,12 +302,12 @@ class _MyTripsPageState extends State<_MyTripsPage>
               ),
             ),
           if (recent.isNotEmpty) ...[
-            const SizedBox(height: 28),
+            const SizedBox(height: 22),
             Row(
               children: [
                 const Text(
                   '最近完成',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
                 ),
                 const Spacer(),
                 TextButton(
@@ -314,7 +318,7 @@ class _MyTripsPageState extends State<_MyTripsPage>
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             ...recent.take(2).map(
               (trip) => _RecentTripTile(
                 trip: trip,
@@ -341,23 +345,23 @@ class _DashboardHeader extends StatelessWidget {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(15),
             border: Border.all(color: const Color(0xFFDCE9F9)),
           ),
           child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(LucideIcons.navigation, size: 18),
-              SizedBox(width: 8),
+              Icon(LucideIcons.navigation, size: 16),
+              SizedBox(width: 6),
               Text(
                 '同路行 1.0',
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
               SizedBox(width: 5),
-              Icon(LucideIcons.chevronDown, size: 16),
+              Icon(LucideIcons.chevronDown, size: 14),
             ],
           ),
         ),
@@ -365,7 +369,7 @@ class _DashboardHeader extends StatelessWidget {
         UserAvatar(
           nickname: nickname,
           avatarImageKey: profile['avatarImageKey']?.toString() ?? '',
-          radius: 21,
+          radius: 18,
         ),
       ],
     );
@@ -390,27 +394,23 @@ class _DashboardGrid extends StatelessWidget {
   final VoidCallback onCreate;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final gap = 12.0;
-      final half = (constraints.maxWidth - gap) / 2;
-      return Column(
-        children: [
-          Row(
+  Widget build(BuildContext context) {
+    const gap = 10.0;
+    return Column(
+      children: [
+        SizedBox(
+          height: 194,
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(
-                width: half,
-                height: 230,
+              Expanded(
                 child: _CurrentJourneyCard(
                   trip: current,
                   onTap: onCurrent,
                 ),
               ),
-              SizedBox(width: gap),
-              SizedBox(
-                width: half,
-                height: 230,
+              const SizedBox(width: gap),
+              Expanded(
                 child: Column(
                   children: [
                     Expanded(
@@ -421,7 +421,7 @@ class _DashboardGrid extends StatelessWidget {
                         onTap: onPlan,
                       ),
                     ),
-                    SizedBox(height: gap),
+                    const SizedBox(height: gap),
                     Expanded(
                       child: _ActionTile(
                         icon: LucideIcons.filePenLine,
@@ -435,12 +435,13 @@ class _DashboardGrid extends StatelessWidget {
               ),
             ],
           ),
-          SizedBox(height: gap),
-          Row(
+        ),
+        const SizedBox(height: gap),
+        SizedBox(
+          height: 92,
+          child: Row(
             children: [
-              SizedBox(
-                width: half,
-                height: 112,
+              Expanded(
                 child: _ActionTile(
                   icon: LucideIcons.history,
                   label: '历史行程',
@@ -448,10 +449,8 @@ class _DashboardGrid extends StatelessWidget {
                   onTap: onHistory,
                 ),
               ),
-              SizedBox(width: gap),
-              SizedBox(
-                width: half,
-                height: 112,
+              const SizedBox(width: gap),
+              Expanded(
                 child: _ActionTile(
                   icon: LucideIcons.mapPinned,
                   label: '创建行程',
@@ -461,10 +460,10 @@ class _DashboardGrid extends StatelessWidget {
               ),
             ],
           ),
-        ],
-      );
-    },
-  );
+        ),
+      ],
+    );
+  }
 }
 
 class _CurrentJourneyCard extends StatelessWidget {
@@ -476,7 +475,7 @@ class _CurrentJourneyCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
     color: Colors.transparent,
-    borderRadius: BorderRadius.circular(24),
+    borderRadius: BorderRadius.circular(19),
     clipBehavior: Clip.antiAlias,
     child: InkWell(
       onTap: onTap,
@@ -495,14 +494,14 @@ class _CurrentJourneyCard extends StatelessWidget {
               top: 42,
               child: Icon(
                 LucideIcons.mountainSnow,
-                size: 145,
+                size: 120,
                 color: Color(0x38FFFFFF),
               ),
             ),
             Positioned(
-              left: 16,
-              right: 16,
-              bottom: 18,
+              left: 13,
+              right: 13,
+              bottom: 14,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -512,19 +511,19 @@ class _CurrentJourneyCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 23,
+                      fontSize: 19,
                       height: 1.05,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Text(
                     trip == null
                         ? '点击开始创建'
                         : '${trip!.startName} → ${trip!.endName}',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    style: const TextStyle(color: Colors.white, fontSize: 11.5),
                   ),
                   if (trip?.departureTime != null) ...[
                     const SizedBox(height: 4),
@@ -532,7 +531,7 @@ class _CurrentJourneyCard extends StatelessWidget {
                       _dateLabel(trip!.departureTime),
                       style: const TextStyle(
                         color: Colors.white70,
-                        fontSize: 12,
+                        fontSize: 10.5,
                       ),
                     ),
                   ],
@@ -562,31 +561,31 @@ class _ActionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
     color: color,
-    borderRadius: BorderRadius.circular(24),
+    borderRadius: BorderRadius.circular(19),
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(19),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(13),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 42,
-              height: 42,
+              width: 36,
+              height: 36,
               decoration: const BoxDecoration(
                 color: Color(0xCCFFFFFF),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, color: AppColors.primaryDark, size: 21),
+              child: Icon(icon, color: AppColors.primaryDark, size: 18),
             ),
             const Spacer(),
             Text(
               label,
               maxLines: 1,
               style: const TextStyle(
-                fontSize: 19,
+                fontSize: 16.5,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -605,10 +604,10 @@ class _UpcomingTripCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: 178,
+    width: 156,
     child: Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(18),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
@@ -616,7 +615,7 @@ class _UpcomingTripCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              height: 96,
+              height: 82,
               width: double.infinity,
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
@@ -628,11 +627,11 @@ class _UpcomingTripCard extends StatelessWidget {
               child: const Icon(
                 LucideIcons.mountain,
                 color: Colors.white70,
-                size: 48,
+                size: 40,
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 9, 12, 10),
+              padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -641,7 +640,7 @@ class _UpcomingTripCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 16,
+                      fontSize: 14,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -652,7 +651,7 @@ class _UpcomingTripCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: AppColors.muted,
-                      fontSize: 12,
+                      fontSize: 10.5,
                     ),
                   ),
                 ],
@@ -700,19 +699,19 @@ class _EmptyUpcoming extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(22),
+    padding: const EdgeInsets.all(17),
     decoration: BoxDecoration(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(18),
     ),
     child: Row(
       children: [
         const CircleAvatar(
-          radius: 25,
+          radius: 22,
           backgroundColor: AppColors.primarySoft,
           child: Icon(LucideIcons.calendarPlus, color: AppColors.primary),
         ),
-        const SizedBox(width: 14),
+        const SizedBox(width: 11),
         const Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -743,10 +742,10 @@ class _InlineError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(18),
+    padding: const EdgeInsets.all(15),
     decoration: BoxDecoration(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(17),
     ),
     child: Row(
       children: [

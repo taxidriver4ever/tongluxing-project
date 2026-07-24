@@ -3,10 +3,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
-import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
 import '../../profile/widgets/user_avatar.dart';
+import '../widgets/trip_discovery_theme.dart';
 
 class TripDiscoveryCard extends StatelessWidget {
   const TripDiscoveryCard({required this.trip, required this.onTap, super.key});
@@ -19,13 +19,13 @@ class TripDiscoveryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Material(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(20),
+    color: TripDiscoveryColors.card,
+    borderRadius: BorderRadius.circular(14),
     clipBehavior: Clip.antiAlias,
     child: InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(15, 13, 15, 13),
+        padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -33,34 +33,29 @@ class TripDiscoveryCard extends StatelessWidget {
               children: [
                 _Pill(
                   '顺路度 ${trip.matchScore}%',
-                  const Color(0xFFDDEEFF),
-                  AppColors.primaryDark,
+                  TripDiscoveryColors.softBlue,
+                  TripDiscoveryColors.primary,
                 ),
                 const Spacer(),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (trip.matchScore >= 90) ...[
-                      const Icon(
-                        LucideIcons.flame,
-                        color: Color(0xFFFF6B35),
-                        size: 14,
-                      ),
-                      const SizedBox(width: 3),
-                    ],
-                    Text(
-                      trip.matchScore >= 90 ? '热门招募中' : '招募中',
-                      style: const TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
+                if (trip.matchScore >= 90) ...[
+                  const Icon(
+                    LucideIcons.flame,
+                    color: TripDiscoveryColors.hot,
+                    size: 13.5,
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  trip.matchScore >= 90 ? '热门招募中' : '招募中',
+                  style: const TextStyle(
+                    color: TripDiscoveryColors.primary,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 9),
+            const SizedBox(height: 8),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -70,34 +65,34 @@ class TripDiscoveryCard extends StatelessWidget {
                     children: [
                       Text(
                         trip.title,
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: AppColors.text,
-                          fontSize: 18,
-                          height: 1.2,
+                          color: TripDiscoveryColors.text,
+                          fontSize: 17,
+                          height: 1.18,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 5),
                       Text(
                         route,
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: AppColors.secondaryText,
-                          fontSize: 13,
-                          height: 1.3,
-                          fontWeight: FontWeight.w600,
+                          color: TripDiscoveryColors.text,
+                          fontSize: 12,
+                          height: 1.25,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 9),
                       Row(
                         children: [
                           const Icon(
                             LucideIcons.calendarDays,
-                            size: 14,
-                            color: AppColors.secondaryText,
+                            size: 13.5,
+                            color: TripDiscoveryColors.secondaryText,
                           ),
                           const SizedBox(width: 5),
                           Expanded(
@@ -106,8 +101,9 @@ class TripDiscoveryCard extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                color: AppColors.secondaryText,
-                                fontSize: 12,
+                                color: TripDiscoveryColors.secondaryText,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                           ),
@@ -116,11 +112,11 @@ class TripDiscoveryCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 9),
                 SizedBox(
-                  width: 122,
-                  height: 94,
-                  child: _TripCover(
+                  width: 102,
+                  height: 80,
+                  child: TripCoverImage(
                     imageKey: trip.coverImageKey,
                     score: trip.matchScore,
                   ),
@@ -128,23 +124,23 @@ class TripDiscoveryCard extends StatelessWidget {
               ],
             ),
             if (trip.tags.isNotEmpty) ...[
-              const SizedBox(height: 9),
+              const SizedBox(height: 8),
               Wrap(
-                spacing: 7,
-                runSpacing: 6,
+                spacing: 6,
+                runSpacing: 5,
                 children: trip.tags
                     .take(3)
                     .map(
                       (tag) => _Pill(
                         tag,
-                        const Color(0xFFF0F4FA),
-                        AppColors.secondaryText,
+                        TripDiscoveryColors.tagBlue,
+                        const Color(0xFF294669),
                       ),
                     )
                     .toList(),
               ),
             ],
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Row(
               children: [
                 UserAvatar(
@@ -152,7 +148,7 @@ class TripDiscoveryCard extends StatelessWidget {
                   avatarImageKey: trip.owner.avatarImageKey,
                   radius: 18,
                 ),
-                const SizedBox(width: 9),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -165,8 +161,9 @@ class TripDiscoveryCard extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                color: AppColors.text,
-                                fontWeight: FontWeight.w800,
+                                color: TripDiscoveryColors.text,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
                               ),
                             ),
                           ),
@@ -174,22 +171,22 @@ class TripDiscoveryCard extends StatelessWidget {
                           _MiniTextTag(
                             trip.owner.levelCode.toUpperCase(),
                             const Color(0xFFDCEBFF),
-                            AppColors.primaryDark,
+                            TripDiscoveryColors.primary,
                           ),
                           if (trip.owner.rating > 0) ...[
                             const SizedBox(width: 5),
                             const Icon(
                               LucideIcons.star,
                               size: 12,
-                              color: AppColors.primary,
+                              color: TripDiscoveryColors.primary,
                             ),
                             const SizedBox(width: 2),
                             Text(
                               trip.owner.rating.toStringAsFixed(1),
                               style: const TextStyle(
-                                color: AppColors.primary,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
+                                color: TripDiscoveryColors.primary,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                           ],
@@ -201,8 +198,8 @@ class TripDiscoveryCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 11,
+                          color: TripDiscoveryColors.muted,
+                          fontSize: 10.5,
                         ),
                       ),
                     ],
@@ -217,36 +214,33 @@ class TripDiscoveryCard extends StatelessWidget {
                       children: [
                         const Icon(
                           LucideIcons.users,
-                          size: 14,
-                          color: AppColors.secondaryText,
+                          size: 12.5,
+                          color: TripDiscoveryColors.secondaryText,
                         ),
                         const SizedBox(width: 4),
                         Text(
                           '${trip.joinedVehicleCount}/${trip.maxVehicleCount}辆车 · ${trip.memberCount}人',
                           style: const TextStyle(
-                            color: AppColors.secondaryText,
-                            fontSize: 11,
+                            color: TripDiscoveryColors.secondaryText,
+                            fontSize: 10,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 5),
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 8,
-                      ),
+                      width: 92,
+                      height: 32,
+                      alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [AppColors.primary, AppColors.primaryDark],
-                        ),
-                        borderRadius: BorderRadius.circular(99),
+                        gradient: TripDiscoveryColors.buttonGradient,
+                        borderRadius: BorderRadius.circular(18),
                       ),
                       child: const Text(
                         '查看详情',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 12,
+                          fontSize: 11.5,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -262,63 +256,85 @@ class TripDiscoveryCard extends StatelessWidget {
   );
 }
 
-class _TripCover extends StatefulWidget {
-  const _TripCover({required this.imageKey, required this.score});
+class TripCoverImage extends StatefulWidget {
+  const TripCoverImage({
+    required this.imageKey,
+    required this.score,
+    this.borderRadius = 11,
+    super.key,
+  });
 
   final String imageKey;
   final int score;
+  final double borderRadius;
 
   @override
-  State<_TripCover> createState() => _TripCoverState();
+  State<TripCoverImage> createState() => _TripCoverImageState();
 }
 
-class _TripCoverState extends State<_TripCover> {
+class _TripCoverImageState extends State<TripCoverImage> {
   Future<String>? future;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (future == null && widget.imageKey.trim().isNotEmpty) {
-      future = StorageUploadService(
-        context.read<AppSession>().api,
-      ).downloadUrlByObjectKey(widget.imageKey);
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(covariant TripCoverImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.imageKey != widget.imageKey) {
+      future = null;
+      _resolve();
     }
+  }
+
+  void _resolve() {
+    if (future != null || widget.imageKey.trim().isEmpty) return;
+    future = StorageUploadService(
+      context.read<AppSession>().api,
+    ).downloadUrlByObjectKey(widget.imageKey);
   }
 
   @override
   Widget build(BuildContext context) {
     final fallback = Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(widget.borderRadius),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: widget.score >= 85
-              ? const [Color(0xFF90CAF9), Color(0xFF266CC5)]
-              : const [Color(0xFFB3D7F7), Color(0xFF5B91CC)],
+              ? const [Color(0xFF9AD3FA), Color(0xFF246CC7)]
+              : const [Color(0xFFBCDDF7), Color(0xFF5D91C7)],
         ),
       ),
       child: const Stack(
         children: [
           Positioned(
-            right: -8,
-            bottom: -5,
+            right: -10,
+            bottom: -9,
             child: Icon(
               LucideIcons.mountainSnow,
-              size: 82,
-              color: Color(0x66FFFFFF),
+              size: 74,
+              color: Color(0x68FFFFFF),
             ),
           ),
           Positioned(
-            left: 9,
-            bottom: 8,
+            left: 7,
+            bottom: 6,
             child: Row(
               children: [
-                Icon(LucideIcons.images, size: 12, color: Colors.white),
+                Icon(LucideIcons.image, size: 10, color: Colors.white),
                 SizedBox(width: 4),
                 Text(
-                  '行程风景',
-                  style: TextStyle(color: Colors.white, fontSize: 10),
+                  '行程封面',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 8.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
@@ -328,7 +344,7 @@ class _TripCoverState extends State<_TripCover> {
     );
     if (future == null) return fallback;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(widget.borderRadius),
       child: FutureBuilder<String>(
         future: future,
         builder: (context, snapshot) {
@@ -338,6 +354,8 @@ class _TripCoverState extends State<_TripCover> {
             url,
             fit: BoxFit.cover,
             errorBuilder: (_, _, _) => fallback,
+            loadingBuilder: (context, child, progress) =>
+                progress == null ? child : fallback,
           );
         },
       ),
@@ -351,6 +369,7 @@ class RouteSketch extends StatelessWidget {
     required this.end,
     this.waypoints = const [],
     this.routePolyline = '',
+    this.height = 170,
     super.key,
   });
 
@@ -358,71 +377,120 @@ class RouteSketch extends StatelessWidget {
   final String end;
   final List<String> waypoints;
   final String routePolyline;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
-    final points = [start, ...waypoints, end];
+    final allPoints = [start, ...waypoints, end];
+    final points = allPoints.length <= 5
+        ? allPoints
+        : [
+            allPoints.first,
+            allPoints[1],
+            allPoints[allPoints.length ~/ 2],
+            allPoints[allPoints.length - 2],
+            allPoints.last,
+          ];
     return Container(
-      height: 190,
-      padding: const EdgeInsets.all(18),
+      height: height,
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF2F8FF),
-        borderRadius: BorderRadius.circular(22),
+        color: const Color(0xFFF5FAFF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0x2B93C9F5)),
       ),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: CustomPaint(
-              painter: _RoutePainter(
-                points.length,
-                _parsePolyline(routePolyline),
-              ),
-            ),
-          ),
-          ...List.generate(points.length, (index) {
-            final usableWidth = MediaQuery.sizeOf(context).width - 104;
-            final left = 4 + index * usableWidth / (points.length - 1).clamp(1, 5);
-            final top = index.isEven ? 74.0 : 39.0;
-            return Positioned(
-              left: left.clamp(4, MediaQuery.sizeOf(context).width - 103),
-              top: top,
-              child: SizedBox(
-                width: 62,
-                child: Text(
-                  points[index],
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final count = points.length;
+          final span = (count - 1).clamp(1, 5);
+          final routeWidth = constraints.maxWidth - 40;
+          double xFor(int index) => 20 + index * routeWidth / span;
+          double yFor(int index) => index.isEven
+              ? constraints.maxHeight * .67
+              : constraints.maxHeight * .40;
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _MapBackdropPainter(),
+                  foregroundPainter: _RoutePainter(
+                    count,
+                    _parsePolyline(routePolyline),
                   ),
                 ),
               ),
-            );
-          }),
-          Positioned(
-            right: 0,
-            bottom: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(99),
-              ),
-              child: const Row(
-                children: [
-                  Icon(LucideIcons.route, size: 13),
-                  SizedBox(width: 5),
-                  Text(
-                    '查看完整路线',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+              ...List.generate(count, (index) {
+                final width = 52.0;
+                final left = (xFor(index) - width / 2)
+                    .clamp(0.0, constraints.maxWidth - width)
+                    .toDouble();
+                final labelTop = (yFor(index) - 29)
+                    .clamp(0.0, constraints.maxHeight - 54)
+                    .toDouble();
+                return Positioned(
+                  left: left,
+                  top: labelTop,
+                  child: SizedBox(
+                    width: width,
+                    child: Text(
+                      points[index],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: TripDiscoveryColors.text,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                   ),
-                ],
+                );
+              }),
+              Positioned(
+                left: 4,
+                bottom: 2,
+                child: Icon(
+                  LucideIcons.flag,
+                  size: 19,
+                  color: TripDiscoveryColors.hot,
+                ),
               ),
-            ),
-          ),
-        ],
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xF4FFFFFF),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        LucideIcons.route,
+                        size: 10.5,
+                        color: TripDiscoveryColors.secondaryText,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        '查看完整路线',
+                        style: TextStyle(
+                          color: TripDiscoveryColors.secondaryText,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -444,6 +512,35 @@ class RouteSketch extends StatelessWidget {
   }
 }
 
+class _MapBackdropPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final road = Paint()
+      ..color = const Color(0x2397BDE1)
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+    for (var i = 0; i < 5; i++) {
+      final y = 8 + i * size.height / 5;
+      final path = Path()
+        ..moveTo(-12, y)
+        ..quadraticBezierTo(size.width * .28, y - 12, size.width * .55, y + 3)
+        ..quadraticBezierTo(size.width * .78, y + 12, size.width + 14, y - 5);
+      canvas.drawPath(path, road);
+    }
+    for (var i = 0; i < 4; i++) {
+      final x = 10 + i * size.width / 4;
+      final path = Path()
+        ..moveTo(x, -8)
+        ..quadraticBezierTo(x + 18, size.height * .35, x - 6, size.height * .7)
+        ..quadraticBezierTo(x - 18, size.height * .85, x + 8, size.height + 8);
+      canvas.drawPath(path, road);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _MapBackdropPainter oldDelegate) => false;
+}
+
 class _RoutePainter extends CustomPainter {
   const _RoutePainter(this.count, this.polyline);
 
@@ -453,7 +550,7 @@ class _RoutePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = AppColors.primaryDark
+      ..color = TripDiscoveryColors.primary
       ..strokeWidth = 4
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -468,10 +565,10 @@ class _RoutePainter extends CustomPainter {
             (point.dx - minX) /
                 (maxX - minX).abs().clamp(.000001, double.infinity) *
                 (size.width - 56),
-        126 -
+        size.height * .72 -
             (point.dy - minY) /
                 (maxY - minY).abs().clamp(.000001, double.infinity) *
-                66,
+                (size.height * .35),
       );
       final first = project(polyline.first);
       path.moveTo(first.dx, first.dy);
@@ -480,22 +577,22 @@ class _RoutePainter extends CustomPainter {
         path.lineTo(projected.dx, projected.dy);
       }
     } else {
-      path.moveTo(28, 112);
+      path.moveTo(20, size.height * .67);
       for (var i = 1; i < count; i++) {
-        final x = 28 + i * (size.width - 56) / (count - 1).clamp(1, 5);
-        final y = i.isEven ? 112.0 : 76.0;
-        path.quadraticBezierTo(x - 22, y, x, y);
+        final x = 20 + i * (size.width - 40) / (count - 1).clamp(1, 5);
+        final y = i.isEven ? size.height * .67 : size.height * .40;
+        path.quadraticBezierTo(x - 20, y, x, y);
       }
     }
     canvas.drawPath(path, paint);
     final dot = Paint()..color = Colors.white;
     final border = Paint()
-      ..color = AppColors.primaryDark
+      ..color = TripDiscoveryColors.primary
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3;
     for (var i = 0; i < count; i++) {
-      final x = 28 + i * (size.width - 56) / (count - 1).clamp(1, 5);
-      final y = i.isEven ? 112.0 : 76.0;
+      final x = 20 + i * (size.width - 40) / (count - 1).clamp(1, 5);
+      final y = i.isEven ? size.height * .67 : size.height * .40;
       canvas.drawCircle(Offset(x, y), 6, dot);
       canvas.drawCircle(Offset(x, y), 6, border);
     }
@@ -524,7 +621,7 @@ class _Pill extends StatelessWidget {
       text,
       style: TextStyle(
         color: foreground,
-        fontSize: 11,
+        fontSize: 10,
         fontWeight: FontWeight.w800,
       ),
     ),
@@ -549,7 +646,7 @@ class _MiniTextTag extends StatelessWidget {
       text,
       style: TextStyle(
         color: foreground,
-        fontSize: 10,
+        fontSize: 9.5,
         fontWeight: FontWeight.w800,
       ),
     ),

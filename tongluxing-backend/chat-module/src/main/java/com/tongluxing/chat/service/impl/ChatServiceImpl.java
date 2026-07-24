@@ -34,6 +34,7 @@ import com.tongluxing.chat.vo.MessageListResponse;
 import com.tongluxing.chat.vo.MessageResponse;
 import com.tongluxing.chat.vo.ConversationSettingResponse;
 import com.tongluxing.chat.vo.JoinApplicationResponse;
+import com.tongluxing.chat.vo.PrivateChatPermissionResponse;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
@@ -233,16 +234,87 @@ public class ChatServiceImpl implements ChatService {
                 .toList());
     }
 
+    @Override
+    public PrivateChatPermissionResponse getPrivatePermission(Long targetUserId) {
+        Long currentUserId = currentUserContext.requireUserId();
+        validatePrivateTarget(currentUserId, targetUserId);
+        ChatConversation existing = conversationMapper.findByProviderKey("PRIVATE", privatePairKey(currentUserId, targetUserId));
+        return privatePermission(currentUserId, targetUserId, existing);
+    }
+
+    @Override
+    @Transactional
+    public ConversationResponse startPrivateConversation(Long targetUserId) {
+        Long currentUserId = currentUserContext.requireUserId();
+        validatePrivateTarget(currentUserId, targetUserId);
+        String pairKey = privatePairKey(currentUserId, targetUserId);
+        ChatConversation existing = conversationMapper.findByProviderKey("PRIVATE", pairKey);
+        if (existing != null) {
+            addMemberInternal(existing.getId(), currentUserId, existingPrivateRole(existing.getId(), currentUserId, "OWNER"));
+            addMemberInternal(existing.getId(), targetUserId, existingPrivateRole(existing.getId(), targetUserId, "MEMBER"));
+            return toConversationResponse(existing,
+                    memberMapper.findByConversationAndUser(existing.getId(), currentUserId));
+        }
+        PrivateChatPermissionResponse permission = privatePermission(currentUserId, targetUserId, null);
+        if (!permission.canStart()) {
+            throw new BusinessException(ResultCode.FORBIDDEN,
+                    StringUtils.hasText(permission.reason()) ? permission.reason() : "关注对方后即可发起私聊");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        ChatConversation conversation = new ChatConversation();
+        conversation.setId(SnowflakeIdGenerator.nextId());
+        conversation.setBizType("PRIVATE");
+        conversation.setBizId(conversation.getId());
+        conversation.setConversationName("私聊");
+        conversation.setConversationStatus("ACTIVE");
+        conversation.setProviderType("LOCAL");
+        conversation.setProviderConversationKey(pairKey);
+        conversation.setCreatedAt(now);
+        conversation.setUpdatedAt(now);
+        conversationMapper.insert(conversation);
+        ChatConversationMember mine = addMemberInternal(conversation.getId(), currentUserId, "OWNER");
+        addMemberInternal(conversation.getId(), targetUserId, "MEMBER");
+        return toConversationResponse(conversation, mine);
+    }
+
+    @Override
+    public PrivateChatPermissionResponse getPrivateConversationPermission(Long conversationId) {
+        Long currentUserId = currentUserContext.requireUserId();
+        requireActiveMember(conversationId, currentUserId);
+        ChatConversation conversation = conversationMapper.findById(conversationId);
+        if (conversation == null || !"PRIVATE".equals(conversation.getBizType())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "该会话不是私聊");
+        }
+        ChatConversationMember peer = memberMapper.findOtherActive(conversationId, currentUserId);
+        if (peer == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "私聊对象不存在");
+        }
+        return privatePermission(currentUserId, peer.getUserId(), conversation);
+    }
+
     /** 查询会话历史消息；仅允许有效成员访问。 */
     @Override
     public MessageListResponse getMessages(Long conversationId, Long beforeMessageId, Integer limit) {
         Long userId = currentUserContext.requireUserId();
-        requireActiveMember(conversationId, userId);
+        ChatConversationMember member = requireActiveMember(conversationId, userId);
         // 限制分页大小，防止一次拉取过多消息影响数据库性能。
         int safeLimit = limit == null ? 20 : Math.max(1, Math.min(limit, 100));
-        return new MessageListResponse(messageMapper.findMessages(conversationId, beforeMessageId, safeLimit).stream()
-                .map(this::toMessageResponse)
-                .toList());
+        List<ChatMessage> messages = messageMapper.findMessages(conversationId, beforeMessageId,
+                member.getClearedBeforeMessageId(), safeLimit);
+        if (beforeMessageId == null) {
+            Long latest = messageMapper.findLatestMessageId(conversationId);
+            memberMapper.markRead(conversationId, userId, latest, LocalDateTime.now());
+        }
+        return new MessageListResponse(messages.stream().map(this::toMessageResponse).toList());
+    }
+
+    @Override
+    @Transactional
+    public void clearLocalMessages(Long conversationId) {
+        Long userId = currentUserContext.requireUserId();
+        requireActiveMember(conversationId, userId);
+        Long latest = messageMapper.findLatestMessageId(conversationId);
+        memberMapper.clearLocalMessages(conversationId, userId, latest == null ? 0L : latest, LocalDateTime.now());
     }
 
     /** 发送消息并刷新会话最后一条消息摘要。 */
@@ -252,8 +324,11 @@ public class ChatServiceImpl implements ChatService {
         Long userId = currentUserContext.requireUserId();
         requireActiveMember(conversationId, userId);
         ChatConversation conversation = conversationMapper.findById(conversationId);
-        if (conversation == null || !"ACTIVE".equals(conversation.getConversationStatus())) {
+        if (conversation == null || !List.of("ACTIVE", "HISTORY").contains(conversation.getConversationStatus())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "会话不存在或已归档");
+        }
+        if ("PRIVATE".equals(conversation.getBizType())) {
+            validatePrivateMessage(conversation, userId, request);
         }
         boolean imageMessage = "IMAGE".equalsIgnoreCase(request.messageType());
         if (!imageMessage && !StringUtils.hasText(request.content())) {
@@ -460,6 +535,78 @@ public class ChatServiceImpl implements ChatService {
         return toJoinApplicationResponse(row);
     }
 
+    private void validatePrivateTarget(Long currentUserId, Long targetUserId) {
+        if (targetUserId == null || currentUserId.equals(targetUserId)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "不能与自己发起私聊");
+        }
+        userService.getChatMemberProfile(targetUserId);
+    }
+
+    private String privatePairKey(Long first, Long second) {
+        long min = Math.min(first, second);
+        long max = Math.max(first, second);
+        return "private:" + min + ":" + max;
+    }
+
+    private String existingPrivateRole(Long conversationId, Long userId, String fallback) {
+        ChatConversationMember member = memberMapper.findByConversationAndUser(conversationId, userId);
+        return member == null || !StringUtils.hasText(member.getMemberRole()) ? fallback : member.getMemberRole();
+    }
+
+    private PrivateChatPermissionResponse privatePermission(Long currentUserId, Long targetUserId,
+                                                            ChatConversation existing) {
+        var follow = userService.getFollowStatus(targetUserId);
+        boolean sharedTrip = memberMapper.countSharedTrip(currentUserId, targetUserId) > 0;
+        boolean replied = false;
+        boolean currentIsInitiator = true;
+        int sentByInitiator = 0;
+        if (existing != null) {
+            ChatConversationMember mine = memberMapper.findByConversationAndUser(existing.getId(), currentUserId);
+            ChatConversationMember peer = memberMapper.findByConversationAndUser(existing.getId(), targetUserId);
+            currentIsInitiator = mine == null || "OWNER".equals(mine.getMemberRole());
+            Long initiatorId = currentIsInitiator ? currentUserId : targetUserId;
+            Long recipientId = currentIsInitiator ? targetUserId : currentUserId;
+            sentByInitiator = messageMapper.countSentByUser(existing.getId(), initiatorId);
+            replied = messageMapper.countSentByUser(existing.getId(), recipientId) > 0;
+            if (peer == null) {
+                replied = false;
+            }
+        }
+        boolean mutual = Boolean.TRUE.equals(follow.mutual());
+        boolean unlocked = mutual || sharedTrip || replied;
+        int remaining = unlocked || !currentIsInitiator ? 3 : Math.max(0, 3 - sentByInitiator);
+        String relationType;
+        if (mutual) relationType = "MUTUAL";
+        else if (sharedTrip) relationType = "SAME_TRIP";
+        else if (replied) relationType = "REPLIED";
+        else if (Boolean.TRUE.equals(follow.following())) relationType = "FOLLOWING";
+        else if (Boolean.TRUE.equals(follow.followedByTarget())) relationType = "FOLLOWER";
+        else relationType = "STRANGER";
+        boolean canStart = existing != null || mutual || sharedTrip || Boolean.TRUE.equals(follow.following());
+        String reason = canStart ? "" : "关注对方后即可发起私聊";
+        return new PrivateChatPermissionResponse(String.valueOf(targetUserId), canStart,
+                existing == null ? null : String.valueOf(existing.getId()), relationType,
+                remaining, unlocked, unlocked, reason);
+    }
+
+    private void validatePrivateMessage(ChatConversation conversation, Long userId, SendMessageRequest request) {
+        ChatConversationMember peer = memberMapper.findOtherActive(conversation.getId(), userId);
+        if (peer == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "私聊对象不存在");
+        }
+        PrivateChatPermissionResponse permission = privatePermission(userId, peer.getUserId(), conversation);
+        if (permission.unlocked()) {
+            return;
+        }
+        if (!"TEXT".equalsIgnoreCase(request.messageType())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "对方回复或互相关注后才可发送图片和行程卡片");
+        }
+        ChatConversationMember mine = memberMapper.findByConversationAndUser(conversation.getId(), userId);
+        if (mine != null && "OWNER".equals(mine.getMemberRole()) && permission.remainingTextMessages() <= 0) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "对方回复前最多发送 3 条文字消息");
+        }
+    }
+
     /** 生成车队群聊在腾讯云 IM 中的群组 ID。 */
     private String groupId(Long teamId) {
         return "team_" + teamId;
@@ -543,6 +690,7 @@ public class ChatServiceImpl implements ChatService {
             existed.setMemberRole(role);
             existed.setMemberStatus("ACTIVE");
             existed.setUnreadCount(0);
+            existed.setClearedBeforeMessageId(null);
             existed.setJoinedAt(now);
             return existed;
         }
@@ -555,6 +703,7 @@ public class ChatServiceImpl implements ChatService {
         member.setUnreadCount(0);
         member.setMutedFlag(false);
         member.setPinnedFlag(false);
+        member.setClearedBeforeMessageId(null);
         member.setJoinedAt(now);
         member.setCreatedAt(now);
         member.setUpdatedAt(now);
@@ -577,17 +726,48 @@ public class ChatServiceImpl implements ChatService {
     }
 
     private ConversationResponse toConversationResponse(ChatConversation conversation, ChatConversationMember member) {
+        String name = conversation.getConversationName();
+        String avatarImageKey = "";
+        String avatarAccessUrl = "";
+        String peerUserId = null;
+        String relationType = "GROUP";
+        int remainingTextMessages = 0;
+        boolean canSendMedia = true;
+        if ("PRIVATE".equals(conversation.getBizType()) && member != null) {
+            ChatConversationMember peer = memberMapper.findOtherActive(conversation.getId(), member.getUserId());
+            if (peer != null) {
+                PublicProfileVO profile = safePublicProfile(peer.getUserId());
+                name = profile.nickname();
+                avatarImageKey = profile.avatarImageKey();
+                avatarAccessUrl = avatarUrl(profile.avatarImageKey());
+                peerUserId = String.valueOf(peer.getUserId());
+                PrivateChatPermissionResponse permission = privatePermission(member.getUserId(), peer.getUserId(), conversation);
+                relationType = permission.relationType();
+                remainingTextMessages = permission.remainingTextMessages();
+                canSendMedia = permission.canSendMedia();
+            }
+        }
+        boolean clearedLastMessage = member != null && member.getClearedBeforeMessageId() != null
+                && conversation.getLastMessageId() != null
+                && conversation.getLastMessageId() <= member.getClearedBeforeMessageId();
         return new ConversationResponse(
                 String.valueOf(conversation.getId()),
                 conversation.getBizType(),
                 String.valueOf(conversation.getBizId()),
-                conversation.getConversationName(),
+                name,
                 conversation.getConversationStatus(),
                 conversation.getProviderType(),
-                conversation.getLastMessagePreview(),
-                format(conversation.getLastMessageAt()),
+                clearedLastMessage ? "" : conversation.getLastMessagePreview(),
+                clearedLastMessage ? null : format(conversation.getLastMessageAt()),
                 member != null && Boolean.TRUE.equals(member.getPinnedFlag()),
-                member != null && Boolean.TRUE.equals(member.getMutedFlag())
+                member != null && Boolean.TRUE.equals(member.getMutedFlag()),
+                member == null || member.getUnreadCount() == null ? 0 : member.getUnreadCount(),
+                avatarImageKey,
+                avatarAccessUrl,
+                peerUserId,
+                relationType,
+                remainingTextMessages,
+                canSendMedia
         );
     }
 
@@ -621,10 +801,13 @@ public class ChatServiceImpl implements ChatService {
     private JoinApplicationResponse toJoinApplicationResponse(ChatJoinApplication row) {
         PublicProfileVO profile = safePublicProfile(row.getApplicantUserId());
         ChatConversation conversation = conversationMapper.findById(row.getConversationId());
+        var relation = userService.getFollowStatus(row.getApplicantUserId());
         return new JoinApplicationResponse(String.valueOf(row.getId()), String.valueOf(row.getConversationId()),
                 conversation == null ? "车队群聊" : conversation.getConversationName(),
                 String.valueOf(row.getApplicantUserId()), profile.nickname(), profile.avatarImageKey(),
-                row.getApplicationMessage(), row.getApplicationStatus(), format(row.getCreatedAt()));
+                row.getApplicationMessage(), row.getApplicationStatus(), format(row.getCreatedAt()),
+                Boolean.TRUE.equals(relation.following()), Boolean.TRUE.equals(relation.followedByTarget()),
+                Boolean.TRUE.equals(relation.mutual()));
     }
 
     private String publicName(Long userId) {

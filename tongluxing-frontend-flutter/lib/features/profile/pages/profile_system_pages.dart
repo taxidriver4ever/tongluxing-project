@@ -4,11 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
+
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
+import '../../../data/models/app_models.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import '../../../data/services/follow_service.dart';
+import '../../chat/pages/chat_session_page.dart';
+import '../../chat/private_chat_flow.dart';
+import '../../trip/pages/trip_discovery_detail_page.dart';
 import '../widgets/user_avatar.dart';
 
 class PublicProfilePage extends StatefulWidget {
@@ -21,9 +26,11 @@ class PublicProfilePage extends StatefulWidget {
 
 class _PublicProfilePageState extends State<PublicProfilePage> {
   Map<String, dynamic>? data;
+  List<TripDiscoverModel> publicTrips = const [];
   String? error;
   String avatarUrl = '';
   bool followBusy = false;
+  int section = 0;
 
   bool get isOwner =>
       widget.userId == context.read<AppSession>().userId?.toString();
@@ -37,7 +44,19 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
   Future<void> load() async {
     try {
       final api = context.read<AppSession>().api;
-      data = await UserProfileService(api).homepage(widget.userId);
+      final values = await Future.wait<dynamic>([
+        UserProfileService(api).homepage(widget.userId),
+        TripDiscoveryService(api).publicTripsByUser(widget.userId, size: 20),
+      ]);
+      data = Map<String, dynamic>.from(values[0] as Map);
+      final tripsData = Map<String, dynamic>.from(values[1] as Map);
+      publicTrips = (tripsData['records'] as List? ?? const [])
+          .map(
+            (e) => TripDiscoverModel.fromJson(
+              Map<String, dynamic>.from(e as Map),
+            ),
+          )
+          .toList();
       final profile = Map<String, dynamic>.from(
         data?['profile'] as Map? ?? const {},
       );
@@ -58,6 +77,26 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
       data?['follow'] as Map? ?? const {},
     );
     final currentlyFollowing = follow['following'] == true;
+    if (currentlyFollowing) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('取消关注？'),
+          content: const Text('取消后，尚未解锁的单向私聊仍会保留记录，但不能继续新增破冰消息。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('保留关注'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('取消关注'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
     setState(() => followBusy = true);
     try {
       final service = FollowService(context.read<AppSession>().api);
@@ -71,13 +110,23 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
       }
     } finally {
       if (mounted) setState(() => followBusy = false);
     }
+  }
+
+  Future<void> _startChat() async {
+    final conversation = await startPrivateChatFlow(context, widget.userId);
+    if (conversation == null || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatSessionPage(conversation: conversation),
+      ),
+    );
+    if (mounted) load();
   }
 
   Future<bool> _editProfile() async {
@@ -106,166 +155,429 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
     if (changed == true) await load();
   }
 
+  String _followText(Map<String, dynamic> follow) {
+    if (follow['mutual'] == true) return '互相关注';
+    if (follow['following'] == true) return '已关注';
+    if (follow['followedByTarget'] == true) return '回关';
+    return '+ 关注';
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = Map<String, dynamic>.from(data?['profile'] as Map? ?? const {});
-    final g = Map<String, dynamic>.from(data?['growth'] as Map? ?? const {});
-    final badges = Map<String, dynamic>.from(
-      data?['badges'] as Map? ?? const {},
-    );
-    final earned = badges['earned'] as List? ?? const [];
     final follow = Map<String, dynamic>.from(
       data?['follow'] as Map? ?? const {},
     );
+    final nickname = p['nickname']?.toString().trim().isNotEmpty == true
+        ? p['nickname'].toString()
+        : '同路行用户';
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('个人主页'),
-        actions: [
-          if (isOwner)
-            IconButton(
-              tooltip: '编辑个人资料',
-              onPressed: _editProfile,
-              icon: const Icon(LucideIcons.pencil),
-            ),
-        ],
-      ),
+      backgroundColor: const Color(0xFFF3F5F8),
       body: data == null
           ? Center(
               child: error == null
                   ? const CircularProgressIndicator()
-                  : Text(error!),
-            )
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(22, 12, 22, 36),
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(22),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFEAF2FF), Colors.white],
-                    ),
-                    borderRadius: BorderRadius.circular(28),
-                  ),
-                  child: Column(
-                    children: [
-                      UserAvatar(
-                        nickname: p['nickname']?.toString() ?? '同路行用户',
-                        avatarImageKey: p['avatarImageKey']?.toString() ?? '',
-                        avatarUrl: avatarUrl,
-                        radius: 42,
-                        onTap: () => _previewAvatar(p),
-                        heroTag: 'profile-avatar-${widget.userId}',
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        isOwner ? '点击头像可预览并修改' : '点击头像可查看大图',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.muted,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        (p['nickname']?.toString().isNotEmpty ?? false)
-                            ? p['nickname'].toString()
-                            : '同路行用户',
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        p['bio']?.toString().isNotEmpty == true
-                            ? p['bio'].toString()
-                            : '愿每一次出发都有同路人',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: AppColors.muted),
-                      ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          _Tag('${g['levelCode'] ?? 'LV1'}'),
-                          _Tag(
-                            p['drivingLicenseCertificationStatus'] == 'APPROVED'
-                                ? '驾驶认证'
-                                : '资料已公开',
-                          ),
-                          if (p['cityName']?.toString().isNotEmpty == true)
-                            _Tag(p['cityName'].toString()),
-                          _Tag(
-                            'IP：${data?['ipProvince']?.toString().isNotEmpty == true ? data!['ipProvince'] : '未知'}',
-                          ),
-                        ],
-                      ),
-                      if (!isOwner) ...[
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: 150,
-                          child: follow['following'] == true
-                              ? OutlinedButton.icon(
-                                  onPressed: followBusy ? null : _toggleFollow,
-                                  icon: const Icon(LucideIcons.userRoundCheck),
-                                  label: Text(
-                                    follow['mutual'] == true ? '互相关注' : '已关注',
-                                  ),
-                                )
-                              : FilledButton.icon(
-                                  onPressed: followBusy ? null : _toggleFollow,
-                                  icon: const Icon(LucideIcons.userRoundPlus),
-                                  label: const Text('关注'),
-                                ),
-                        ),
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(error!, textAlign: TextAlign.center),
+                        const SizedBox(height: 10),
+                        FilledButton(onPressed: load, child: const Text('重新加载')),
                       ],
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    _Stat('关注', '${follow['followingCount'] ?? 0}', '人'),
-                    _Stat('粉丝', '${follow['followerCount'] ?? 0}', '人'),
-                    _Stat('出行', '${p['totalTripCount'] ?? 0}', '次'),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(22),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        LucideIcons.sparkles,
-                        color: Color(0xFFF59E0B),
+                    ),
+            )
+          : CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xFF075DBB), Color(0xFF0877E5), Color(0xFF2E9AEF)],
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
+                    ),
+                    child: SafeArea(
+                      bottom: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 4, 14, 18),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              '成长与荣誉',
-                              style: TextStyle(fontWeight: FontWeight.w800),
+                            SizedBox(
+                              height: 42,
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    icon: const Icon(LucideIcons.arrowLeft, color: Colors.white),
+                                  ),
+                                  const Spacer(),
+                                  if (isOwner)
+                                    IconButton(
+                                      tooltip: '编辑个人资料',
+                                      onPressed: _editProfile,
+                                      icon: const Icon(LucideIcons.pencil, color: Colors.white),
+                                    ),
+                                ],
+                              ),
                             ),
-                            const SizedBox(height: 5),
-                            Text(
-                              '${g['totalPoints'] ?? 0} 成长值 · ${earned.length} 枚勋章',
-                              style: const TextStyle(color: AppColors.muted),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                UserAvatar(
+                                  nickname: nickname,
+                                  avatarImageKey: p['avatarImageKey']?.toString() ?? '',
+                                  avatarUrl: avatarUrl,
+                                  radius: 35,
+                                  onTap: () => _previewAvatar(p),
+                                  heroTag: 'profile-avatar-${widget.userId}',
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(top: 5),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                nickname,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 21,
+                                                  fontWeight: FontWeight.w900,
+                                                ),
+                                              ),
+                                            ),
+                                            if (p['drivingLicenseCertificationStatus'] == 'APPROVED')
+                                              const Icon(LucideIcons.badgeCheck, color: Color(0xFF8CF5D1), size: 18),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 5),
+                                        Text(
+                                          p['cityName']?.toString().isNotEmpty == true
+                                              ? '${p['cityName']} · 同路行车友'
+                                              : '常驻地暂未填写',
+                                          style: const TextStyle(color: Colors.white70, fontSize: 12.5),
+                                        ),
+                                        const SizedBox(height: 5),
+                                        Text(
+                                          p['bio']?.toString().isNotEmpty == true
+                                              ? p['bio'].toString()
+                                              : '愿每一次出发都有同路人',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.35),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            Row(
+                              children: [
+                                _ProfileMetric(value: '${follow['followingCount'] ?? 0}', label: '关注'),
+                                _ProfileMetric(value: '${follow['followerCount'] ?? 0}', label: '粉丝'),
+                                _ProfileMetric(value: '${p['totalTripCount'] ?? 0}', label: '行程'),
+                                _ProfileMetric(
+                                  value: '${(((p['totalDistanceMeters'] as num?)?.toDouble() ?? 0) / 1000).round()}',
+                                  label: '公里',
+                                ),
+                                if (!isOwner) ...[
+                                  const SizedBox(width: 8),
+                                  SizedBox(
+                                    height: 36,
+                                    child: follow['following'] == true
+                                        ? OutlinedButton(
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: Colors.white,
+                                              side: const BorderSide(color: Colors.white70),
+                                            ),
+                                            onPressed: followBusy ? null : _toggleFollow,
+                                            child: Text(_followText(follow)),
+                                          )
+                                        : FilledButton(
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor: Colors.white,
+                                              foregroundColor: AppColors.primary,
+                                            ),
+                                            onPressed: followBusy ? null : _toggleFollow,
+                                            child: Text(_followText(follow)),
+                                          ),
+                                  ),
+                                  const SizedBox(width: 7),
+                                  SizedBox(
+                                    height: 36,
+                                    child: OutlinedButton.icon(
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: Colors.white,
+                                        side: const BorderSide(color: Colors.white70),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                                      ),
+                                      onPressed: _startChat,
+                                      icon: const Icon(LucideIcons.messageCircle, size: 16),
+                                      label: const Text('发起私聊', style: TextStyle(fontSize: 12)),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: _ProfileTabHeader(
+                    section: section,
+                    onChanged: (value) => setState(() => section = value),
+                  ),
+                ),
+                if (section == 0)
+                  publicTrips.isEmpty
+                      ? const SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: Center(child: Text('暂时没有公开招募中的行程', style: TextStyle(color: AppColors.muted))),
+                        )
+                      : SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
+                          sliver: SliverList(
+                            delegate: SliverChildBuilderDelegate(
+                              (_, index) {
+                                if (index.isOdd) return const SizedBox(height: 8);
+                                final trip = publicTrips[index ~/ 2];
+                                return _PublicTripTile(
+                                  trip: trip,
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => TripDiscoveryDetailPage(
+                                        tripId: trip.tripId,
+                                        initial: trip,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                              childCount: publicTrips.length * 2 - 1,
+                            ),
+                          ),
+                        )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate([
+                        _ProfileInfoCard(
+                          icon: LucideIcons.userRound,
+                          title: '个人简介',
+                          value: p['bio']?.toString().isNotEmpty == true
+                              ? p['bio'].toString()
+                              : '暂未填写',
+                        ),
+                        const SizedBox(height: 8),
+                        _ProfileInfoCard(
+                          icon: LucideIcons.mapPin,
+                          title: '常驻地',
+                          value: p['cityName']?.toString().isNotEmpty == true
+                              ? p['cityName'].toString()
+                              : '暂未填写',
+                        ),
+                        const SizedBox(height: 8),
+                        _ProfileInfoCard(
+                          icon: LucideIcons.shieldCheck,
+                          title: '驾驶认证',
+                          value: p['drivingLicenseCertificationStatus'] == 'APPROVED'
+                              ? '已通过驾驶证认证'
+                              : '暂未认证',
+                        ),
+                      ]),
+                    ),
+                  ),
               ],
             ),
     );
   }
+}
+
+class _ProfileMetric extends StatelessWidget {
+  const _ProfileMetric({required this.value, required this.label});
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(right: 14),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(value, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900)),
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10.5)),
+      ],
+    ),
+  );
+}
+
+class _ProfileTabHeader extends SliverPersistentHeaderDelegate {
+  const _ProfileTabHeader({required this.section, required this.onChanged});
+  final int section;
+  final ValueChanged<int> onChanged;
+
+  @override
+  double get minExtent => 48;
+  @override
+  double get maxExtent => 48;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) => Material(
+    color: Colors.white,
+    elevation: overlapsContent ? 1 : 0,
+    child: Row(
+      children: [
+        _ProfileTab(label: '公开行程', active: section == 0, onTap: () => onChanged(0)),
+        _ProfileTab(label: '资料', active: section == 1, onTap: () => onChanged(1)),
+      ],
+    ),
+  );
+
+  @override
+  bool shouldRebuild(covariant _ProfileTabHeader oldDelegate) => oldDelegate.section != section;
+}
+
+class _ProfileTab extends StatelessWidget {
+  const _ProfileTab({required this.label, required this.active, required this.onTap});
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: InkWell(
+      onTap: onTap,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              color: active ? AppColors.primary : AppColors.muted,
+              fontWeight: active ? FontWeight.w900 : FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 9),
+          Container(
+            width: 28,
+            height: 3,
+            decoration: BoxDecoration(
+              color: active ? AppColors.primary : Colors.transparent,
+              borderRadius: BorderRadius.circular(99),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _PublicTripTile extends StatelessWidget {
+  const _PublicTripTile({required this.trip, required this.onTap});
+  final TripDiscoverModel trip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(12),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    trip.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900),
+                  ),
+                ),
+                const Text('招募中', style: TextStyle(color: AppColors.primary, fontSize: 11.5, fontWeight: FontWeight.w800)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${trip.startName} → ${trip.endName}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12.5, color: AppColors.secondaryText),
+            ),
+            const SizedBox(height: 7),
+            Row(
+              children: [
+                const Icon(LucideIcons.calendar, size: 14, color: AppColors.muted),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    trip.departureTime,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
+                  ),
+                ),
+                Text('${trip.memberCount}/${trip.maxMemberCount} 人', style: const TextStyle(fontSize: 11.5, color: AppColors.muted)),
+                const SizedBox(width: 5),
+                const Icon(LucideIcons.chevronRight, size: 16, color: AppColors.muted),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _ProfileInfoCard extends StatelessWidget {
+  const _ProfileInfoCard({required this.icon, required this.title, required this.value});
+  final IconData icon;
+  final String title;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 19, color: AppColors.primary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+              const SizedBox(height: 4),
+              Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, height: 1.4)),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class EditProfilePage extends StatefulWidget {

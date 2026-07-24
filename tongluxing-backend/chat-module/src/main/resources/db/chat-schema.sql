@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS chat_conversation_member (
   muted_flag TINYINT(1) NOT NULL DEFAULT 0,
   pinned_flag TINYINT(1) NOT NULL DEFAULT 0,
   last_read_message_id BIGINT NULL,
+  cleared_before_message_id BIGINT NULL,
   joined_at DATETIME NOT NULL,
   exited_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -69,6 +70,15 @@ SET @chat_add_pinned = IF(
   'ALTER TABLE chat_conversation_member ADD COLUMN pinned_flag TINYINT(1) NOT NULL DEFAULT 0 AFTER muted_flag',
   'SELECT 1');
 PREPARE chat_stmt FROM @chat_add_pinned;
+EXECUTE chat_stmt;
+DEALLOCATE PREPARE chat_stmt;
+
+SET @chat_add_cleared_before = IF(
+  (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()
+    AND table_name='chat_conversation_member' AND column_name='cleared_before_message_id')=0,
+  'ALTER TABLE chat_conversation_member ADD COLUMN cleared_before_message_id BIGINT NULL AFTER last_read_message_id',
+  'SELECT 1');
+PREPARE chat_stmt FROM @chat_add_cleared_before;
 EXECUTE chat_stmt;
 DEALLOCATE PREPARE chat_stmt;
 

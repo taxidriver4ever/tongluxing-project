@@ -20,6 +20,9 @@
         <if test="beforeMessageId != null">
             and id &lt; #{beforeMessageId}
         </if>
+        <if test="clearedBeforeMessageId != null">
+            and id &gt; #{clearedBeforeMessageId}
+        </if>
         order by sent_at desc
         limit #{limit}
     </select>

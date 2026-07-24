@@ -17,7 +17,22 @@ public interface ChatMessageMapper {
     /** 查询会话历史消息；beforeMessageId 为空时查询最新消息。 */
     List<ChatMessage> findMessages(@Param("conversationId") Long conversationId,
                                    @Param("beforeMessageId") Long beforeMessageId,
+                                   @Param("clearedBeforeMessageId") Long clearedBeforeMessageId,
                                    @Param("limit") Integer limit);
+
+    @org.apache.ibatis.annotations.Select("""
+            select max(id) from chat_message
+            where conversation_id=#{conversationId} and deleted=0 and message_status<>'BLOCKED'
+            """)
+    Long findLatestMessageId(@Param("conversationId") Long conversationId);
+
+    @org.apache.ibatis.annotations.Select("""
+            select count(*) from chat_message
+            where conversation_id=#{conversationId} and sender_user_id=#{senderUserId}
+              and deleted=0 and message_status<>'BLOCKED'
+            """)
+    int countSentByUser(@Param("conversationId") Long conversationId,
+                        @Param("senderUserId") Long senderUserId);
 
     /** 新增聊天消息。 */
     @Insert("""

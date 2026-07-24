@@ -31,12 +31,23 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   final focus = FocusNode();
   List<Map<String, dynamic>> messages = [];
   Map<String, dynamic> workspace = {};
+  Map<String, dynamic> privatePermission = {};
   final Map<String, Future<String>> attachmentUrls = {};
   final Map<String, Future<Map<String, dynamic>>> confirmationDetails = {};
   final Set<String> respondingConfirmations = {};
   bool loading = true, sending = false, announcementHidden = false;
   bool toolsExpanded = false;
   Timer? pollingTimer;
+
+  bool get isPrivate => widget.conversation.isPrivate;
+  bool get privateUnlocked => privatePermission['unlocked'] == true;
+  bool get canSendMedia => !isPrivate ||
+      (privatePermission.isEmpty
+          ? widget.conversation.canSendMedia
+          : privatePermission['canSendMedia'] == true);
+  int get remainingPrivateMessages =>
+      (privatePermission['remainingTextMessages'] as num?)?.toInt() ??
+      widget.conversation.remainingTextMessages;
 
   @override
   void initState() {
@@ -66,9 +77,11 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   Future<void> load({bool silent = false}) async {
     try {
       final service = ChatService(context.read<AppSession>().api);
-      final values = await Future.wait([
+      final values = await Future.wait<dynamic>([
         service.messages(widget.conversation.id),
-        service.groupWorkspace(widget.conversation.id),
+        isPrivate
+            ? service.privateConversationPermission(widget.conversation.id)
+            : service.groupWorkspace(widget.conversation.id),
       ]);
       final nextMessages = (values[0] as List<Map<String, dynamic>>).reversed
           .toList();
@@ -80,7 +93,13 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
           : nextMessages.last['messageId']?.toString();
       if (previousLatestId != nextLatestId) confirmationDetails.clear();
       messages = nextMessages;
-      workspace = values[1] as Map<String, dynamic>;
+      if (isPrivate) {
+        privatePermission = Map<String, dynamic>.from(values[1] as Map);
+        workspace = const {'selfRole': 'MEMBER', 'items': <Object>[]};
+      } else {
+        workspace = Map<String, dynamic>.from(values[1] as Map);
+        privatePermission = const {};
+      }
     } catch (_) {}
     if (mounted) {
       setState(() => loading = false);
@@ -132,7 +151,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
       Map<String, dynamic>.from(message['payload'] as Map? ?? const {});
 
   Map<String, dynamic>? get _announcement {
-    if (announcementHidden) return null;
+    if (isPrivate || announcementHidden) return null;
     final items = (workspace['items'] as List? ?? const [])
         .map((e) => Map<String, dynamic>.from(e as Map))
         .where(
@@ -141,22 +160,72 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     return items.isEmpty ? null : items.first;
   }
 
+  String _privateSubtitle() {
+    final type = privatePermission['relationType']?.toString() ?? widget.conversation.relationType;
+    return switch (type) {
+      'MUTUAL' => '互相关注 · 联系人',
+      'SAME_TRIP' => '同一行程 · 可正常私聊',
+      'REPLIED' => '对方已回复 · 已解除限制',
+      'FOLLOWING' => '单向关注 · 剩余 $remainingPrivateMessages 条',
+      _ => '私聊',
+    };
+  }
+
+  String _groupSubtitle() {
+    if (widget.conversation.status == 'HISTORY') return '行程已结束 · 群聊保留';
+    return widget.conversation.providerType == 'TENCENT_IM'
+        ? '行程群聊 · 腾讯 IM'
+        : '行程群聊 · 实时同步';
+  }
+
+  Widget _privatePermissionBanner() {
+    final unlocked = privateUnlocked;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      color: AppColors.primarySoft,
+      child: Row(
+        children: [
+          Icon(
+            unlocked ? LucideIcons.badgeCheck : LucideIcons.messageCircle,
+            size: 15,
+            color: AppColors.primaryDark,
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              unlocked
+                  ? (_privateSubtitle())
+                  : '对方回复或回关前，还可发送 $remainingPrivateMessages 条文字消息',
+              style: const TextStyle(fontSize: 11.5, color: AppColors.primaryDark),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final announcement = _announcement;
     return Scaffold(
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
+        toolbarHeight: 48,
+        titleSpacing: 0,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.conversation.name),
             Text(
-              widget.conversation.providerType == 'TENCENT_IM'
-                  ? '腾讯 IM 实时通道'
-                  : '行程群聊 · 本地实时同步',
+              widget.conversation.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+            Text(
+              isPrivate ? _privateSubtitle() : _groupSubtitle(),
               style: const TextStyle(
-                fontSize: 12,
+                fontSize: 10.5,
                 color: AppColors.muted,
                 fontWeight: FontWeight.w400,
               ),
@@ -165,24 +234,37 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
         ),
         actions: [
           IconButton(
-            tooltip: '群聊详情',
+            tooltip: isPrivate ? '查看资料' : '群聊详情',
             onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      ChatGroupDetailsPage(conversation: widget.conversation),
-                ),
-              );
+              if (isPrivate) {
+                final peerUserId = widget.conversation.peerUserId;
+                if (peerUserId.isEmpty) return;
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => PublicProfilePage(userId: peerUserId),
+                  ),
+                );
+              } else {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        ChatGroupDetailsPage(conversation: widget.conversation),
+                  ),
+                );
+              }
               await load();
             },
-            icon: const Icon(LucideIcons.ellipsis),
+            icon: Icon(isPrivate ? LucideIcons.userRound : LucideIcons.ellipsis, size: 20),
           ),
         ],
       ),
       body: Column(
         children: [
-          if (widget.conversation.status == 'HISTORY')
+          if (isPrivate && privatePermission.isNotEmpty)
+            _privatePermissionBanner(),
+          if (!isPrivate && widget.conversation.status == 'HISTORY')
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -197,7 +279,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '该行程已结束，当前为历史车队群。聊天与历史资料仍会保留。',
+                      '该行程已结束，群聊仍保留，成员可以继续发言。',
                       style: TextStyle(
                         fontSize: 12,
                         color: AppColors.primaryDark,
@@ -260,13 +342,13 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
             child: loading
                 ? const Center(child: CircularProgressIndicator())
                 : messages.isEmpty
-                ? const Center(child: Text('暂无消息，和车队成员打个招呼吧'))
+                ? Center(child: Text(isPrivate ? '暂无消息，发一条文字打个招呼吧' : '暂无消息，和车队成员打个招呼吧'))
                 : ListView.builder(
                     controller: scroll,
                     reverse: false,
                     keyboardDismissBehavior:
                         ScrollViewKeyboardDismissBehavior.onDrag,
-                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
                     itemCount: messages.length,
                     itemBuilder: (_, i) => _message(messages[i]),
                   ),
@@ -277,13 +359,14 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: const EdgeInsets.fromLTRB(8, 9, 10, 9),
+                  padding: const EdgeInsets.fromLTRB(6, 6, 8, 6),
                   color: Colors.white,
                   child: Row(
                     children: [
                       IconButton(
                         tooltip: toolsExpanded ? '收起' : '更多',
                         onPressed: _more,
+                        iconSize: 21,
                         icon: AnimatedRotation(
                           turns: toolsExpanded ? .125 : 0,
                           duration: const Duration(milliseconds: 180),
@@ -307,11 +390,16 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
                           maxLines: 4,
                           decoration: const InputDecoration(
                             hintText: '输入消息...',
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                           ),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      IconButton.filled(
+                      SizedBox(
+                        width: 38,
+                        height: 38,
+                        child: IconButton.filled(
                         onPressed: sending ? null : send,
                         icon: sending
                             ? const SizedBox.square(
@@ -320,7 +408,8 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
                                   strokeWidth: 2,
                                 ),
                               )
-                            : const Icon(LucideIcons.send),
+                            : const Icon(LucideIcons.send, size: 18),
+                        ),
                       ),
                     ],
                   ),
@@ -347,8 +436,8 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     if (type == 'SYSTEM') {
       return Center(
         child: Container(
-          margin: const EdgeInsets.only(bottom: 14),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
             color: const Color(0xFFEFF2F7),
             borderRadius: BorderRadius.circular(14),
@@ -363,9 +452,9 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     }
     final payload = _payload(message);
     final card = type.endsWith('_CARD');
-    final maxBubbleWidth = MediaQuery.sizeOf(context).width - 122;
+    final maxBubbleWidth = MediaQuery.sizeOf(context).width - 104;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         mainAxisAlignment: self
             ? MainAxisAlignment.end
@@ -373,7 +462,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!self) _avatar(message),
-          if (!self) const SizedBox(width: 9),
+          if (!self) const SizedBox(width: 7),
           Flexible(
             child: Column(
               crossAxisAlignment: self
@@ -382,7 +471,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
               children: [
                 if (!self)
                   Padding(
-                    padding: const EdgeInsets.only(left: 4, bottom: 5),
+                    padding: const EdgeInsets.only(left: 3, bottom: 3),
                     child: Text(
                       message['senderNickname']?.toString() ?? '同路行用户',
                       style: const TextStyle(
@@ -402,8 +491,8 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
                   child: Container(
                     constraints: BoxConstraints(maxWidth: maxBubbleWidth),
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 15,
-                      vertical: 12,
+                      horizontal: 12,
+                      vertical: 9,
                     ),
                     decoration: BoxDecoration(
                       color: card
@@ -411,7 +500,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
                           : self
                           ? AppColors.primary
                           : Colors.white,
-                      borderRadius: BorderRadius.circular(18),
+                      borderRadius: BorderRadius.circular(14),
                       border: card
                           ? Border.all(color: const Color(0xFFDDE7FF))
                           : null,
@@ -422,7 +511,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
               ],
             ),
           ),
-          if (self) const SizedBox(width: 9),
+          if (self) const SizedBox(width: 7),
           if (self) _avatar(message),
         ],
       ),
@@ -438,7 +527,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
       nickname: nickname,
       avatarImageKey: avatarKey,
       avatarUrl: avatarUrl,
-      radius: 19,
+      radius: 17,
       onTap: senderUserId.isEmpty
           ? null
           : () => Navigator.push(
@@ -729,68 +818,39 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
 
   void _more() {
     focus.unfocus();
+    if (isPrivate && !canSendMedia) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('对方回复或回关后才可发送图片和位置')),
+      );
+      return;
+    }
     setState(() => toolsExpanded = !toolsExpanded);
     if (toolsExpanded) _showLatest();
   }
 
   Widget _toolPanel() {
-    final manager = const ['OWNER', 'ADMIN'].contains(workspace['selfRole']);
+    final manager = !isPrivate && const ['OWNER', 'ADMIN'].contains(workspace['selfRole']);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
       decoration: const BoxDecoration(
         color: Color(0xFFF5F7FB),
         border: Border(top: BorderSide(color: Color(0xFFE8ECF3))),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          const Text(
-            '聊天工具',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _action(LucideIcons.image, '发送图片', '从相册选择', _pickImage),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _action(
-                  LucideIcons.mapPin,
-                  '当前位置',
-                  '分享给车队',
-                  _sendLocation,
-                ),
-              ),
-              if (manager) ...[
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _action(
-                    LucideIcons.listChecks,
-                    '群投票',
-                    '发起共同决策',
-                    () => _openManagement('POLL', '群投票'),
-                  ),
-                ),
-              ],
-            ],
-          ),
+          Expanded(child: _action(LucideIcons.image, '图片', '从相册选择', _pickImage)),
+          const SizedBox(width: 8),
+          Expanded(child: _action(LucideIcons.mapPin, '位置', '发送当前位置', _sendLocation)),
           if (manager) ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _action(
-                    LucideIcons.alarmClock,
-                    '行程提醒',
-                    '发送提醒卡片',
-                    () => _openManagement('REMINDER', '行程提醒'),
-                  ),
-                ),
-                const Expanded(flex: 2, child: SizedBox()),
-              ],
+            const SizedBox(width: 8),
+            Expanded(
+              child: _action(
+                LucideIcons.listChecks,
+                '投票',
+                '共同决策',
+                () => _openManagement('POLL', '群投票'),
+              ),
             ),
           ],
         ],
@@ -804,34 +864,34 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     String subtitle,
     Future<void> Function() action,
   ) => InkWell(
-    borderRadius: BorderRadius.circular(18),
+    borderRadius: BorderRadius.circular(12),
     onTap: () async {
       setState(() => toolsExpanded = false);
       await action();
     },
     child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 50,
-            height: 50,
+            width: 38,
+            height: 38,
             decoration: BoxDecoration(
               color: AppColors.primarySoft,
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: AppColors.primary),
+            child: Icon(icon, color: AppColors.primary, size: 19),
           ),
-          const SizedBox(height: 9),
+          const SizedBox(height: 6),
           Text(
             label,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 3),
           Text(
@@ -846,6 +906,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   );
 
   Future<void> _pickImage() async {
+    if (!canSendMedia) return;
     final file = await ImagePicker().pickImage(
       source: ImageSource.gallery,
       imageQuality: 88,
@@ -889,6 +950,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   }
 
   Future<void> _sendLocation() async {
+    if (!canSendMedia) return;
     final api = context.read<AppSession>().api;
     final granted =
         await permissionChannel.invokeMethod<bool>('requestLocation') ?? false;

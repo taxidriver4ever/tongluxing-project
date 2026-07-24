@@ -4,12 +4,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../app/theme.dart';
 import '../../chat/pages/chat_index_page.dart';
 import '../../profile/pages/profile_page.dart';
-import '../../shop/pages/shop_home_page.dart';
 import '../../trip/pages/trip_home_page.dart';
 import 'map_home_page.dart';
 
 class MainShellPage extends StatefulWidget {
   const MainShellPage({super.key});
+
   @override
   State<MainShellPage> createState() => _MainShellPageState();
 }
@@ -23,7 +23,6 @@ class _MainShellPageState extends State<MainShellPage> {
     const MapHomePage(),
     const TripHomePage(),
     const ChatIndexPage(),
-    const ShopHomePage(),
     ProfilePage(key: profileKey),
   ];
 
@@ -32,18 +31,15 @@ class _MainShellPageState extends State<MainShellPage> {
       index = value;
       loadedTabs.add(value);
     });
-    if (value == 4) {
+    if (value == 3) {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => profileKey.currentState?.refresh(),
       );
     }
   }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    // IndexedStack 默认用 loose 约束布局子页面。地图页以 Stack 为根节点，
-    // loose 约束会让它只按顶部搜索框的高度收缩，从而把底部浮层顶到状态栏。
-    // expand 可保证五个主页面始终获得完整的可用屏幕高度。
-    // 主页面首次点击后再挂载，避免未显示页面在后台异步插入子节点。
     body: IndexedStack(
       sizing: StackFit.expand,
       index: index,
@@ -55,16 +51,17 @@ class _MainShellPageState extends State<MainShellPage> {
       ),
     ),
     bottomNavigationBar: NavigationBar(
-      height: 72,
+      height: 64,
+      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       backgroundColor: Colors.white,
       indicatorColor: AppColors.primarySoft,
       selectedIndex: index,
       onDestinationSelected: selectTab,
       destinations: const [
         NavigationDestination(
-          icon: Icon(LucideIcons.map),
-          selectedIcon: Icon(LucideIcons.map, color: AppColors.primary),
-          label: '地图',
+          icon: Icon(LucideIcons.compass),
+          selectedIcon: Icon(LucideIcons.compass, color: AppColors.primary),
+          label: '发现',
         ),
         NavigationDestination(
           icon: Icon(LucideIcons.route),
@@ -78,11 +75,6 @@ class _MainShellPageState extends State<MainShellPage> {
             color: AppColors.primary,
           ),
           label: '消息',
-        ),
-        NavigationDestination(
-          icon: Icon(LucideIcons.store),
-          selectedIcon: Icon(LucideIcons.store, color: AppColors.primary),
-          label: '商城',
         ),
         NavigationDestination(
           icon: Icon(LucideIcons.userRound),

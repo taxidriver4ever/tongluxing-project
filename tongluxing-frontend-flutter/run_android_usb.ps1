@@ -1,7 +1,9 @@
 ﻿param(
     [string]$DeviceId,
     [string]$BackendRoot,
-    [switch]$ConfigureOnly
+    [switch]$ConfigureOnly,
+    [switch]$ForceClean,
+    [switch]$SkipPrebuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -167,5 +169,89 @@ if (-not $flutterCommand) {
     throw 'flutter was not found in PATH.'
 }
 
-& flutter run -d $DeviceId "--dart-define=API_BASE_URL=$apiBaseUrl"
-exit $LASTEXITCODE
+$manifestPath = Join-Path $PSScriptRoot 'android\app\src\main\AndroidManifest.xml'
+if (-not (Test-Path -LiteralPath $manifestPath)) {
+    throw "Android manifest is really missing: $manifestPath"
+}
+
+$apkPath = Join-Path $PSScriptRoot 'build\app\outputs\flutter-apk\app-debug.apk'
+$buildRoot = Join-Path $PSScriptRoot 'build'
+
+Push-Location $PSScriptRoot
+try {
+    # 覆盖补丁或手动删除 APK 后，Flutter 的旧增量状态可能仍认为构建已完成，
+    # 随后 aapt 会去读取一个不存在的 app-debug.apk，并误报 Manifest 缺失。
+    $hasStaleBuildState = (Test-Path -LiteralPath $buildRoot) -and -not (Test-Path -LiteralPath $apkPath)
+
+    if ($ForceClean -or $hasStaleBuildState) {
+        if ($hasStaleBuildState -and -not $ForceClean) {
+            Write-Warning 'Detected stale Flutter build state: build directory exists but app-debug.apk is missing.'
+        }
+        Write-Host 'Cleaning Flutter/Gradle incremental build state...'
+        & flutter clean
+        if ($LASTEXITCODE -ne 0) {
+            throw 'flutter clean failed.'
+        }
+    }
+
+    Write-Host 'Resolving Flutter dependencies...'
+    & flutter pub get
+    if ($LASTEXITCODE -ne 0) {
+        throw 'flutter pub get failed.'
+    }
+
+    if (-not $SkipPrebuild) {
+        # 先明确生成 APK。这样真正的 Dart/Gradle 编译错误会直接显示，
+        # 不会被最后的“AndroidManifest.xml not found”误导信息覆盖。
+        Write-Host 'Prebuilding debug APK...'
+        & flutter build apk --debug "--dart-define=API_BASE_URL=$apiBaseUrl"
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Debug APK build failed. Fix the compile error printed above before running on the phone.'
+        }
+
+        if (-not (Test-Path -LiteralPath $apkPath)) {
+            throw "Flutter reported success but the expected APK was not generated: $apkPath"
+        }
+
+        Write-Host "Debug APK ready: $apkPath"
+    }
+
+    # Windows 版 Android build-tools 的 aapt 在某些版本中无法从包含中文或其他
+    # 非 ASCII 字符的路径读取 APK。Gradle/aapt2 可以正常生成 APK，但 flutter run
+    # 随后的 `aapt dump xmltree` 会把它误报为 APK/AndroidManifest.xml 不存在。
+    # 因此将已构建 APK 复制到同一磁盘的纯英文临时目录，并让 flutter run 使用
+    # 这个预构建 APK。项目源码仍然位于原目录，调试与热重载入口保持不变。
+    $driveRoot = [System.IO.Path]::GetPathRoot($PSScriptRoot)
+    if (-not $driveRoot) {
+        throw "Unable to determine the drive root for: $PSScriptRoot"
+    }
+
+    $asciiRunRoot = Join-Path $driveRoot 'tlx_flutter_run_cache'
+    $asciiApkPath = Join-Path $asciiRunRoot 'app-debug.apk'
+
+    New-Item -ItemType Directory -Path $asciiRunRoot -Force | Out-Null
+    Copy-Item -LiteralPath $apkPath -Destination $asciiApkPath -Force
+
+    if (-not (Test-Path -LiteralPath $asciiApkPath)) {
+        throw "Failed to copy the debug APK to the ASCII-only path: $asciiApkPath"
+    }
+
+    $sourceApkLength = (Get-Item -LiteralPath $apkPath).Length
+    $copiedApkLength = (Get-Item -LiteralPath $asciiApkPath).Length
+    if ($sourceApkLength -le 0 -or $sourceApkLength -ne $copiedApkLength) {
+        throw "The copied APK is incomplete: $asciiApkPath"
+    }
+
+    Write-Host "Launching through ASCII APK path: $asciiApkPath"
+    $flutterRunArgs = @(
+        'run',
+        '-d',
+        $DeviceId,
+        "--use-application-binary=$asciiApkPath",
+        "--dart-define=API_BASE_URL=$apiBaseUrl"
+    )
+    & flutter @flutterRunArgs
+    exit $LASTEXITCODE
+} finally {
+    Pop-Location
+}

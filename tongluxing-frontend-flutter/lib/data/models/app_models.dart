@@ -686,6 +686,12 @@ class ConversationModel {
     this.providerType = 'LOCAL',
     this.pinned = false,
     this.muted = false,
+    this.avatarImageKey = '',
+    this.avatarUrl = '',
+    this.peerUserId = '',
+    this.relationType = 'GROUP',
+    this.remainingTextMessages = 0,
+    this.canSendMedia = true,
   });
   final String id;
   final String name;
@@ -698,6 +704,14 @@ class ConversationModel {
   final String providerType;
   final bool pinned;
   final bool muted;
+  final String avatarImageKey;
+  final String avatarUrl;
+  final String peerUserId;
+  final String relationType;
+  final int remainingTextMessages;
+  final bool canSendMedia;
+  bool get isPrivate => bizType == 'PRIVATE';
+
   factory ConversationModel.fromJson(Map<String, dynamic> json) =>
       ConversationModel(
         id: json['conversationId']?.toString() ?? '',
@@ -711,6 +725,13 @@ class ConversationModel {
         providerType: json['providerType']?.toString() ?? 'LOCAL',
         pinned: json['pinned'] == true,
         muted: json['muted'] == true,
+        avatarImageKey: json['avatarImageKey']?.toString() ?? '',
+        avatarUrl: json['avatarUrl']?.toString() ?? '',
+        peerUserId: json['peerUserId']?.toString() ?? '',
+        relationType: json['relationType']?.toString() ?? 'GROUP',
+        remainingTextMessages:
+            _int(json['remainingTextMessages']) ?? 0,
+        canSendMedia: json['canSendMedia'] != false,
       );
 }
 

@@ -11,6 +11,7 @@ import com.tongluxing.chat.vo.MessageListResponse;
 import com.tongluxing.chat.vo.MessageResponse;
 import com.tongluxing.chat.vo.ConversationSettingResponse;
 import com.tongluxing.chat.vo.JoinApplicationResponse;
+import com.tongluxing.chat.vo.PrivateChatPermissionResponse;
 
 /**
  * 聊天业务服务。
@@ -37,8 +38,20 @@ public interface ChatService {
     /** 查询当前登录用户参与的有效会话。 */
     ConversationListResponse getConversations(String title);
 
+    /** 查询与目标用户的私聊权限及已有会话。 */
+    PrivateChatPermissionResponse getPrivatePermission(Long targetUserId);
+
+    /** 创建或复用与目标用户的私聊会话。 */
+    ConversationResponse startPrivateConversation(Long targetUserId);
+
+    /** 查询指定私聊会话中当前用户的发送权限。 */
+    PrivateChatPermissionResponse getPrivateConversationPermission(Long conversationId);
+
     /** 查询会话历史消息。 */
     MessageListResponse getMessages(Long conversationId, Long beforeMessageId, Integer limit);
+
+    /** 仅清除当前用户看到的本地聊天记录，不影响其他成员与风控留档。 */
+    void clearLocalMessages(Long conversationId);
 
     /** 当前登录用户向会话发送消息。 */
     MessageResponse sendMessage(Long conversationId, SendMessageRequest request);

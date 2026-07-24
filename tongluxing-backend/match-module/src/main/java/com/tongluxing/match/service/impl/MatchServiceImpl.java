@@ -327,6 +327,37 @@ public class MatchServiceImpl implements MatchService {
     }
 
     @Override
+    public TripDiscoverPageResponse getPublicTripsByUser(Long ownerUserId, Integer page, Integer size) {
+        Long currentUserId = currentUserContext.requireUserId();
+        // 查看他人行程时校验公开主页；本人可正常预览自己的公开行程。
+        if (!currentUserId.equals(ownerUserId)) {
+            userService.getPublicProfile(ownerUserId);
+        }
+        int safePage = page == null ? 1 : Math.max(1, page);
+        int safeSize = size == null ? 10 : Math.max(1, Math.min(size, 30));
+        List<TripDiscoverCardResponse> records = new ArrayList<>();
+        for (MatchTripDTO trip : tripPort.listPublicTrips(1000)) {
+            if (!ownerUserId.equals(trip.userId()) || !Integer.valueOf(1).equals(trip.publicFlag())) {
+                continue;
+            }
+            if (!isRecruiting(trip.status()) || trip.departureTime() == null
+                    || !trip.departureTime().isAfter(LocalDateTime.now())) {
+                continue;
+            }
+            MatchTeamDTO team = teamPort.findActiveTeamByTripId(trip.tripId());
+            if (team == null) continue;
+            records.add(toDiscoverCard(trip, team, waypointNames(trip.waypointsJson()),
+                    discoveryScore(trip, team, null, -1), -1, currentUserId));
+        }
+        records.sort(Comparator.comparing(TripDiscoverCardResponse::departureTime)
+                .thenComparing(TripDiscoverCardResponse::tripId));
+        int fromIndex = Math.min(records.size(), (safePage - 1) * safeSize);
+        int toIndex = Math.min(records.size(), fromIndex + safeSize);
+        return new TripDiscoverPageResponse(safePage, safeSize, (long) records.size(),
+                records.subList(fromIndex, toIndex));
+    }
+
+    @Override
     public TripPublicDetailResponse getPublicTripDetail(Long tripId) {
         Long userId = currentUserContext.requireUserId();
         MatchTripDTO trip = requireRecruitingTrip(tripId);

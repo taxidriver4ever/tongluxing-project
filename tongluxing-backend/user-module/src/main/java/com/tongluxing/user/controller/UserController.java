@@ -18,6 +18,7 @@ import com.tongluxing.user.model.UserModels.UpdateUserProfileRequest;
 import com.tongluxing.user.model.UserModels.UserProfileVO;
 import com.tongluxing.user.model.UserModels.FollowStatusVO;
 import com.tongluxing.user.model.UserModels.FollowUserVO;
+import com.tongluxing.user.model.UserModels.UserSearchVO;
 import java.util.List;
 import org.springframework.web.bind.annotation.RequestParam;
 import com.tongluxing.user.service.UserService;
@@ -76,6 +77,14 @@ public class UserController {
     @GetMapping("/{userId}/public-profile")
     public Result<PublicProfileVO> publicProfile(@PathVariable Long userId) {
         return Result.success(userService.getPublicProfile(userId));
+    }
+
+    /** 行程搜索页“发起人”标签使用的公开用户搜索。 */
+    @GetMapping("/search")
+    public Result<List<UserSearchVO>> search(@RequestParam(required = false) String keyword,
+                                             @RequestParam(defaultValue = "1") int page,
+                                             @RequestParam(defaultValue = "20") int size) {
+        return Result.success(userService.searchPublicUsers(keyword, page, size));
     }
 
     @PostMapping("/{userId}/follow")

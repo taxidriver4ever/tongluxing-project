@@ -6,11 +6,12 @@ import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
-import '../../../common/widgets/app_widgets.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
-import 'chat_management_pages.dart';
+import '../../../data/services/follow_service.dart';
+import '../../profile/widgets/user_avatar.dart';
 import 'chat_session_page.dart';
+import 'interaction_messages_page.dart';
 
 class ChatIndexPage extends StatefulWidget {
   const ChatIndexPage({super.key});
@@ -20,15 +21,13 @@ class ChatIndexPage extends StatefulWidget {
 }
 
 class _ChatIndexPageState extends State<ChatIndexPage> {
-  final searchController = TextEditingController();
-  Timer? searchDebounce;
+  final search = TextEditingController();
+  Timer? debounce;
   bool loading = true;
-  bool searching = false;
   String? error;
-  String keyword = '';
-  int requestSerial = 0;
-  List<ConversationModel> allRows = [];
-  List<ConversationModel> rows = [];
+  List<ConversationModel> allRows = const [];
+  List<ConversationModel> rows = const [];
+  int interactionCount = 0;
 
   @override
   void initState() {
@@ -38,68 +37,112 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
 
   @override
   void dispose() {
-    searchDebounce?.cancel();
-    searchController.dispose();
+    debounce?.cancel();
+    search.dispose();
     super.dispose();
   }
 
-  void onSearchChanged(String value) {
-    keyword = value.trim();
-    requestSerial++;
-    searchDebounce?.cancel();
-    searchDebounce = Timer(
-      const Duration(milliseconds: 280),
-      () => load(showLoading: false),
-    );
+  Future<void> load() async {
     setState(() {
-      rows = _filterByTitle(allRows, keyword);
-      searching = true;
+      loading = true;
       error = null;
-    });
-  }
-
-  Future<void> load({bool showLoading = true}) async {
-    final requestId = ++requestSerial;
-    setState(() {
-      if (showLoading) loading = true;
-      searching = !showLoading;
     });
     try {
-      final result = await ChatService(
-        context.read<AppSession>().api,
-      ).conversations(title: keyword);
-      if (requestId != requestSerial) return;
-      rows = result;
-      if (keyword.isEmpty) allRows = result;
-      error = null;
+      final session = context.read<AppSession>();
+      final userId = session.userId?.toString() ?? '';
+      final values = await Future.wait<dynamic>([
+        ChatService(session.api).conversations(),
+        ChatService(session.api).joinApplications(status: 'PENDING'),
+        if (userId.isNotEmpty)
+          FollowService(session.api).followers(userId, size: 20)
+        else
+          Future<List<Map<String, dynamic>>>.value(const []),
+      ]);
+      if (!mounted) return;
+      allRows = List<ConversationModel>.from(values[0] as List);
+      final followerRows = List<Map<String, dynamic>>.from(values[2] as List);
+      interactionCount = (values[1] as List).length +
+          followerRows.where((row) => row['following'] != true).length;
+      _applySearch();
     } catch (e) {
-      if (requestId != requestSerial) return;
-      error = e.toString();
-    }
-    if (mounted && requestId == requestSerial) {
-      setState(() {
-        loading = false;
-        searching = false;
-      });
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => loading = false);
     }
   }
 
-  List<ConversationModel> _filterByTitle(
-    List<ConversationModel> source,
-    String title,
-  ) {
-    final normalized = title.toLowerCase();
-    if (normalized.isEmpty) return List<ConversationModel>.from(source);
-    return source
-        .where((row) => row.name.toLowerCase().contains(normalized))
-        .toList();
+  void _applySearch() {
+    final keyword = search.text.trim().toLowerCase();
+    setState(() {
+      rows = keyword.isEmpty
+          ? List<ConversationModel>.from(allRows)
+          : allRows
+              .where(
+                (row) => row.name.toLowerCase().contains(keyword) ||
+                    row.preview.toLowerCase().contains(keyword),
+              )
+              .toList();
+    });
   }
 
-  Future<void> togglePin(ConversationModel row) async {
-    await ChatService(
-      context.read<AppSession>().api,
-    ).updateSettings(row.id, muted: row.muted, pinned: !row.pinned);
-    await load(showLoading: false);
+  void onSearch(String _) {
+    debounce?.cancel();
+    debounce = Timer(const Duration(milliseconds: 220), _applySearch);
+    setState(() {});
+  }
+
+  Future<void> updateSettings(
+    ConversationModel row, {
+    bool? pinned,
+    bool? muted,
+  }) async {
+    try {
+      await ChatService(context.read<AppSession>().api).updateSettings(
+        row.id,
+        muted: muted ?? row.muted,
+        pinned: pinned ?? row.pinned,
+      );
+      await load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  Future<void> clearConversation(ConversationModel row) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('删除聊天记录？'),
+        content: const Text('删除后仅清除你看到的聊天记录，不影响其他成员及后台风控留档，且无法恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('确认删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ChatService(context.read<AppSession>().api).clearLocalMessages(row.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('聊天记录已从当前账号视图清除')),
+        );
+        await load();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
   }
 
   Future<void> openConversation(ConversationModel row) async {
@@ -107,7 +150,7 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
       context,
       MaterialPageRoute(builder: (_) => ChatSessionPage(conversation: row)),
     );
-    if (mounted) await load(showLoading: false);
+    if (mounted) await load();
   }
 
   @override
@@ -116,113 +159,139 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
       color: Colors.white,
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(22, 18, 18, 0),
+          SizedBox(
+            height: 48,
             child: Row(
               children: [
+                const SizedBox(width: 10),
+                const SizedBox(
+                  width: 48,
+                  child: Center(
+                    child: Icon(
+                      LucideIcons.messageCircle,
+                      size: 21,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
                 const Expanded(
                   child: Text(
                     '消息',
-                    style: TextStyle(
-                      fontSize: 32,
-                      height: 1.2,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -.5,
-                    ),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                   ),
                 ),
-                IconButton.filledTonal(
-                  tooltip: '入队申请',
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const JoinApplicationsPage(),
-                    ),
-                  ),
-                  icon: const Icon(LucideIcons.userPlus, size: 20),
+                IconButton(
+                  tooltip: '互动消息',
+                  onPressed: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const InteractionMessagesPage(),
+                      ),
+                    );
+                    if (mounted) load();
+                  },
+                  icon: const Icon(LucideIcons.userPlus, size: 21),
                 ),
+                const SizedBox(width: 6),
               ],
             ),
           ),
-          const SizedBox(height: 16),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 22),
+            padding: const EdgeInsets.fromLTRB(12, 3, 12, 8),
             child: SizedBox(
-              height: 40,
+              height: 38,
               child: TextField(
-                controller: searchController,
-                onChanged: onSearchChanged,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => load(showLoading: false),
+                controller: search,
+                onChanged: onSearch,
                 decoration: InputDecoration(
-                  isDense: true,
-                  hintText: '搜索会话标题',
-                  hintStyle: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.muted,
-                  ),
-                  prefixIcon: const Icon(LucideIcons.search, size: 18),
-                  prefixIconConstraints: const BoxConstraints(minWidth: 42),
-                  suffixIcon: keyword.isEmpty
+                  hintText: '搜索联系人或群聊',
+                  hintStyle: const TextStyle(fontSize: 13),
+                  prefixIcon: const Icon(LucideIcons.search, size: 17),
+                  suffixIcon: search.text.isEmpty
                       ? null
                       : IconButton(
-                          tooltip: '清除搜索',
                           onPressed: () {
-                            searchController.clear();
-                            onSearchChanged('');
+                            search.clear();
+                            _applySearch();
                           },
-                          icon: const Icon(LucideIcons.x, size: 17),
+                          icon: const Icon(LucideIcons.x, size: 16),
                         ),
                   filled: true,
-                  fillColor: const Color(0xFFF0F5FC),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 9),
+                  fillColor: const Color(0xFFF3F5F8),
+                  contentPadding: EdgeInsets.zero,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(10),
                     borderSide: BorderSide.none,
                   ),
                 ),
               ),
             ),
           ),
-          SizedBox(
-            height: 3,
-            child: searching
-                ? const LinearProgressIndicator(minHeight: 2)
-                : null,
-          ),
-          const SizedBox(height: 7),
           Expanded(
-            child: AsyncPanel(
-              loading: loading,
-              error: error,
-              onRetry: load,
-              child: RefreshIndicator(
-                onRefresh: load,
-                child: rows.isEmpty
-                    ? _EmptyMessages(searchingTitle: keyword.isNotEmpty)
-                    : ListView.separated(
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
-                        itemCount: rows.length,
-                        separatorBuilder: (_, _) => const Divider(
-                          height: 1,
-                          indent: 78,
-                          color: Color(0xFFE9EDF3),
+            child: loading && allRows.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : error != null && allRows.isEmpty
+                    ? Center(
+                        child: FilledButton.icon(
+                          onPressed: load,
+                          icon: const Icon(LucideIcons.refreshCw, size: 17),
+                          label: const Text('重新加载'),
                         ),
-                        itemBuilder: (context, index) {
-                          final row = rows[index];
-                          return _SwipeConversationTile(
-                            key: ValueKey('conversation-${row.id}'),
-                            row: row,
-                            time: _formatTime(row.time),
-                            onPin: () => togglePin(row),
-                            onOpen: () => openConversation(row),
-                          );
-                        },
+                      )
+                    : RefreshIndicator(
+                        onRefresh: load,
+                        child: ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.only(bottom: 22),
+                          children: [
+                            _InteractionCard(
+                              count: interactionCount,
+                              onTap: () async {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const InteractionMessagesPage(),
+                                  ),
+                                );
+                                if (mounted) load();
+                              },
+                            ),
+                            if (rows.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 90),
+                                child: Column(
+                                  children: [
+                                    const Icon(
+                                      LucideIcons.messageCircle,
+                                      size: 44,
+                                      color: AppColors.muted,
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      search.text.trim().isEmpty
+                                          ? '暂时没有聊天会话'
+                                          : '没有匹配的会话',
+                                      style: const TextStyle(color: AppColors.muted),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            else
+                              ...rows.map(
+                                (row) => _SwipeConversationTile(
+                                  key: ValueKey(row.id),
+                                  row: row,
+                                  onOpen: () => openConversation(row),
+                                  onPin: () => updateSettings(row, pinned: !row.pinned),
+                                  onMute: () => updateSettings(row, muted: !row.muted),
+                                  onDelete: () => clearConversation(row),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-              ),
-            ),
           ),
         ],
       ),
@@ -230,128 +299,148 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
   );
 }
 
-String _formatTime(String value) {
-  final parsed = DateTime.tryParse(value)?.toLocal();
-  if (parsed == null) return value.length > 10 ? value.substring(0, 10) : value;
-  final now = DateTime.now();
-  if (parsed.year == now.year &&
-      parsed.month == now.month &&
-      parsed.day == now.day) {
-    return '${parsed.hour.toString().padLeft(2, '0')}:${parsed.minute.toString().padLeft(2, '0')}';
-  }
-  if (parsed.year == now.year) return '${parsed.month}/${parsed.day}';
-  return '${parsed.year}/${parsed.month}/${parsed.day}';
-}
-
-class _EmptyMessages extends StatelessWidget {
-  const _EmptyMessages({required this.searchingTitle});
-  final bool searchingTitle;
+class _InteractionCard extends StatelessWidget {
+  const _InteractionCard({required this.count, required this.onTap});
+  final int count;
+  final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.only(top: 116),
-    children: [
-      const Icon(LucideIcons.messageCircle, size: 52, color: AppColors.muted),
-      const SizedBox(height: 14),
-      Text(
-        searchingTitle ? '没有匹配的会话标题' : '暂时没有行程群聊',
-        textAlign: TextAlign.center,
-        style: const TextStyle(fontWeight: FontWeight.w800),
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: Container(
+      height: 72,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xFFEDF0F4))),
       ),
-      const SizedBox(height: 6),
-      Text(
-        searchingTitle ? '换一个标题关键词试试' : '发布行程或加入车队后，可在这里与同行成员沟通',
-        textAlign: TextAlign.center,
-        style: const TextStyle(color: AppColors.muted),
+      child: Row(
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(LucideIcons.heart, color: Colors.white, size: 21),
+              ),
+              if (count > 0)
+                Positioned(
+                  right: -4,
+                  top: -4,
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(color: AppColors.danger, shape: BoxShape.circle),
+                    child: Text(
+                      count > 99 ? '99+' : '$count',
+                      style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('互动消息', style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900)),
+                SizedBox(height: 3),
+                Text(
+                  '入队申请、谁关注了我和互动提醒',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: AppColors.muted),
+                ),
+              ],
+            ),
+          ),
+          const Icon(LucideIcons.chevronRight, size: 18, color: AppColors.muted),
+        ],
       ),
-    ],
+    ),
   );
 }
 
 class _SwipeConversationTile extends StatefulWidget {
   const _SwipeConversationTile({
     required this.row,
-    required this.time,
-    required this.onPin,
     required this.onOpen,
+    required this.onPin,
+    required this.onMute,
+    required this.onDelete,
     super.key,
   });
-
   final ConversationModel row;
-  final String time;
-  final Future<void> Function() onPin;
   final Future<void> Function() onOpen;
+  final Future<void> Function() onPin;
+  final Future<void> Function() onMute;
+  final Future<void> Function() onDelete;
 
   @override
   State<_SwipeConversationTile> createState() => _SwipeConversationTileState();
 }
 
 class _SwipeConversationTileState extends State<_SwipeConversationTile> {
-  static const actionWidth = 88.0;
+  static const actionWidth = 78.0;
+  static const totalWidth = actionWidth * 3;
   double offset = 0;
 
-  void settle() => setState(() => offset = offset < -38 ? -actionWidth : 0);
+  void settle() => setState(() => offset = offset < -52 ? -totalWidth : 0);
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 92,
+    height: 74,
     child: ClipRect(
       child: Stack(
         fit: StackFit.expand,
         children: [
           Align(
             alignment: Alignment.centerRight,
-            child: SizedBox(
-              width: actionWidth,
-              child: Material(
-                color: widget.row.pinned
-                    ? const Color(0xFF87909F)
-                    : AppColors.primary,
-                child: InkWell(
-                  onTap: () async {
-                    await widget.onPin();
-                    if (mounted) setState(() => offset = 0);
-                  },
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        widget.row.pinned
-                            ? LucideIcons.pinOff
-                            : LucideIcons.pin,
-                        size: 20,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        widget.row.pinned ? '取消置顶' : '置顶',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _SwipeAction(
+                  width: actionWidth,
+                  color: const Color(0xFF7E8795),
+                  icon: widget.row.pinned ? LucideIcons.pinOff : LucideIcons.pin,
+                  label: widget.row.pinned ? '取消置顶' : '置顶',
+                  onTap: widget.onPin,
                 ),
-              ),
+                _SwipeAction(
+                  width: actionWidth,
+                  color: const Color(0xFFF59E0B),
+                  icon: widget.row.muted ? LucideIcons.bell : LucideIcons.bellOff,
+                  label: widget.row.muted ? '取消免扰' : '免打扰',
+                  onTap: widget.onMute,
+                ),
+                _SwipeAction(
+                  width: actionWidth,
+                  color: AppColors.danger,
+                  icon: LucideIcons.trash2,
+                  label: '删除记录',
+                  onTap: widget.onDelete,
+                ),
+              ],
             ),
           ),
           AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
+            duration: const Duration(milliseconds: 170),
             curve: Curves.easeOutCubic,
             transform: Matrix4.translationValues(offset, 0, 0),
             child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
               onHorizontalDragUpdate: (details) => setState(
-                () =>
-                    offset = (offset + details.delta.dx).clamp(-actionWidth, 0),
+                () => offset = (offset + details.delta.dx).clamp(-totalWidth, 0).toDouble(),
               ),
               onHorizontalDragEnd: (_) => settle(),
               child: Material(
-                color: widget.row.pinned
-                    ? const Color(0xFFF2F6FC)
-                    : Colors.white,
+                color: widget.row.pinned ? const Color(0xFFF4F7FC) : Colors.white,
                 child: InkWell(
                   onTap: () {
                     if (offset < 0) {
@@ -361,11 +450,16 @@ class _SwipeConversationTileState extends State<_SwipeConversationTile> {
                     }
                   },
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
                     child: Row(
                       children: [
-                        _ConversationAvatar(name: widget.row.name),
-                        const SizedBox(width: 14),
+                        UserAvatar(
+                          nickname: widget.row.name,
+                          avatarImageKey: widget.row.avatarImageKey,
+                          avatarUrl: widget.row.avatarUrl,
+                          radius: 21,
+                        ),
+                        const SizedBox(width: 11),
                         Expanded(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -378,74 +472,42 @@ class _SwipeConversationTileState extends State<_SwipeConversationTile> {
                                       widget.row.name,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w800,
-                                      ),
+                                      style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800),
                                     ),
                                   ),
-                                  if (widget.row.pinned)
+                                  if (widget.row.muted)
                                     const Padding(
-                                      padding: EdgeInsets.only(left: 5),
-                                      child: Icon(
-                                        LucideIcons.pin,
-                                        size: 13,
-                                        color: AppColors.muted,
-                                      ),
+                                      padding: EdgeInsets.only(right: 5),
+                                      child: Icon(LucideIcons.bellOff, size: 13, color: AppColors.muted),
                                     ),
-                                  const SizedBox(width: 8),
                                   Text(
-                                    widget.time,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.muted,
-                                    ),
+                                    _formatTime(widget.row.time),
+                                    style: const TextStyle(fontSize: 11, color: AppColors.muted),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 7),
+                              const SizedBox(height: 5),
                               Row(
                                 children: [
                                   Expanded(
                                     child: Text(
-                                      widget.row.preview.isEmpty
-                                          ? '暂无消息'
-                                          : widget.row.preview,
-                                      maxLines: 2,
+                                      widget.row.preview.isEmpty ? '暂无消息' : widget.row.preview,
+                                      maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        height: 1.25,
-                                        color: AppColors.secondaryText,
-                                      ),
+                                      style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
                                     ),
                                   ),
-                                  if (widget.row.unread > 0) ...[
-                                    const SizedBox(width: 8),
+                                  if (widget.row.unread > 0)
                                     Container(
-                                      constraints: const BoxConstraints(
-                                        minWidth: 20,
-                                        minHeight: 20,
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                      ),
+                                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                                      padding: const EdgeInsets.symmetric(horizontal: 5),
                                       alignment: Alignment.center,
-                                      decoration: const BoxDecoration(
-                                        color: AppColors.primary,
-                                        shape: BoxShape.circle,
-                                      ),
+                                      decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
                                       child: Text(
-                                        widget.row.unread > 99
-                                            ? '99+'
-                                            : '${widget.row.unread}',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w700,
-                                        ),
+                                        widget.row.unread > 99 ? '99+' : '${widget.row.unread}',
+                                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w800),
                                       ),
                                     ),
-                                  ],
                                 ],
                               ),
                             ],
@@ -458,36 +520,61 @@ class _SwipeConversationTileState extends State<_SwipeConversationTile> {
               ),
             ),
           ),
+          const Positioned(
+            left: 67,
+            right: 0,
+            bottom: 0,
+            child: Divider(height: 1, color: Color(0xFFEDF0F4)),
+          ),
         ],
       ),
     ),
   );
 }
 
-class _ConversationAvatar extends StatelessWidget {
-  const _ConversationAvatar({required this.name});
-  final String name;
+class _SwipeAction extends StatelessWidget {
+  const _SwipeAction({
+    required this.width,
+    required this.color,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+  final double width;
+  final Color color;
+  final IconData icon;
+  final String label;
+  final Future<void> Function() onTap;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: 58,
-    height: 58,
-    decoration: const BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [Color(0xFFDCEBFF), Color(0xFFAED2FF)],
-      ),
-      shape: BoxShape.circle,
-    ),
-    alignment: Alignment.center,
-    child: Text(
-      name.isEmpty ? '聊' : name.characters.first,
-      style: const TextStyle(
-        color: AppColors.primaryDark,
-        fontSize: 20,
-        fontWeight: FontWeight.w800,
+  Widget build(BuildContext context) => SizedBox(
+    width: width,
+    child: Material(
+      color: color,
+      child: InkWell(
+        onTap: () async {
+          await onTap();
+        },
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 18, color: Colors.white),
+            const SizedBox(height: 4),
+            Text(label, style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w700)),
+          ],
+        ),
       ),
     ),
   );
+}
+
+String _formatTime(String value) {
+  final parsed = DateTime.tryParse(value)?.toLocal();
+  if (parsed == null) return value.length > 10 ? value.substring(0, 10) : value;
+  final now = DateTime.now();
+  if (parsed.year == now.year && parsed.month == now.month && parsed.day == now.day) {
+    return '${parsed.hour.toString().padLeft(2, '0')}:${parsed.minute.toString().padLeft(2, '0')}';
+  }
+  if (parsed.year == now.year) return '${parsed.month}/${parsed.day}';
+  return '${parsed.year}/${parsed.month}/${parsed.day}';
 }

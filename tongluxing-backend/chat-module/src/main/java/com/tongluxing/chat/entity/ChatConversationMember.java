@@ -27,6 +27,8 @@ public class ChatConversationMember {
     private Boolean pinnedFlag;
     /** 最近已读消息 ID。 */
     private Long lastReadMessageId;
+    /** 当前用户本地清空聊天记录时的消息截止 ID。 */
+    private Long clearedBeforeMessageId;
     /** 加入时间。 */
     private LocalDateTime joinedAt;
     /** 退出时间。 */

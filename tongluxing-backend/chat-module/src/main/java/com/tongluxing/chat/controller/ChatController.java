@@ -27,6 +27,7 @@ import com.tongluxing.chat.vo.MessageListResponse;
 import com.tongluxing.chat.vo.MessageResponse;
 import com.tongluxing.chat.vo.ConversationSettingResponse;
 import com.tongluxing.chat.vo.JoinApplicationResponse;
+import com.tongluxing.chat.vo.PrivateChatPermissionResponse;
 import java.util.List;
 import com.tongluxing.common.result.Result;
 
@@ -69,6 +70,24 @@ public class ChatController {
         return Result.success(chatService.getConversations(title));
     }
 
+    /** 查询当前用户是否可以与目标用户发起私聊。 */
+    @GetMapping("/private/permission/{userId}")
+    public Result<PrivateChatPermissionResponse> privatePermission(@PathVariable Long userId) {
+        return Result.success(chatService.getPrivatePermission(userId));
+    }
+
+    /** 创建或返回当前用户与目标用户的唯一私聊会话。 */
+    @PostMapping("/private/{userId}/start")
+    public Result<ConversationResponse> startPrivate(@PathVariable Long userId) {
+        return Result.success(chatService.startPrivateConversation(userId));
+    }
+
+    @GetMapping("/conversations/{conversationId}/private-permission")
+    public Result<PrivateChatPermissionResponse> privateConversationPermission(
+            @PathVariable Long conversationId) {
+        return Result.success(chatService.getPrivateConversationPermission(conversationId));
+    }
+
     /** 查询当前成员可访问的行程群聊；群聊由开启行程动作自动创建。 */
     @GetMapping("/trips/{tripId}/conversation")
     public Result<ConversationResponse> getTripConversation(@PathVariable Long tripId) {
@@ -81,6 +100,13 @@ public class ChatController {
                                                    @RequestParam(required = false) Long beforeMessageId,
                                                    @RequestParam(defaultValue = "20") Integer limit) {
         return Result.success(chatService.getMessages(conversationId, beforeMessageId, limit));
+    }
+
+    /** 仅清除当前用户本地可见的聊天记录。 */
+    @DeleteMapping("/conversations/{conversationId}/messages/me")
+    public Result<Void> clearLocalMessages(@PathVariable Long conversationId) {
+        chatService.clearLocalMessages(conversationId);
+        return Result.success();
     }
 
     /** 向指定会话发送消息。 */

@@ -10,6 +10,7 @@ import com.tongluxing.user.model.UserModels.UpdateUserProfileRequest;
 import com.tongluxing.user.model.UserModels.UserProfileVO;
 import com.tongluxing.user.model.UserModels.FollowStatusVO;
 import com.tongluxing.user.model.UserModels.FollowUserVO;
+import com.tongluxing.user.model.UserModels.UserSearchVO;
 import java.util.List;
 
 /**
@@ -70,4 +71,7 @@ public interface UserService {
     List<FollowUserVO> getFollowers(Long userId, int page, int size);
 
     List<FollowUserVO> getFollowing(Long userId, int page, int size);
+
+    /** 按昵称、城市、简介或用户 ID 搜索可公开展示的发起人。 */
+    List<UserSearchVO> searchPublicUsers(String keyword, int page, int size);
 }

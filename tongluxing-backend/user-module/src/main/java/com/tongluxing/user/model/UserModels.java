@@ -183,7 +183,17 @@ public final class UserModels {
     /** 粉丝/关注列表中的公开用户摘要。 */
     public record FollowUserVO(
             Long userId, String nickname, String avatarImageKey, String certificationStatus,
-            Integer totalTripCount, Long totalDistanceMeters, LocalDateTime followedAt
+            Integer totalTripCount, Long totalDistanceMeters, LocalDateTime followedAt,
+            Boolean following, Boolean followedByTarget, Boolean mutual
+    ) {
+    }
+
+    /** 发起人搜索结果，包含公开资料摘要和当前用户的关注关系。 */
+    public record UserSearchVO(
+            Long userId, String nickname, String avatarImageKey, String cityName, String bio,
+            String certificationStatus, Integer totalTripCount, Long totalDistanceMeters,
+            Long followerCount, Long followingCount,
+            Boolean following, Boolean followedByTarget, Boolean mutual
     ) {
     }
 

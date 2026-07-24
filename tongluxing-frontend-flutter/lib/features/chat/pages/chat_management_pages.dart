@@ -56,21 +56,21 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('群聊详情')),
+    appBar: AppBar(toolbarHeight: 48, title: const Text('群聊详情', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
     body: loading
         ? const Center(child: CircularProgressIndicator())
         : ListView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
             children: [
               _TripSummary(workspace: workspace),
-              const SizedBox(height: 26),
+              const SizedBox(height: 16),
               Row(
                 children: [
                   Expanded(
                     child: Text(
                       '群成员（${members.length}）',
                       style: const TextStyle(
-                        fontSize: 18,
+                        fontSize: 15,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -81,10 +81,10 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               Wrap(
-                spacing: 14,
-                runSpacing: 16,
+                spacing: 10,
+                runSpacing: 12,
                 children: members.map((m) {
                   final vehicles =
                       (workspace['memberVehicles'] as List? ?? const [])
@@ -98,7 +98,7 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                       ? null
                       : Map<String, dynamic>.from(vehicles.first as Map);
                   return SizedBox(
-                    width: 62,
+                    width: 56,
                     child: InkWell(
                       onTap: () => Navigator.push(
                         context,
@@ -114,7 +114,7 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                             avatarImageKey:
                                 m['avatarImageKey']?.toString() ?? '',
                             avatarUrl: m['avatarUrl']?.toString() ?? '',
-                            radius: 26,
+                            radius: 22,
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -178,7 +178,7 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                   );
                 }).toList(),
               ),
-              const SizedBox(height: 26),
+              const SizedBox(height: 16),
               const Text(
                 '群聊工具',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
@@ -277,7 +277,7 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(22),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
                   children: [
@@ -294,6 +294,14 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                       title: '置顶聊天',
                       icon: LucideIcons.pin,
                     ),
+                    const Divider(height: 1),
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(LucideIcons.trash2, size: 20, color: AppColors.danger),
+                      title: const Text('清空聊天记录', style: TextStyle(fontSize: 14, color: AppColors.danger)),
+                      subtitle: const Text('仅清除当前账号看到的记录', style: TextStyle(fontSize: 11)),
+                      onTap: _clearMessages,
+                    ),
                   ],
                 ),
               ),
@@ -304,7 +312,7 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                   icon: const Icon(LucideIcons.usersRound),
                   label: const Text('管理群成员'),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 5),
                 OutlinedButton.icon(
                   onPressed: _rename,
                   icon: const Icon(LucideIcons.pencil),
@@ -325,16 +333,45 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFFF7E8),
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Text(
-                  '群聊与当前行程绑定。行程结束后群聊自动归档，风险消息按平台规则留存。',
+                  '群聊与当前行程绑定。行程结束后仅标记为“已结束”，群聊继续保留并允许成员交流；风险消息仍按平台规则留存。',
                   style: TextStyle(color: Color(0xFF8B5A00), height: 1.5),
                 ),
               ),
             ],
           ),
   );
+
+  Future<void> _clearMessages() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('清空聊天记录？'),
+        content: const Text('该操作仅清除你当前账号看到的聊天记录，无法恢复，不影响其他成员和后台风控留档。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('确认清空'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await ChatService(context.read<AppSession>().api)
+        .clearLocalMessages(widget.conversation.id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('聊天记录已清空')),
+      );
+    }
+  }
 
   Future<void> _open(Widget page) async {
     await Navigator.push(context, MaterialPageRoute(builder: (_) => page));
@@ -526,14 +563,14 @@ class _TripSummary extends StatelessWidget {
         workspace['tripName']?.toString() ?? '当前行程',
         style: const TextStyle(
           color: AppColors.text,
-          fontSize: 21,
+          fontSize: 17,
           fontWeight: FontWeight.w800,
         ),
       ),
-      const SizedBox(height: 9),
+      const SizedBox(height: 6),
       Text(
         '${workspace['startName'] ?? '起点'} → ${workspace['endName'] ?? '目的地'}',
-        style: const TextStyle(color: AppColors.secondaryText, fontSize: 15),
+        style: const TextStyle(color: AppColors.secondaryText, fontSize: 13),
       ),
       const SizedBox(height: 8),
       Text(
@@ -552,12 +589,12 @@ class _Tool extends StatelessWidget {
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
-    borderRadius: BorderRadius.circular(18),
+    borderRadius: BorderRadius.circular(12),
     child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 11),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
@@ -604,12 +641,12 @@ class _SettingSwitchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
     child: Row(
       children: [
         Icon(icon, color: AppColors.text),
-        const SizedBox(width: 14),
-        Expanded(child: Text(title, style: const TextStyle(fontSize: 16))),
+        const SizedBox(width: 10),
+        Expanded(child: Text(title, style: const TextStyle(fontSize: 14))),
         Switch(
           value: value,
           onChanged: onChanged,

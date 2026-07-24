@@ -39,6 +39,18 @@ public interface ChatConversationMapper {
             """)
     ChatConversation findByBiz(@Param("bizType") String bizType, @Param("bizId") Long bizId);
 
+    /** 按稳定的服务商会话 Key 查询私聊，避免重复创建同一对用户的会话。 */
+    @Select("""
+            select id, biz_type, biz_id, conversation_name, conversation_status, provider_type,
+                   provider_conversation_key, last_message_id, last_message_preview, last_message_at,
+                   created_at, updated_at, deleted
+            from chat_conversation
+            where biz_type = #{bizType} and provider_conversation_key = #{providerKey} and deleted = 0
+            limit 1
+            """)
+    ChatConversation findByProviderKey(@Param("bizType") String bizType,
+                                       @Param("providerKey") String providerKey);
+
     /** 查询用户参与的有效会话列表。 */
     @Select("""
             <script>

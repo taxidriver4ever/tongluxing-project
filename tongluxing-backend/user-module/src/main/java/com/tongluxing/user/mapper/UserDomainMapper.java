@@ -38,6 +38,36 @@ public interface UserDomainMapper {
             """)
     UserQueryDTO findProfile(@Param("userId") Long userId);
 
+    /** 搜索公开用户资料，供“发起人”标签分页展示。 */
+    @Select("""
+            <script>
+            select p.id, p.user_id userId, p.nickname, p.avatar_image_key avatarImageKey,
+                   p.city_name cityName, p.bio, p.profile_status profileStatus,
+                   coalesce(s.total_trip_count,0) totalTripCount,
+                   coalesce(s.total_distance_meters,0) totalDistanceMeters,
+                   coalesce((select c.certification_status from user_driving_license_certification c
+                             where c.user_id=p.user_id and c.deleted=0 order by c.submitted_at desc limit 1),
+                            'UNSUBMITTED') certificationStatus
+            from user_profile p
+            join user_privacy_setting privacy on privacy.user_id=p.user_id and privacy.deleted=0
+                 and privacy.profile_visibility='PUBLIC'
+            left join user_statistics s on s.user_id=p.user_id
+            where p.deleted=0 and p.profile_status='ACTIVE' and p.user_id &lt;&gt; #{excludeUserId}
+            <if test='keyword != null and keyword != ""'>
+              and (lower(p.nickname) like concat('%',lower(#{keyword}),'%')
+                   or lower(p.city_name) like concat('%',lower(#{keyword}),'%')
+                   or lower(p.bio) like concat('%',lower(#{keyword}),'%')
+                   or cast(p.user_id as char)=#{keyword})
+            </if>
+            order by coalesce(s.total_trip_count,0) desc, p.updated_at desc
+            limit #{offset},#{size}
+            </script>
+            """)
+    List<UserQueryDTO> searchPublicProfiles(@Param("keyword") String keyword,
+                                            @Param("excludeUserId") Long excludeUserId,
+                                            @Param("offset") int offset,
+                                            @Param("size") int size);
+
     /**
      * 创建用户默认资料。
      *

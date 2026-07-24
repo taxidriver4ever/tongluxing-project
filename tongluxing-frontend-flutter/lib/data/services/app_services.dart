@@ -540,6 +540,18 @@ class TripDiscoveryService {
         as Map,
   );
 
+  Future<Map<String, dynamic>> publicTripsByUser(
+    String userId, {
+    int page = 1,
+    int size = 10,
+  }) async => Map<String, dynamic>.from(
+    await api.get(
+          '/v1/trips/users/$userId/public',
+          query: {'page': '$page', 'size': '$size'},
+        )
+        as Map,
+  );
+
   Future<TripPublicDetailModel> publicDetail(String tripId) async =>
       TripPublicDetailModel.fromJson(
         Map<String, dynamic>.from(
@@ -811,6 +823,27 @@ class ChatService {
         )
         as Map,
   );
+
+  Future<Map<String, dynamic>> privatePermission(String userId) async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/chats/private/permission/$userId') as Map,
+      );
+
+  Future<ConversationModel> startPrivate(String userId) async =>
+      ConversationModel.fromJson(
+        Map<String, dynamic>.from(
+          await api.post('/v1/chats/private/$userId/start') as Map,
+        ),
+      );
+
+  Future<Map<String, dynamic>> privateConversationPermission(String id) async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/chats/conversations/$id/private-permission') as Map,
+      );
+
+  Future<void> clearLocalMessages(String id) async {
+    await api.delete('/v1/chats/conversations/$id/messages/me');
+  }
 
   Future<Map<String, dynamic>> groupWorkspace(String id) async =>
       Map<String, dynamic>.from(
@@ -1115,6 +1148,25 @@ class StorageUploadService {
     if (lower.endsWith('.heic')) return 'image/heic';
     if (lower.endsWith('.heif')) return 'image/heif';
     return 'image/jpeg';
+  }
+}
+
+class UserDiscoveryService {
+  const UserDiscoveryService(this.api);
+  final ApiClient api;
+
+  Future<List<Map<String, dynamic>>> search({
+    String keyword = '',
+    int page = 1,
+    int size = 20,
+  }) async {
+    final data = await api.get(
+      '/v1/users/search',
+      query: {'keyword': keyword.trim(), 'page': '$page', 'size': '$size'},
+    );
+    return (data as List? ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
   }
 }
 

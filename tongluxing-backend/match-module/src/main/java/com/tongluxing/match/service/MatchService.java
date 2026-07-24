@@ -54,6 +54,9 @@ public interface MatchService {
             String startCity, String destination, String departureDateFrom, String departureDateTo,
             String vehicleType, Integer minimumRemainingSeats, Integer page, Integer size);
 
+    /** 查询某位用户仍在公开展示的行程，供公开资料页使用。 */
+    TripDiscoverPageResponse getPublicTripsByUser(Long userId, Integer page, Integer size);
+
     /** 发现信息流专用的公开详情聚合。 */
     TripPublicDetailResponse getPublicTripDetail(Long tripId);
 

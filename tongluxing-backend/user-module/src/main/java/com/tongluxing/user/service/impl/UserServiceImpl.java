@@ -36,6 +36,7 @@ import com.tongluxing.user.model.UserModels.UpdateUserProfileRequest;
 import com.tongluxing.user.model.UserModels.UserProfileVO;
 import com.tongluxing.user.model.UserModels.FollowStatusVO;
 import com.tongluxing.user.model.UserModels.FollowUserVO;
+import com.tongluxing.user.model.UserModels.UserSearchVO;
 import com.tongluxing.user.service.UserService;
 import com.tongluxing.user.support.CurrentUserContext;
 
@@ -224,6 +225,7 @@ public class UserServiceImpl implements UserService {
      */
     @Override
     public PublicProfileVO getChatMemberProfile(Long userId) {
+        ensureProfile(userId);
         UserQueryDTO row = mapper.findProfile(userId);
         if (row == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "用户资料不存在");
@@ -270,20 +272,30 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public List<FollowUserVO> getFollowers(Long userId, int page, int size) {
-        getPublicProfile(userId);
+        Long currentUserId = currentUserContext.requireUserId();
+        if (!currentUserId.equals(userId)) {
+            getPublicProfile(userId);
+        } else {
+            profile(userId);
+        }
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, Math.min(size, 50));
         return followMapper.followers(userId, (safePage - 1) * safeSize, safeSize).stream()
-                .map(this::followUser).toList();
+                .map(row -> followUser(row, currentUserId)).toList();
     }
 
     @Override
     public List<FollowUserVO> getFollowing(Long userId, int page, int size) {
-        getPublicProfile(userId);
+        Long currentUserId = currentUserContext.requireUserId();
+        if (!currentUserId.equals(userId)) {
+            getPublicProfile(userId);
+        } else {
+            profile(userId);
+        }
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, Math.min(size, 50));
         return followMapper.following(userId, (safePage - 1) * safeSize, safeSize).stream()
-                .map(this::followUser).toList();
+                .map(row -> followUser(row, currentUserId)).toList();
     }
 
     private FollowStatusVO followStatus(Long currentUserId, Long targetUserId) {
@@ -296,10 +308,29 @@ public class UserServiceImpl implements UserService {
                 followMapper.countFollowing(targetUserId));
     }
 
-    private FollowUserVO followUser(UserFollowQueryDTO row) {
+    @Override
+    public List<UserSearchVO> searchPublicUsers(String keyword, int page, int size) {
+        Long currentUserId = currentUserContext.requireUserId();
+        int safePage = Math.max(1, page);
+        int safeSize = Math.max(1, Math.min(size, 50));
+        String normalizedKeyword = keyword == null ? "" : keyword.trim();
+        return mapper.searchPublicProfiles(normalizedKeyword, currentUserId,
+                        (safePage - 1) * safeSize, safeSize).stream()
+                .map(row -> {
+                    FollowStatusVO relation = followStatus(currentUserId, row.getUserId());
+                    return new UserSearchVO(row.getUserId(), row.getNickname(), row.getAvatarImageKey(),
+                            row.getCityName(), row.getBio(), row.getCertificationStatus(),
+                            row.getTotalTripCount(), row.getTotalDistanceMeters(),
+                            relation.followerCount(), relation.followingCount(), relation.following(),
+                            relation.followedByTarget(), relation.mutual());
+                }).toList();
+    }
+
+    private FollowUserVO followUser(UserFollowQueryDTO row, Long currentUserId) {
+        FollowStatusVO relation = followStatus(currentUserId, row.getUserId());
         return new FollowUserVO(row.getUserId(), row.getNickname(), row.getAvatarImageKey(),
                 row.getCertificationStatus(), row.getTotalTripCount(), row.getTotalDistanceMeters(),
-                row.getFollowedAt());
+                row.getFollowedAt(), relation.following(), relation.followedByTarget(), relation.mutual());
     }
 
     /**

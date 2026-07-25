@@ -36,6 +36,12 @@ spring:
         - classpath:db/driver-track-schema.sql
         - classpath:db/merchant-schema.sql
         - classpath:db/groupbuy-schema.sql
+        - classpath:db/order-schema.sql
+        - classpath:db/payment-schema.sql
+        - classpath:db/verification-schema.sql
+        - classpath:db/assessment-schema.sql
+        - classpath:db/customer-service-schema.sql
+        - classpath:db/notify-schema.sql
         - classpath:db/admin-schema.sql
   data:
     redis:

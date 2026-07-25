@@ -33,14 +33,6 @@ CREATE TABLE IF NOT EXISTS growth_badge (
   UNIQUE KEY uk_growth_badge_code (badge_code, deleted),
   KEY idx_growth_badge_event_threshold (event_type, enabled_flag, deleted, threshold)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-SET @growth_add_badge_description = IF(
-  (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()
-    AND table_name='growth_badge' AND column_name='condition_description')=0,
-  'ALTER TABLE growth_badge ADD COLUMN condition_description VARCHAR(128) NULL AFTER badge_image_key',
-  'SELECT 1');
-PREPARE growth_stmt FROM @growth_add_badge_description;
-EXECUTE growth_stmt;
-DEALLOCATE PREPARE growth_stmt;
 CREATE TABLE IF NOT EXISTS growth_user_badge (
   id BIGINT NOT NULL, user_id BIGINT NOT NULL, badge_id BIGINT NOT NULL,
   source_biz_id VARCHAR(64) NULL, awarded_at DATETIME NOT NULL,

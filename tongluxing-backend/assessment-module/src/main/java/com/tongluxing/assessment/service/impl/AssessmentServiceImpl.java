@@ -141,7 +141,7 @@ public class AssessmentServiceImpl implements AssessmentService {
         BigDecimal adjustedScore = baseScore.add(request.scoreDelta())
                 .max(BigDecimal.ZERO).min(new BigDecimal("100.00"));
         AssessmentQueryDTO mapping = levelMapping(adjustedScore);
-        String period = latest == null ? YearMonth.now().toString() : latest.getPeriod();
+        String period = latest == null ? YearMonth.now().toString() : latest.getAssessmentPeriod();
 
         // 人工调整必须单独落明细，方便运营后台审计和后续追责。
         assessmentMapper.insertManualAdjustment(SnowflakeIdGenerator.nextId(), merchantId, request.scoreDelta(),
@@ -260,7 +260,7 @@ public class AssessmentServiceImpl implements AssessmentService {
         BigDecimal needScore = next == null ? BigDecimal.ZERO : next.getMinScore().subtract(currentScore);
         return new MerchantAssessmentResultVO(
                 merchantId,
-                score == null ? null : score.getPeriod(),
+                score == null ? null : score.getAssessmentPeriod(),
                 currentScore,
                 level,
                 commissionRate,

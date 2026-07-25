@@ -33,12 +33,6 @@ CREATE TABLE IF NOT EXISTS map_location_search_log (
   KEY idx_map_search_keyword (keyword)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 已有开发数据库也同步收紧：每条搜索历史必须绑定用户，并让软删除过滤命中联合索引。
-ALTER TABLE map_location_search_log
-  MODIFY COLUMN user_id BIGINT NOT NULL;
-ALTER TABLE map_location_search_log
-  DROP INDEX idx_map_search_user_scene_time,
-  ADD INDEX idx_map_search_user_scene_time (user_id, scene, deleted, created_at);
 
 CREATE TABLE IF NOT EXISTS map_location_catalog (
   id BIGINT NOT NULL,

@@ -55,33 +55,6 @@ CREATE TABLE IF NOT EXISTS chat_join_application (
   KEY idx_chat_join_applicant (applicant_user_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-SET @chat_add_muted = IF(
-  (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()
-    AND table_name='chat_conversation_member' AND column_name='muted_flag')=0,
-  'ALTER TABLE chat_conversation_member ADD COLUMN muted_flag TINYINT(1) NOT NULL DEFAULT 0 AFTER unread_count',
-  'SELECT 1');
-PREPARE chat_stmt FROM @chat_add_muted;
-EXECUTE chat_stmt;
-DEALLOCATE PREPARE chat_stmt;
-
-SET @chat_add_pinned = IF(
-  (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()
-    AND table_name='chat_conversation_member' AND column_name='pinned_flag')=0,
-  'ALTER TABLE chat_conversation_member ADD COLUMN pinned_flag TINYINT(1) NOT NULL DEFAULT 0 AFTER muted_flag',
-  'SELECT 1');
-PREPARE chat_stmt FROM @chat_add_pinned;
-EXECUTE chat_stmt;
-DEALLOCATE PREPARE chat_stmt;
-
-SET @chat_add_cleared_before = IF(
-  (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()
-    AND table_name='chat_conversation_member' AND column_name='cleared_before_message_id')=0,
-  'ALTER TABLE chat_conversation_member ADD COLUMN cleared_before_message_id BIGINT NULL AFTER last_read_message_id',
-  'SELECT 1');
-PREPARE chat_stmt FROM @chat_add_cleared_before;
-EXECUTE chat_stmt;
-DEALLOCATE PREPARE chat_stmt;
-
 CREATE TABLE IF NOT EXISTS chat_message (
   id BIGINT NOT NULL,
   conversation_id BIGINT NOT NULL,
@@ -172,39 +145,6 @@ CREATE TABLE IF NOT EXISTS trip_confirm_record (
   UNIQUE KEY uk_trip_confirm_member (confirmation_id,user_id),
   KEY idx_trip_confirm_trip (trip_id,status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='行程成员参加确认记录';
-
-CREATE TABLE IF NOT EXISTS trip_confirmation (
-  id BIGINT NOT NULL,
-  trip_id BIGINT NOT NULL,
-  conversation_id BIGINT NOT NULL,
-  creator_user_id BIGINT NOT NULL,
-  confirmation_status VARCHAR(20) NOT NULL DEFAULT 'OPEN',
-  created_at DATETIME NOT NULL,
-  closed_at DATETIME NULL,
-  PRIMARY KEY (id),
-  KEY idx_trip_confirmation (trip_id,confirmation_status,created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='行程开始前成员确认批次';
-
-CREATE TABLE IF NOT EXISTS trip_confirm_record (
-  id BIGINT NOT NULL,
-  confirmation_id BIGINT NOT NULL,
-  trip_id BIGINT NOT NULL,
-  user_id BIGINT NOT NULL,
-  status VARCHAR(20) NOT NULL DEFAULT 'WAITING',
-  reject_reason VARCHAR(300) NULL,
-  confirm_time DATETIME NULL,
-  created_at DATETIME NOT NULL,
-  updated_at DATETIME NOT NULL,
-  PRIMARY KEY (id),
-  UNIQUE KEY uk_trip_confirm_member (confirmation_id,user_id),
-  KEY idx_trip_confirm_trip (trip_id,status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='行程成员参加确认记录';
-
-CREATE TABLE IF NOT EXISTS chat_reminder_dispatch (
-  item_id BIGINT NOT NULL,
-  dispatched_at DATETIME NOT NULL,
-  PRIMARY KEY (item_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='行程提醒去重发送记录';
 
 CREATE TABLE IF NOT EXISTS chat_member_location (
   id BIGINT NOT NULL,

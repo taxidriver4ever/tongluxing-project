@@ -65,7 +65,7 @@ public interface AssessmentMapper {
     @Select("""
             select id,
                    merchant_id merchantId,
-                   period,
+                   assessment_period assessmentPeriod,
                    total_score totalScore,
                    merchant_level merchantLevel,
                    commission_rate commissionRate,
@@ -87,7 +87,7 @@ public interface AssessmentMapper {
     @Select("""
             select id,
                    merchant_id merchantId,
-                   period,
+                   assessment_period assessmentPeriod,
                    total_score totalScore,
                    merchant_level merchantLevel,
                    commission_rate commissionRate,
@@ -206,7 +206,7 @@ public interface AssessmentMapper {
      */
     @Insert("""
             insert into assessment_merchant_score(
-                id, merchant_id, period, total_score, merchant_level,
+                id, merchant_id, assessment_period, total_score, merchant_level,
                 commission_rate, rank_weight, exclusion_radius_km,
                 calculate_status, calculated_at, request_id,
                 created_at, updated_at, deleted

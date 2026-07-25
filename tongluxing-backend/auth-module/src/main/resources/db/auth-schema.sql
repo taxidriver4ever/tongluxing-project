@@ -80,21 +80,3 @@ create table if not exists auth_user_role (
     granted_at datetime not null default current_timestamp,
     primary key (user_id, role_code)
 );
-
--- App 小闭环联调账号：13888888888 / 12345678。
--- 密码只保存 BCrypt hash，不在数据库保存明文。
-insert ignore into auth_account
-    (id, user_id, phone, account_status, mini_invite_onboarding_completed, created_at, updated_at, deleted)
-values
-    (900000000000000001, 900000000000000101, '13888888888', 1, 1, now(), now(), 0);
-
-insert ignore into auth_password_credential
-    (id, user_id, password_hash, password_version, password_status,
-     last_set_time, created_at, updated_at, deleted)
-select
-    900000000000000002, user_id,
-    '$2a$10$csNtGZEuy.EdI9XA9ql8tu2PfMbncIKGsQ49QKFC2ACXLlFcPUGg.',
-    'BCRYPT', 1, now(), now(), now(), 0
-from auth_account
-where phone = '13888888888' and deleted = 0
-limit 1;

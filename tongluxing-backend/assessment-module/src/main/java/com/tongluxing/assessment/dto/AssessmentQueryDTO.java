@@ -27,7 +27,7 @@ public class AssessmentQueryDTO {
     private String merchantName;
 
     /** 考核周期，格式为 yyyy-MM。 */
-    private String period;
+    private String assessmentPeriod;
 
     /** 指定周期计算出的总分。 */
     private BigDecimal totalScore;

@@ -1,6 +1,7 @@
 create table if not exists user_profile (
     id bigint not null,
     user_id bigint not null,
+    tongluxing_id varchar(32) not null,
     nickname varchar(32) not null default '',
     avatar_image_key varchar(512) not null default '',
     gender tinyint not null default 0,
@@ -13,7 +14,8 @@ create table if not exists user_profile (
     updated_at datetime not null default current_timestamp on update current_timestamp,
     deleted tinyint not null default 0,
     primary key (id),
-    unique key uk_user_profile_user (user_id, deleted)
+    unique key uk_user_profile_user (user_id, deleted),
+    unique key uk_user_profile_tongluxing_id (tongluxing_id)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
 
 create table if not exists user_driving_license_certification (
@@ -76,25 +78,4 @@ create table if not exists user_follow (
     unique key uk_user_follow_relation (follower_user_id, followed_user_id),
     key idx_user_follow_followed (followed_user_id, created_at),
     key idx_user_follow_follower (follower_user_id, created_at)
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
-
-create table if not exists user_follow (
-    id bigint not null,
-    follower_user_id bigint not null,
-    followed_user_id bigint not null,
-    created_at datetime not null default current_timestamp,
-    primary key (id),
-    unique key uk_user_follow_relation (follower_user_id, followed_user_id),
-    key idx_user_follow_followed (followed_user_id, created_at),
-    key idx_user_follow_follower (follower_user_id, created_at)
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
-
-create table if not exists user_statistics (
-    user_id bigint not null,
-    total_trip_count int not null default 0,
-    total_distance_meters bigint not null default 0,
-    total_duration_minutes bigint not null default 0,
-    completed_waypoint_count int not null default 0,
-    updated_at datetime not null default current_timestamp on update current_timestamp,
-    primary key (user_id)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;

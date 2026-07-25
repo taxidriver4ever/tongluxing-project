@@ -44,29 +44,6 @@ CREATE TABLE IF NOT EXISTS team_member (
   KEY idx_team_member_user_status (user_id, member_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Compatibility migration: a user may join multiple future teams. Only RUNNING conflicts are checked in services.
-set @team_drop_active_user_index = if(
-  (select count(*) from information_schema.statistics
-   where table_schema = database() and table_name = 'team_member'
-     and index_name = 'uk_team_member_active_user') > 0,
-  'alter table team_member drop index uk_team_member_active_user',
-  'select 1'
-);
-prepare team_schema_stmt from @team_drop_active_user_index;
-execute team_schema_stmt;
-deallocate prepare team_schema_stmt;
-
-set @team_drop_active_user_column = if(
-  (select count(*) from information_schema.columns
-   where table_schema = database() and table_name = 'team_member'
-     and column_name = 'active_user_key') > 0,
-  'alter table team_member drop column active_user_key',
-  'select 1'
-);
-prepare team_schema_stmt from @team_drop_active_user_column;
-execute team_schema_stmt;
-deallocate prepare team_schema_stmt;
-
 CREATE TABLE IF NOT EXISTS team_join_application (
   id BIGINT NOT NULL,
   team_id BIGINT NOT NULL,

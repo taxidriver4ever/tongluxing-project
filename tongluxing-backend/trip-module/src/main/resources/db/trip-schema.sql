@@ -45,9 +45,6 @@ create table if not exists trip (
     key idx_trip_vehicle (vehicle_id)
 );
 
--- 兼容已创建的开发数据库：真实驾车路线点数量可能超过 TEXT 容量。
-ALTER TABLE trip
-  MODIFY COLUMN route_polyline MEDIUMTEXT NULL;
 
 create table if not exists trip_route (
     id bigint primary key,

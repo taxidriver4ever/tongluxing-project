@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -14,28 +16,61 @@ import '../../../data/services/app_services.dart';
 import '../../home/pages/search_location_page.dart';
 import '../widgets/trip_route_preview.dart';
 
+/// 两步式行程创建：先规划有序节点，再填写发布信息。
 class TripCreatePage extends StatefulWidget {
-  const TripCreatePage({this.draft, super.key});
+  const TripCreatePage({
+    this.draft,
+    this.initialStart,
+    this.initialEnd,
+    this.initialWaypoint,
+    super.key,
+  });
+
   final TripDraftModel? draft;
+  final LocationSelection? initialStart;
+  final LocationSelection? initialEnd;
+  final LocationSelection? initialWaypoint;
+
   @override
   State<TripCreatePage> createState() => _TripCreatePageState();
 }
 
 class _TripCreatePageState extends State<TripCreatePage> {
+  static const _routeDebounce = Duration(milliseconds: 450);
+  static const double _routeSheetMinSize = .08;
+  static const double _routeSheetDefaultSize = .62;
+  static const _typeLabels = <String, String>{
+    'MEETING': '集合点',
+    'REST': '休息点',
+    'HOTEL': '住宿点',
+    'FUEL': '加油点',
+    'CHARGING': '充电点',
+    'CHECK_IN': '打卡点',
+    'NORMAL': '普通途经点',
+  };
+
   final pageController = PageController();
+  final routeSheetController = DraggableScrollableController();
   final title = TextEditingController();
   final description = TextEditingController();
+  final List<_WaypointDraft> waypoints = [];
+  final List<String> persistedWaypointIds = [];
+
   int step = 0;
   int expectPeople = 5;
   DateTime? startTime;
   LocationSelection? start;
   LocationSelection? end;
-  final List<LocationSelection> waypoints = [];
-  bool submitting = false;
-  bool routePlanning = false;
   String? draftId;
   TripDraftRouteModel? route;
-  final List<String> persistedWaypointIds = [];
+  bool submitting = false;
+  bool routePlanning = false;
+  bool routePlanQueued = false;
+  bool routePanelHidden = false;
+  int routeSheetAnimationLocks = 0;
+  Timer? routeTimer;
+  int routeGeneration = 0;
+
   Uint8List? coverBytes;
   String coverFileName = '';
   String coverImageKey = '';
@@ -45,30 +80,55 @@ class _TripCreatePageState extends State<TripCreatePage> {
   void initState() {
     super.initState();
     final draft = widget.draft;
-    if (draft == null) return;
-    draftId = draft.id;
-    title.text = draft.title;
-    description.text = draft.description;
-    startTime = DateTime.tryParse(draft.startTime ?? '');
-    start = draft.startLocation;
-    end = draft.destination;
-    expectPeople = draft.expectPeople;
-    waypoints.addAll(draft.waypoints.map((e) => e.location));
-    persistedWaypointIds.addAll(draft.waypoints.map((e) => e.id));
-    route = draft.route;
-    coverImageKey = draft.coverImageKey;
-    if (coverImageKey.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _loadCoverUrl());
+    if (draft != null) {
+      draftId = draft.id;
+      title.text = draft.title;
+      description.text = draft.description;
+      startTime = DateTime.tryParse(draft.startTime ?? '');
+      start = draft.startLocation;
+      end = draft.destination;
+      expectPeople = draft.expectPeople;
+      waypoints.addAll(
+        draft.waypoints.map(
+          (item) => _WaypointDraft(
+            id: item.id,
+            location: item.location,
+            type: item.type,
+            stayMinutes: item.stayMinutes,
+            remark: item.remark,
+          ),
+        ),
+      );
+      persistedWaypointIds.addAll(draft.waypoints.map((item) => item.id));
+      route = draft.route;
+      coverImageKey = draft.coverImageKey;
+      if (coverImageKey.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _loadCoverUrl());
+      }
+    } else {
+      start = widget.initialStart;
+      end = widget.initialEnd;
+      final initialWaypoint = widget.initialWaypoint;
+      if (initialWaypoint != null) {
+        waypoints.add(_WaypointDraft(location: initialWaypoint));
+      }
+    }
+    if (start != null && end != null && draft == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleRoutePlan());
     }
   }
 
   @override
   void dispose() {
+    routeTimer?.cancel();
     pageController.dispose();
+    routeSheetController.dispose();
     title.dispose();
     description.dispose();
     super.dispose();
   }
+
+  TripService get _tripService => TripService(context.read<AppSession>().api);
 
   Future<LocationSelection?> _pickLocation() =>
       Navigator.push<LocationSelection>(
@@ -76,12 +136,10 @@ class _TripCreatePageState extends State<TripCreatePage> {
         MaterialPageRoute(builder: (_) => const SearchLocationPage()),
       );
 
-  Future<void> _selectLocation(bool isStart) async {
+  Future<void> _selectEndpoint({required bool isStart}) async {
     final value = await _pickLocation();
     if (value == null || !mounted) return;
-    final conflict = isStart
-        ? _conflictForStart(value)
-        : _conflictForEnd(value);
+    final conflict = isStart ? _conflictForStart(value) : _conflictForEnd(value);
     if (conflict != null) {
       _showMessage(conflict);
       return;
@@ -94,10 +152,14 @@ class _TripCreatePageState extends State<TripCreatePage> {
       }
       route = null;
     });
-    await _planRouteIfReady();
+    _scheduleRoutePlan();
   }
 
   Future<void> _addWaypoint() async {
+    if (waypoints.length >= 5) {
+      _showMessage('经停点最多 5 个');
+      return;
+    }
     final value = await _pickLocation();
     if (value == null || !mounted) return;
     final conflict = _conflictForWaypoint(value);
@@ -106,64 +168,194 @@ class _TripCreatePageState extends State<TripCreatePage> {
       return;
     }
     setState(() {
-      waypoints.add(value);
+      waypoints.add(_WaypointDraft(location: value));
       route = null;
     });
-    await _planRouteIfReady();
+    _scheduleRoutePlan();
   }
 
-  Future<void> _removeWaypoint(int index) async {
+  Future<void> _replaceWaypoint(int index) async {
+    final value = await _pickLocation();
+    if (value == null || !mounted) return;
+    final conflict = _conflictForWaypoint(value, excludedIndex: index);
+    if (conflict != null) {
+      _showMessage(conflict);
+      return;
+    }
+    setState(() {
+      waypoints[index] = waypoints[index].copyWith(location: value);
+      route = null;
+    });
+    _scheduleRoutePlan();
+  }
+
+  Future<void> _editWaypoint(int index) async {
+    final current = waypoints[index];
+    final remark = TextEditingController(text: current.remark);
+    final stay = TextEditingController(text: '${current.stayMinutes}');
+    var type = _typeLabels.containsKey(current.type) ? current.type : 'NORMAL';
+    final result = await showModalBottomSheet<_WaypointDraft>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          20 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+        ),
+        child: StatefulBuilder(
+          builder: (context, setSheetState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                current.location.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 18),
+              DropdownButtonFormField<String>(
+                value: type,
+                decoration: const InputDecoration(labelText: '节点类型'),
+                items: _typeLabels.entries
+                    .map(
+                      (entry) => DropdownMenuItem(
+                        value: entry.key,
+                        child: Text(entry.value),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) setSheetState(() => type = value);
+                },
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: stay,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: '预计停留时间（分钟）',
+                  hintText: '0 表示不设置',
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: remark,
+                maxLength: 255,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: '节点备注（选填）',
+                  hintText: '例如：在停车场入口集合',
+                  alignLabelWithHint: true,
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () {
+                    final minutes = int.tryParse(stay.text.trim()) ?? 0;
+                    Navigator.pop(
+                      sheetContext,
+                      current.copyWith(
+                        type: type,
+                        stayMinutes: minutes.clamp(0, 1440).toInt(),
+                        remark: remark.text.trim(),
+                      ),
+                    );
+                  },
+                  child: const Text('保存节点设置'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    remark.dispose();
+    stay.dispose();
+    if (result == null || !mounted) return;
+    setState(() => waypoints[index] = result);
+    await _persistRoute(plan: false, showError: true);
+  }
+
+  void _removeWaypoint(int index) {
     setState(() {
       waypoints.removeAt(index);
       route = null;
     });
-    await _planRouteIfReady();
+    _scheduleRoutePlan();
   }
 
-  Future<void> _planRouteIfReady() async {
-    if (draftId == null || start == null || end == null || routePlanning) return;
-    if (_routeConflictMessage() != null) return;
-    setState(() => routePlanning = true);
-    try {
-      await _saveDraft(plan: true, manageSubmitting: false);
-    } finally {
-      if (mounted) setState(() => routePlanning = false);
-    }
+  void _reorderWaypoint(int oldIndex, int newIndex) {
+    setState(() {
+      if (newIndex > oldIndex) newIndex--;
+      final item = waypoints.removeAt(oldIndex);
+      waypoints.insert(newIndex, item);
+      route = null;
+    });
+    _scheduleRoutePlan();
+  }
+
+  void _scheduleRoutePlan() {
+    routeTimer?.cancel();
+    final generation = ++routeGeneration;
+    if (start == null || end == null || _routeConflictMessage() != null) return;
+    routeTimer = Timer(_routeDebounce, () async {
+      if (!mounted || generation != routeGeneration) return;
+      if (routePlanning) {
+        routePlanQueued = true;
+        return;
+      }
+      await _persistRoute(plan: true, showError: false, generation: generation);
+    });
   }
 
   String? _conflictForStart(LocationSelection value) {
-    if (_sameLocation(value, end)) return '起点不能与终点选择同一地点';
-    if (waypoints.any((point) => _sameLocation(value, point))) {
-      return '起点不能与经停点选择同一地点';
+    if (_sameLocation(value, end)) return '起点不能与目的地相同或距离过近';
+    if (waypoints.any((point) => _sameLocation(value, point.location))) {
+      return '起点不能与途经点相同或距离过近';
     }
     return null;
   }
 
   String? _conflictForEnd(LocationSelection value) {
-    if (_sameLocation(value, start)) return '终点不能与起点选择同一地点';
-    if (waypoints.any((point) => _sameLocation(value, point))) {
-      return '终点不能与经停点选择同一地点';
+    if (_sameLocation(value, start)) return '目的地不能与起点相同或距离过近';
+    if (waypoints.any((point) => _sameLocation(value, point.location))) {
+      return '目的地不能与途经点相同或距离过近';
     }
     return null;
   }
 
-  String? _conflictForWaypoint(LocationSelection value) {
-    if (_sameLocation(value, start)) return '经停点不能与起点选择同一地点';
-    if (_sameLocation(value, end)) return '经停点不能与终点选择同一地点';
-    if (waypoints.any((point) => _sameLocation(value, point))) {
-      return '经停点不能重复选择';
+  String? _conflictForWaypoint(
+    LocationSelection value, {
+    int? excludedIndex,
+  }) {
+    if (_sameLocation(value, start)) return '途经点不能与起点相同或距离过近';
+    if (_sameLocation(value, end)) return '途经点不能与目的地相同或距离过近';
+    for (var i = 0; i < waypoints.length; i++) {
+      if (i != excludedIndex && _sameLocation(value, waypoints[i].location)) {
+        return '途经点之间不能重复或距离过近';
+      }
     }
     return null;
   }
 
   String? _routeConflictMessage() {
-    if (_sameLocation(start, end)) return '起点不能与终点选择同一地点';
+    if (start == null) return '请选择起点';
+    if (end == null) return '请选择目的地';
+    if (_sameLocation(start, end)) return '起点和目的地不能相同或距离过近';
     for (var i = 0; i < waypoints.length; i++) {
-      final point = waypoints[i];
-      if (_sameLocation(point, start)) return '经停点不能与起点选择同一地点';
-      if (_sameLocation(point, end)) return '经停点不能与终点选择同一地点';
+      final point = waypoints[i].location;
+      if (_sameLocation(point, start)) return '途经点不能与起点相同或距离过近';
+      if (_sameLocation(point, end)) return '途经点不能与目的地相同或距离过近';
       for (var j = i + 1; j < waypoints.length; j++) {
-        if (_sameLocation(point, waypoints[j])) return '经停点不能重复选择';
+        if (_sameLocation(point, waypoints[j].location)) {
+          return '途经点之间不能重复或距离过近';
+        }
       }
     }
     return null;
@@ -171,10 +363,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
 
   bool _sameLocation(LocationSelection? left, LocationSelection? right) {
     if (left == null || right == null) return false;
-    final coordinatesMatch =
-        (left.latitude - right.latitude).abs() <= 0.000001 &&
-        (left.longitude - right.longitude).abs() <= 0.000001;
-    if (coordinatesMatch) return true;
+    if (_distanceMeters(left, right) <= 30) return true;
     final leftAddress = _normalizeLocationText(left.address);
     final rightAddress = _normalizeLocationText(right.address);
     return _normalizeLocationText(left.name) ==
@@ -183,36 +372,54 @@ class _TripCreatePageState extends State<TripCreatePage> {
         leftAddress == rightAddress;
   }
 
+  double _distanceMeters(LocationSelection left, LocationSelection right) {
+    const radius = 6371000.0;
+    final lat1 = left.latitude * math.pi / 180;
+    final lat2 = right.latitude * math.pi / 180;
+    final dLat = lat2 - lat1;
+    final dLng = (right.longitude - left.longitude) * math.pi / 180;
+    final value = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+    return radius * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value));
+  }
+
   String _normalizeLocationText(String value) =>
       value.trim().replaceAll(RegExp(r'\s+'), '').toLowerCase();
 
-  void _showMessage(String message) => ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(SnackBar(content: Text(message)));
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
 
   Future<void> _pickTime() async {
     final date = await showDatePicker(
       context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
+      initialDate: startTime ?? DateTime.now().add(const Duration(days: 1)),
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (date == null || !mounted) return;
     final time = await showTimePicker(
       context: context,
-      initialTime: const TimeOfDay(hour: 8, minute: 0),
+      initialTime: startTime == null
+          ? const TimeOfDay(hour: 8, minute: 0)
+          : TimeOfDay.fromDateTime(startTime!),
     );
-    if (time != null) {
-      setState(
-        () => startTime = DateTime(
-          date.year,
-          date.month,
-          date.day,
-          time.hour,
-          time.minute,
-        ),
+    if (time == null || !mounted) return;
+    setState(() {
+      startTime = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
       );
-    }
+    });
   }
 
   String _formatTime(DateTime value) =>
@@ -229,7 +436,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
       ).downloadUrlByObjectKey(coverImageKey);
       if (mounted) setState(() => coverDownloadUrl = value);
     } catch (_) {
-      // 已有封面加载失败不阻断草稿编辑，重新选择即可替换。
+      // 草稿封面加载失败不阻断节点编辑。
     }
   }
 
@@ -243,15 +450,15 @@ class _TripCreatePageState extends State<TripCreatePage> {
       if (image == null || !mounted) return;
       final bytes = await image.readAsBytes();
       if (bytes.length > 10 * 1024 * 1024) {
-        throw ApiException('行程封面不能超过 10MB');
+        throw const ApiException('行程封面不能超过 10MB');
       }
       setState(() {
         coverBytes = bytes;
         coverFileName = image.name;
         coverDownloadUrl = '';
       });
-    } catch (e) {
-      if (mounted) _showMessage(e.toString());
+    } catch (error) {
+      _showMessage('$error');
     }
   }
 
@@ -268,22 +475,20 @@ class _TripCreatePageState extends State<TripCreatePage> {
     );
     final uploadedKey = uploaded['objectKey']?.toString() ?? '';
     if (uploadedKey.isEmpty) {
-      throw ApiException('行程封面上传结果缺少 objectKey');
+      throw const ApiException('行程封面上传结果缺少 objectKey');
     }
     coverImageKey = uploadedKey;
     coverBytes = null;
-    if (coverImageKey.isNotEmpty) {
-      try {
-        coverDownloadUrl = await StorageUploadService(
-          context.read<AppSession>().api,
-        ).downloadUrlByObjectKey(coverImageKey);
-      } catch (_) {
-        coverDownloadUrl = '';
-      }
+    try {
+      coverDownloadUrl = await StorageUploadService(
+        context.read<AppSession>().api,
+      ).downloadUrlByObjectKey(coverImageKey);
+    } catch (_) {
+      coverDownloadUrl = '';
     }
   }
 
-  Map<String, dynamic> _draftBody({bool includeRoute = false}) => {
+  Map<String, dynamic> _draftBody({bool includeRoute = true}) => {
     'title': title.text.trim().isEmpty ? null : title.text.trim(),
     'startTime': startTime == null ? null : _formatTime(startTime!),
     if (includeRoute) 'startLocation': start?.toJson(),
@@ -294,89 +499,162 @@ class _TripCreatePageState extends State<TripCreatePage> {
     'durationDays': 1,
   };
 
-  bool _validateStep() {
-    final message = switch (step) {
-      0 when title.text.trim().isEmpty => '请填写行程标题',
-      0 when startTime == null => '请选择出发时间',
-      1 when start == null => '请选择起点',
-      1 when end == null => '请选择终点',
-      1 when _routeConflictMessage() != null => _routeConflictMessage(),
-      _ => null,
-    };
-    if (message != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+  Future<String> _ensureDraft() async {
+    final existing = draftId;
+    if (existing != null) return existing;
+    final draft = await _tripService.createDraft(_draftBody());
+    draftId = draft.id;
+    return draft.id;
+  }
+
+  Future<bool> _persistRoute({
+    required bool plan,
+    required bool showError,
+    int? generation,
+  }) async {
+    final conflict = _routeConflictMessage();
+    if (conflict != null) {
+      if (showError) _showMessage(conflict);
       return false;
     }
-    return true;
-  }
-
-  Future<void> _next() async {
-    if (!_validateStep()) return;
-    if (step == 0 && draftId == null) {
-      setState(() => submitting = true);
-      try {
-        await _ensureCoverUploaded();
-        final draft = await TripService(
-          context.read<AppSession>().api,
-        ).createDraft(_draftBody());
-        draftId = draft.id;
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('$e')));
-        }
-        setState(() => submitting = false);
-        return;
+    if (routePlanning) return false;
+    if (mounted) setState(() => routePlanning = true);
+    try {
+      final id = await _ensureDraft();
+      await _tripService.updateDraft(id, _draftBody());
+      final previousIds = persistedWaypointIds.toSet();
+      final activeIds = <String>[];
+      for (var i = 0; i < waypoints.length; i++) {
+        final item = waypoints[i];
+        final waypointId = item.id;
+        final saved = waypointId != null && previousIds.contains(waypointId)
+            ? await _tripService.updateWaypoint(
+                id,
+                waypointId,
+                item.location,
+                type: item.type,
+                sort: i + 1,
+                stayMinutes: item.stayMinutes,
+                remark: item.remark,
+              )
+            : await _tripService.addWaypoint(
+                id,
+                item.location,
+                type: item.type,
+                sort: i + 1,
+                stayMinutes: item.stayMinutes,
+                remark: item.remark,
+              );
+        activeIds.add(saved.id);
+        waypoints[i] = item.copyWith(id: saved.id);
       }
-      if (mounted) setState(() => submitting = false);
-    }
-    if (step == 2) {
-      final saved = await _saveDraft(plan: true);
-      if (!saved) return;
-    }
-    if (step < 3) {
-      setState(() => step++);
-      await pageController.nextPage(
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOut,
-      );
-    } else {
-      await _publish();
+      for (final removedId in previousIds.difference(activeIds.toSet())) {
+        await _tripService.deleteWaypoint(id, removedId);
+      }
+      if (activeIds.isNotEmpty) {
+        await _tripService.reorderWaypoints(id, activeIds);
+      }
+      persistedWaypointIds
+        ..clear()
+        ..addAll(activeIds);
+      if (plan) {
+        final json = await _tripService.planRoute(id);
+        if (generation == null || generation == routeGeneration) {
+          route = TripDraftRouteModel.fromJson(json);
+        }
+      }
+      if (mounted) setState(() {});
+      return true;
+    } catch (error) {
+      if (showError) _showMessage('$error');
+      return false;
+    } finally {
+      if (mounted) {
+        setState(() => routePlanning = false);
+        if (routePlanQueued) {
+          routePlanQueued = false;
+          _scheduleRoutePlan();
+        }
+      }
     }
   }
 
-  Future<void> _publish() async {
-    final id = draftId;
-    if (id == null) return;
+  Future<bool> _saveAll({bool plan = true}) async {
     setState(() => submitting = true);
     try {
-      final service = TripService(context.read<AppSession>().api);
-      if (!await _saveDraft(plan: true, manageSubmitting: false)) return;
-      if (!await _confirmTimeConflict(service)) return;
-      await service.publishDraft(id);
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('行程发布成功，群聊已创建')));
-      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.home, (_) => false);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
+      await _ensureCoverUploaded();
+      final id = await _ensureDraft();
+      await _tripService.updateDraft(id, _draftBody());
+      if (start != null && end != null) {
+        return await _persistRoute(plan: plan, showError: true);
       }
+      return true;
+    } catch (error) {
+      _showMessage('$error');
+      return false;
     } finally {
       if (mounted) setState(() => submitting = false);
     }
   }
 
-  Future<bool> _confirmTimeConflict(TripService service) async {
+  Future<void> _next() async {
+    final conflict = _routeConflictMessage();
+    if (conflict != null) {
+      _showMessage(conflict);
+      return;
+    }
+    if (!await _saveAll(plan: true) || !mounted) return;
+    setState(() => step = 1);
+    await pageController.animateToPage(
+      1,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOut,
+    );
+  }
+
+  Future<void> _saveOnly() async {
+    final saved = await _saveAll(plan: start != null && end != null);
+    if (!saved || !mounted) return;
+    _showMessage('已保存到我的草稿');
+    Navigator.pop(context, true);
+  }
+
+  Future<void> _publish() async {
+    if (title.text.trim().isEmpty) {
+      _showMessage('请填写行程标题');
+      return;
+    }
+    if (startTime == null) {
+      _showMessage('请选择预计出发时间');
+      return;
+    }
+    final conflict = _routeConflictMessage();
+    if (conflict != null) {
+      _showMessage(conflict);
+      return;
+    }
+    setState(() => submitting = true);
+    try {
+      await _ensureCoverUploaded();
+      final id = await _ensureDraft();
+      await _tripService.updateDraft(id, _draftBody());
+      if (!await _persistRoute(plan: true, showError: true)) return;
+      if (!await _confirmTimeConflict()) return;
+      await _tripService.publishDraft(id);
+      if (!mounted) return;
+      _showMessage('行程发布成功，群聊已创建');
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.home, (_) => false);
+    } catch (error) {
+      _showMessage('$error');
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  Future<bool> _confirmTimeConflict() async {
     final departure = startTime;
     if (departure == null) return true;
-    final result = await service.checkTimeConflict(
+    final result = await _tripService.checkTimeConflict(
       departureTime: departure,
       estimatedDays: 1,
     );
@@ -406,78 +684,104 @@ class _TripCreatePageState extends State<TripCreatePage> {
         false;
   }
 
-  Future<bool> _saveDraft({
-    bool plan = false,
-    bool manageSubmitting = true,
-  }) async {
-    final id = draftId;
-    if (id == null) return false;
-    final conflict = _routeConflictMessage();
-    if (conflict != null) {
-      _showMessage(conflict);
-      return false;
+  void _previous() {
+    setState(() => step = 0);
+    pageController.animateToPage(
+      0,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOut,
+    );
+  }
+
+  Future<void> _animateRouteSheet(double size) async {
+    if (!routeSheetController.isAttached) {
+      final frame = Completer<void>();
+      WidgetsBinding.instance.addPostFrameCallback((_) => frame.complete());
+      await frame.future;
     }
-    if (manageSubmitting) setState(() => submitting = true);
+    if (!mounted || !routeSheetController.isAttached) return;
     try {
-      final service = TripService(context.read<AppSession>().api);
-      await _ensureCoverUploaded();
-      await service.updateDraft(id, _draftBody(includeRoute: true));
-      for (final waypointId in persistedWaypointIds) {
-        await service.deleteWaypoint(id, waypointId);
-      }
-      persistedWaypointIds.clear();
-      for (var i = 0; i < waypoints.length; i++) {
-        final saved = await service.addWaypoint(id, waypoints[i], sort: i + 1);
-        persistedWaypointIds.add(saved.id);
-      }
-      if (plan) {
-        final json = await service.planRoute(id);
-        route = TripDraftRouteModel.fromJson(json);
-      }
-      if (mounted) {
-        setState(() {});
-      }
-      return true;
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
-      }
-      return false;
-    } finally {
-      if (manageSubmitting && mounted) setState(() => submitting = false);
+      await routeSheetController.animateTo(
+        size,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      );
+    } on FlutterError {
+      // 用户在动画过程中继续拖动卡片时，以用户手势为准。
     }
   }
 
-  Future<void> _saveOnly() async {
-    if (!await _saveDraft(plan: true)) return;
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('已存入我的草稿')));
-    Navigator.pop(context, true);
+  void _hideRoutePanel() {
+    if (step != 0 || routePanelHidden) return;
+    routeSheetAnimationLocks++;
+    setState(() => routePanelHidden = true);
+    _animateRouteSheet(_routeSheetMinSize).whenComplete(() {
+      if (routeSheetAnimationLocks > 0) routeSheetAnimationLocks--;
+    });
   }
 
-  List<LocationSelection> get _routePoints => [?start, ...waypoints, ?end];
+  void _showRoutePanel() {
+    if (step != 0) return;
+    routeSheetAnimationLocks++;
+    if (routePanelHidden) setState(() => routePanelHidden = false);
+    _animateRouteSheet(_routeSheetDefaultSize).whenComplete(() {
+      if (routeSheetAnimationLocks > 0) routeSheetAnimationLocks--;
+    });
+  }
+
+  bool _handleRouteSheetNotification(
+    DraggableScrollableNotification notification,
+  ) {
+    if (routeSheetAnimationLocks > 0) return false;
+    final hidden = notification.extent <= .14;
+    if (hidden != routePanelHidden) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && routePanelHidden != hidden) {
+          setState(() => routePanelHidden = hidden);
+        }
+      });
+    }
+    return false;
+  }
+
+  List<LocationSelection> get _routePoints => [
+    if (start != null) start!,
+    ...waypoints.map((item) => item.location),
+    if (end != null) end!,
+  ];
+
+  String get _distanceText {
+    final meters = route?.distanceMeters;
+    if (meters == null || meters <= 0) return '等待路线规划';
+    return '${(meters / 1000).toStringAsFixed(1)} km';
+  }
+
+  String get _durationText {
+    final minutes = route?.durationMinutes;
+    if (minutes == null || minutes <= 0) return '--';
+    final hours = minutes ~/ 60;
+    final left = minutes % 60;
+    if (hours == 0) return '$left 分钟';
+    return left == 0 ? '$hours 小时' : '$hours 小时 $left 分钟';
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('创建行程')),
+    appBar: AppBar(title: Text(step == 0 ? '规划行程节点' : '填写发布信息')),
     body: Column(
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 22),
+          padding: const EdgeInsets.fromLTRB(22, 2, 22, 10),
           child: Row(
             children: List.generate(
-              4,
-              (i) => Expanded(
+              2,
+              (index) => Expanded(
                 child: Container(
                   height: 5,
-                  margin: EdgeInsets.only(right: i == 3 ? 0 : 8),
+                  margin: EdgeInsets.only(right: index == 1 ? 0 : 8),
                   decoration: BoxDecoration(
-                    color: i <= step ? AppColors.primary : AppColors.border,
-                    borderRadius: BorderRadius.circular(5),
+                    color: index <= step ? AppColors.primary : AppColors.border,
+                    borderRadius: BorderRadius.circular(99),
                   ),
                 ),
               ),
@@ -488,272 +792,836 @@ class _TripCreatePageState extends State<TripCreatePage> {
           child: PageView(
             controller: pageController,
             physics: const NeverScrollableScrollPhysics(),
-            children: [
-              _StepPage(
-                title: '填写基础信息',
-                subtitle: '内容会先保存为草稿，下次可以继续编辑',
-                children: [
-                  _TripCoverPicker(
-                    bytes: coverBytes,
-                    downloadUrl: coverDownloadUrl,
-                    onTap: submitting ? null : _pickCover,
-                  ),
-                  const SizedBox(height: 18),
-                  TextField(
-                    controller: title,
-                    maxLength: 128,
-                    decoration: const InputDecoration(
-                      labelText: '行程标题',
-                      hintText: '例如：318川藏线自驾',
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _PlaceButton(
-                    label: '出发时间',
-                    value: startTime == null ? '请选择' : _formatTime(startTime!),
-                    icon: LucideIcons.calendar,
-                    onTap: _pickTime,
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: description,
-                    maxLength: 1000,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      labelText: '行程描述',
-                      hintText: '介绍路线、节奏和同行要求',
-                      alignLabelWithHint: true,
-                      contentPadding: EdgeInsets.fromLTRB(16, 22, 16, 16),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      const Expanded(child: Text('预计人数')),
-                      IconButton(
-                        onPressed: expectPeople > 1
-                            ? () => setState(() => expectPeople--)
-                            : null,
-                        icon: const Icon(LucideIcons.minus),
-                      ),
-                      Text('$expectPeople 人'),
-                      IconButton(
-                        onPressed: expectPeople < 20
-                            ? () => setState(() => expectPeople++)
-                            : null,
-                        icon: const Icon(LucideIcons.plus),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              _StepPage(
-                title: '规划路线',
-                subtitle: '所有地点选择统一进入地图搜索页',
-                children: [
-                  _PlaceButton(
-                    label: '起点',
-                    value: start?.name ?? '选择起点',
-                    icon: LucideIcons.mapPin,
-                    onTap: routePlanning ? null : () => _selectLocation(true),
-                  ),
-                  const SizedBox(height: 14),
-                  _PlaceButton(
-                    label: '终点',
-                    value: end?.name ?? '选择终点',
-                    icon: LucideIcons.flag,
-                    onTap: routePlanning ? null : () => _selectLocation(false),
-                  ),
-                  const SizedBox(height: 22),
-                  if (_routePoints.length >= 2)
-                    Stack(
-                      children: [
-                        TripRoutePreview(
-                          points: _routePoints,
-                          route: route,
-                          mapOnly: true,
-                          mapHeight: 230,
-                        ),
-                        if (routePlanning)
-                          const Positioned.fill(
-                            child: ColoredBox(
-                              color: Color(0x55FFFFFF),
-                              child: Center(child: CircularProgressIndicator()),
-                            ),
-                          ),
-                      ],
-                    )
-                  else
-                    Container(
-                      height: 230,
-                      decoration: BoxDecoration(
-                        color: AppColors.primarySoft,
-                        borderRadius: BorderRadius.circular(22),
-                      ),
-                      child: const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              LucideIcons.route,
-                              size: 54,
-                              color: AppColors.primary,
-                            ),
-                            SizedBox(height: 10),
-                            Text('选择起点和终点后自动规划'),
-                          ],
-                        ),
-                      ),
-                    ),
-                  if (route != null) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      '高德已规划 ${((route!.distanceMeters ?? 0) / 1000).toStringAsFixed(1)} km，'
-                      '预计 ${route!.durationMinutes ?? 0} 分钟',
-                      style: const TextStyle(
-                        color: AppColors.secondaryText,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              _StepPage(
-                title: '添加经停点',
-                subtitle: '可添加集合、休息、住宿和打卡点',
-                children: [
-                  ...waypoints.asMap().entries.map(
-                    (entry) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _WaypointTile(
-                        index: entry.key,
-                        location: entry.value,
-                        onDelete: routePlanning
-                            ? null
-                            : () => _removeWaypoint(entry.key),
-                      ),
-                    ),
-                  ),
-                  if (_routePoints.length >= 2) ...[
-                    TripRoutePreview(
-                      points: _routePoints,
-                      route: route,
-                      mapOnly: true,
-                      mapHeight: 190,
-                    ),
-                    const SizedBox(height: 14),
-                  ],
-                  OutlinedButton.icon(
-                    onPressed: waypoints.length < 5 && !routePlanning
-                        ? _addWaypoint
-                        : null,
-                    icon: const Icon(LucideIcons.plus),
-                    label: const Text('添加经停点'),
-                  ),
-                ],
-              ),
-              _StepPage(
-                title: '确认发布',
-                subtitle: '可以存入草稿，也可以确认后发布行程',
-                children: [
-                  if (coverBytes != null || coverDownloadUrl.isNotEmpty) ...[
-                    _TripCoverPicker(
-                      bytes: coverBytes,
-                      downloadUrl: coverDownloadUrl,
-                      onTap: null,
-                    ),
-                    const SizedBox(height: 18),
-                  ],
-                  TripRoutePreview(points: _routePoints, route: route),
-                  const SizedBox(height: 18),
-                  _Summary(label: '标题', value: title.text.trim()),
-                  _Summary(label: '路线', value: '${start?.name} → ${end?.name}'),
-                  _Summary(
-                    label: '经停点',
-                    value: waypoints.isEmpty
-                        ? '无'
-                        : waypoints.map((e) => e.name).join('、'),
-                  ),
-                  _Summary(label: '人数', value: '$expectPeople 人'),
-                  _Summary(label: '草稿编号', value: draftId ?? '保存中'),
-                ],
-              ),
-            ],
+            children: [_buildRouteStep(), _buildPublishStep()],
           ),
         ),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(22, 10, 22, 18),
-            child: step == 3
-                ? Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          onPressed: submitting ? null : _publish,
-                          child: Text(submitting ? '处理中…' : '发布行程'),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
+        _buildBottomActions(),
+      ],
+    ),
+  );
+
+  Widget _buildRouteStep() => LayoutBuilder(
+    builder: (context, constraints) => Stack(
+      children: [
+        Positioned.fill(
+          child: _routePoints.length >= 2
+              ? TripRoutePreview(
+                  points: _routePoints,
+                  route: route,
+                  mapOnly: true,
+                  mapHeight: constraints.maxHeight,
+                  interactive: true,
+                  onMapInteraction: _hideRoutePanel,
+                )
+              : GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _hideRoutePanel,
+                  child: Container(
+                    color: const Color(0xFFE9EEF5),
+                    child: const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Expanded(
-                            child: TextButton.icon(
-                              onPressed: submitting ? null : _previous,
-                              icon: const Icon(LucideIcons.arrowLeft, size: 18),
-                              label: const Text('上一步'),
-                            ),
+                          Icon(
+                            LucideIcons.mapPinned,
+                            size: 50,
+                            color: AppColors.primary,
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: submitting ? null : _saveOnly,
-                              icon: const Icon(
-                                LucideIcons.filePenLine,
-                                size: 18,
-                              ),
-                              label: const Text('存入草稿'),
-                            ),
+                          SizedBox(height: 9),
+                          Text(
+                            '选择起点和目的地后显示大致路线',
+                            style: TextStyle(color: AppColors.secondaryText),
                           ),
                         ],
                       ),
-                    ],
-                  )
-                : Row(
-                    children: [
-                      if (step > 0) ...[
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: submitting ? null : _previous,
-                            child: const Text('上一步'),
+                    ),
+                  ),
+                ),
+        ),
+        Positioned(
+          left: 14,
+          top: 12,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .94),
+              borderRadius: BorderRadius.circular(99),
+              boxShadow: const [
+                BoxShadow(color: Color(0x18000000), blurRadius: 14),
+              ],
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(LucideIcons.carFront, size: 17, color: AppColors.primary),
+                SizedBox(width: 6),
+                Text(
+                  '自驾 · 路线仅供参考',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (routePlanning)
+          const Positioned(
+            top: 58,
+            left: 14,
+            child: _RoutePlanningBadge(),
+          ),
+        NotificationListener<DraggableScrollableNotification>(
+          onNotification: _handleRouteSheetNotification,
+          child: DraggableScrollableSheet(
+            controller: routeSheetController,
+            initialChildSize: _routeSheetDefaultSize,
+            minChildSize: _routeSheetMinSize,
+            maxChildSize: .94,
+            snap: true,
+            snapSizes: const [
+              _routeSheetMinSize,
+              _routeSheetDefaultSize,
+              .94,
+            ],
+            builder: (context, scrollController) => Material(
+              color: const Color(0xFFFAFAFB),
+              elevation: 18,
+              shadowColor: const Color(0x33000000),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: routePanelHidden
+                  ? _CollapsedRouteSheet(
+                      controller: scrollController,
+                      onExpand: _showRoutePanel,
+                    )
+                  : ListView(
+                      controller: scrollController,
+                      padding: const EdgeInsets.fromLTRB(16, 9, 16, 28),
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 42,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFD2D5DA),
+                              borderRadius: BorderRadius.circular(99),
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                      ],
-                      Expanded(
-                        flex: 2,
-                        child: FilledButton(
-                          onPressed: submitting ? null : _next,
-                          child: Text(submitting ? '处理中…' : '保存并继续'),
+                        const SizedBox(height: 14),
+                        const Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 18,
+                              backgroundColor: Color(0xFFE8F1FF),
+                              child: Icon(
+                                LucideIcons.carFront,
+                                size: 19,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                '驾车路线',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '下拉收起 · 上拉查看更多',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppColors.muted,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
-                  ),
+                        const SizedBox(height: 12),
+                        _RouteEstimateCard(
+                          distance: _distanceText,
+                          duration: _durationText,
+                          waypointCount: waypoints.length,
+                        ),
+                        const SizedBox(height: 10),
+                        const _ReferenceRouteNotice(),
+                        const SizedBox(height: 12),
+                        _NodeEndpointTile(
+                          title: '出发点',
+                          value: start?.name ?? '选择出发点',
+                          subtitle: start?.address ?? '',
+                          icon: LucideIcons.circleDot,
+                          onTap: routePlanning
+                              ? null
+                              : () => _selectEndpoint(isStart: true),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.only(left: 25),
+                          child: SizedBox(
+                            height: 14,
+                            child: VerticalDivider(width: 1, thickness: 2),
+                          ),
+                        ),
+                        ReorderableListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          buildDefaultDragHandles: false,
+                          itemCount: waypoints.length,
+                          onReorder: _reorderWaypoint,
+                          itemBuilder: (context, index) {
+                            final item = waypoints[index];
+                            return Padding(
+                              key: ValueKey(item.localKey),
+                              padding: const EdgeInsets.only(bottom: 9),
+                              child: _WaypointTile(
+                                index: index,
+                                item: item,
+                                typeLabel:
+                                    _typeLabels[item.type] ?? '普通途经点',
+                                onReplace: routePlanning
+                                    ? null
+                                    : () => _replaceWaypoint(index),
+                                onEdit: routePlanning
+                                    ? null
+                                    : () => _editWaypoint(index),
+                                onDelete: routePlanning
+                                    ? null
+                                    : () => _removeWaypoint(index),
+                              ),
+                            );
+                          },
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: routePlanning || waypoints.length >= 5
+                              ? null
+                              : _addWaypoint,
+                          icon: const Icon(LucideIcons.plus),
+                          label: Text(
+                            waypoints.length >= 5
+                                ? '已达到 5 个停靠点上限'
+                                : '添加停靠点',
+                          ),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.only(left: 25),
+                          child: SizedBox(
+                            height: 14,
+                            child: VerticalDivider(width: 1, thickness: 2),
+                          ),
+                        ),
+                        _NodeEndpointTile(
+                          title: '目的地',
+                          value: end?.name ?? '选择目的地',
+                          subtitle: end?.address ?? '',
+                          icon: LucideIcons.flag,
+                          onTap: routePlanning
+                              ? null
+                              : () => _selectEndpoint(isStart: false),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+        ),
+        AnimatedPositioned(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          right: routePanelHidden ? 12 : -100,
+          bottom: math.max(18.0, constraints.maxHeight * .11),
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 180),
+            opacity: routePanelHidden ? 1 : 0,
+            child: IgnorePointer(
+              ignoring: !routePanelHidden,
+              child: _RoutePanelRestoreButton(onTap: _showRoutePanel),
+            ),
           ),
         ),
       ],
     ),
   );
 
-  void _previous() {
-    setState(() => step--);
-    pageController.previousPage(
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOut,
-    );
-  }
+  Widget _buildPublishStep() => ListView(
+    padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+    children: [
+      const Text(
+        '让其他人看懂这趟行程',
+        style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+      ),
+      const SizedBox(height: 6),
+      const Text(
+        '路线与发布信息分开保存，但仍属于同一个行程草稿。',
+        style: TextStyle(color: AppColors.secondaryText),
+      ),
+      const SizedBox(height: 20),
+      _TripCoverPicker(
+        bytes: coverBytes,
+        downloadUrl: coverDownloadUrl,
+        onTap: submitting ? null : _pickCover,
+      ),
+      const SizedBox(height: 18),
+      TextField(
+        controller: title,
+        maxLength: 128,
+        decoration: const InputDecoration(
+          labelText: '行程标题',
+          hintText: '例如：广州到桂林周末自驾',
+        ),
+      ),
+      const SizedBox(height: 14),
+      _PlaceButton(
+        label: '预计出发时间',
+        value: startTime == null ? '请选择' : _formatTime(startTime!),
+        icon: LucideIcons.calendarClock,
+        onTap: submitting ? null : _pickTime,
+      ),
+      const SizedBox(height: 14),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          children: [
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('车辆/人数上限', style: TextStyle(fontWeight: FontWeight.w700)),
+                  Text(
+                    '发布后可在行程管理中继续调整',
+                    style: TextStyle(fontSize: 12, color: AppColors.muted),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              onPressed: expectPeople > 1
+                  ? () => setState(() => expectPeople--)
+                  : null,
+              icon: const Icon(LucideIcons.minus),
+            ),
+            Text('$expectPeople', style: const TextStyle(fontWeight: FontWeight.w800)),
+            IconButton(
+              onPressed: expectPeople < 20
+                  ? () => setState(() => expectPeople++)
+                  : null,
+              icon: const Icon(LucideIcons.plus),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 14),
+      TextField(
+        controller: description,
+        maxLength: 1000,
+        maxLines: 5,
+        decoration: const InputDecoration(
+          labelText: '行程说明',
+          hintText: '介绍集合方式、节奏、同行要求和注意事项',
+          alignLabelWithHint: true,
+        ),
+      ),
+      const SizedBox(height: 14),
+      _PublishRouteSummary(
+        startName: start?.name ?? '-',
+        endName: end?.name ?? '-',
+        waypointNames: waypoints.map((item) => item.location.name).toList(),
+        distance: _distanceText,
+        duration: _durationText,
+      ),
+    ],
+  );
+
+  Widget _buildBottomActions() => SafeArea(
+    top: false,
+    child: Container(
+      padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: AppColors.border)),
+      ),
+      child: step == 0
+          ? Row(
+              children: [
+                Expanded(
+                  flex: 5,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                    onPressed: submitting || routePlanning ? null : _saveOnly,
+                    child: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('保存草稿', maxLines: 1),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 9,
+                  child: FilledButton(
+                    onPressed: submitting || routePlanning ? null : _next,
+                    child: Text(
+                      routePlanning ? '正在规划路线…' : '下一步：填写行程信息',
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: submitting || routePlanning ? null : _publish,
+                    child: Text(submitting ? '处理中…' : '发布行程'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton.icon(
+                        onPressed: submitting ? null : _previous,
+                        icon: const Icon(LucideIcons.arrowLeft, size: 18),
+                        label: const Text('返回节点规划'),
+                      ),
+                    ),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: submitting ? null : _saveOnly,
+                        icon: const Icon(LucideIcons.filePenLine, size: 18),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('保存草稿', maxLines: 1),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+    ),
+  );
+}
+
+class _CollapsedRouteSheet extends StatelessWidget {
+  const _CollapsedRouteSheet({
+    required this.controller,
+    required this.onExpand,
+  });
+
+  final ScrollController controller;
+  final VoidCallback onExpand;
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    controller: controller,
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+    children: [
+      Center(
+        child: Container(
+          width: 42,
+          height: 5,
+          decoration: BoxDecoration(
+            color: const Color(0xFFD2D5DA),
+            borderRadius: BorderRadius.circular(99),
+          ),
+        ),
+      ),
+      const SizedBox(height: 8),
+      InkWell(
+        onTap: onExpand,
+        borderRadius: BorderRadius.circular(12),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(LucideIcons.chevronUp, size: 16, color: AppColors.primary),
+            SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                '上滑或点击侧边按钮展开路线规划',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+class _RoutePanelRestoreButton extends StatelessWidget {
+  const _RoutePanelRestoreButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: const Color(0xF2FFFFFF),
+    elevation: 8,
+    shadowColor: const Color(0x33000000),
+    borderRadius: BorderRadius.circular(18),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.route, size: 19, color: AppColors.primary),
+            SizedBox(width: 7),
+            Text(
+              '路线规划',
+              style: TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _WaypointDraft {
+  _WaypointDraft({
+    String? localKey,
+    this.id,
+    required this.location,
+    this.type = 'NORMAL',
+    this.stayMinutes = 0,
+    this.remark = '',
+  }) : localKey = localKey ?? UniqueKey().toString();
+
+  final String localKey;
+  final String? id;
+  final LocationSelection location;
+  final String type;
+  final int stayMinutes;
+  final String remark;
+
+  _WaypointDraft copyWith({
+    String? id,
+    LocationSelection? location,
+    String? type,
+    int? stayMinutes,
+    String? remark,
+  }) => _WaypointDraft(
+    localKey: localKey,
+    id: id ?? this.id,
+    location: location ?? this.location,
+    type: type ?? this.type,
+    stayMinutes: stayMinutes ?? this.stayMinutes,
+    remark: remark ?? this.remark,
+  );
+}
+
+class _RoutePlanningBadge extends StatelessWidget {
+  const _RoutePlanningBadge();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .96),
+      borderRadius: BorderRadius.circular(99),
+      boxShadow: const [BoxShadow(color: Color(0x18000000), blurRadius: 12)],
+    ),
+    child: const Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        SizedBox(width: 7),
+        Text('正在重新规划大致路线', style: TextStyle(fontSize: 12)),
+      ],
+    ),
+  );
+}
+
+class _ReferenceRouteNotice extends StatelessWidget {
+  const _ReferenceRouteNotice();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF4F8FF),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: const Color(0xFFD9E8FF)),
+    ),
+    child: const Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(LucideIcons.info, size: 18, color: AppColors.primary),
+        SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            '路线仅供参考，实际行驶可根据路况灵活调整，请按顺序到达行程节点。',
+            style: TextStyle(fontSize: 12, color: AppColors.secondaryText),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _RouteEstimateCard extends StatelessWidget {
+  const _RouteEstimateCard({
+    required this.distance,
+    required this.duration,
+    required this.waypointCount,
+  });
+
+  final String distance;
+  final String duration;
+  final int waypointCount;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: Row(
+      children: [
+        Expanded(child: _EstimateItem(label: '预计总里程', value: distance)),
+        const SizedBox(height: 36, child: VerticalDivider()),
+        Expanded(child: _EstimateItem(label: '预计驾驶', value: duration)),
+        const SizedBox(height: 36, child: VerticalDivider()),
+        Expanded(child: _EstimateItem(label: '停靠点', value: '$waypointCount 个')),
+      ],
+    ),
+  );
+}
+
+class _EstimateItem extends StatelessWidget {
+  const _EstimateItem({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Text(label, style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+      const SizedBox(height: 3),
+      Text(
+        value,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w800),
+      ),
+    ],
+  );
+}
+
+class _NodeEndpointTile extends StatelessWidget {
+  const _NodeEndpointTile({
+    required this.title,
+    required this.value,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String title;
+  final String value;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(17),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(17),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(17),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: AppColors.primarySoft,
+              child: Icon(icon, size: 20, color: AppColors.primary),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  if (subtitle.isNotEmpty)
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11, color: AppColors.secondaryText),
+                    ),
+                ],
+              ),
+            ),
+            const Icon(LucideIcons.chevronRight, size: 18),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _WaypointTile extends StatelessWidget {
+  const _WaypointTile({
+    required this.index,
+    required this.item,
+    required this.typeLabel,
+    required this.onReplace,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final int index;
+  final _WaypointDraft item;
+  final String typeLabel;
+  final VoidCallback? onReplace;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(17),
+      border: Border.all(color: AppColors.border),
+    ),
+    child: Row(
+      children: [
+        ReorderableDragStartListener(
+          index: index,
+          child: const Padding(
+            padding: EdgeInsets.fromLTRB(14, 18, 8, 18),
+            child: Icon(LucideIcons.gripVertical, color: AppColors.muted),
+          ),
+        ),
+        Expanded(
+          child: InkWell(
+            onTap: onReplace,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.location.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    [
+                      typeLabel,
+                      if (item.stayMinutes > 0) '停留 ${item.stayMinutes} 分钟',
+                      if (item.remark.isNotEmpty) item.remark,
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11, color: AppColors.secondaryText),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        IconButton(
+          tooltip: '节点设置',
+          onPressed: onEdit,
+          icon: const Icon(LucideIcons.settings2, size: 19),
+        ),
+        IconButton(
+          tooltip: '删除节点',
+          onPressed: onDelete,
+          icon: const Icon(LucideIcons.trash2, size: 19),
+        ),
+      ],
+    ),
+  );
+}
+
+class _PublishRouteSummary extends StatelessWidget {
+  const _PublishRouteSummary({
+    required this.startName,
+    required this.endName,
+    required this.waypointNames,
+    required this.distance,
+    required this.duration,
+  });
+
+  final String startName;
+  final String endName;
+  final List<String> waypointNames;
+  final String distance;
+  final String duration;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('路线摘要', style: TextStyle(fontWeight: FontWeight.w900)),
+        const SizedBox(height: 10),
+        Text('$startName → $endName'),
+        if (waypointNames.isNotEmpty) ...[
+          const SizedBox(height: 5),
+          Text(
+            '途经：${waypointNames.join('、')}',
+            style: const TextStyle(fontSize: 12, color: AppColors.secondaryText),
+          ),
+        ],
+        const SizedBox(height: 8),
+        Text(
+          '预计 $distance · $duration',
+          style: const TextStyle(fontSize: 12, color: AppColors.primary),
+        ),
+        const SizedBox(height: 10),
+        const _ReferenceRouteNotice(),
+      ],
+    ),
+  );
 }
 
 class _TripCoverPicker extends StatelessWidget {
@@ -783,10 +1651,7 @@ class _TripCoverPicker extends StatelessWidget {
       children: [
         const Row(
           children: [
-            Text(
-              '旅游封面',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-            ),
+            Text('行程封面', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
             SizedBox(width: 6),
             Text('选填', style: TextStyle(color: AppColors.muted, fontSize: 12)),
           ],
@@ -810,10 +1675,7 @@ class _TripCoverPicker extends StatelessWidget {
                       right: 12,
                       bottom: 12,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 13,
-                          vertical: 8,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
                         decoration: BoxDecoration(
                           color: const Color(0xCC10294F),
                           borderRadius: BorderRadius.circular(99),
@@ -821,20 +1683,11 @@ class _TripCoverPicker extends StatelessWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
-                              LucideIcons.imagePlus,
-                              color: Colors.white,
-                              size: 16,
-                            ),
+                            const Icon(LucideIcons.imagePlus, color: Colors.white, size: 16),
                             const SizedBox(width: 6),
                             Text(
-                              bytes == null && downloadUrl.isEmpty
-                                  ? '上传封面'
-                                  : '更换封面',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                              ),
+                              bytes == null && downloadUrl.isEmpty ? '上传封面' : '更换封面',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
                             ),
                           ],
                         ),
@@ -844,11 +1697,6 @@ class _TripCoverPicker extends StatelessWidget {
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 7),
-        const Text(
-          '建议横图 16:9，最多 10MB；上传后仅在数据库保存对象 Key',
-          style: TextStyle(color: AppColors.muted, fontSize: 12),
         ),
       ],
     );
@@ -867,48 +1715,16 @@ class _TripCoverPicker extends StatelessWidget {
         Positioned(
           right: -16,
           bottom: -20,
-          child: Icon(
-            LucideIcons.mountainSnow,
-            size: 180,
-            color: Color(0x50FFFFFF),
-          ),
+          child: Icon(LucideIcons.mountainSnow, size: 180, color: Color(0x50FFFFFF)),
         ),
         Center(
           child: Text(
             '让同行先看见这段旅程',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-            ),
+            style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800),
           ),
         ),
       ],
     ),
-  );
-}
-
-class _StepPage extends StatelessWidget {
-  const _StepPage({
-    required this.title,
-    required this.subtitle,
-    required this.children,
-  });
-  final String title, subtitle;
-  final List<Widget> children;
-  @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.all(22),
-    children: [
-      Text(
-        title,
-        style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
-      ),
-      const SizedBox(height: 6),
-      Text(subtitle, style: const TextStyle(color: AppColors.secondaryText)),
-      const SizedBox(height: 28),
-      ...children,
-    ],
   );
 }
 
@@ -919,19 +1735,19 @@ class _PlaceButton extends StatelessWidget {
     required this.icon,
     required this.onTap,
   });
-  final String label, value;
+
+  final String label;
+  final String value;
   final IconData icon;
   final VoidCallback? onTap;
+
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
     borderRadius: BorderRadius.circular(18),
     child: Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18)),
       child: Row(
         children: [
           Icon(icon, color: AppColors.primary),
@@ -940,73 +1756,14 @@ class _PlaceButton extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  label,
-                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
+                Text(label, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
               ],
             ),
           ),
           const Icon(LucideIcons.chevronRight),
         ],
       ),
-    ),
-  );
-}
-
-class _WaypointTile extends StatelessWidget {
-  const _WaypointTile({
-    required this.index,
-    required this.location,
-    required this.onDelete,
-  });
-  final int index;
-  final LocationSelection location;
-  final VoidCallback? onDelete;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-    ),
-    child: Row(
-      children: [
-        const Icon(LucideIcons.gripVertical, color: AppColors.muted),
-        const SizedBox(width: 8),
-        Expanded(child: Text('${index + 1}. ${location.name} · 休息点')),
-        IconButton(onPressed: onDelete, icon: const Icon(LucideIcons.trash2)),
-      ],
-    ),
-  );
-}
-
-class _Summary extends StatelessWidget {
-  const _Summary({required this.label, required this.value});
-  final String label, value;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(vertical: 16),
-    decoration: const BoxDecoration(
-      border: Border(bottom: BorderSide(color: AppColors.border)),
-    ),
-    child: Row(
-      children: [
-        SizedBox(
-          width: 76,
-          child: Text(label, style: const TextStyle(color: AppColors.muted)),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-        ),
-      ],
     ),
   );
 }

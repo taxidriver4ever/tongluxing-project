@@ -13,6 +13,7 @@ import 'driving_license_page.dart';
 import 'invite_page.dart';
 import 'merchant_onboarding_page.dart';
 import 'profile_extra_pages.dart';
+import 'follow_relations_page.dart';
 import 'profile_system_pages.dart';
 import 'vehicle_list_page.dart';
 
@@ -234,6 +235,11 @@ class ProfilePageState extends State<ProfilePage> {
               const SizedBox(height: 24),
               _MenuGroup(
                 items: [
+                  _Menu(
+                    LucideIcons.usersRound,
+                    '关注与粉丝',
+                    () => _open(const FollowRelationsPage()),
+                  ),
                   _Menu(
                     LucideIcons.contact,
                     '驾驶证认证',

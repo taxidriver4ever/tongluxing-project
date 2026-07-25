@@ -23,8 +23,10 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
   late final TabController tabs = TabController(length: 2, vsync: this);
   List<Map<String, dynamic>> applications = const [];
   List<Map<String, dynamic>> followers = const [];
-  bool loading = true;
-  String? error;
+  bool applicationsLoading = true;
+  bool followersLoading = true;
+  String? applicationsError;
+  String? followersError;
 
   @override
   void initState() {
@@ -39,29 +41,47 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
   }
 
   Future<void> load() async {
-    setState(() {
-      loading = true;
-      error = null;
-    });
-    try {
-      final session = context.read<AppSession>();
-      final userId = session.userId?.toString() ?? '';
-      final values = await Future.wait<dynamic>([
-        ChatService(session.api).joinApplications(status: 'PENDING'),
-        if (userId.isNotEmpty)
-          FollowService(session.api).followers(userId, size: 50)
-        else
-          Future<List<Map<String, dynamic>>>.value(const []),
-      ]);
-      if (!mounted) return;
+    await Future.wait([_loadApplications(), _loadFollowers()]);
+  }
+
+  Future<void> _loadApplications() async {
+    if (mounted) {
       setState(() {
-        applications = List<Map<String, dynamic>>.from(values[0] as List);
-        followers = List<Map<String, dynamic>>.from(values[1] as List);
+        applicationsLoading = true;
+        applicationsError = null;
       });
-    } catch (e) {
-      if (mounted) setState(() => error = e.toString());
+    }
+    try {
+      final rows = await ChatService(
+        context.read<AppSession>().api,
+      ).joinApplications(status: 'PENDING');
+      if (!mounted) return;
+      setState(() => applications = rows);
+    } catch (error) {
+      if (mounted) setState(() => applicationsError = '$error');
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted) setState(() => applicationsLoading = false);
+    }
+  }
+
+  Future<void> _loadFollowers() async {
+    if (mounted) {
+      setState(() {
+        followersLoading = true;
+        followersError = null;
+      });
+    }
+    try {
+      // 使用 /me/followers，避免本地 userId 尚未恢复或类型转换异常时列表变空。
+      final rows = await FollowService(
+        context.read<AppSession>().api,
+      ).myFollowers(size: 50);
+      if (!mounted) return;
+      setState(() => followers = rows);
+    } catch (error) {
+      if (mounted) setState(() => followersError = '$error');
+    } finally {
+      if (mounted) setState(() => followersLoading = false);
     }
   }
 
@@ -75,11 +95,13 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(approve ? '已同意入队申请' : '已拒绝入队申请')),
         );
-        await load();
+        await _loadApplications();
       }
-    } catch (e) {
+    } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
       }
     }
   }
@@ -94,9 +116,11 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
           ? await service.unfollow(userId)
           : await service.follow(userId);
       if (mounted) setState(() => applications[index] = {...row, ...next});
-    } catch (e) {
+    } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
       }
     }
   }
@@ -104,20 +128,24 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
   Future<void> toggleFollow(int index) async {
     final row = followers[index];
     final userId = row['userId']?.toString() ?? '';
+    if (userId.isEmpty) return;
     try {
       final service = FollowService(context.read<AppSession>().api);
       final next = row['following'] == true
           ? await service.unfollow(userId)
           : await service.follow(userId);
       if (mounted) setState(() => followers[index] = {...row, ...next});
-    } catch (e) {
+    } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
       }
     }
   }
 
   Future<void> openChat(String userId) async {
+    if (userId.isEmpty) return;
     final conversation = await startPrivateChatFlow(context, userId);
     if (conversation == null || !mounted) return;
     await Navigator.push(
@@ -128,10 +156,26 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
     );
   }
 
-  void openProfile(String userId) => Navigator.push(
-    context,
-    MaterialPageRoute(builder: (_) => PublicProfilePage(userId: userId)),
-  );
+  void openProfile(String userId) {
+    if (userId.isEmpty) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => PublicProfilePage(userId: userId)),
+    );
+  }
+
+  Widget _tabBody({
+    required bool loading,
+    required String? error,
+    required Future<void> Function() onRetry,
+    required Widget child,
+  }) {
+    if (loading) return const Center(child: CircularProgressIndicator());
+    if (error != null) {
+      return _InteractionLoadError(message: error, onRetry: onRetry);
+    }
+    return child;
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -146,35 +190,70 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
         ],
       ),
     ),
-    body: loading
-        ? const Center(child: CircularProgressIndicator())
-        : error != null
-            ? Center(
-                child: FilledButton.icon(
-                  onPressed: load,
-                  icon: const Icon(LucideIcons.refreshCw, size: 17),
-                  label: const Text('重新加载'),
-                ),
-              )
-            : TabBarView(
-                controller: tabs,
-                children: [
-                  _ApplicationList(
-                    rows: applications,
-                    onRefresh: load,
-                    onFollow: toggleApplicationFollow,
-                    onReview: review,
-                    onProfile: openProfile,
-                    onChat: openChat,
-                  ),
-                  _FollowerList(
-                    rows: followers,
-                    onFollow: toggleFollow,
-                    onProfile: openProfile,
-                    onChat: openChat,
-                  ),
-                ],
-              ),
+    body: TabBarView(
+      controller: tabs,
+      children: [
+        _tabBody(
+          loading: applicationsLoading,
+          error: applicationsError,
+          onRetry: _loadApplications,
+          child: _ApplicationList(
+            rows: applications,
+            onRefresh: _loadApplications,
+            onFollow: toggleApplicationFollow,
+            onReview: review,
+            onProfile: openProfile,
+            onChat: openChat,
+          ),
+        ),
+        _tabBody(
+          loading: followersLoading,
+          error: followersError,
+          onRetry: _loadFollowers,
+          child: _FollowerList(
+            rows: followers,
+            onRefresh: _loadFollowers,
+            onFollow: toggleFollow,
+            onProfile: openProfile,
+            onChat: openChat,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _InteractionLoadError extends StatelessWidget {
+  const _InteractionLoadError({required this.message, required this.onRetry});
+
+  final String message;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(LucideIcons.circleAlert, size: 38, color: AppColors.muted),
+          const SizedBox(height: 10),
+          Text(
+            message,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.secondaryText),
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(LucideIcons.refreshCw, size: 17),
+            label: const Text('重新加载'),
+          ),
+        ],
+      ),
+    ),
   );
 }
 
@@ -317,100 +396,129 @@ class _ApplicationList extends StatelessWidget {
 class _FollowerList extends StatelessWidget {
   const _FollowerList({
     required this.rows,
+    required this.onRefresh,
     required this.onFollow,
     required this.onProfile,
     required this.onChat,
   });
+
   final List<Map<String, dynamic>> rows;
+  final Future<void> Function() onRefresh;
   final ValueChanged<int> onFollow;
   final ValueChanged<String> onProfile;
   final ValueChanged<String> onChat;
 
   @override
   Widget build(BuildContext context) {
-    if (rows.isEmpty) return const _EmptyInteraction(text: '暂时没有新的关注');
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-      itemCount: rows.length,
-      separatorBuilder: (_, _) => const Divider(height: 1, indent: 66),
-      itemBuilder: (_, index) {
-        final row = rows[index];
-        final userId = row['userId']?.toString() ?? '';
-        final nickname = row['nickname']?.toString() ?? '同路行用户';
-        final mutual = row['mutual'] == true;
-        return SizedBox(
-          height: 76,
-          child: Row(
-            children: [
-              UserAvatar(
-                nickname: nickname,
-                avatarImageKey: row['avatarImageKey']?.toString() ?? '',
-                radius: 22,
-                onTap: () => onProfile(userId),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: InkWell(
+    if (rows.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: onRefresh,
+        child: const CustomScrollView(
+          physics: AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _EmptyInteraction(text: '暂时没有新的关注'),
+            ),
+          ],
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+        itemCount: rows.length,
+        separatorBuilder: (_, _) => const Divider(height: 1, indent: 66),
+        itemBuilder: (_, index) {
+          final row = rows[index];
+          final userId = row['userId']?.toString() ?? '';
+          final nickname = row['nickname']?.toString() ?? '同路行用户';
+          final mutual = row['mutual'] == true;
+          return SizedBox(
+            height: 76,
+            child: Row(
+              children: [
+                UserAvatar(
+                  nickname: nickname,
+                  avatarImageKey: row['avatarImageKey']?.toString() ?? '',
+                  radius: 22,
                   onTap: () => onProfile(userId),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              nickname,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: InkWell(
+                    onTap: () => onProfile(userId),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                nickname,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
                             ),
-                          ),
-                          if (mutual) ...[
-                            const SizedBox(width: 5),
-                            const Text(
-                              '互相关注',
-                              style: TextStyle(fontSize: 10, color: AppColors.primary),
-                            ),
+                            if (mutual) ...[
+                              const SizedBox(width: 5),
+                              const Text(
+                                '互相关注',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '${_compactDate(row['followedAt']?.toString() ?? '')} 关注了你',
-                        style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                      ),
-                    ],
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '${_compactDate(row['followedAt']?.toString() ?? '')} 关注了你',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              SizedBox(
-                height: 31,
-                child: mutual
-                    ? OutlinedButton(
-                        onPressed: () => onFollow(index),
-                        child: const Text('互相关注'),
-                      )
-                    : FilledButton(
-                        onPressed: () => onFollow(index),
-                        child: const Text('回关'),
-                      ),
-              ),
-              const SizedBox(width: 6),
-              SizedBox(
-                height: 31,
-                child: OutlinedButton(
-                  onPressed: () => onChat(userId),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 9),
-                  ),
-                  child: const Icon(LucideIcons.messageCircle, size: 17),
+                SizedBox(
+                  height: 31,
+                  child: mutual
+                      ? OutlinedButton(
+                          onPressed: () => onFollow(index),
+                          child: const Text('互相关注'),
+                        )
+                      : FilledButton(
+                          onPressed: () => onFollow(index),
+                          child: const Text('回关'),
+                        ),
                 ),
-              ),
-            ],
-          ),
-        );
-      },
+                const SizedBox(width: 6),
+                SizedBox(
+                  height: 31,
+                  child: OutlinedButton(
+                    onPressed: () => onChat(userId),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 9),
+                    ),
+                    child: const Icon(LucideIcons.messageCircle, size: 17),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }

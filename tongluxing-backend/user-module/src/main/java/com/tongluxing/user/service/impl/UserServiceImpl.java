@@ -250,6 +250,8 @@ public class UserServiceImpl implements UserService {
         if (currentUserId.equals(userId)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "不能关注自己");
         }
+        // 确保关注发起人的公开资料行存在，避免粉丝列表 INNER JOIN 时丢失该关系。
+        ensureProfile(currentUserId);
         getPublicProfile(userId);
         if (followMapper.exists(currentUserId, userId) == 0) {
             try {
@@ -274,6 +276,31 @@ public class UserServiceImpl implements UserService {
     @Override
     public FollowStatusVO getFollowStatus(Long userId) {
         return followStatus(currentUserContext.requireUserId(), userId);
+    }
+
+    @Override
+    public List<FollowUserVO> getMyFollowers(int page, int size) {
+        Long currentUserId = currentUserContext.requireUserId();
+        return getFollowers(currentUserId, page, size);
+    }
+
+    @Override
+    public List<FollowUserVO> getMyFollowing(int page, int size) {
+        Long currentUserId = currentUserContext.requireUserId();
+        return getFollowing(currentUserId, page, size);
+    }
+
+    @Override
+    public List<FollowUserVO> getMyMutualFollows(int page, int size) {
+        Long currentUserId = currentUserContext.requireUserId();
+        profile(currentUserId);
+        int safePage = Math.max(1, page);
+        int safeSize = Math.max(1, Math.min(size, 50));
+        return followMapper.mutualFollows(
+                        currentUserId, (safePage - 1) * safeSize, safeSize)
+                .stream()
+                .map(row -> followUser(row, currentUserId))
+                .toList();
     }
 
     @Override

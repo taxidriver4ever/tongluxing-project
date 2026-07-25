@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:amap_map/amap_map.dart';
 import 'package:flutter/material.dart';
@@ -30,10 +31,9 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
   bool ending = false;
   bool voiceEnabled = true;
   bool uploadingTrack = false;
+  bool confirmingArrival = false;
   int trackedDistanceMeters = 0;
-  int deviationStatus = 0;
-  int deviationDistance = 0;
-  DateTime? lastDeviationAnnouncement;
+  int completedWaypointCount = 0;
   DateTime? lastTrackUploadAt;
   Timer? trackTimer;
 
@@ -57,10 +57,11 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
     );
   }
 
-  Future<void> _uploadCurrentPoint() async {
+  Future<void> _uploadCurrentPoint({bool force = false}) async {
     if (uploadingTrack || !mounted) return;
     final lastUpload = lastTrackUploadAt;
-    if (lastUpload != null &&
+    if (!force &&
+        lastUpload != null &&
         DateTime.now().difference(lastUpload) < const Duration(seconds: 10)) {
       return;
     }
@@ -78,6 +79,24 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
       );
     } on PlatformException {
       // 定位暂不可用时保留导航界面，下一周期自动重试。
+    }
+  }
+
+  Future<void> _confirmArrival() async {
+    if (confirmingArrival || uploadingTrack) return;
+    final before = completedWaypointCount;
+    setState(() => confirmingArrival = true);
+    await _uploadCurrentPoint(force: true);
+    if (!mounted) return;
+    setState(() => confirmingArrival = false);
+    if (completedWaypointCount == before) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('尚未进入当前节点 150 米范围，请靠近后再确认'),
+          ),
+        );
     }
   }
 
@@ -123,11 +142,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
         trackedDistanceMeters =
             (response['totalDistance'] as num?)?.toInt() ??
             trackedDistanceMeters;
-        deviationStatus = (response['deviationStatus'] as num?)?.toInt() ?? 0;
-        deviationDistance =
-            (response['deviationDistance'] as num?)?.toInt() ?? 0;
       });
-      await _notifyDeviationIfNeeded();
       _notifySettlement(response);
     } catch (error) {
       if (mounted) {
@@ -142,9 +157,10 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
 
   Future<void> _openAmapNavigation() async {
     final points = _routePoints;
-    if (points.length < 2) return;
-    final start = points.first;
-    final end = points.last;
+    final target = _currentTarget;
+    if (points.isEmpty || target == null) return;
+    final start = widget.trip.startLocation ?? points.first;
+    final end = target;
     final nativeUri = Uri(
       scheme: 'amapuri',
       host: 'route',
@@ -158,7 +174,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
         'did': 'TLX_END',
         'dlat': '${end.latitude}',
         'dlon': '${end.longitude}',
-        'dname': widget.trip.endName,
+        'dname': end.name,
         'dev': '0',
         't': '0',
       },
@@ -168,7 +184,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
         return;
       }
       final webUri = Uri.https('uri.amap.com', '/navigation', {
-        'to': '${end.longitude},${end.latitude},${widget.trip.endName}',
+        'to': '${end.longitude},${end.latitude},${end.name}',
         'mode': 'car',
         'policy': '1',
         'src': 'tongluxing',
@@ -188,40 +204,49 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
     }
   }
 
-  Future<void> _notifyDeviationIfNeeded({bool force = false}) async {
-    if (deviationStatus <= 0) return;
-    final now = DateTime.now();
-    if (!force &&
-        lastDeviationAnnouncement != null &&
-        now.difference(lastDeviationAnnouncement!) <
-            const Duration(minutes: 1)) {
-      return;
-    }
-    lastDeviationAnnouncement = now;
-    if (voiceEnabled) {
-      await voice.invokeMethod('speak', {
-        'text': '检测到偏航约$deviationDistance米。您可以继续当前路线，系统不会强制纠偏。',
-      });
-    }
-  }
-
   void _notifySettlement(Map<String, dynamic> response) {
     final points = (response['grantedPoints'] as num?)?.toInt() ?? 0;
     final waypoint = response['reachedWaypointName']?.toString();
-    if (points <= 0 || !mounted) return;
-    final message = waypoint != null && waypoint.isNotEmpty
-        ? '已到达途经点“$waypoint”'
-        : '完成新的 50 公里里程阶段，实时发放 +$points 成长值';
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    if (!mounted) return;
+    if (waypoint != null && waypoint.isNotEmpty) {
+      setState(() {
+        completedWaypointCount = math.min(
+          completedWaypointCount + 1,
+          widget.trip.waypoints.length,
+        );
+      });
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              points > 0
+                  ? '已按顺序到达节点“$waypoint”，本阶段已结算并发放 +$points 成长值'
+                  : '已按顺序到达节点“$waypoint”，下一导航目标已更新',
+            ),
+          ),
+        );
+      _announceCurrentStage();
+      return;
+    }
+    if (points > 0) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('完成新的 50 公里里程阶段，实时发放 +$points 成长值')));
+    }
+  }
+
+  LocationSelection? get _currentTarget {
+    if (completedWaypointCount < widget.trip.waypoints.length) {
+      return widget.trip.waypoints[completedWaypointCount];
+    }
+    return widget.trip.endLocation ?? (_routePoints.isEmpty ? null : _routePoints.last);
   }
 
   String get _routeText {
-    final stops = widget.trip.waypoints.map((e) => e.name).join('、');
-    return stops.isEmpty
-        ? '${widget.trip.startName}前往${widget.trip.endName}'
-        : '${widget.trip.startName}出发，途经$stops，前往${widget.trip.endName}';
+    final target = _currentTarget;
+    if (target == null) return '${widget.trip.startName}前往${widget.trip.endName}';
+    return '当前阶段：前往 ${target.name}';
   }
 
   List<LocationSelection> get _routePoints => widget.trip.routePoints;
@@ -239,7 +264,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
   Future<void> _announce() async {
     if (!voiceEnabled) return;
     try {
-      await voice.invokeMethod('speak', {'text': '导航开始，$_routeText。请注意行车安全。'});
+      await voice.invokeMethod('speak', {'text': '行程记录已开始。$_routeText。实际道路可根据路况灵活选择，请注意行车安全。'});
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -249,6 +274,19 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
     }
   }
 
+
+  Future<void> _announceCurrentStage() async {
+    if (!voiceEnabled) return;
+    final target = _currentTarget;
+    if (target == null) return;
+    try {
+      await voice.invokeMethod('speak', {
+        'text': '节点已完成，下一导航目标是${target.name}。',
+      });
+    } catch (_) {
+      // 语音不可用不影响节点切换。
+    }
+  }
   Future<void> _toggleVoice() async {
     setState(() => voiceEnabled = !voiceEnabled);
     if (voiceEnabled) {
@@ -450,7 +488,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${widget.trip.waypoints.length} 个经停点 · 规划路线已保存',
+                          '已完成 $completedWaypointCount / ${widget.trip.waypoints.length} 个途经节点',
                           style: const TextStyle(color: Colors.white70),
                         ),
                         Text(
@@ -470,44 +508,6 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
               ),
             ),
           ),
-          if (deviationStatus > 0)
-            Positioned(
-              left: 16,
-              right: 16,
-              top: 184,
-              child: Material(
-                color: deviationStatus >= 2
-                    ? const Color(0xFFFFE7E4)
-                    : const Color(0xFFFFF3D8),
-                borderRadius: BorderRadius.circular(18),
-                elevation: 2,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 13, 10, 13),
-                  child: Row(
-                    children: [
-                      Icon(
-                        LucideIcons.triangleAlert,
-                        color: deviationStatus >= 2
-                            ? AppColors.danger
-                            : const Color(0xFFD88700),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          '检测到偏航约 $deviationDistance 米。仅提醒队长，可继续偏航，系统不会强制纠偏。',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: '我知道了',
-                        onPressed: () => setState(() => deviationStatus = 0),
-                        icon: const Icon(LucideIcons.x, size: 19),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
           Positioned(
             left: 16,
             right: 16,
@@ -524,6 +524,32 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
               child: Column(
                 children: [
                   Row(
+                    children: [
+                      const Icon(LucideIcons.mapPinCheck, color: AppColors.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('下一导航目标', style: TextStyle(fontSize: 11, color: AppColors.muted)),
+                            Text(
+                              _currentTarget?.name ?? widget.trip.endName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '路线仅供参考，系统只记录轨迹并按顺序判断节点到达。',
+                    style: TextStyle(fontSize: 11, color: AppColors.secondaryText),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
                       _Metric(
@@ -535,11 +561,11 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                         value: widget.trip.distanceMeters == null
                             ? '--'
                             : '${((widget.trip.distanceMeters ?? 0) / 1000).round()} km',
-                        label: '规划里程',
+                        label: '参考里程',
                       ),
                       _Metric(
-                        value: '${widget.trip.waypoints.length}',
-                        label: '经停点',
+                        value: '$completedWaypointCount/${widget.trip.waypoints.length}',
+                        label: '节点进度',
                       ),
                     ],
                   ),
@@ -549,7 +575,20 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                     child: OutlinedButton.icon(
                       onPressed: _openAmapNavigation,
                       icon: const Icon(LucideIcons.navigation, size: 18),
-                      label: const Text('打开高德地图继续导航'),
+                      label: Text('导航到 ${_currentTarget?.name ?? widget.trip.endName}'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: confirmingArrival || uploadingTrack
+                          ? null
+                          : _confirmArrival,
+                      icon: const Icon(LucideIcons.mapPinCheck, size: 18),
+                      label: Text(
+                        confirmingArrival ? '正在核验位置…' : '确认到达当前节点',
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),

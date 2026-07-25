@@ -27,14 +27,24 @@ class TokenRefreshSession {
 
 class LocationSelection {
   const LocationSelection({
+    this.id,
     this.historyId,
+    this.poiId,
+    this.cityCode,
+    this.district,
+    this.poiType,
     required this.name,
     required this.address,
     required this.latitude,
     required this.longitude,
     this.distanceMeters,
   });
+  final String? id;
   final String? historyId;
+  final String? poiId;
+  final String? cityCode;
+  final String? district;
+  final String? poiType;
   final String name;
   final String address;
   final double latitude;
@@ -51,19 +61,28 @@ class LocationSelection {
 
   factory LocationSelection.fromJson(Map<String, dynamic> json) =>
       LocationSelection(
+        id: (json['waypointId'] ?? json['nodeId'] ?? json['id'])?.toString(),
         historyId: json['historyId']?.toString(),
-        name: json['name']?.toString() ?? '未命名地点',
-        address: json['address']?.toString() ?? '',
-        latitude: _double(json['latitude']),
-        longitude: _double(json['longitude']),
+        poiId: json['poiId']?.toString(),
+        cityCode: json['cityCode']?.toString(),
+        district: json['district']?.toString(),
+        poiType: json['poiType']?.toString(),
+        name: (json['name'] ?? json['placeName'])?.toString() ?? '未命名地点',
+        address: (json['address'] ?? json['placeAddress'])?.toString() ?? '',
+        latitude: _double(json['latitude'] ?? json['lat']),
+        longitude: _double(json['longitude'] ?? json['lng']),
         distanceMeters: _int(json['distanceMeters']),
       );
 
   Map<String, dynamic> toJson() => {
+    if (poiId?.isNotEmpty == true) 'poiId': poiId,
     'name': name,
     'address': address,
     'latitude': latitude,
     'longitude': longitude,
+    if (cityCode?.isNotEmpty == true) 'cityCode': cityCode,
+    if (district?.isNotEmpty == true) 'district': district,
+    if (poiType?.isNotEmpty == true) 'poiType': poiType,
   };
 }
 
@@ -136,15 +155,21 @@ class TripDraftWaypointModel {
     required this.id,
     required this.location,
     required this.type,
+    this.stayMinutes = 0,
+    this.remark = '',
   });
   final String id;
   final LocationSelection location;
   final String type;
+  final int stayMinutes;
+  final String remark;
   factory TripDraftWaypointModel.fromJson(Map<String, dynamic> json) =>
       TripDraftWaypointModel(
         id: json['waypointId']?.toString() ?? '',
         location: LocationSelection.fromJson(json),
-        type: json['type']?.toString() ?? 'REST',
+        type: json['type']?.toString() ?? 'NORMAL',
+        stayMinutes: _int(json['stayMinutes']) ?? 0,
+        remark: json['remark']?.toString() ?? '',
       );
 }
 

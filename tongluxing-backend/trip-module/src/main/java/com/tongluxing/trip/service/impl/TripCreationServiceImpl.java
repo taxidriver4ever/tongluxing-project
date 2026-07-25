@@ -52,7 +52,7 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class TripCreationServiceImpl implements TripCreationService {
-    private static final Set<String> WAYPOINT_TYPES = Set.of("MEETING", "REST", "HOTEL", "CHECK_IN");
+    private static final Set<String> WAYPOINT_TYPES = Set.of("MEETING", "REST", "HOTEL", "FUEL", "CHARGING", "CHECK_IN", "NORMAL");
     private final CurrentUserContext currentUserContext;
     private final ObjectMapper objectMapper;
     private final TripCreationDraftMapper draftMapper;
@@ -403,6 +403,7 @@ public class TripCreationServiceImpl implements TripCreationService {
         value.setLng(request.longitude());
         value.setLat(request.latitude());
         value.setStayMinutes(request.stayMinutes() == null ? 0 : request.stayMinutes());
+        value.setRemark(text(request.remark()));
         value.setCreatedAt(LocalDateTime.now());
         value.setUpdatedAt(LocalDateTime.now());
         value.setDeleted(0);
@@ -415,7 +416,7 @@ public class TripCreationServiceImpl implements TripCreationService {
         value.setSeqNo(source.getSeqNo()); value.setPlaceName(source.getPlaceName());
         value.setPlaceAddress(source.getPlaceAddress()); value.setWaypointType(source.getWaypointType());
         value.setLat(source.getLat()); value.setLng(source.getLng()); value.setStayMinutes(source.getStayMinutes());
-        value.setDeleted(0); return value;
+        value.setRemark(source.getRemark()); value.setDeleted(0); return value;
     }
 
     private WaypointLocationRequest waypointLocation(TripWaypoint value) {
@@ -434,7 +435,7 @@ public class TripCreationServiceImpl implements TripCreationService {
 
     private TripCreationWaypointResponse response(TripWaypoint value) {
         return new TripCreationWaypointResponse(String.valueOf(value.getId()), value.getPlaceName(), value.getPlaceAddress(),
-                value.getLng(), value.getLat(), value.getWaypointType(), value.getSeqNo(), value.getStayMinutes());
+                value.getLng(), value.getLat(), value.getWaypointType(), value.getSeqNo(), value.getStayMinutes(), value.getRemark());
     }
 
     private LocationResponse response(LocationRequest value) {

@@ -20,6 +20,7 @@ public class TripWaypoint {
     private BigDecimal lat;
     private BigDecimal lng;
     private Integer stayMinutes;
+    private String remark;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Integer deleted;

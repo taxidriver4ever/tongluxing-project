@@ -77,6 +77,7 @@ create table if not exists trip_waypoint (
     lat decimal(10,6) null,
     lng decimal(10,6) null,
     stay_minutes int null,
+    remark varchar(255) not null default '',
     created_at datetime not null,
     updated_at datetime not null,
     deleted tinyint(1) not null default 0,

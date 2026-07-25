@@ -68,6 +68,13 @@ public interface UserService {
 
     FollowStatusVO getFollowStatus(Long userId);
 
+    List<FollowUserVO> getMyFollowers(int page, int size);
+
+    List<FollowUserVO> getMyFollowing(int page, int size);
+
+    /** 查询当前用户与对方互相关注的用户列表。 */
+    List<FollowUserVO> getMyMutualFollows(int page, int size);
+
     List<FollowUserVO> getFollowers(Long userId, int page, int size);
 
     List<FollowUserVO> getFollowing(Long userId, int page, int size);

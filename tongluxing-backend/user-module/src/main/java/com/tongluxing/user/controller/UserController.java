@@ -102,6 +102,27 @@ public class UserController {
         return Result.success(userService.getFollowStatus(userId));
     }
 
+    /** 当前登录用户的粉丝列表，前端不再依赖本地缓存的 userId。 */
+    @GetMapping("/me/followers")
+    public Result<List<FollowUserVO>> myFollowers(@RequestParam(defaultValue = "1") int page,
+                                                  @RequestParam(defaultValue = "20") int size) {
+        return Result.success(userService.getMyFollowers(page, size));
+    }
+
+    /** 当前登录用户关注的用户列表。 */
+    @GetMapping("/me/following")
+    public Result<List<FollowUserVO>> myFollowing(@RequestParam(defaultValue = "1") int page,
+                                                  @RequestParam(defaultValue = "20") int size) {
+        return Result.success(userService.getMyFollowing(page, size));
+    }
+
+    /** 当前登录用户的互相关注列表。 */
+    @GetMapping("/me/mutual-follows")
+    public Result<List<FollowUserVO>> myMutualFollows(@RequestParam(defaultValue = "1") int page,
+                                                      @RequestParam(defaultValue = "20") int size) {
+        return Result.success(userService.getMyMutualFollows(page, size));
+    }
+
     @GetMapping("/{userId}/followers")
     public Result<List<FollowUserVO>> followers(@PathVariable Long userId,
                                                 @RequestParam(defaultValue = "1") int page,

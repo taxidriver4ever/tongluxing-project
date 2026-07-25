@@ -35,28 +35,54 @@ public interface UserFollowMapper {
     long countFollowing(@Param("userId") Long userId);
 
     @Select("""
-            select p.user_id userId,p.nickname,p.avatar_image_key avatarImageKey,
+            select f.follower_user_id userId,coalesce(nullif(p.nickname,''),'同路行用户') nickname,
+                   p.avatar_image_key avatarImageKey,
                    coalesce((select c.certification_status from user_driving_license_certification c
-                     where c.user_id=p.user_id and c.deleted=0 order by c.submitted_at desc limit 1),'UNSUBMITTED') certificationStatus,
+                     where c.user_id=f.follower_user_id and c.deleted=0 order by c.submitted_at desc limit 1),'UNSUBMITTED') certificationStatus,
                    coalesce(s.total_trip_count,0) totalTripCount,
                    coalesce(s.total_distance_meters,0) totalDistanceMeters,f.created_at followedAt
-            from user_follow f join user_profile p on p.user_id=f.follower_user_id and p.deleted=0
-            left join user_statistics s on s.user_id=p.user_id
+            from user_follow f
+            left join user_profile p on p.user_id=f.follower_user_id and p.deleted=0
+            left join user_statistics s on s.user_id=f.follower_user_id
             where f.followed_user_id=#{userId}
             order by f.created_at desc limit #{offset},#{size}
             """)
     List<UserFollowQueryDTO> followers(@Param("userId") Long userId, @Param("offset") int offset, @Param("size") int size);
 
     @Select("""
-            select p.user_id userId,p.nickname,p.avatar_image_key avatarImageKey,
+            select f.followed_user_id userId,coalesce(nullif(p.nickname,''),'同路行用户') nickname,
+                   p.avatar_image_key avatarImageKey,
                    coalesce((select c.certification_status from user_driving_license_certification c
-                     where c.user_id=p.user_id and c.deleted=0 order by c.submitted_at desc limit 1),'UNSUBMITTED') certificationStatus,
+                     where c.user_id=f.followed_user_id and c.deleted=0 order by c.submitted_at desc limit 1),'UNSUBMITTED') certificationStatus,
                    coalesce(s.total_trip_count,0) totalTripCount,
                    coalesce(s.total_distance_meters,0) totalDistanceMeters,f.created_at followedAt
-            from user_follow f join user_profile p on p.user_id=f.followed_user_id and p.deleted=0
-            left join user_statistics s on s.user_id=p.user_id
+            from user_follow f
+            left join user_profile p on p.user_id=f.followed_user_id and p.deleted=0
+            left join user_statistics s on s.user_id=f.followed_user_id
             where f.follower_user_id=#{userId}
             order by f.created_at desc limit #{offset},#{size}
             """)
     List<UserFollowQueryDTO> following(@Param("userId") Long userId, @Param("offset") int offset, @Param("size") int size);
+
+    @Select("""
+            select f.followed_user_id userId,coalesce(nullif(p.nickname,''),'同路行用户') nickname,
+                   p.avatar_image_key avatarImageKey,
+                   coalesce((select c.certification_status from user_driving_license_certification c
+                     where c.user_id=f.followed_user_id and c.deleted=0 order by c.submitted_at desc limit 1),'UNSUBMITTED') certificationStatus,
+                   coalesce(s.total_trip_count,0) totalTripCount,
+                   coalesce(s.total_distance_meters,0) totalDistanceMeters,
+                   f.created_at followedAt
+            from user_follow f
+            inner join user_follow reverse_follow
+                    on reverse_follow.follower_user_id=f.followed_user_id
+                   and reverse_follow.followed_user_id=f.follower_user_id
+            left join user_profile p on p.user_id=f.followed_user_id and p.deleted=0
+            left join user_statistics s on s.user_id=f.followed_user_id
+            where f.follower_user_id=#{userId}
+            order by f.created_at desc
+            limit #{offset},#{size}
+            """)
+    List<UserFollowQueryDTO> mutualFollows(@Param("userId") Long userId,
+                                           @Param("offset") int offset,
+                                           @Param("size") int size);
 }

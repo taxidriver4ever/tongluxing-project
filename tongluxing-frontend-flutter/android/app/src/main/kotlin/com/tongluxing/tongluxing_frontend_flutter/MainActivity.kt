@@ -9,11 +9,16 @@ import android.content.ContentValues
 import android.provider.MediaStore
 import android.speech.tts.TextToSpeech
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.RenderMode
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.util.Locale
 
 class MainActivity : FlutterActivity() {
+    // 高德地图属于 Android PlatformView。使用 texture 渲染后，Flutter 的搜索抽屉、
+    // 路线规划卡片等组件才能稳定叠加在原生地图上方。
+    override fun getRenderMode(): RenderMode = RenderMode.texture
+
     private val permissionChannel = "com.tongluxing/permissions"
     private val locationPermissionRequest = 1001
     private var pendingLocationResult: MethodChannel.Result? = null

@@ -19,6 +19,7 @@ class RouteMapView extends StatefulWidget {
     this.interactive = true,
     this.trafficEnabled = false,
     this.onLocationChanged,
+    this.onMapInteraction,
     super.key,
   });
 
@@ -29,6 +30,7 @@ class RouteMapView extends StatefulWidget {
   final bool interactive;
   final bool trafficEnabled;
   final ValueChanged<AMapLocation>? onLocationChanged;
+  final VoidCallback? onMapInteraction;
 
   @override
   State<RouteMapView> createState() => _RouteMapViewState();
@@ -44,6 +46,7 @@ class _RouteMapViewState extends State<RouteMapView> {
 
   bool _nativeSupported = false;
   bool _checking = true;
+  DateTime? _cameraInteractionEnabledAt;
 
   bool get _nativeRequested =>
       !kIsWeb &&
@@ -129,6 +132,19 @@ class _RouteMapViewState extends State<RouteMapView> {
         ),
       },
       markers: _markers(stops),
+      onMapCreated: (_) {
+        // 忽略地图初始化阶段的自动镜头移动，避免路线卡片刚打开就被隐藏。
+        _cameraInteractionEnabledAt = DateTime.now().add(
+          const Duration(milliseconds: 900),
+        );
+      },
+      onTap: (_) => widget.onMapInteraction?.call(),
+      onCameraMove: (_) {
+        final enabledAt = _cameraInteractionEnabledAt;
+        if (enabledAt != null && DateTime.now().isAfter(enabledAt)) {
+          widget.onMapInteraction?.call();
+        }
+      },
       onLocationChanged: widget.onLocationChanged,
     );
   }
@@ -157,38 +173,45 @@ class _RouteMapViewState extends State<RouteMapView> {
     }).toSet();
   }
 
-  Widget _buildFallback(List<LocationSelection> route) => Stack(
-    fit: StackFit.expand,
-    children: [
-      ColoredBox(
-        color: const Color(0xFFEFF4FA),
-        child: CustomPaint(
-          painter: const _MapBackdropPainter(),
-          foregroundPainter: _PolylinePainter(
-            route,
-            widget.stops.isEmpty
-                ? <LocationSelection>[route.first, route.last]
-                : widget.stops,
-          ),
-        ),
-      ),
-      if (_nativeRequested && !_checking)
-        Positioned(
-          right: 10,
-          bottom: 9,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.92),
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: const Text(
-              '真机显示高德底图',
-              style: TextStyle(fontSize: 10, color: AppColors.secondaryText),
+  Widget _buildFallback(List<LocationSelection> route) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: widget.onMapInteraction,
+    onScaleStart: widget.interactive
+        ? (_) => widget.onMapInteraction?.call()
+        : null,
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        ColoredBox(
+          color: const Color(0xFFEFF4FA),
+          child: CustomPaint(
+            painter: const _MapBackdropPainter(),
+            foregroundPainter: _PolylinePainter(
+              route,
+              widget.stops.isEmpty
+                  ? <LocationSelection>[route.first, route.last]
+                  : widget.stops,
             ),
           ),
         ),
-    ],
+        if (_nativeRequested && !_checking)
+          Positioned(
+            right: 10,
+            bottom: 9,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.92),
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: const Text(
+                '真机显示高德底图',
+                style: TextStyle(fontSize: 10, color: AppColors.secondaryText),
+              ),
+            ),
+          ),
+      ],
+    ),
   );
 
   CameraPosition _cameraFor(List<LocationSelection> points) {

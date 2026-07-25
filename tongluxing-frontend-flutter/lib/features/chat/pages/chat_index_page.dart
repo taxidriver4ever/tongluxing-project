@@ -49,19 +49,24 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
     });
     try {
       final session = context.read<AppSession>();
-      final userId = session.userId?.toString() ?? '';
-      final values = await Future.wait<dynamic>([
-        ChatService(session.api).conversations(),
-        ChatService(session.api).joinApplications(status: 'PENDING'),
-        if (userId.isNotEmpty)
-          FollowService(session.api).followers(userId, size: 20)
-        else
-          Future<List<Map<String, dynamic>>>.value(const []),
-      ]);
+      final conversations = await ChatService(session.api).conversations();
+      List<Map<String, dynamic>> applications = const [];
+      List<Map<String, dynamic>> followerRows = const [];
+      try {
+        applications = await ChatService(
+          session.api,
+        ).joinApplications(status: 'PENDING');
+      } catch (_) {
+        // 互动角标加载失败不应导致整个聊天列表空白。
+      }
+      try {
+        followerRows = await FollowService(session.api).myFollowers(size: 20);
+      } catch (_) {
+        // 当前用户粉丝接口失败时保留聊天主列表。
+      }
       if (!mounted) return;
-      allRows = List<ConversationModel>.from(values[0] as List);
-      final followerRows = List<Map<String, dynamic>>.from(values[2] as List);
-      interactionCount = (values[1] as List).length +
+      allRows = List<ConversationModel>.from(conversations);
+      interactionCount = applications.length +
           followerRows.where((row) => row['following'] != true).length;
       _applySearch();
     } catch (e) {

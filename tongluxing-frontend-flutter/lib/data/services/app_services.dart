@@ -365,8 +365,10 @@ class TripService {
   Future<TripDraftWaypointModel> addWaypoint(
     String draftId,
     LocationSelection location, {
-    String type = 'REST',
+    String type = 'NORMAL',
     int sort = 1,
+    int stayMinutes = 0,
+    String remark = '',
   }) async => TripDraftWaypointModel.fromJson(
     Map<String, dynamic>.from(
       await api.post(
@@ -378,7 +380,35 @@ class TripService {
               'latitude': location.latitude,
               'type': type,
               'sort': sort,
-              'stayMinutes': 30,
+              'stayMinutes': stayMinutes,
+              'remark': remark.trim(),
+            },
+          )
+          as Map,
+    ),
+  );
+
+  Future<TripDraftWaypointModel> updateWaypoint(
+    String draftId,
+    String waypointId,
+    LocationSelection location, {
+    String type = 'NORMAL',
+    int sort = 1,
+    int stayMinutes = 0,
+    String remark = '',
+  }) async => TripDraftWaypointModel.fromJson(
+    Map<String, dynamic>.from(
+      await api.put(
+            '/v1/trip/$draftId/waypoint/$waypointId',
+            body: {
+              'name': location.name,
+              'address': location.address,
+              'longitude': location.longitude,
+              'latitude': location.latitude,
+              'type': type,
+              'sort': sort,
+              'stayMinutes': stayMinutes,
+              'remark': remark.trim(),
             },
           )
           as Map,
@@ -387,6 +417,20 @@ class TripService {
 
   Future<void> deleteWaypoint(String draftId, String waypointId) =>
       api.delete('/v1/trip/$draftId/waypoint/$waypointId');
+
+  Future<List<TripDraftWaypointModel>> reorderWaypoints(
+    String draftId,
+    List<String> waypointIds,
+  ) async {
+    final data = await api.put(
+      '/v1/trip/$draftId/waypoints/order',
+      body: {'waypointIds': waypointIds},
+    );
+    return (data as List? ?? const [])
+        .whereType<Map>()
+        .map((e) => TripDraftWaypointModel.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
 
   Future<Map<String, dynamic>> planRoute(String draftId) async =>
       Map<String, dynamic>.from(

@@ -58,7 +58,7 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     private static final int SEVERE_DEVIATION_METERS = 500;
     private static final int RECOVERY_DEVIATION_METERS = 60;
     private static final int MAX_RELIABLE_ACCURACY_METERS = 150;
-    private static final int WAYPOINT_ARRIVAL_METERS = 200;
+    private static final int WAYPOINT_ARRIVAL_METERS = 150;
 
     private final CurrentUserContext currentUserContext;
     private final ObjectMapper objectMapper;
@@ -74,7 +74,7 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     @Transactional
     public DriverTrackUploadResponse uploadPoint(DriverTrackPointRequest request) {
         Long driverId = currentUserContext.requireUserId();
-        Trip trip = requireOngoingOwnerTrip(request.tripId(), driverId);
+        requireOngoingOwnerTrip(request.tripId(), driverId);
         DriverTrackRecord previous = trackMapper.findLast(request.tripId(), driverId);
         int distanceFromPrev = previous == null ? 0 : haversineMeters(
                 previous.getLatitude(), previous.getLongitude(), request.latitude(), request.longitude());
@@ -96,7 +96,7 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         trackMapper.insert(record);
 
         int totalDistance = trackMapper.sumDistance(request.tripId(), driverId);
-        DriverDeviationRecord deviation = saveDeviation(trip, request, driverId, now);
+        // 路线折线仅用于展示和估算，不再进行道路偏航判定。
         MileageSettlementResponse mileageResult = mileageSettlementService
                 .settleMileage(request.tripId(), driverId, totalDistance);
         WaypointArrival waypointArrival = settleReachedWaypoint(
@@ -105,8 +105,8 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         return new DriverTrackUploadResponse(
                 String.valueOf(record.getId()),
                 distanceFromPrev,
-                deviation.getDeviationStatus(),
-                deviation.getDeviationDistance(),
+                0,
+                0,
                 totalDistance,
                 mileageResult.settledStages() + (waypointArrival == null ? 0 : 1),
                 mileageResult.grantedPoints() + (waypointArrival == null ? 0 : waypointArrival.points()),
@@ -143,18 +143,9 @@ public class DriverTrackServiceImpl implements DriverTrackService {
 
     @Override
     public DriverDeviationResponse getDeviation(Long tripId) {
-        Long driverId = currentUserContext.requireUserId();
         requireReadableTrip(tripId);
-        DriverDeviationRecord record = deviationMapper.findLatest(tripId, driverId);
-        if (record == null) {
-            return new DriverDeviationResponse(String.valueOf(tripId), 0, 0, "");
-        }
-        return new DriverDeviationResponse(
-                String.valueOf(tripId),
-                record.getDeviationStatus(),
-                record.getDeviationDistance(),
-                formatTime(record.getRecordTime())
-        );
+        // 兼容旧客户端保留接口，但节点式行程不再产生道路偏航状态。
+        return new DriverDeviationResponse(String.valueOf(tripId), 0, 0, "");
     }
 
     @Override
@@ -176,23 +167,9 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     @Transactional
     public DriverDeviationResponse mockDeviation(Long tripId, MockDeviationRequest request) {
         Long driverId = currentUserContext.requireUserId();
-        Trip trip = requireOngoingOwnerTrip(tripId, driverId);
-        int status = request.deviationStatus();
-        int distance = status == 2 ? 680 : status == 1 ? 180 : 0;
-        LocalDateTime now = LocalDateTime.now();
-        DriverDeviationRecord record = new DriverDeviationRecord();
-        record.setId(SnowflakeIdGenerator.nextId());
-        record.setTripId(tripId);
-        record.setDriverId(driverId);
-        record.setLongitude(trip.getStartLongitude() != null ? trip.getStartLongitude() : trip.getStartLng());
-        record.setLatitude(trip.getStartLatitude() != null ? trip.getStartLatitude() : trip.getStartLat());
-        record.setDeviationDistance(distance);
-        record.setDeviationStatus(status);
-        record.setRecordTime(now);
-        record.setCreatedAt(now);
-        record.setDeleted(0);
-        deviationMapper.insert(record);
-        return new DriverDeviationResponse(String.valueOf(tripId), status, distance, formatTime(now));
+        requireOngoingOwnerTrip(tripId, driverId);
+        // 旧联调接口保持可调用，但不再写入偏航记录。
+        return new DriverDeviationResponse(String.valueOf(tripId), 0, 0, "");
     }
 
     private Trip requireOngoingOwnerTrip(Long tripId, Long userId) {
@@ -327,23 +304,32 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         }
     }
 
-    /** 到达任一尚未结算的途经点时立即发放一次成长值。 */
+    /**
+     * 只判断“下一个尚未完成的节点”，禁止越过当前节点直接结算后续节点。
+     * 节点进入 150 米范围后记录到达事实，具体道路不参与判断。
+     */
     private WaypointArrival settleReachedWaypoint(Long tripId, Long driverId,
                                                   BigDecimal latitude, BigDecimal longitude,
                                                   int totalDistance) {
         for (TripWaypoint waypoint : tripWaypointMapper.findByTripId(tripId)) {
-            if (waypoint.getLat() == null || waypoint.getLng() == null) {
+            String settleKey = tripId + ":" + driverId + ":TRIP_WAYPOINT:" + waypoint.getId();
+            if (distanceMapper.findBySettleKey(settleKey) != null) {
                 continue;
+            }
+            // 当前目标缺少坐标时不能跳过它去结算后续节点。
+            if (waypoint.getLat() == null || waypoint.getLng() == null) {
+                return null;
             }
             int distance = haversineMeters(latitude, longitude, waypoint.getLat(), waypoint.getLng());
             if (distance > WAYPOINT_ARRIVAL_METERS) {
-                continue;
+                return null;
             }
             MileageSettlementResponse result = mileageSettlementService.settleWaypoint(
                     tripId, driverId, waypoint.getId(), waypoint.getPlaceName(), totalDistance);
             if (!Boolean.TRUE.equals(result.duplicate())) {
                 return new WaypointArrival(waypoint.getId(), waypoint.getPlaceName(), result.grantedPoints());
             }
+            return null;
         }
         return null;
     }

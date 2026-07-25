@@ -10,6 +10,8 @@ class TripRoutePreview extends StatelessWidget {
     this.route,
     this.mapOnly = false,
     this.mapHeight = 190,
+    this.interactive = true,
+    this.onMapInteraction,
     super.key,
   });
 
@@ -17,6 +19,8 @@ class TripRoutePreview extends StatelessWidget {
   final TripDraftRouteModel? route;
   final bool mapOnly;
   final double mapHeight;
+  final bool interactive;
+  final VoidCallback? onMapInteraction;
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +35,8 @@ class TripRoutePreview extends StatelessWidget {
       polylinePoints: polyline,
       stops: points,
       height: mapHeight,
-      interactive: !mapOnly,
+      interactive: interactive,
+      onMapInteraction: onMapInteraction,
     );
     if (mapOnly) return map;
 

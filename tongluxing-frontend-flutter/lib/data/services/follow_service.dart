@@ -19,6 +19,48 @@ class FollowService {
         await api.delete('/v1/users/$userId/follow') as Map,
       );
 
+  Future<List<Map<String, dynamic>>> myFollowers({
+    int page = 1,
+    int size = 20,
+  }) async {
+    final data = await api.get(
+      '/v1/users/me/followers',
+      query: {'page': '$page', 'size': '$size'},
+    );
+    return (data as List? ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> myFollowing({
+    int page = 1,
+    int size = 20,
+  }) async {
+    final data = await api.get(
+      '/v1/users/me/following',
+      query: {'page': '$page', 'size': '$size'},
+    );
+    return (data as List? ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> myMutualFollows({
+    int page = 1,
+    int size = 20,
+  }) async {
+    final data = await api.get(
+      '/v1/users/me/mutual-follows',
+      query: {'page': '$page', 'size': '$size'},
+    );
+    return (data as List? ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
   Future<List<Map<String, dynamic>>> followers(
     String userId, {
     int page = 1,

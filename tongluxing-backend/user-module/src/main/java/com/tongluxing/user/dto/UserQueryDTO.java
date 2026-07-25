@@ -19,6 +19,9 @@ public class UserQueryDTO {
     /** 用户 ID。 */
     private Long userId;
 
+    /** 面向用户展示、全局唯一且不可变的同路行号。 */
+    private String tongluxingId;
+
     /** 用户昵称。 */
     private String nickname;
 

@@ -25,7 +25,7 @@ public interface UserDomainMapper {
      * 查询用户资料，并附带最新驾驶证认证状态。
      */
     @Select("""
-            select p.id, p.user_id userId, p.nickname, p.avatar_image_key avatarImageKey, p.gender, p.birthday,
+            select p.id, p.user_id userId, p.tongluxing_id tongluxingId, p.nickname, p.avatar_image_key avatarImageKey, p.gender, p.birthday,
                    p.city_code cityCode, p.city_name cityName, p.bio, p.profile_status profileStatus,
                    coalesce(s.total_trip_count,0) totalTripCount,
                    coalesce(s.total_distance_meters,0) totalDistanceMeters,
@@ -41,7 +41,7 @@ public interface UserDomainMapper {
     /** 搜索公开用户资料，供“发起人”标签分页展示。 */
     @Select("""
             <script>
-            select p.id, p.user_id userId, p.nickname, p.avatar_image_key avatarImageKey,
+            select p.id, p.user_id userId, p.tongluxing_id tongluxingId, p.nickname, p.avatar_image_key avatarImageKey,
                    p.city_name cityName, p.bio, p.profile_status profileStatus,
                    coalesce(s.total_trip_count,0) totalTripCount,
                    coalesce(s.total_distance_meters,0) totalDistanceMeters,
@@ -57,6 +57,7 @@ public interface UserDomainMapper {
               and (lower(p.nickname) like concat('%',lower(#{keyword}),'%')
                    or lower(p.city_name) like concat('%',lower(#{keyword}),'%')
                    or lower(p.bio) like concat('%',lower(#{keyword}),'%')
+                   or lower(p.tongluxing_id) like concat('%',lower(#{keyword}),'%')
                    or cast(p.user_id as char)=#{keyword})
             </if>
             order by coalesce(s.total_trip_count,0) desc, p.updated_at desc
@@ -74,10 +75,22 @@ public interface UserDomainMapper {
      * <p>默认资料在用户首次访问用户模块能力时懒初始化。</p>
      */
     @Insert("""
-            insert into user_profile(id,user_id,nickname,avatar_image_key,gender,birthday,city_code,city_name,bio,profile_status,created_at,updated_at,deleted)
-            values(#{id},#{userId},'', '',0,null,'','', '', 'ACTIVE',#{now},#{now},0)
+            insert into user_profile(id,user_id,tongluxing_id,nickname,avatar_image_key,gender,birthday,city_code,city_name,bio,profile_status,created_at,updated_at,deleted)
+            values(#{id},#{userId},#{tongluxingId},'', '',0,null,'','', '', 'ACTIVE',#{now},#{now},0)
             """)
-    int insertProfile(@Param("id") Long id, @Param("userId") Long userId, @Param("now") LocalDateTime now);
+    int insertProfile(@Param("id") Long id, @Param("userId") Long userId,
+                      @Param("tongluxingId") String tongluxingId, @Param("now") LocalDateTime now);
+
+    /** 为迁移前的历史资料补齐不可变的同路行号。 */
+    @Update("""
+            update user_profile
+            set tongluxing_id=#{tongluxingId}, updated_at=#{now}
+            where user_id=#{userId} and deleted=0
+              and (tongluxing_id is null or tongluxing_id='')
+            """)
+    int updateTongluxingId(@Param("userId") Long userId,
+                           @Param("tongluxingId") String tongluxingId,
+                           @Param("now") LocalDateTime now);
 
     /**
      * 更新用户个人资料。

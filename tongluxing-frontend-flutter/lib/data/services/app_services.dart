@@ -1185,6 +1185,11 @@ class UserProfileService {
         await api.put('/v1/users/me/profile', body: values) as Map,
       );
 
+  Future<Map<String, dynamic>> publicProfile(String userId) async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/users/$userId/public-profile') as Map,
+      );
+
   Future<Map<String, dynamic>> homepage(String userId) async =>
       Map<String, dynamic>.from(
         await api.get('/v1/users/$userId/homepage') as Map,

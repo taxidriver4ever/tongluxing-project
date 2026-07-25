@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -76,6 +77,15 @@ class ProfilePageState extends State<ProfilePage> {
     if (refreshAfter && mounted) await load();
   }
 
+  Future<void> _copyTongluxingId(String value) async {
+    if (value.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: value));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('同路行号已复制')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = context.watch<AppSession>();
@@ -83,6 +93,7 @@ class ProfilePageState extends State<ProfilePage> {
         ? profile['nickname'].toString()
         : '同路行用户';
     final approvedMerchant = merchantApplication?['auditStatus'] == 'APPROVED';
+    final tongluxingId = profile['tongluxingId']?.toString().trim() ?? '';
 
     void openPublicProfile() => _open(
       PublicProfilePage(userId: session.userId ?? '0'),
@@ -189,6 +200,37 @@ class ProfilePageState extends State<ProfilePage> {
                   ],
                 ],
               ),
+              if (tongluxingId.isNotEmpty) ...[
+                const SizedBox(height: 7),
+                Center(
+                  child: InkWell(
+                    onTap: () => _copyTongluxingId(tongluxingId),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '同路行号：$tongluxingId',
+                            style: const TextStyle(
+                              color: AppColors.secondaryText,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          const Icon(
+                            LucideIcons.copy,
+                            size: 14,
+                            color: AppColors.muted,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
               _MenuGroup(
                 items: [

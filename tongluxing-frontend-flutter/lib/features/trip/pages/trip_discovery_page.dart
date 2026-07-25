@@ -150,36 +150,61 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) => Stack(
+    clipBehavior: Clip.none,
     children: [
-      _DiscoverySearchEntry(
-        controller: search,
-        focusNode: searchFocus,
-        onChanged: (_) => setState(() {}),
-        onSearch: () => _openSearch(),
-        onClear: () {
-          search.clear();
-          setState(() {});
-        },
+      Column(
+        children: [
+          _DiscoverySearchEntry(
+            controller: search,
+            focusNode: searchFocus,
+            focused: searchFocus.hasFocus,
+            onChanged: (_) => setState(() {}),
+            onSearch: () => _openSearch(),
+            onClear: () {
+              search.clear();
+              setState(() {});
+            },
+          ),
+          _MainSortBar(
+            items: _sortTabs,
+            selected: sort,
+            filterActive: filter.active,
+            onSort: (value) {
+              if (value == sort) return;
+              setState(() => sort = value);
+              _load(reset: true);
+            },
+            onFilter: _openFilter,
+          ),
+          Expanded(child: _body()),
+        ],
       ),
-      if (searchFocus.hasFocus)
-        _SearchSuggestionPanel(
-          keyword: search.text.trim(),
-          onSelected: (keyword, tab) =>
-              _openSearch(keyword: keyword, initialTab: tab),
+      if (searchFocus.hasFocus) ...[
+        Positioned.fill(
+          top: 59,
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: searchFocus.unfocus,
+            child: const SizedBox.expand(),
+          ),
         ),
-      _MainSortBar(
-        items: _sortTabs,
-        selected: sort,
-        filterActive: filter.active,
-        onSort: (value) {
-          if (value == sort) return;
-          setState(() => sort = value);
-          _load(reset: true);
-        },
-        onFilter: _openFilter,
-      ),
-      Expanded(child: _body()),
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 59,
+          child: Material(
+            color: Colors.transparent,
+            elevation: 10,
+            shadowColor: const Color(0x240F172A),
+            child: _SearchSuggestionPanel(
+              keyword: search.text.trim(),
+              onSelected: (keyword, tab) =>
+                  _openSearch(keyword: keyword, initialTab: tab),
+            ),
+          ),
+        ),
+      ],
     ],
   );
 
@@ -242,6 +267,7 @@ class _DiscoverySearchEntry extends StatelessWidget {
   const _DiscoverySearchEntry({
     required this.controller,
     required this.focusNode,
+    required this.focused,
     required this.onChanged,
     required this.onSearch,
     required this.onClear,
@@ -249,6 +275,7 @@ class _DiscoverySearchEntry extends StatelessWidget {
 
   final TextEditingController controller;
   final FocusNode focusNode;
+  final bool focused;
   final ValueChanged<String> onChanged;
   final VoidCallback onSearch;
   final VoidCallback onClear;
@@ -257,54 +284,89 @@ class _DiscoverySearchEntry extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     color: Colors.white,
     padding: const EdgeInsets.fromLTRB(12, 8, 12, 9),
-    child: Container(
-      height: 42,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF3F6FA),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 12),
-          const Icon(LucideIcons.search, size: 18, color: AppColors.muted),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              focusNode: focusNode,
-              onChanged: onChanged,
-              onSubmitted: (_) => onSearch(),
-              textInputAction: TextInputAction.search,
-              style: const TextStyle(fontSize: 13.5),
-              decoration: const InputDecoration(
-                hintText: '搜索目的地、起点、路线或发起人',
-                border: InputBorder.none,
-                isCollapsed: true,
-                hintStyle: TextStyle(color: AppColors.muted),
+    child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: focusNode.requestFocus,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        height: 42,
+        decoration: BoxDecoration(
+          color: focused ? Colors.white : const Color(0xFFF3F6FA),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: focused ? AppColors.primary : Colors.transparent,
+            width: focused ? 1.4 : 1,
+          ),
+          boxShadow: focused
+              ? const [
+                  BoxShadow(
+                    color: Color(0x241A73E8),
+                    blurRadius: 10,
+                    offset: Offset(0, 3),
+                  ),
+                ]
+              : const [],
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 12),
+            Icon(
+              LucideIcons.search,
+              size: 18,
+              color: focused ? AppColors.primary : AppColors.muted,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: controller,
+                focusNode: focusNode,
+                onChanged: onChanged,
+                onSubmitted: (_) => onSearch(),
+                textInputAction: TextInputAction.search,
+                style: const TextStyle(fontSize: 13.5),
+                decoration: const InputDecoration(
+                  hintText: '搜索目的地、起点、路线或发起人',
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  isCollapsed: true,
+                  hintStyle: TextStyle(color: AppColors.muted),
+                ),
               ),
             ),
-          ),
-          if (controller.text.isNotEmpty)
-            IconButton(
-              onPressed: onClear,
-              visualDensity: VisualDensity.compact,
-              icon: const Icon(LucideIcons.circleX, size: 17),
+            if (controller.text.isNotEmpty)
+              IconButton(
+                onPressed: onClear,
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(LucideIcons.circleX, size: 17),
+              ),
+            Container(
+              width: 1,
+              height: 20,
+              color: focused
+                  ? const Color(0xFFBFD8FA)
+                  : const Color(0xFFDCE3EC),
             ),
-          Container(width: 1, height: 20, color: const Color(0xFFDCE3EC)),
-          TextButton(
-            onPressed: onSearch,
-            style: TextButton.styleFrom(
-              foregroundColor: AppColors.primary,
-              padding: const EdgeInsets.symmetric(horizontal: 13),
-              minimumSize: const Size(0, 42),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            TextButton(
+              onPressed: onSearch,
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                padding: const EdgeInsets.symmetric(horizontal: 13),
+                minimumSize: const Size(0, 42),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.horizontal(
+                    right: Radius.circular(11),
+                  ),
+                ),
+              ),
+              child: const Text(
+                '搜索',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+              ),
             ),
-            child: const Text(
-              '搜索',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     ),
   );
@@ -368,9 +430,8 @@ class _SearchSuggestionPanel extends StatelessWidget {
               icon: LucideIcons.userSearch,
             ),
           ];
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,

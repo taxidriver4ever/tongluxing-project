@@ -60,7 +60,7 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
     0 => '搜索目的地 / 城市 / 景点',
     1 => '搜索出发地 / 集合点',
     2 => '搜索路线 / 经停点 / 行程标题',
-    _ => '搜索昵称 / 用户 ID',
+    _ => '搜索昵称 / 同路行号',
   };
 
   String? get searchType => switch (tabIndex) {
@@ -75,6 +75,7 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
     super.initState();
     tabIndex = widget.initialTab.clamp(0, tabs.length - 1).toInt();
     search.text = widget.initialKeyword.trim();
+    searchFocus.addListener(_handleSearchFocusChanged);
     scroll.addListener(() {
       if (!showingUsers && scroll.position.extentAfter < 320) {
         _load(reset: false);
@@ -89,8 +90,14 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
   void dispose() {
     search.dispose();
     scroll.dispose();
-    searchFocus.dispose();
+    searchFocus
+      ..removeListener(_handleSearchFocusChanged)
+      ..dispose();
     super.dispose();
+  }
+
+  void _handleSearchFocusChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _submitSearch() async {
@@ -232,6 +239,7 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
             _SearchTopBar(
               controller: search,
               focusNode: searchFocus,
+              focused: searchFocus.hasFocus,
               placeholder: placeholder,
               onChanged: (_) => setState(() {}),
               onClear: () {
@@ -379,6 +387,7 @@ class _SearchTopBar extends StatelessWidget {
   const _SearchTopBar({
     required this.controller,
     required this.focusNode,
+    required this.focused,
     required this.placeholder,
     required this.onChanged,
     required this.onClear,
@@ -388,6 +397,7 @@ class _SearchTopBar extends StatelessWidget {
 
   final TextEditingController controller;
   final FocusNode focusNode;
+  final bool focused;
   final String placeholder;
   final ValueChanged<String> onChanged;
   final VoidCallback onClear;
@@ -406,59 +416,95 @@ class _SearchTopBar extends StatelessWidget {
           icon: const Icon(LucideIcons.chevronLeft, size: 27),
         ),
         Expanded(
-          child: Container(
-            height: 43,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF3F5F8),
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child: Row(
-              children: [
-                const SizedBox(width: 12),
-                const Icon(
-                  LucideIcons.search,
-                  size: 17,
-                  color: AppColors.muted,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: focusNode.requestFocus,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              height: 43,
+              decoration: BoxDecoration(
+                color: focused ? Colors.white : const Color(0xFFF3F5F8),
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(
+                  color: focused ? AppColors.primary : Colors.transparent,
+                  width: focused ? 1.4 : 1,
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: controller,
-                    focusNode: focusNode,
-                    autofocus: controller.text.isEmpty,
-                    onChanged: onChanged,
-                    onSubmitted: (_) => onSearch(),
-                    textInputAction: TextInputAction.search,
-                    style: const TextStyle(fontSize: 14),
-                    decoration: InputDecoration(
-                      hintText: placeholder,
-                      isCollapsed: true,
-                      border: InputBorder.none,
-                      hintStyle: const TextStyle(color: AppColors.muted),
+                boxShadow: focused
+                    ? const [
+                        BoxShadow(
+                          color: Color(0x241A73E8),
+                          blurRadius: 10,
+                          offset: Offset(0, 3),
+                        ),
+                      ]
+                    : const [],
+              ),
+              child: Row(
+                children: [
+                  const SizedBox(width: 12),
+                  Icon(
+                    LucideIcons.search,
+                    size: 17,
+                    color: focused ? AppColors.primary : AppColors.muted,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      autofocus: controller.text.isEmpty,
+                      onChanged: onChanged,
+                      onSubmitted: (_) => onSearch(),
+                      textInputAction: TextInputAction.search,
+                      style: const TextStyle(fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: placeholder,
+                        isCollapsed: true,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        hintStyle: const TextStyle(color: AppColors.muted),
+                      ),
                     ),
                   ),
-                ),
-                if (controller.text.isNotEmpty)
-                  IconButton(
-                    onPressed: onClear,
-                    visualDensity: VisualDensity.compact,
-                    icon: const Icon(LucideIcons.circleX, size: 17),
+                  if (controller.text.isNotEmpty)
+                    IconButton(
+                      onPressed: onClear,
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(LucideIcons.circleX, size: 17),
+                    ),
+                  Container(
+                    width: 1,
+                    height: 21,
+                    color: focused
+                        ? const Color(0xFFBFD8FA)
+                        : const Color(0xFFD9DEE6),
                   ),
-                Container(width: 1, height: 21, color: const Color(0xFFD9DEE6)),
-                TextButton(
-                  onPressed: onSearch,
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.text,
-                    minimumSize: const Size(58, 43),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  TextButton(
+                    onPressed: onSearch,
+                    style: TextButton.styleFrom(
+                      foregroundColor: focused
+                          ? AppColors.primary
+                          : AppColors.text,
+                      minimumSize: const Size(58, 43),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.horizontal(
+                          right: Radius.circular(10),
+                        ),
+                      ),
+                    ),
+                    child: const Text(
+                      '搜索',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                   ),
-                  child: const Text(
-                    '搜索',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -828,7 +874,7 @@ class _SearchUserRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${data['followerCount'] ?? 0} 粉丝 · ${data['totalTripCount'] ?? 0} 次行程',
+                  '${data['tongluxingId']?.toString().isNotEmpty == true ? '同路行号 ${data['tongluxingId']} · ' : ''}${data['followerCount'] ?? 0} 粉丝 · ${data['totalTripCount'] ?? 0} 次行程',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: AppColors.muted, fontSize: 12),

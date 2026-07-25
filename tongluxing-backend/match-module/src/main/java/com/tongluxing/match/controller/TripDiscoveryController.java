@@ -67,6 +67,15 @@ public class TripDiscoveryController {
                 minimumRemainingSeats, page, size));
     }
 
+    /** 查询指定用户仍处于公开招募状态的行程，供公开资料页使用。 */
+    @GetMapping("/users/{userId}/public")
+    public Result<TripDiscoverPageResponse> publicTripsByUser(
+            @PathVariable Long userId,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "10") Integer size) {
+        return Result.success(matchService.getPublicTripsByUser(userId, page, size));
+    }
+
     @GetMapping("/{tripId}/public-detail")
     public Result<TripPublicDetailResponse> publicDetail(@PathVariable Long tripId) {
         return Result.success(matchService.getPublicTripDetail(tripId));

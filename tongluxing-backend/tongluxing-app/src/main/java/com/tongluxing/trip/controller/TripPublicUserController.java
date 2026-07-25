@@ -1,35 +1,15 @@
 package com.tongluxing.trip.controller;
 
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
-
-import com.tongluxing.common.result.Result;
-import com.tongluxing.match.service.MatchService;
-import com.tongluxing.match.vo.TripDiscoverPageResponse;
-
-import lombok.RequiredArgsConstructor;
-
 /**
- * 用户公开主页中的公开行程查询接口。
+ * 兼容保留类。
  *
- * <p>控制器放在启动模块中，避免该接口因为只更新 trip-module、
- * 但未同步 match-module 控制器而缺失。实际查询仍由 MatchService 完成。</p>
+ * <p>公开用户行程接口已经迁移到 match-module 的
+ * {@code TripDiscoveryController}，避免接口只存在于启动模块时漏打包。
+ * 此类不再注册 Spring MVC 路由。</p>
  */
-@RestController
-@RequiredArgsConstructor
-@RequestMapping("/v1/trips/users")
-public class TripPublicUserController {
+@Deprecated
+public final class TripPublicUserController {
 
-    private final MatchService matchService;
-
-    @GetMapping("/{userId}/public")
-    public Result<TripDiscoverPageResponse> publicTripsByUser(
-            @PathVariable Long userId,
-            @RequestParam(defaultValue = "1") Integer page,
-            @RequestParam(defaultValue = "10") Integer size) {
-        return Result.success(matchService.getPublicTripsByUser(userId, page, size));
+    private TripPublicUserController() {
     }
 }

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -42,47 +43,77 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
   }
 
   Future<void> load() async {
-    try {
-      final api = context.read<AppSession>().api;
-      final homepageFuture = UserProfileService(api).homepage(widget.userId);
-      final publicTripsFuture = TripDiscoveryService(api)
-          .publicTripsByUser(widget.userId, size: 20)
-          .onError<ApiException>((error, stackTrace) {
-            if (error.statusCode == 404 || error.message.contains('No endpoint')) {
-              return <String, dynamic>{
-                'page': 1,
-                'size': 20,
-                'total': 0,
-                'records': <dynamic>[],
-              };
-            }
-            throw error;
-          });
-      final values = await Future.wait<dynamic>([
-        homepageFuture,
-        publicTripsFuture,
-      ]);
-      data = Map<String, dynamic>.from(values[0] as Map);
-      final tripsData = Map<String, dynamic>.from(values[1] as Map);
-      publicTrips = (tripsData['records'] as List? ?? const [])
-          .map(
-            (e) => TripDiscoverModel.fromJson(
-              Map<String, dynamic>.from(e as Map),
-            ),
-          )
-          .toList();
-      final profile = Map<String, dynamic>.from(
-        data?['profile'] as Map? ?? const {},
-      );
-      final avatarKey = profile['avatarImageKey']?.toString() ?? '';
-      avatarUrl = avatarKey.isEmpty
-          ? ''
-          : await StorageUploadService(api).downloadUrlByObjectKey(avatarKey);
-      error = null;
-    } catch (e) {
-      error = e.toString();
+    final api = context.read<AppSession>().api;
+    final owner = widget.userId == context.read<AppSession>().userId?.toString();
+    if (mounted) {
+      setState(() {
+        error = null;
+        data = null;
+        publicTrips = const [];
+        avatarUrl = '';
+      });
     }
-    if (mounted) setState(() {});
+
+    try {
+      final profileService = UserProfileService(api);
+      final profile = owner
+          ? await profileService.me()
+          : await profileService.publicProfile(widget.userId);
+
+      Map<String, dynamic> follow = <String, dynamic>{
+        'userId': widget.userId,
+        'following': false,
+        'followedByTarget': false,
+        'mutual': false,
+        'followerCount': 0,
+        'followingCount': 0,
+      };
+      try {
+        follow = await FollowService(api).status(widget.userId);
+      } catch (_) {
+        // 关注状态属于附加信息，读取失败时仍然展示公开资料卡片。
+      }
+
+      if (!mounted) return;
+      setState(() {
+        data = <String, dynamic>{'profile': profile, 'follow': follow};
+        error = null;
+      });
+
+      final avatarKey = profile['avatarImageKey']?.toString() ?? '';
+      if (avatarKey.isNotEmpty) {
+        try {
+          final value = await StorageUploadService(
+            api,
+          ).downloadUrlByObjectKey(avatarKey);
+          if (mounted) setState(() => avatarUrl = value);
+        } catch (_) {
+          // 头像签名失败时使用昵称占位头像，不阻断主页主体。
+        }
+      }
+
+      try {
+        final tripsData = await TripDiscoveryService(
+          api,
+        ).publicTripsByUser(widget.userId, size: 20);
+        final values = (tripsData['records'] as List? ?? const [])
+            .map(
+              (e) => TripDiscoverModel.fromJson(
+                Map<String, dynamic>.from(e as Map),
+              ),
+            )
+            .toList();
+        if (mounted) setState(() => publicTrips = values);
+      } catch (_) {
+        // 公开行程属于附加区域；接口异常时只显示空状态，不覆盖资料卡片。
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        data = null;
+        error = e.toString();
+      });
+    }
   }
 
   Future<void> _toggleFollow() async {
@@ -169,6 +200,15 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
     if (changed == true) await load();
   }
 
+  Future<void> _copyTongluxingId(String value) async {
+    if (value.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: value));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('同路行号已复制')),
+    );
+  }
+
   String _followText(Map<String, dynamic> follow) {
     if (follow['mutual'] == true) return '互相关注';
     if (follow['following'] == true) return '已关注';
@@ -185,6 +225,7 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
     final nickname = p['nickname']?.toString().trim().isNotEmpty == true
         ? p['nickname'].toString()
         : '同路行用户';
+    final tongluxingId = p['tongluxingId']?.toString().trim() ?? '';
     return Scaffold(
       backgroundColor: const Color(0xFFF3F5F8),
       body: data == null
@@ -271,6 +312,39 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                                               const Icon(LucideIcons.badgeCheck, color: Color(0xFF8CF5D1), size: 18),
                                           ],
                                         ),
+                                        if (tongluxingId.isNotEmpty) ...[
+                                          const SizedBox(height: 5),
+                                          InkWell(
+                                            onTap: () => _copyTongluxingId(tongluxingId),
+                                            borderRadius: BorderRadius.circular(6),
+                                            child: Padding(
+                                              padding: const EdgeInsets.symmetric(vertical: 1),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Flexible(
+                                                    child: Text(
+                                                      '同路行号：$tongluxingId',
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 12.5,
+                                                        fontWeight: FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  const Icon(
+                                                    LucideIcons.copy,
+                                                    size: 13,
+                                                    color: Colors.white70,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                         const SizedBox(height: 5),
                                         Text(
                                           p['cityName']?.toString().isNotEmpty == true

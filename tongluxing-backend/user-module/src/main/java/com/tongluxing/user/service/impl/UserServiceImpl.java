@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -55,10 +56,10 @@ public class UserServiceImpl implements UserService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     /** 当前用户完整资料缓存 Key。 */
-    private static final String PROFILE_CACHE = "user:cache:profile:%d";
+    private static final String PROFILE_CACHE = "user:cache:profile:v2:%d";
 
     /** 用户公开资料缓存 Key。 */
-    private static final String PUBLIC_CACHE = "user:cache:public-card:%d";
+    private static final String PUBLIC_CACHE = "user:cache:public-card:v2:%d";
 
     private final CurrentUserContext currentUserContext;
     private final UserDomainMapper mapper;
@@ -198,6 +199,9 @@ public class UserServiceImpl implements UserService {
      */
     @Override
     public PublicProfileVO getPublicProfile(Long userId) {
+        // 历史账号可能只有认证账号和行程数据，没有初始化 user_profile/user_privacy。
+        // 公开主页首次访问时补齐默认资料，避免合法用户被错误返回为“主页不存在”。
+        ensureProfile(userId);
         PublicProfileVO cached = cacheGet(PUBLIC_CACHE.formatted(userId), PublicProfileVO.class);
         if (cached != null) {
             return cached;
@@ -211,7 +215,8 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(ResultCode.NOT_FOUND, "用户主页不存在");
         }
         UserProfileVO profile = profile(row);
-        PublicProfileVO result = new PublicProfileVO(profile.userId(), profile.nickname(), profile.avatarImageKey(),
+        PublicProfileVO result = new PublicProfileVO(profile.userId(), profile.tongluxingId(),
+                profile.nickname(), profile.avatarImageKey(),
                 profile.cityName(), profile.bio(), profile.drivingLicenseCertificationStatus(),
                 row.getTotalTripCount(), row.getTotalDistanceMeters(), row.getTotalDurationMinutes(),
                 row.getCompletedWaypointCount());
@@ -231,7 +236,8 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(ResultCode.NOT_FOUND, "用户资料不存在");
         }
         UserProfileVO profile = profile(row);
-        return new PublicProfileVO(profile.userId(), profile.nickname(), profile.avatarImageKey(),
+        return new PublicProfileVO(profile.userId(), profile.tongluxingId(),
+                profile.nickname(), profile.avatarImageKey(),
                 profile.cityName(), profile.bio(), profile.drivingLicenseCertificationStatus(),
                 row.getTotalTripCount(), row.getTotalDistanceMeters(), row.getTotalDurationMinutes(),
                 row.getCompletedWaypointCount());
@@ -318,7 +324,8 @@ public class UserServiceImpl implements UserService {
                         (safePage - 1) * safeSize, safeSize).stream()
                 .map(row -> {
                     FollowStatusVO relation = followStatus(currentUserId, row.getUserId());
-                    return new UserSearchVO(row.getUserId(), row.getNickname(), row.getAvatarImageKey(),
+                    return new UserSearchVO(row.getUserId(), row.getTongluxingId(),
+                            row.getNickname(), row.getAvatarImageKey(),
                             row.getCityName(), row.getBio(), row.getCertificationStatus(),
                             row.getTotalTripCount(), row.getTotalDistanceMeters(),
                             relation.followerCount(), relation.followingCount(), relation.following(),
@@ -345,7 +352,8 @@ public class UserServiceImpl implements UserService {
      * 将数据库查询对象转换为接口返回的用户资料 VO。
      */
     private UserProfileVO profile(UserQueryDTO row) {
-        return new UserProfileVO(row.getUserId(), row.getNickname(), row.getAvatarImageKey(), row.getGender(),
+        return new UserProfileVO(row.getUserId(), row.getTongluxingId(),
+                row.getNickname(), row.getAvatarImageKey(), row.getGender(),
                 row.getBirthday(), row.getCityCode(), row.getCityName(), row.getBio(),
                 row.getProfileStatus(), row.getCertificationStatus());
     }
@@ -357,14 +365,26 @@ public class UserServiceImpl implements UserService {
      * 因为说明其他请求已经完成初始化。</p>
      */
     private void ensureProfile(long userId) {
-        if (mapper.findProfile(userId) == null) {
+        UserQueryDTO profile = mapper.findProfile(userId);
+        String tongluxingId = generateTongluxingId(userId);
+        if (profile == null) {
             try {
-                mapper.insertProfile(SnowflakeIdGenerator.nextId(), userId, LocalDateTime.now());
+                mapper.insertProfile(SnowflakeIdGenerator.nextId(), userId, tongluxingId, LocalDateTime.now());
             } catch (DuplicateKeyException ignored) {
                 // 其他并发请求已创建默认资料，后续查询可以直接使用。
             }
+        } else if (profile.getTongluxingId() == null || profile.getTongluxingId().isBlank()) {
+            mapper.updateTongluxingId(userId, tongluxingId, LocalDateTime.now());
         }
         ensurePrivacy(userId);
+    }
+
+    /**
+     * 根据内部 userId 生成稳定、全局唯一且不可变的同路行号。
+     * 使用 36 进制缩短展示长度，TLX 前缀用于和手机号、数据库主键区分。
+     */
+    private String generateTongluxingId(long userId) {
+        return "TLX" + Long.toString(userId, 36).toUpperCase(Locale.ROOT);
     }
 
     /**

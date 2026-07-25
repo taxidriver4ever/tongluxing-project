@@ -129,7 +129,7 @@ public final class UserModels {
      * 当前用户完整资料返回对象。
      */
     public record UserProfileVO(
-            Long userId, String nickname, String avatarImageKey, Integer gender, LocalDate birthday,
+            Long userId, String tongluxingId, String nickname, String avatarImageKey, Integer gender, LocalDate birthday,
             String cityCode, String cityName, String bio, String profileStatus, String drivingLicenseCertificationStatus
     ) {
     }
@@ -163,13 +163,23 @@ public final class UserModels {
      * <p>只包含允许公开展示的基础信息。</p>
      */
     public record PublicProfileVO(
-            Long userId, String nickname, String avatarImageKey, String cityName, String bio,
+            Long userId, String tongluxingId, String nickname, String avatarImageKey, String cityName, String bio,
             String drivingLicenseCertificationStatus, Integer totalTripCount, Long totalDistanceMeters,
             Long totalDurationMinutes, Integer completedWaypointCount
     ) {
         public PublicProfileVO(Long userId, String nickname, String avatarImageKey, String cityName, String bio,
                                String drivingLicenseCertificationStatus) {
-            this(userId, nickname, avatarImageKey, cityName, bio, drivingLicenseCertificationStatus, 0, 0L, 0L, 0);
+            this(userId, null, nickname, avatarImageKey, cityName, bio,
+                    drivingLicenseCertificationStatus, 0, 0L, 0L, 0);
+        }
+
+        public PublicProfileVO(Long userId, String nickname, String avatarImageKey, String cityName, String bio,
+                               String drivingLicenseCertificationStatus, Integer totalTripCount,
+                               Long totalDistanceMeters, Long totalDurationMinutes,
+                               Integer completedWaypointCount) {
+            this(userId, null, nickname, avatarImageKey, cityName, bio,
+                    drivingLicenseCertificationStatus, totalTripCount, totalDistanceMeters,
+                    totalDurationMinutes, completedWaypointCount);
         }
     }
 
@@ -190,7 +200,7 @@ public final class UserModels {
 
     /** 发起人搜索结果，包含公开资料摘要和当前用户的关注关系。 */
     public record UserSearchVO(
-            Long userId, String nickname, String avatarImageKey, String cityName, String bio,
+            Long userId, String tongluxingId, String nickname, String avatarImageKey, String cityName, String bio,
             String certificationStatus, Integer totalTripCount, Long totalDistanceMeters,
             Long followerCount, Long followingCount,
             Boolean following, Boolean followedByTarget, Boolean mutual

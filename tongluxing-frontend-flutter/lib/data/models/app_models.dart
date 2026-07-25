@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class LoginSession {
   const LoginSession({required this.token, this.refreshToken, this.userId});
   final String token;
@@ -150,15 +152,23 @@ class TripDraftRouteModel {
   const TripDraftRouteModel({
     required this.status,
     required this.points,
+    this.routePolyline = '',
     this.distanceMeters,
     this.durationMinutes,
     this.providerType,
   });
   final String status;
   final List<LocationSelection> points;
+  final String routePolyline;
   final int? distanceMeters;
   final int? durationMinutes;
   final String? providerType;
+
+  List<LocationSelection> get polylinePoints {
+    final parsed = parseRoutePolyline(routePolyline);
+    return parsed.length >= 2 ? parsed : points;
+  }
+
   factory TripDraftRouteModel.fromJson(Map<String, dynamic> json) {
     final points = <LocationSelection>[];
     if (json['startLocation'] is Map) {
@@ -180,11 +190,15 @@ class TripDraftRouteModel {
         ),
       );
     }
+    final durationSeconds = _int(json['estimatedDuration']);
     return TripDraftRouteModel(
       status: json['status']?.toString() ?? 'STALE',
       points: points,
+      routePolyline: json['polyline']?.toString() ?? '',
       distanceMeters: _int(json['totalDistance']),
-      durationMinutes: _int(json['estimatedDuration']),
+      durationMinutes: durationSeconds == null
+          ? null
+          : (durationSeconds / 60).ceil(),
       providerType: json['providerType']?.toString(),
     );
   }
@@ -225,6 +239,17 @@ class TripModel {
   final LocationSelection? startLocation;
   final LocationSelection? endLocation;
   final String? routePolyline;
+
+  List<LocationSelection> get routePoints {
+    final parsed = parseRoutePolyline(routePolyline);
+    if (parsed.length >= 2) return parsed;
+    return [
+      if (startLocation != null) startLocation!,
+      ...waypoints,
+      if (endLocation != null) endLocation!,
+    ];
+  }
+
   factory TripModel.fromJson(Map<String, dynamic> json) => TripModel(
     id: json['tripId']?.toString() ?? json['id']?.toString() ?? '',
     title: json['title']?.toString() ?? '未命名行程',
@@ -607,6 +632,8 @@ class TripPublicDetailModel {
   final bool joinable;
   final bool favorited;
 
+  List<LocationSelection> get routePoints => parseRoutePolyline(routePolyline);
+
   factory TripPublicDetailModel.fromJson(Map<String, dynamic> json) {
     final owner = DiscoverOwnerModel.fromJson(
       Map<String, dynamic>.from(json['owner'] as Map? ?? const {}),
@@ -807,6 +834,44 @@ class VehicleAuthStatusModel {
         submitTime: DateTime.tryParse(json['submitTime']?.toString() ?? ''),
         auditTime: DateTime.tryParse(json['auditTime']?.toString() ?? ''),
       );
+}
+
+List<LocationSelection> parseRoutePolyline(String? raw) {
+  final source = raw?.trim() ?? '';
+  if (source.isEmpty) return const [];
+  try {
+    final decoded = jsonDecode(source);
+    if (decoded is List) {
+      return decoded
+          .whereType<Map>()
+          .map(
+            (value) => LocationSelection.fromJson(
+              Map<String, dynamic>.from(value),
+            ),
+          )
+          .where((point) => point.latitude != 0 || point.longitude != 0)
+          .toList(growable: false);
+    }
+  } catch (_) {
+    // 兼容历史上可能保存的 "lng,lat;lng,lat" 紧凑格式。
+  }
+  final points = <LocationSelection>[];
+  for (final pair in source.split(';')) {
+    final values = pair.split(',');
+    if (values.length != 2) continue;
+    final longitude = double.tryParse(values[0].trim());
+    final latitude = double.tryParse(values[1].trim());
+    if (latitude == null || longitude == null) continue;
+    points.add(
+      LocationSelection(
+        name: '',
+        address: '',
+        latitude: latitude,
+        longitude: longitude,
+      ),
+    );
+  }
+  return points;
 }
 
 int? _int(dynamic value) =>

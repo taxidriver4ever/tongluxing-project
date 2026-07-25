@@ -22,6 +22,8 @@ import com.tongluxing.map.dto.RoutePlanRequest;
 import com.tongluxing.map.entity.MapLocationSearchLog;
 import com.tongluxing.map.entity.MapLocationCatalog;
 import com.tongluxing.map.entity.MapRoutePlan;
+import com.tongluxing.map.integration.AmapRouteClient;
+import com.tongluxing.map.integration.AmapRouteClient.AmapRouteResult;
 import com.tongluxing.map.mapper.MapLocationSearchLogMapper;
 import com.tongluxing.map.mapper.MapLocationCatalogMapper;
 import com.tongluxing.map.mapper.MapRoutePlanMapper;
@@ -38,15 +40,15 @@ import lombok.RequiredArgsConstructor;
 /**
  * 地图业务服务实现。
  *
- * <p>当前使用 MOCK 服务商：路线距离通过经纬度球面距离估算，路线结果按路线点 hash 缓存到 MySQL。
- * 后续接入真实地图服务商时，可保留接口形态和缓存结构。</p>
+ * <p>路线规划通过高德 Web 服务完成，结果按路线点 hash 缓存到 MySQL，供草稿预览、
+ * 发现详情、行程导航和偏航检测统一复用。</p>
  */
 @Service
 @RequiredArgsConstructor
 public class MapServiceImpl implements MapService {
 
     /** 当前地图服务商标识。 */
-    private static final String PROVIDER_TYPE = "MOCK_V2";
+    private static final String PROVIDER_TYPE = "AMAP_WEB_V5";
 
     /** 路线规划 Mapper。 */
     private final MapRoutePlanMapper routePlanMapper;
@@ -56,6 +58,8 @@ public class MapServiceImpl implements MapService {
     private final MapLocationCatalogMapper locationCatalogMapper;
     /** 当前登录用户上下文。 */
     private final CurrentUserContext currentUserContext;
+    /** 高德驾车路线规划客户端。 */
+    private final AmapRouteClient amapRouteClient;
     /** JSON 工具，用于路线点和路线结果序列化。 */
     private final ObjectMapper objectMapper;
 
@@ -80,11 +84,14 @@ public class MapServiceImpl implements MapService {
             return toRouteResponse(cached, points);
         }
 
-        // MOCK 实现：按球面距离估算总里程，并用固定速度估算时长。
-        int distance = estimateDistance(points);
-        int duration = distance == 0 ? 0 : Math.max(1, distance / 800);
-        String routePolyline = toJson(buildMockPolyline(points));
-        String resultJson = toJson(new RoutePlanResult(distance, duration, routePolyline));
+        List<LocationDto> waypoints = points.size() <= 2
+                ? List.of()
+                : List.copyOf(points.subList(1, points.size() - 1));
+        AmapRouteResult amapResult = amapRouteClient.planDriving(
+                points.get(0), points.get(points.size() - 1), waypoints);
+        String routePolyline = toJson(amapResult.polyline());
+        String resultJson = toJson(new RoutePlanResult(
+                amapResult.distanceMeters(), amapResult.durationSeconds(), routePolyline));
         LocalDateTime now = LocalDateTime.now();
         MapRoutePlan plan = new MapRoutePlan();
         plan.setId(SnowflakeIdGenerator.nextId());
@@ -205,13 +212,13 @@ public class MapServiceImpl implements MapService {
         return limit == null ? 20 : Math.max(1, Math.min(limit, 50));
     }
 
-    /** 查询附近地图标记；当前返回当前位置模拟点。 */
+    /** 查询附近地图标记；当前保留本地当前位置占位实现。 */
     @Override
     public NearbyMapResponse getNearby(String latitude, String longitude, Integer radiusMeters) {
         BigDecimal lat = parseDecimal(latitude, "纬度不能为空");
         BigDecimal lng = parseDecimal(longitude, "经度不能为空");
         return new NearbyMapResponse(List.of(
-                new MapMarkerResponse("mock-current", "CURRENT", "当前位置", radiusMeters + "米范围", lat, lng)
+                new MapMarkerResponse("current", "CURRENT", "当前位置", radiusMeters + "米范围", lat, lng)
         ));
     }
 
@@ -256,46 +263,6 @@ public class MapServiceImpl implements MapService {
         } catch (NumberFormatException exception) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "经纬度格式错误");
         }
-    }
-
-    /**
-     * 生成可用于导航预览、偏航检测和轨迹回放的 MOCK polyline。
-     * 每一段插入若干线性采样点，后续接入高德时只需替换服务商实现。
-     */
-    private List<LocationDto> buildMockPolyline(List<LocationDto> routePoints) {
-        List<LocationDto> polyline = new ArrayList<>();
-        for (int i = 0; i < routePoints.size() - 1; i++) {
-            LocationDto from = routePoints.get(i);
-            LocationDto to = routePoints.get(i + 1);
-            int segmentDistance = haversineMeters(from, to);
-            int steps = Math.max(2, Math.min(40, segmentDistance / 5000 + 2));
-            for (int step = 0; step < steps; step++) {
-                if (i > 0 && step == 0) {
-                    continue;
-                }
-                double ratio = (double) step / (steps - 1);
-                BigDecimal latitude = BigDecimal.valueOf(
-                        from.latitude().doubleValue()
-                                + (to.latitude().doubleValue() - from.latitude().doubleValue()) * ratio);
-                BigDecimal longitude = BigDecimal.valueOf(
-                        from.longitude().doubleValue()
-                                + (to.longitude().doubleValue() - from.longitude().doubleValue()) * ratio);
-                polyline.add(new LocationDto(step == 0 ? from.name() : "", "", latitude, longitude));
-            }
-        }
-        if (polyline.isEmpty() && !routePoints.isEmpty()) {
-            polyline.add(routePoints.get(0));
-        }
-        return polyline;
-    }
-
-    /** 估算路线所有相邻点之间的总距离，单位米。 */
-    private int estimateDistance(List<LocationDto> points) {
-        int total = 0;
-        for (int i = 1; i < points.size(); i++) {
-            total += haversineMeters(points.get(i - 1), points.get(i));
-        }
-        return total;
     }
 
     /** 使用 haversine 公式估算两个经纬度点之间的球面距离。 */

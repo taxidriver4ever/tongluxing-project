@@ -1,17 +1,19 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:math' as math;
 
+import 'package:amap_map/amap_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:x_amap_base/x_amap_base.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/routes.dart';
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
+import '../widgets/route_map_view.dart';
 
 class TripNavigationPage extends StatefulWidget {
   const TripNavigationPage({required this.trip, super.key});
@@ -28,11 +30,11 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
   bool ending = false;
   bool voiceEnabled = true;
   bool uploadingTrack = false;
-  bool mockingDeviation = false;
   int trackedDistanceMeters = 0;
   int deviationStatus = 0;
   int deviationDistance = 0;
   DateTime? lastDeviationAnnouncement;
+  DateTime? lastTrackUploadAt;
   Timer? trackTimer;
 
   @override
@@ -57,22 +59,65 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
 
   Future<void> _uploadCurrentPoint() async {
     if (uploadingTrack || !mounted) return;
-    uploadingTrack = true;
+    final lastUpload = lastTrackUploadAt;
+    if (lastUpload != null &&
+        DateTime.now().difference(lastUpload) < const Duration(seconds: 10)) {
+      return;
+    }
     try {
       final raw = await location.invokeMapMethod<String, dynamic>(
         'getCurrentLocation',
       );
       if (raw == null || !mounted) return;
+      await _uploadTrackValues(
+        longitude: (raw['longitude'] as num).toDouble(),
+        latitude: (raw['latitude'] as num).toDouble(),
+        speed: (raw['speed'] as num?)?.toDouble(),
+        direction: (raw['direction'] as num?)?.toDouble(),
+        accuracy: (raw['accuracy'] as num?)?.toDouble(),
+      );
+    } on PlatformException {
+      // 定位暂不可用时保留导航界面，下一周期自动重试。
+    }
+  }
+
+  Future<void> _handleAmapLocation(AMapLocation value) async {
+    if (!isLocationValid(value)) return;
+    final lastUpload = lastTrackUploadAt;
+    if (lastUpload != null &&
+        DateTime.now().difference(lastUpload) < const Duration(seconds: 10)) {
+      return;
+    }
+    await _uploadTrackValues(
+      longitude: value.latLng.longitude,
+      latitude: value.latLng.latitude,
+      speed: value.speed,
+      direction: value.bearing,
+      accuracy: value.accuracy,
+    );
+  }
+
+  Future<void> _uploadTrackValues({
+    required double longitude,
+    required double latitude,
+    double? speed,
+    double? direction,
+    double? accuracy,
+  }) async {
+    if (uploadingTrack || !mounted) return;
+    uploadingTrack = true;
+    try {
       final response = await TripService(context.read<AppSession>().api)
           .uploadTrackPoint(
             tripId: widget.trip.id,
-            longitude: (raw['longitude'] as num).toDouble(),
-            latitude: (raw['latitude'] as num).toDouble(),
-            speed: (raw['speed'] as num?)?.toDouble(),
-            direction: (raw['direction'] as num?)?.toDouble(),
-            accuracy: (raw['accuracy'] as num?)?.toDouble(),
+            longitude: longitude,
+            latitude: latitude,
+            speed: speed,
+            direction: direction,
+            accuracy: accuracy,
             recordTime: DateTime.now(),
           );
+      lastTrackUploadAt = DateTime.now();
       if (!mounted) return;
       setState(() {
         trackedDistanceMeters =
@@ -84,37 +129,62 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
       });
       await _notifyDeviationIfNeeded();
       _notifySettlement(response);
-    } on PlatformException {
-      // 定位暂不可用时保留导航界面，下一周期自动重试。
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text('轨迹同步失败：$error')));
+      }
     } finally {
       uploadingTrack = false;
     }
   }
 
-  Future<void> _mockDeviation() async {
-    if (mockingDeviation) return;
-    setState(() => mockingDeviation = true);
+  Future<void> _openAmapNavigation() async {
+    final points = _routePoints;
+    if (points.length < 2) return;
+    final start = points.first;
+    final end = points.last;
+    final nativeUri = Uri(
+      scheme: 'amapuri',
+      host: 'route',
+      path: '/plan/',
+      queryParameters: {
+        'sourceApplication': '同路行',
+        'sid': 'TLX_START',
+        'slat': '${start.latitude}',
+        'slon': '${start.longitude}',
+        'sname': widget.trip.startName,
+        'did': 'TLX_END',
+        'dlat': '${end.latitude}',
+        'dlon': '${end.longitude}',
+        'dname': widget.trip.endName,
+        'dev': '0',
+        't': '0',
+      },
+    );
     try {
-      final nextStatus = deviationStatus == 0 ? 1 : 0;
-      final response = await TripService(
-        context.read<AppSession>().api,
-      ).mockDeviation(widget.trip.id, status: nextStatus);
-      if (!mounted) return;
-      setState(() {
-        deviationStatus =
-            (response['deviationStatus'] as num?)?.toInt() ?? nextStatus;
-        deviationDistance =
-            (response['deviationDistance'] as num?)?.toInt() ?? 0;
-      });
-      await _notifyDeviationIfNeeded(force: true);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
+      if (await launchUrl(nativeUri, mode: LaunchMode.externalApplication)) {
+        return;
       }
-    } finally {
-      if (mounted) setState(() => mockingDeviation = false);
+      final webUri = Uri.https('uri.amap.com', '/navigation', {
+        'to': '${end.longitude},${end.latitude},${widget.trip.endName}',
+        'mode': 'car',
+        'policy': '1',
+        'src': 'tongluxing',
+        'coordinate': 'gaode',
+        'callnative': '1',
+      });
+      if (await launchUrl(webUri, mode: LaunchMode.externalApplication)) {
+        return;
+      }
+    } catch (_) {
+      // 统一在下方提示，避免第三方应用未安装时抛错中断导航页。
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('无法打开高德导航，请确认已安装高德地图')),
+      );
     }
   }
 
@@ -154,31 +224,15 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
         : '${widget.trip.startName}出发，途经$stops，前往${widget.trip.endName}';
   }
 
-  List<LocationSelection> get _routePoints {
-    final raw = widget.trip.routePolyline;
-    if (raw != null && raw.trim().isNotEmpty) {
-      try {
-        final values = jsonDecode(raw);
-        if (values is List) {
-          final points = values
-              .whereType<Map>()
-              .map(
-                (value) => LocationSelection.fromJson(
-                  Map<String, dynamic>.from(value),
-                ),
-              )
-              .where((point) => point.latitude != 0 || point.longitude != 0)
-              .toList();
-          if (points.length >= 2) return points;
-        }
-      } catch (_) {
-        // 历史 polyline 无法解析时使用起点、途经点和终点兜底。
-      }
-    }
-    return [
-      if (widget.trip.startLocation != null) widget.trip.startLocation!,
+  List<LocationSelection> get _routePoints => widget.trip.routePoints;
+
+  List<LocationSelection> get _routeStops {
+    final points = _routePoints;
+    if (points.length < 2) return const <LocationSelection>[];
+    return <LocationSelection>[
+      widget.trip.startLocation ?? points.first,
       ...widget.trip.waypoints,
-      if (widget.trip.endLocation != null) widget.trip.endLocation!,
+      widget.trip.endLocation ?? points.last,
     ];
   }
 
@@ -348,9 +402,13 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
         fit: StackFit.expand,
         children: [
           Positioned.fill(
-            child: Container(
-              color: const Color(0xFFEAF2FF),
-              child: CustomPaint(painter: _NavPainter(_routePoints)),
+            child: RouteMapView(
+              polylinePoints: _routePoints,
+              stops: _routeStops,
+              height: MediaQuery.sizeOf(context).height,
+              showMyLocation: true,
+              trafficEnabled: true,
+              onLocationChanged: _handleAmapLocation,
             ),
           ),
           Positioned(
@@ -489,15 +547,9 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: mockingDeviation ? null : _mockDeviation,
-                      icon: const Icon(LucideIcons.flaskConical, size: 18),
-                      label: Text(
-                        mockingDeviation
-                            ? '模拟中…'
-                            : deviationStatus > 0
-                            ? '结束偏航模拟'
-                            : '联调：模拟偏航提醒',
-                      ),
+                      onPressed: _openAmapNavigation,
+                      icon: const Icon(LucideIcons.navigation, size: 18),
+                      label: const Text('打开高德地图继续导航'),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -533,74 +585,4 @@ class _Metric extends StatelessWidget {
       Text(label, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
     ],
   );
-}
-
-class _NavPainter extends CustomPainter {
-  const _NavPainter(this.points);
-  final List<LocationSelection> points;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final routePaint = Paint()
-      ..color = AppColors.primary
-      ..strokeWidth = 9
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    final shadowPaint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 15
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    if (points.length < 2) {
-      final fallback = Path()
-        ..moveTo(size.width * .2, size.height)
-        ..cubicTo(
-          size.width * .1,
-          size.height * .7,
-          size.width * .85,
-          size.height * .55,
-          size.width * .55,
-          0,
-        );
-      canvas.drawPath(fallback, shadowPaint);
-      canvas.drawPath(fallback, routePaint);
-      return;
-    }
-
-    final minLat = points.map((e) => e.latitude).reduce(math.min);
-    final maxLat = points.map((e) => e.latitude).reduce(math.max);
-    final minLng = points.map((e) => e.longitude).reduce(math.min);
-    final maxLng = points.map((e) => e.longitude).reduce(math.max);
-    final latSpan = math.max(0.000001, maxLat - minLat);
-    final lngSpan = math.max(0.000001, maxLng - minLng);
-    const horizontalPadding = 42.0;
-    const topPadding = 240.0;
-    const bottomPadding = 210.0;
-    final drawHeight = math.max(
-      100.0,
-      size.height - topPadding - bottomPadding,
-    );
-    final drawWidth = math.max(100.0, size.width - horizontalPadding * 2);
-
-    Offset mapPoint(LocationSelection point) => Offset(
-      horizontalPadding + (point.longitude - minLng) / lngSpan * drawWidth,
-      topPadding + (maxLat - point.latitude) / latSpan * drawHeight,
-    );
-
-    final path = Path()
-      ..moveTo(mapPoint(points.first).dx, mapPoint(points.first).dy);
-    for (final point in points.skip(1)) {
-      final offset = mapPoint(point);
-      path.lineTo(offset.dx, offset.dy);
-    }
-    canvas.drawPath(path, shadowPaint);
-    canvas.drawPath(path, routePaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _NavPainter oldDelegate) =>
-      oldDelegate.points != points;
 }

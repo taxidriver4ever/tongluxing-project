@@ -14,6 +14,7 @@ import '../../profile/widgets/user_avatar.dart';
 import 'trip_detail_page.dart';
 import 'trip_discovery_widgets.dart';
 import '../widgets/trip_discovery_theme.dart';
+import '../widgets/route_map_view.dart';
 
 class TripDiscoveryDetailPage extends StatefulWidget {
   const TripDiscoveryDetailPage({
@@ -337,6 +338,10 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
                               ).then((_) => load()),
                             ),
                             const SizedBox(height: 9),
+                            if (current.routePoints.length >= 2) ...[
+                              _TripRouteMapCard(detail: current),
+                              const SizedBox(height: 9),
+                            ],
                             _TripInformationCard(detail: current),
                           ],
                         ],
@@ -787,6 +792,76 @@ class _BadgeDot extends StatelessWidget {
         fontSize: 9,
         fontWeight: FontWeight.w900,
       ),
+    ),
+  );
+}
+
+class _TripRouteMapCard extends StatelessWidget {
+  const _TripRouteMapCard({required this.detail});
+
+  final TripPublicDetailModel detail;
+
+  @override
+  Widget build(BuildContext context) => _WhiteCard(
+    padding: const EdgeInsets.fromLTRB(12, 13, 12, 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 3),
+          child: Row(
+            children: [
+              Icon(
+                LucideIcons.route,
+                color: TripDiscoveryColors.primary,
+                size: 19,
+              ),
+              SizedBox(width: 8),
+              Text(
+                '完整路线',
+                style: TextStyle(
+                  color: TripDiscoveryColors.text,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        RouteMapView(
+          polylinePoints: detail.routePoints,
+          stops: [
+            LocationSelection(
+              name: detail.trip.startName,
+              address: '',
+              latitude: detail.routePoints.first.latitude,
+              longitude: detail.routePoints.first.longitude,
+            ),
+            LocationSelection(
+              name: detail.trip.endName,
+              address: '',
+              latitude: detail.routePoints.last.latitude,
+              longitude: detail.routePoints.last.longitude,
+            ),
+          ],
+          height: 230,
+          interactive: true,
+        ),
+        const SizedBox(height: 10),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: Text(
+            '${(detail.routeDistanceMeters / 1000).toStringAsFixed(1)} km · '
+            '预计 ${(detail.routeDurationSeconds / 60).ceil()} 分钟 · 高德驾车路线',
+            style: const TextStyle(
+              color: TripDiscoveryColors.secondaryText,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
     ),
   );
 }

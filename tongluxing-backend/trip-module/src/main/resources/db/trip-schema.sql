@@ -24,7 +24,7 @@ create table if not exists trip (
     route_polyline_key varchar(512) null,
     route_distance int null,
     route_duration int null,
-    route_polyline text null,
+    route_polyline mediumtext null,
     waypoints_json text null,
     departure_time datetime not null,
     estimated_days int null,
@@ -44,6 +44,10 @@ create table if not exists trip (
     key idx_trip_public_status_time (public_flag, status, departure_time),
     key idx_trip_vehicle (vehicle_id)
 );
+
+-- 兼容已创建的开发数据库：真实驾车路线点数量可能超过 TEXT 容量。
+ALTER TABLE trip
+  MODIFY COLUMN route_polyline MEDIUMTEXT NULL;
 
 create table if not exists trip_route (
     id bigint primary key,

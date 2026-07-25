@@ -32,6 +32,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
   LocationSelection? end;
   final List<LocationSelection> waypoints = [];
   bool submitting = false;
+  bool routePlanning = false;
   String? draftId;
   TripDraftRouteModel? route;
   final List<String> persistedWaypointIds = [];
@@ -85,7 +86,15 @@ class _TripCreatePageState extends State<TripCreatePage> {
       _showMessage(conflict);
       return;
     }
-    setState(() => isStart ? start = value : end = value);
+    setState(() {
+      if (isStart) {
+        start = value;
+      } else {
+        end = value;
+      }
+      route = null;
+    });
+    await _planRouteIfReady();
   }
 
   Future<void> _addWaypoint() async {
@@ -96,7 +105,30 @@ class _TripCreatePageState extends State<TripCreatePage> {
       _showMessage(conflict);
       return;
     }
-    setState(() => waypoints.add(value));
+    setState(() {
+      waypoints.add(value);
+      route = null;
+    });
+    await _planRouteIfReady();
+  }
+
+  Future<void> _removeWaypoint(int index) async {
+    setState(() {
+      waypoints.removeAt(index);
+      route = null;
+    });
+    await _planRouteIfReady();
+  }
+
+  Future<void> _planRouteIfReady() async {
+    if (draftId == null || start == null || end == null || routePlanning) return;
+    if (_routeConflictMessage() != null) return;
+    setState(() => routePlanning = true);
+    try {
+      await _saveDraft(plan: true, manageSubmitting: false);
+    } finally {
+      if (mounted) setState(() => routePlanning = false);
+    }
   }
 
   String? _conflictForStart(LocationSelection value) {
@@ -523,30 +555,67 @@ class _TripCreatePageState extends State<TripCreatePage> {
                     label: '起点',
                     value: start?.name ?? '选择起点',
                     icon: LucideIcons.mapPin,
-                    onTap: () => _selectLocation(true),
+                    onTap: routePlanning ? null : () => _selectLocation(true),
                   ),
                   const SizedBox(height: 14),
                   _PlaceButton(
                     label: '终点',
                     value: end?.name ?? '选择终点',
                     icon: LucideIcons.flag,
-                    onTap: () => _selectLocation(false),
+                    onTap: routePlanning ? null : () => _selectLocation(false),
                   ),
                   const SizedBox(height: 22),
-                  Container(
-                    height: 230,
-                    decoration: BoxDecoration(
-                      color: AppColors.primarySoft,
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: const Center(
-                      child: Icon(
-                        LucideIcons.route,
-                        size: 54,
-                        color: AppColors.primary,
+                  if (_routePoints.length >= 2)
+                    Stack(
+                      children: [
+                        TripRoutePreview(
+                          points: _routePoints,
+                          route: route,
+                          mapOnly: true,
+                          mapHeight: 230,
+                        ),
+                        if (routePlanning)
+                          const Positioned.fill(
+                            child: ColoredBox(
+                              color: Color(0x55FFFFFF),
+                              child: Center(child: CircularProgressIndicator()),
+                            ),
+                          ),
+                      ],
+                    )
+                  else
+                    Container(
+                      height: 230,
+                      decoration: BoxDecoration(
+                        color: AppColors.primarySoft,
+                        borderRadius: BorderRadius.circular(22),
+                      ),
+                      child: const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              LucideIcons.route,
+                              size: 54,
+                              color: AppColors.primary,
+                            ),
+                            SizedBox(height: 10),
+                            Text('选择起点和终点后自动规划'),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
+                  if (route != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      '高德已规划 ${((route!.distanceMeters ?? 0) / 1000).toStringAsFixed(1)} km，'
+                      '预计 ${route!.durationMinutes ?? 0} 分钟',
+                      style: const TextStyle(
+                        color: AppColors.secondaryText,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ],
               ),
               _StepPage(
@@ -559,13 +628,25 @@ class _TripCreatePageState extends State<TripCreatePage> {
                       child: _WaypointTile(
                         index: entry.key,
                         location: entry.value,
-                        onDelete: () =>
-                            setState(() => waypoints.removeAt(entry.key)),
+                        onDelete: routePlanning
+                            ? null
+                            : () => _removeWaypoint(entry.key),
                       ),
                     ),
                   ),
+                  if (_routePoints.length >= 2) ...[
+                    TripRoutePreview(
+                      points: _routePoints,
+                      route: route,
+                      mapOnly: true,
+                      mapHeight: 190,
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   OutlinedButton.icon(
-                    onPressed: waypoints.length < 5 ? _addWaypoint : null,
+                    onPressed: waypoints.length < 5 && !routePlanning
+                        ? _addWaypoint
+                        : null,
                     icon: const Icon(LucideIcons.plus),
                     label: const Text('添加经停点'),
                   ),
@@ -840,7 +921,7 @@ class _PlaceButton extends StatelessWidget {
   });
   final String label, value;
   final IconData icon;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
@@ -885,7 +966,7 @@ class _WaypointTile extends StatelessWidget {
   });
   final int index;
   final LocationSelection location;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(14),

@@ -56,6 +56,8 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     private static final String STATUS_RUNNING = "RUNNING";
     private static final int MILD_DEVIATION_METERS = 100;
     private static final int SEVERE_DEVIATION_METERS = 500;
+    private static final int RECOVERY_DEVIATION_METERS = 60;
+    private static final int MAX_RELIABLE_ACCURACY_METERS = 150;
     private static final int WAYPOINT_ARRIVAL_METERS = 200;
 
     private final CurrentUserContext currentUserContext;
@@ -220,8 +222,9 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     }
 
     private DriverDeviationRecord saveDeviation(Trip trip, DriverTrackPointRequest request, Long driverId, LocalDateTime now) {
-        int deviationDistance = calculateDeviationMeters(trip.getId(), request.latitude(), request.longitude());
-        int status = deviationDistance >= SEVERE_DEVIATION_METERS ? 2 : deviationDistance >= MILD_DEVIATION_METERS ? 1 : 0;
+        DriverDeviationRecord previous = deviationMapper.findLatest(trip.getId(), driverId);
+        DeviationReading reading = calculateDeviation(
+                trip.getId(), request.latitude(), request.longitude(), request.accuracy(), previous);
 
         DriverDeviationRecord record = new DriverDeviationRecord();
         record.setId(SnowflakeIdGenerator.nextId());
@@ -229,13 +232,47 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         record.setDriverId(driverId);
         record.setLongitude(request.longitude());
         record.setLatitude(request.latitude());
-        record.setDeviationDistance(deviationDistance);
-        record.setDeviationStatus(status);
+        record.setDeviationDistance(reading.distanceMeters());
+        record.setDeviationStatus(reading.status());
         record.setRecordTime(request.recordTime());
         record.setCreatedAt(now);
         record.setDeleted(0);
         deviationMapper.insert(record);
         return record;
+    }
+
+    /**
+     * 对真实路线进行偏航判定。
+     *
+     * <p>先扣除 GPS 精度半径，再通过连续两次轻度偏航与恢复阈值形成迟滞，避免高架、隧道和
+     * 定位瞬时漂移触发误报；严重偏航仍会立即告警。</p>
+     */
+    private DeviationReading calculateDeviation(
+            Long tripId, BigDecimal latitude, BigDecimal longitude, BigDecimal accuracy,
+            DriverDeviationRecord previous) {
+        int rawDistance = calculateDeviationMeters(tripId, latitude, longitude);
+        int accuracyMeters = accuracy == null ? 0 : Math.max(0, accuracy.intValue());
+        if (accuracyMeters > MAX_RELIABLE_ACCURACY_METERS) {
+            return previous == null
+                    ? new DeviationReading(0, 0)
+                    : new DeviationReading(previous.getDeviationDistance(), previous.getDeviationStatus());
+        }
+
+        int adjustedDistance = Math.max(0, rawDistance - accuracyMeters);
+        if (adjustedDistance >= SEVERE_DEVIATION_METERS) {
+            return new DeviationReading(adjustedDistance, 2);
+        }
+        if (adjustedDistance >= MILD_DEVIATION_METERS) {
+            boolean confirmed = previous != null
+                    && (previous.getDeviationStatus() > 0
+                    || previous.getDeviationDistance() >= MILD_DEVIATION_METERS);
+            return new DeviationReading(adjustedDistance, confirmed ? 1 : 0);
+        }
+        if (previous != null && previous.getDeviationStatus() > 0
+                && adjustedDistance >= RECOVERY_DEVIATION_METERS) {
+            return new DeviationReading(adjustedDistance, 1);
+        }
+        return new DeviationReading(adjustedDistance, 0);
     }
 
     private int calculateDeviationMeters(Long tripId, BigDecimal latitude, BigDecimal longitude) {
@@ -334,6 +371,9 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
                 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
         return (int) Math.round(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
+
+    private record DeviationReading(int distanceMeters, int status) {
     }
 
     private record WaypointArrival(Long waypointId, String waypointName, Integer points) {

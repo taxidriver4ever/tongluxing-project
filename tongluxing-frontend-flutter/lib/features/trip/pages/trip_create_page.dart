@@ -37,8 +37,9 @@ class TripCreatePage extends StatefulWidget {
 
 class _TripCreatePageState extends State<TripCreatePage> {
   static const _routeDebounce = Duration(milliseconds: 450);
-  static const double _routeSheetMinSize = .08;
-  static const double _routeSheetDefaultSize = .62;
+  static const double _routePanelCollapsedSize = .12;
+  static const double _routePanelInitialSize = .62;
+  static const double _routePanelExpandedSize = .88;
   static const _typeLabels = <String, String>{
     'MEETING': '集合点',
     'REST': '休息点',
@@ -50,11 +51,12 @@ class _TripCreatePageState extends State<TripCreatePage> {
   };
 
   final pageController = PageController();
-  final routeSheetController = DraggableScrollableController();
   final title = TextEditingController();
   final description = TextEditingController();
   final List<_WaypointDraft> waypoints = [];
   final List<String> persistedWaypointIds = [];
+  final routePanelController = DraggableScrollableController();
+  ScrollController? routePanelScrollController;
 
   int step = 0;
   int expectPeople = 5;
@@ -66,8 +68,6 @@ class _TripCreatePageState extends State<TripCreatePage> {
   bool submitting = false;
   bool routePlanning = false;
   bool routePlanQueued = false;
-  bool routePanelHidden = false;
-  int routeSheetAnimationLocks = 0;
   Timer? routeTimer;
   int routeGeneration = 0;
 
@@ -121,8 +121,8 @@ class _TripCreatePageState extends State<TripCreatePage> {
   @override
   void dispose() {
     routeTimer?.cancel();
+    routePanelController.dispose();
     pageController.dispose();
-    routeSheetController.dispose();
     title.dispose();
     description.dispose();
     super.dispose();
@@ -131,9 +131,16 @@ class _TripCreatePageState extends State<TripCreatePage> {
   TripService get _tripService => TripService(context.read<AppSession>().api);
 
   Future<LocationSelection?> _pickLocation() =>
-      Navigator.push<LocationSelection>(
-        context,
-        MaterialPageRoute(builder: (_) => const SearchLocationPage()),
+      showModalBottomSheet<LocationSelection>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        barrierColor: const Color(0x66000000),
+        builder: (_) => const FractionallySizedBox(
+          heightFactor: .92,
+          child: SearchLocationPage(embedded: true, autofocus: true),
+        ),
       );
 
   Future<void> _selectEndpoint({required bool isStart}) async {
@@ -191,92 +198,15 @@ class _TripCreatePageState extends State<TripCreatePage> {
 
   Future<void> _editWaypoint(int index) async {
     final current = waypoints[index];
-    final remark = TextEditingController(text: current.remark);
-    final stay = TextEditingController(text: '${current.stayMinutes}');
-    var type = _typeLabels.containsKey(current.type) ? current.type : 'NORMAL';
     final result = await showModalBottomSheet<_WaypointDraft>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          20,
-          20,
-          20 + MediaQuery.viewInsetsOf(sheetContext).bottom,
-        ),
-        child: StatefulBuilder(
-          builder: (context, setSheetState) => Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                current.location.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 18),
-              DropdownButtonFormField<String>(
-                value: type,
-                decoration: const InputDecoration(labelText: '节点类型'),
-                items: _typeLabels.entries
-                    .map(
-                      (entry) => DropdownMenuItem(
-                        value: entry.key,
-                        child: Text(entry.value),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  if (value != null) setSheetState(() => type = value);
-                },
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: stay,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: '预计停留时间（分钟）',
-                  hintText: '0 表示不设置',
-                ),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: remark,
-                maxLength: 255,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: '节点备注（选填）',
-                  hintText: '例如：在停车场入口集合',
-                  alignLabelWithHint: true,
-                ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () {
-                    final minutes = int.tryParse(stay.text.trim()) ?? 0;
-                    Navigator.pop(
-                      sheetContext,
-                      current.copyWith(
-                        type: type,
-                        stayMinutes: minutes.clamp(0, 1440).toInt(),
-                        remark: remark.text.trim(),
-                      ),
-                    );
-                  },
-                  child: const Text('保存节点设置'),
-                ),
-              ),
-            ],
-          ),
-        ),
+      builder: (_) => _WaypointEditorSheet(
+        current: current,
+        typeLabels: _typeLabels,
       ),
     );
-    remark.dispose();
-    stay.dispose();
     if (result == null || !mounted) return;
     setState(() => waypoints[index] = result);
     await _persistRoute(plan: false, showError: true);
@@ -691,57 +621,47 @@ class _TripCreatePageState extends State<TripCreatePage> {
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOut,
     );
-  }
-
-  Future<void> _animateRouteSheet(double size) async {
-    if (!routeSheetController.isAttached) {
-      final frame = Completer<void>();
-      WidgetsBinding.instance.addPostFrameCallback((_) => frame.complete());
-      await frame.future;
-    }
-    if (!mounted || !routeSheetController.isAttached) return;
-    try {
-      await routeSheetController.animateTo(
-        size,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-      );
-    } on FlutterError {
-      // 用户在动画过程中继续拖动卡片时，以用户手势为准。
-    }
-  }
-
-  void _hideRoutePanel() {
-    if (step != 0 || routePanelHidden) return;
-    routeSheetAnimationLocks++;
-    setState(() => routePanelHidden = true);
-    _animateRouteSheet(_routeSheetMinSize).whenComplete(() {
-      if (routeSheetAnimationLocks > 0) routeSheetAnimationLocks--;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _animateRoutePanel(_routePanelInitialSize);
     });
   }
 
-  void _showRoutePanel() {
-    if (step != 0) return;
-    routeSheetAnimationLocks++;
-    if (routePanelHidden) setState(() => routePanelHidden = false);
-    _animateRouteSheet(_routeSheetDefaultSize).whenComplete(() {
-      if (routeSheetAnimationLocks > 0) routeSheetAnimationLocks--;
-    });
-  }
-
-  bool _handleRouteSheetNotification(
-    DraggableScrollableNotification notification,
-  ) {
-    if (routeSheetAnimationLocks > 0) return false;
-    final hidden = notification.extent <= .14;
-    if (hidden != routePanelHidden) {
+  Future<void> _animateRoutePanel(double size) async {
+    if (!routePanelController.isAttached) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && routePanelHidden != hidden) {
-          setState(() => routePanelHidden = hidden);
-        }
+        if (mounted) _animateRoutePanel(size);
       });
+      return;
     }
-    return false;
+    await routePanelController.animateTo(
+      size,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _collapseRoutePanel() {
+    if (step != 0 || !mounted) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final scrollController = routePanelScrollController;
+    if (scrollController != null && scrollController.hasClients) {
+      scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    }
+    _animateRoutePanel(_routePanelCollapsedSize);
+  }
+
+  void _toggleRoutePanel() {
+    if (step != 0 || !routePanelController.isAttached) return;
+    final current = routePanelController.size;
+    _animateRoutePanel(
+      current <= _routePanelCollapsedSize + .05
+          ? _routePanelInitialSize
+          : _routePanelCollapsedSize,
+    );
   }
 
   List<LocationSelection> get _routePoints => [
@@ -795,7 +715,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
             children: [_buildRouteStep(), _buildPublishStep()],
           ),
         ),
-        _buildBottomActions(),
+        if (step == 1) _buildBottomActions(),
       ],
     ),
   );
@@ -811,11 +731,11 @@ class _TripCreatePageState extends State<TripCreatePage> {
                   mapOnly: true,
                   mapHeight: constraints.maxHeight,
                   interactive: true,
-                  onMapInteraction: _hideRoutePanel,
+                  onMapInteraction: _collapseRoutePanel,
                 )
               : GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: _hideRoutePanel,
+                  onTap: _collapseRoutePanel,
                   child: Container(
                     color: const Color(0xFFE9EEF5),
                     child: const Center(
@@ -869,179 +789,195 @@ class _TripCreatePageState extends State<TripCreatePage> {
             left: 14,
             child: _RoutePlanningBadge(),
           ),
-        NotificationListener<DraggableScrollableNotification>(
-          onNotification: _handleRouteSheetNotification,
-          child: DraggableScrollableSheet(
-            controller: routeSheetController,
-            initialChildSize: _routeSheetDefaultSize,
-            minChildSize: _routeSheetMinSize,
-            maxChildSize: .94,
-            snap: true,
-            snapSizes: const [
-              _routeSheetMinSize,
-              _routeSheetDefaultSize,
-              .94,
-            ],
-            builder: (context, scrollController) => Material(
-              color: const Color(0xFFFAFAFB),
-              elevation: 18,
-              shadowColor: const Color(0x33000000),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(28),
+        DraggableScrollableSheet(
+          controller: routePanelController,
+          initialChildSize: _routePanelInitialSize,
+          minChildSize: _routePanelCollapsedSize,
+          maxChildSize: _routePanelExpandedSize,
+          snap: true,
+          snapSizes: const [
+            _routePanelCollapsedSize,
+            _routePanelInitialSize,
+            _routePanelExpandedSize,
+          ],
+          builder: (context, scrollController) {
+            routePanelScrollController = scrollController;
+            return Material(
+            color: const Color(0xFFFAFAFB),
+            elevation: 18,
+            shadowColor: const Color(0x33000000),
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(28),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: ListView(
+              controller: scrollController,
+              keyboardDismissBehavior:
+                  ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.fromLTRB(
+                16,
+                0,
+                16,
+                MediaQuery.paddingOf(context).bottom + 22,
               ),
-              clipBehavior: Clip.antiAlias,
-              child: routePanelHidden
-                  ? _CollapsedRouteSheet(
-                      controller: scrollController,
-                      onExpand: _showRoutePanel,
-                    )
-                  : ListView(
-                      controller: scrollController,
-                      padding: const EdgeInsets.fromLTRB(16, 9, 16, 28),
+              children: [
+                InkWell(
+                  onTap: _toggleRoutePanel,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 9, bottom: 8),
+                    child: Column(
                       children: [
-                        Center(
-                          child: Container(
-                            width: 42,
-                            height: 5,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFD2D5DA),
-                              borderRadius: BorderRadius.circular(99),
-                            ),
+                        Container(
+                          width: 44,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFD2D5DA),
+                            borderRadius: BorderRadius.circular(99),
                           ),
                         ),
-                        const SizedBox(height: 14),
-                        const Row(
+                        const SizedBox(height: 8),
+                        Row(
                           children: [
-                            CircleAvatar(
-                              radius: 18,
-                              backgroundColor: Color(0xFFE8F1FF),
-                              child: Icon(
-                                LucideIcons.carFront,
-                                size: 19,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                            SizedBox(width: 10),
-                            Expanded(
+                            const Expanded(
                               child: Text(
-                                '驾车路线',
+                                '路线',
                                 style: TextStyle(
-                                  fontSize: 20,
+                                  fontSize: 22,
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
                             ),
-                            Text(
-                              '下拉收起 · 上拉查看更多',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: AppColors.muted,
-                              ),
+                            IconButton(
+                              tooltip: '收起路线卡片',
+                              onPressed: _collapseRoutePanel,
+                              icon: const Icon(LucideIcons.x, size: 25),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        _RouteEstimateCard(
-                          distance: _distanceText,
-                          duration: _durationText,
-                          waypointCount: waypoints.length,
-                        ),
-                        const SizedBox(height: 10),
-                        const _ReferenceRouteNotice(),
-                        const SizedBox(height: 12),
-                        _NodeEndpointTile(
-                          title: '出发点',
-                          value: start?.name ?? '选择出发点',
-                          subtitle: start?.address ?? '',
-                          icon: LucideIcons.circleDot,
-                          onTap: routePlanning
-                              ? null
-                              : () => _selectEndpoint(isStart: true),
-                        ),
-                        const Padding(
-                          padding: EdgeInsets.only(left: 25),
-                          child: SizedBox(
-                            height: 14,
-                            child: VerticalDivider(width: 1, thickness: 2),
-                          ),
-                        ),
-                        ReorderableListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          buildDefaultDragHandles: false,
-                          itemCount: waypoints.length,
-                          onReorder: _reorderWaypoint,
-                          itemBuilder: (context, index) {
-                            final item = waypoints[index];
-                            return Padding(
-                              key: ValueKey(item.localKey),
-                              padding: const EdgeInsets.only(bottom: 9),
-                              child: _WaypointTile(
-                                index: index,
-                                item: item,
-                                typeLabel:
-                                    _typeLabels[item.type] ?? '普通途经点',
-                                onReplace: routePlanning
-                                    ? null
-                                    : () => _replaceWaypoint(index),
-                                onEdit: routePlanning
-                                    ? null
-                                    : () => _editWaypoint(index),
-                                onDelete: routePlanning
-                                    ? null
-                                    : () => _removeWaypoint(index),
-                              ),
-                            );
-                          },
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: routePlanning || waypoints.length >= 5
-                              ? null
-                              : _addWaypoint,
-                          icon: const Icon(LucideIcons.plus),
-                          label: Text(
-                            waypoints.length >= 5
-                                ? '已达到 5 个停靠点上限'
-                                : '添加停靠点',
-                          ),
-                        ),
-                        const Padding(
-                          padding: EdgeInsets.only(left: 25),
-                          child: SizedBox(
-                            height: 14,
-                            child: VerticalDivider(width: 1, thickness: 2),
-                          ),
-                        ),
-                        _NodeEndpointTile(
-                          title: '目的地',
-                          value: end?.name ?? '选择目的地',
-                          subtitle: end?.address ?? '',
-                          icon: LucideIcons.flag,
-                          onTap: routePlanning
-                              ? null
-                              : () => _selectEndpoint(isStart: false),
-                        ),
                       ],
                     ),
+                  ),
+                ),
+                _RouteEstimateCard(
+                  distance: _distanceText,
+                  duration: _durationText,
+                  waypointCount: waypoints.length,
+                ),
+                const SizedBox(height: 10),
+                const _ReferenceRouteNotice(),
+                const SizedBox(height: 12),
+                _NodeEndpointTile(
+                  title: '出发点',
+                  value: start?.name ?? '选择出发点',
+                  subtitle: start?.address ?? '',
+                  icon: LucideIcons.circleDot,
+                  onTap: routePlanning
+                      ? null
+                      : () => _selectEndpoint(isStart: true),
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(left: 25),
+                  child: SizedBox(
+                    height: 14,
+                    child: VerticalDivider(width: 1, thickness: 2),
+                  ),
+                ),
+                ReorderableListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  buildDefaultDragHandles: false,
+                  itemCount: waypoints.length,
+                  onReorder: _reorderWaypoint,
+                  itemBuilder: (context, index) {
+                    final item = waypoints[index];
+                    return Padding(
+                      key: ValueKey(item.localKey),
+                      padding: const EdgeInsets.only(bottom: 9),
+                      child: _WaypointTile(
+                        index: index,
+                        item: item,
+                        typeLabel: _typeLabels[item.type] ?? '普通途经点',
+                        onReplace: routePlanning
+                            ? null
+                            : () => _replaceWaypoint(index),
+                        onEdit: routePlanning
+                            ? null
+                            : () => _editWaypoint(index),
+                        onDelete: routePlanning
+                            ? null
+                            : () => _removeWaypoint(index),
+                      ),
+                    );
+                  },
+                ),
+                OutlinedButton.icon(
+                  onPressed: routePlanning || waypoints.length >= 5
+                      ? null
+                      : _addWaypoint,
+                  icon: const Icon(LucideIcons.plus),
+                  label: Text(
+                    waypoints.length >= 5
+                        ? '已达到 5 个停靠点上限'
+                        : '添加停靠点',
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(left: 25),
+                  child: SizedBox(
+                    height: 14,
+                    child: VerticalDivider(width: 1, thickness: 2),
+                  ),
+                ),
+                _NodeEndpointTile(
+                  title: '目的地',
+                  value: end?.name ?? '选择目的地',
+                  subtitle: end?.address ?? '',
+                  icon: LucideIcons.flag,
+                  onTap: routePlanning
+                      ? null
+                      : () => _selectEndpoint(isStart: false),
+                ),
+                const SizedBox(height: 18),
+                _buildRouteSheetActions(),
+              ],
             ),
-          ),
-        ),
-        AnimatedPositioned(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
-          right: routePanelHidden ? 12 : -100,
-          bottom: math.max(18.0, constraints.maxHeight * .11),
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 180),
-            opacity: routePanelHidden ? 1 : 0,
-            child: IgnorePointer(
-              ignoring: !routePanelHidden,
-              child: _RoutePanelRestoreButton(onTap: _showRoutePanel),
-            ),
-          ),
+          );
+          },
         ),
       ],
     ),
+  );
+
+  Widget _buildRouteSheetActions() => Row(
+    children: [
+      Expanded(
+        flex: 5,
+        child: OutlinedButton(
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+          ),
+          onPressed: submitting || routePlanning ? null : _saveOnly,
+          child: const FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text('保存草稿', maxLines: 1),
+          ),
+        ),
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        flex: 9,
+        child: FilledButton(
+          onPressed: submitting || routePlanning ? null : _next,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              routePlanning ? '正在规划路线…' : '下一步：填写行程信息',
+              maxLines: 1,
+            ),
+          ),
+        ),
+      ),
+    ],
   );
 
   Widget _buildPublishStep() => ListView(
@@ -1211,91 +1147,150 @@ class _TripCreatePageState extends State<TripCreatePage> {
   );
 }
 
-class _CollapsedRouteSheet extends StatelessWidget {
-  const _CollapsedRouteSheet({
-    required this.controller,
-    required this.onExpand,
+class _WaypointEditorSheet extends StatefulWidget {
+  const _WaypointEditorSheet({
+    required this.current,
+    required this.typeLabels,
   });
 
-  final ScrollController controller;
-  final VoidCallback onExpand;
+  final _WaypointDraft current;
+  final Map<String, String> typeLabels;
 
   @override
-  Widget build(BuildContext context) => ListView(
-    controller: controller,
-    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-    children: [
-      Center(
-        child: Container(
-          width: 42,
-          height: 5,
-          decoration: BoxDecoration(
-            color: const Color(0xFFD2D5DA),
-            borderRadius: BorderRadius.circular(99),
+  State<_WaypointEditorSheet> createState() => _WaypointEditorSheetState();
+}
+
+class _WaypointEditorSheetState extends State<_WaypointEditorSheet> {
+  late final TextEditingController remarkController;
+  late final TextEditingController stayController;
+  late String type;
+
+  @override
+  void initState() {
+    super.initState();
+    remarkController = TextEditingController(text: widget.current.remark);
+    stayController = TextEditingController(
+      text: '${widget.current.stayMinutes}',
+    );
+    type = widget.typeLabels.containsKey(widget.current.type)
+        ? widget.current.type
+        : 'NORMAL';
+  }
+
+  @override
+  void dispose() {
+    remarkController.dispose();
+    stayController.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final minutes = int.tryParse(stayController.text.trim()) ?? 0;
+    Navigator.of(context).pop(
+      widget.current.copyWith(
+        type: type,
+        stayMinutes: minutes.clamp(0, 1440).toInt(),
+        remark: remarkController.text.trim(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: keyboardHeight),
+      child: Material(
+        color: const Color(0xFFFAFAFB),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        clipBehavior: Clip.antiAlias,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD2D5DA),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                widget.current.location.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 20),
+              DropdownButtonFormField<String>(
+                initialValue: type,
+                decoration: const InputDecoration(labelText: '节点类型'),
+                items: widget.typeLabels.entries
+                    .map(
+                      (entry) => DropdownMenuItem(
+                        value: entry.key,
+                        child: Text(entry.value),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) setState(() => type = value);
+                },
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: stayController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: '预计停留时间（分钟）',
+                  hintText: '0 表示不设置',
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 18,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              TextField(
+                controller: remarkController,
+                maxLength: 255,
+                minLines: 3,
+                maxLines: 5,
+                textAlignVertical: TextAlignVertical.top,
+                decoration: const InputDecoration(
+                  labelText: '节点备注（选填）',
+                  hintText: '例如：在停车场入口集合',
+                  alignLabelWithHint: true,
+                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                  contentPadding: EdgeInsets.fromLTRB(16, 34, 16, 18),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _save,
+                  child: const Text('保存节点设置'),
+                ),
+              ),
+            ],
           ),
         ),
       ),
-      const SizedBox(height: 8),
-      InkWell(
-        onTap: onExpand,
-        borderRadius: BorderRadius.circular(12),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(LucideIcons.chevronUp, size: 16, color: AppColors.primary),
-            SizedBox(width: 5),
-            Flexible(
-              child: Text(
-                '上滑或点击侧边按钮展开路线规划',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ],
-  );
-}
-
-class _RoutePanelRestoreButton extends StatelessWidget {
-  const _RoutePanelRestoreButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: const Color(0xF2FFFFFF),
-    elevation: 8,
-    shadowColor: const Color(0x33000000),
-    borderRadius: BorderRadius.circular(18),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(LucideIcons.route, size: 19, color: AppColors.primary),
-            SizedBox(width: 7),
-            Text(
-              '路线规划',
-              style: TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
+    );
+  }
 }
 
 class _WaypointDraft {

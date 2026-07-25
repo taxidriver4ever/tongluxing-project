@@ -17,7 +17,7 @@ import '../../../data/services/location_snapshot.dart';
 import '../../trip/pages/trip_create_page.dart';
 import 'sos_confirm_page.dart';
 
-/// 苹果地图式“全屏地图 + 可拖动底部搜索抽屉”。
+/// 发现页：全屏高德地图 + Apple Maps 风格可拖动搜索抽屉。
 class MapHomePage extends StatefulWidget {
   const MapHomePage({super.key});
 
@@ -32,10 +32,14 @@ class MapHomePage extends StatefulWidget {
 
 class _MapHomePageState extends State<MapHomePage> {
   static const _permissionChannel = MethodChannel('com.tongluxing/permissions');
+  static const double _collapsedSheetSize = .145;
+  static const double _halfSheetSize = .50;
+  static const double _expandedSheetSize = .88;
 
   final searchController = TextEditingController();
   final searchFocus = FocusNode();
-  final sheetController = DraggableScrollableController();
+  final searchSheetController = DraggableScrollableController();
+  ScrollController? searchSheetScrollController;
   Timer? debounce;
   LocationService? locationService;
 
@@ -57,7 +61,11 @@ class _MapHomePageState extends State<MapHomePage> {
     super.initState();
     _checkAmapSupport();
     searchFocus.addListener(() {
-      if (searchFocus.hasFocus) _expandSheet(.88);
+      if (!mounted) return;
+      setState(() {});
+      if (searchFocus.hasFocus) {
+        _animateSearchSheet(_expandedSheetSize);
+      }
     });
   }
 
@@ -74,7 +82,7 @@ class _MapHomePageState extends State<MapHomePage> {
     debounce?.cancel();
     searchController.dispose();
     searchFocus.dispose();
-    sheetController.dispose();
+    searchSheetController.dispose();
     super.dispose();
   }
 
@@ -107,7 +115,7 @@ class _MapHomePageState extends State<MapHomePage> {
       );
       if (mounted) setState(() => recentLocations = rows);
     } catch (_) {
-      // 首页历史加载失败不阻断地图使用。
+      // 最近搜索失败不阻断地图首页。
     }
   }
 
@@ -190,12 +198,40 @@ class _MapHomePageState extends State<MapHomePage> {
     );
   }
 
-  void _expandSheet(double size) {
-    if (!sheetController.isAttached) return;
-    sheetController.animateTo(
+  Future<void> _animateSearchSheet(double size) async {
+    if (!searchSheetController.isAttached) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _animateSearchSheet(size);
+      });
+      return;
+    }
+    await searchSheetController.animateTo(
       size,
       duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOut,
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _collapseSearchSheet() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final scrollController = searchSheetScrollController;
+    if (scrollController != null && scrollController.hasClients) {
+      scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    }
+    _animateSearchSheet(_collapsedSheetSize);
+  }
+
+  void _toggleSearchSheet() {
+    if (!searchSheetController.isAttached) return;
+    final current = searchSheetController.size;
+    _animateSearchSheet(
+      current > _halfSheetSize - .05
+          ? _collapsedSheetSize
+          : _halfSheetSize,
     );
   }
 
@@ -258,7 +294,7 @@ class _MapHomePageState extends State<MapHomePage> {
       );
       _moveToLocation(LatLng(saved.latitude, saved.longitude));
       await _loadHistory();
-      _expandSheet(.36);
+      await _animateSearchSheet(.42);
     } on ApiException catch (error) {
       _showMessage(error.message);
     }
@@ -274,7 +310,7 @@ class _MapHomePageState extends State<MapHomePage> {
       searchLoading = false;
     });
     searchFocus.requestFocus();
-    _expandSheet(.88);
+    _animateSearchSheet(_expandedSheetSize);
   }
 
   Future<void> _createTrip({
@@ -305,6 +341,7 @@ class _MapHomePageState extends State<MapHomePage> {
           locationEnabled: locationEnabled,
           selectedLocation: selectedLocation,
           onMapCreated: (controller) => mapController = controller,
+          onMapTap: _collapseSearchSheet,
           onLocationChanged: (location) {
             if (!isLocationValid(location)) return;
             lastLocation = location.latLng;
@@ -318,7 +355,7 @@ class _MapHomePageState extends State<MapHomePage> {
       ),
       Positioned(
         right: 16,
-        top: MediaQuery.paddingOf(context).top + 20,
+        top: MediaQuery.paddingOf(context).top + 18,
         child: Column(
           children: [
             _MapTool(
@@ -344,36 +381,47 @@ class _MapHomePageState extends State<MapHomePage> {
           ],
         ),
       ),
-      DraggableScrollableSheet(
-        controller: sheetController,
-        initialChildSize: .29,
-        minChildSize: .18,
-        maxChildSize: .88,
-        snap: true,
-        snapSizes: const [.29, .55, .88],
-        builder: (context, scrollController) => _SearchSheet(
-          controller: scrollController,
-          searchController: searchController,
-          focusNode: searchFocus,
-          selectedLocation: selectedLocation,
-          results: searchResults,
-          history: recentLocations,
-          loading: searchLoading,
-          error: searchError,
-          onChanged: _onKeywordChanged,
-          onSubmitted: _search,
-          onClear: _clearSearch,
-          onSelect: _selectLocation,
-          onCreateTrip: () => _createTrip(),
-          onSetStart: selectedLocation == null
-              ? null
-              : () => _createTrip(initialStart: selectedLocation),
-          onSetWaypoint: selectedLocation == null
-              ? null
-              : () => _createTrip(initialWaypoint: selectedLocation),
-          onSetEnd: selectedLocation == null
-              ? null
-              : () => _createTrip(initialEnd: selectedLocation),
+      NotificationListener<DraggableScrollableNotification>(
+        onNotification: (_) => false,
+        child: DraggableScrollableSheet(
+          controller: searchSheetController,
+          initialChildSize: _collapsedSheetSize,
+          minChildSize: _collapsedSheetSize,
+          maxChildSize: _expandedSheetSize,
+          snap: true,
+          snapSizes: const [
+            _collapsedSheetSize,
+            _halfSheetSize,
+            _expandedSheetSize,
+          ],
+          builder: (context, scrollController) {
+            searchSheetScrollController = scrollController;
+            return _SearchSheet(
+              controller: scrollController,
+              searchController: searchController,
+              focusNode: searchFocus,
+              selectedLocation: selectedLocation,
+              results: searchResults,
+              history: recentLocations,
+              loading: searchLoading,
+              error: searchError,
+              onHandleTap: _toggleSearchSheet,
+              onChanged: _onKeywordChanged,
+              onSubmitted: _search,
+              onClear: _clearSearch,
+              onSelect: _selectLocation,
+              onCreateTrip: () => _createTrip(),
+              onSetStart: selectedLocation == null
+                  ? null
+                  : () => _createTrip(initialStart: selectedLocation),
+              onSetWaypoint: selectedLocation == null
+                  ? null
+                  : () => _createTrip(initialWaypoint: selectedLocation),
+              onSetEnd: selectedLocation == null
+                  ? null
+                  : () => _createTrip(initialEnd: selectedLocation),
+            );
+          },
         ),
       ),
     ],
@@ -390,6 +438,7 @@ class _SearchSheet extends StatelessWidget {
     required this.history,
     required this.loading,
     required this.error,
+    required this.onHandleTap,
     required this.onChanged,
     required this.onSubmitted,
     required this.onClear,
@@ -408,6 +457,7 @@ class _SearchSheet extends StatelessWidget {
   final List<LocationSelection> history;
   final bool loading;
   final String? error;
+  final VoidCallback onHandleTap;
   final ValueChanged<String> onChanged;
   final ValueChanged<String> onSubmitted;
   final VoidCallback onClear;
@@ -420,53 +470,84 @@ class _SearchSheet extends StatelessWidget {
   bool get hasKeyword => searchController.text.trim().isNotEmpty;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.white,
-    elevation: 18,
-    shadowColor: const Color(0x33000000),
-    borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+  Widget build(BuildContext context) => Container(
+    decoration: const BoxDecoration(
+      color: Color(0xF51A2230),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      boxShadow: [
+        BoxShadow(
+          color: Color(0x55000000),
+          blurRadius: 22,
+          offset: Offset(0, -4),
+        ),
+      ],
+    ),
     clipBehavior: Clip.antiAlias,
     child: CustomScrollView(
       controller: controller,
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       slivers: [
         SliverToBoxAdapter(
           child: Column(
             children: [
-              const SizedBox(height: 9),
-              Container(
-                width: 42,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD5D9E0),
-                  borderRadius: BorderRadius.circular(99),
+              InkWell(
+                onTap: onHandleTap,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10),
+                  child: SizedBox(
+                    width: 44,
+                    height: 5,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Color(0xFF7B8493),
+                        borderRadius: BorderRadius.all(Radius.circular(99)),
+                      ),
+                    ),
+                  ),
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-                child: TextField(
-                  controller: searchController,
-                  focusNode: focusNode,
-                  onChanged: onChanged,
-                  onSubmitted: onSubmitted,
-                  textInputAction: TextInputAction.search,
-                  decoration: InputDecoration(
-                    hintText: '搜索地点或地址',
-                    prefixIcon: const Icon(LucideIcons.search),
-                    suffixIcon: hasKeyword
-                        ? IconButton(
-                            onPressed: onClear,
-                            icon: const Icon(LucideIcons.x, size: 19),
-                          )
-                        : null,
-                    filled: true,
-                    fillColor: const Color(0xFFF3F5F8),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                child: Container(
+                  height: 54,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF111820),
+                    borderRadius: BorderRadius.circular(27),
+                    border: Border.all(color: const Color(0xFF3A4554)),
+                  ),
+                  child: TextField(
+                    controller: searchController,
+                    focusNode: focusNode,
+                    onChanged: onChanged,
+                    onSubmitted: onSubmitted,
+                    textInputAction: TextInputAction.search,
+                    style: const TextStyle(color: Colors.white, fontSize: 17),
+                    cursorColor: AppColors.primary,
+                    decoration: InputDecoration(
+                      hintText: '搜索地点或地址',
+                      hintStyle: const TextStyle(color: Color(0xFFACB4C0)),
+                      prefixIcon: const Icon(
+                        LucideIcons.search,
+                        color: Colors.white,
+                      ),
+                      suffixIcon: hasKeyword
+                          ? IconButton(
+                              onPressed: onClear,
+                              icon: const Icon(
+                                LucideIcons.x,
+                                size: 20,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(
+                              LucideIcons.mic,
+                              color: Colors.white,
+                            ),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      filled: false,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 16),
                     ),
                   ),
                 ),
@@ -501,7 +582,7 @@ class _SearchSheet extends StatelessWidget {
                 child: Text(
                   error!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppColors.secondaryText),
+                  style: const TextStyle(color: Color(0xFFD1D7E0)),
                 ),
               ),
             ),
@@ -521,32 +602,43 @@ class _SearchSheet extends StatelessWidget {
 
 class _QuickCreateCard extends StatelessWidget {
   const _QuickCreateCard({required this.onCreateTrip});
+
   final VoidCallback onCreateTrip;
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+    padding: const EdgeInsets.fromLTRB(16, 2, 16, 14),
     child: Container(
-      padding: const EdgeInsets.all(15),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF4F8FF),
-        borderRadius: BorderRadius.circular(18),
+        color: const Color(0xFF263140),
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         children: [
           const CircleAvatar(
-            backgroundColor: Colors.white,
-            child: Icon(LucideIcons.route, color: AppColors.primary),
+            backgroundColor: Color(0xFF173D64),
+            child: Icon(LucideIcons.plus, color: Color(0xFF34A5FF)),
           ),
           const SizedBox(width: 12),
           const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('规划下一段旅程', style: TextStyle(fontWeight: FontWeight.w800)),
                 Text(
-                  '按顺序添加出发点、停靠点和目的地',
-                  style: TextStyle(fontSize: 12, color: AppColors.secondaryText),
+                  '规划下一段旅程',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  '添加出发点、停靠点和目的地',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFFB4BDC9),
+                  ),
                 ),
               ],
             ),
@@ -573,56 +665,70 @@ class _SelectedPlaceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          location.name,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          location.address,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: AppColors.secondaryText),
-        ),
-        if (location.distanceLabel != null) ...[
-          const SizedBox(height: 4),
+    padding: const EdgeInsets.fromLTRB(16, 2, 16, 14),
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF263140),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Text(
-            '距当前位置约 ${location.distanceLabel}',
-            style: const TextStyle(fontSize: 12, color: AppColors.primary),
+            location.name,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
           ),
-        ],
-        const SizedBox(height: 13),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: onSetStart,
-                child: const Text('设为出发点'),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: onSetWaypoint,
-                child: const Text('设为途经点'),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: FilledButton(
-                onPressed: onSetEnd,
-                child: const Text('设为目的地'),
+          const SizedBox(height: 5),
+          Text(
+            location.address,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFFB4BDC9)),
+          ),
+          if (location.distanceLabel != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              '距当前位置约 ${location.distanceLabel}',
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF6BB5FF),
               ),
             ),
           ],
-        ),
-      ],
+          const SizedBox(height: 13),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onSetStart,
+                  child: const Text('设为起点'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onSetWaypoint,
+                  child: const Text('设为停靠点'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton(
+                  onPressed: onSetEnd,
+                  child: const Text('设为目的地'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     ),
   );
 }
@@ -647,7 +753,10 @@ class _PlaceListSliver extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(30),
           child: Center(
-            child: Text(emptyText, style: const TextStyle(color: AppColors.muted)),
+            child: Text(
+              emptyText,
+              style: const TextStyle(color: Color(0xFF9BA5B3)),
+            ),
           ),
         ),
       );
@@ -656,40 +765,66 @@ class _PlaceListSliver extends StatelessWidget {
       slivers: [
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 10, 18, 6),
-            child: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
+            child: Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
           ),
         ),
-        SliverList.separated(
-          itemCount: rows.length,
-          separatorBuilder: (_, _) => const Divider(height: 1, indent: 58),
-          itemBuilder: (context, index) {
-            final row = rows[index];
-            return ListTile(
-              onTap: () => onSelect(row),
-              leading: const CircleAvatar(
-                backgroundColor: Color(0xFFF0F5FF),
-                child: Icon(LucideIcons.mapPin, size: 18, color: AppColors.primary),
-              ),
-              title: Text(
-                row.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              subtitle: Text(
-                row.address,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: row.distanceLabel == null
-                  ? null
-                  : Text(
-                      row.distanceLabel!,
-                      style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                    ),
-            );
-          },
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          sliver: SliverList.separated(
+            itemCount: rows.length,
+            separatorBuilder: (_, _) => const Divider(
+              height: 1,
+              indent: 58,
+              color: Color(0xFF3A4554),
+            ),
+            itemBuilder: (context, index) {
+              final row = rows[index];
+              return ListTile(
+                tileColor: const Color(0xFF263140),
+                onTap: () => onSelect(row),
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFF364354),
+                  child: Icon(
+                    LucideIcons.mapPin,
+                    size: 18,
+                    color: Color(0xFF79BCFF),
+                  ),
+                ),
+                title: Text(
+                  row.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                subtitle: Text(
+                  row.address,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Color(0xFFB4BDC9)),
+                ),
+                trailing: row.distanceLabel == null
+                    ? null
+                    : Text(
+                        row.distanceLabel!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF9BA5B3),
+                        ),
+                      ),
+              );
+            },
+          ),
         ),
       ],
     );
@@ -704,6 +839,7 @@ class _MapSurface extends StatelessWidget {
     required this.locationEnabled,
     required this.selectedLocation,
     required this.onMapCreated,
+    required this.onMapTap,
     required this.onLocationChanged,
   });
 
@@ -713,6 +849,7 @@ class _MapSurface extends StatelessWidget {
   final bool locationEnabled;
   final LocationSelection? selectedLocation;
   final ValueChanged<AMapController> onMapCreated;
+  final VoidCallback onMapTap;
   final ValueChanged<AMapLocation> onLocationChanged;
 
   static const privacy = AMapPrivacyStatement(
@@ -753,36 +890,47 @@ class _MapSurface extends StatelessWidget {
                 ),
               },
         onMapCreated: onMapCreated,
+        onTap: (_) => onMapTap(),
         onLocationChanged: onLocationChanged,
       );
     }
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Container(
-          color: const Color(0xFFF2F6FC),
-          child: CustomPaint(painter: _RoadPainter()),
-        ),
-        if (MapHomePage.nativeAmap && !checkingSupport)
-          Center(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 68),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.92),
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: const [
-                  BoxShadow(color: Color(0x16000000), blurRadius: 16),
-                ],
-              ),
-              child: const Text(
-                '当前 x86_64 模拟器不支持高德原生地图\n请使用 ARM64 Android 真机预览',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.secondaryText, height: 1.5),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onMapTap,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(
+            color: const Color(0xFFF2F6FC),
+            child: CustomPaint(painter: _RoadPainter()),
+          ),
+          if (MapHomePage.nativeAmap && !checkingSupport)
+            Center(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 68),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x16000000), blurRadius: 16),
+                  ],
+                ),
+                child: const Text(
+                  '当前 x86_64 模拟器不支持高德原生地图\n请使用 ARM64 Android 真机预览',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: AppColors.secondaryText,
+                    height: 1.5,
+                  ),
+                ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -835,23 +983,24 @@ class _MapTool extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
     color: active ? const Color(0xFFEAF2FF) : Colors.white,
-    borderRadius: BorderRadius.circular(16),
-    elevation: 3,
-    shadowColor: const Color(0x14000000),
+    borderRadius: BorderRadius.circular(18),
+    elevation: 4,
+    shadowColor: const Color(0x24000000),
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       child: SizedBox(
-        width: 54,
-        height: 54,
+        width: 58,
+        height: 58,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               icon,
-              size: 20,
+              size: 21,
               color: danger ? AppColors.danger : AppColors.primary,
             ),
+            const SizedBox(height: 2),
             Text(
               label,
               style: TextStyle(

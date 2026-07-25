@@ -399,11 +399,11 @@ public class TripCreationServiceImpl implements TripCreationService {
         value.setSeqNo(sort);
         value.setPlaceName(text(request.name()));
         value.setPlaceAddress(text(request.address()));
-        value.setWaypointType(request.type());
+        value.setWaypointType(normalizeWaypointType(request.type()));
         value.setLng(request.longitude());
         value.setLat(request.latitude());
-        value.setStayMinutes(request.stayMinutes() == null ? 0 : request.stayMinutes());
-        value.setRemark(text(request.remark()));
+        value.setStayMinutes(normalizeStayMinutes(request.stayMinutes()));
+        value.setRemark(normalizeWaypointRemark(request.remark()));
         value.setCreatedAt(LocalDateTime.now());
         value.setUpdatedAt(LocalDateTime.now());
         value.setDeleted(0);
@@ -414,13 +414,33 @@ public class TripCreationServiceImpl implements TripCreationService {
         TripWaypoint value = new TripWaypoint();
         value.setId(SnowflakeIdGenerator.nextId()); value.setDraftId(draftId); value.setTripId(tripId);
         value.setSeqNo(source.getSeqNo()); value.setPlaceName(source.getPlaceName());
-        value.setPlaceAddress(source.getPlaceAddress()); value.setWaypointType(source.getWaypointType());
-        value.setLat(source.getLat()); value.setLng(source.getLng()); value.setStayMinutes(source.getStayMinutes());
-        value.setRemark(source.getRemark()); value.setDeleted(0); return value;
+        value.setPlaceAddress(source.getPlaceAddress()); value.setWaypointType(normalizeWaypointType(source.getWaypointType()));
+        value.setLat(source.getLat()); value.setLng(source.getLng()); value.setStayMinutes(normalizeStayMinutes(source.getStayMinutes()));
+        value.setRemark(normalizeWaypointRemark(source.getRemark())); value.setDeleted(0); return value;
     }
 
     private WaypointLocationRequest waypointLocation(TripWaypoint value) {
         return new WaypointLocationRequest(value.getPlaceName(), value.getPlaceAddress(), value.getLat(), value.getLng(), value.getSeqNo());
+    }
+
+    private String normalizeWaypointType(String value) {
+        if (!StringUtils.hasText(value)) return "NORMAL";
+        String normalized = value.trim().toUpperCase();
+        return switch (normalized) {
+            case "MEETING", "REST", "HOTEL", "FUEL", "CHARGING", "CHECK_IN", "NORMAL" -> normalized;
+            default -> "NORMAL";
+        };
+    }
+
+    private Integer normalizeStayMinutes(Integer value) {
+        if (value == null) return 0;
+        return Math.max(0, Math.min(value, 1440));
+    }
+
+    private String normalizeWaypointRemark(String value) {
+        if (!StringUtils.hasText(value)) return "";
+        String normalized = value.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "").trim();
+        return normalized.length() <= 255 ? normalized : normalized.substring(0, 255);
     }
 
     private void normalizeSequence(Long draftId) {
@@ -435,7 +455,8 @@ public class TripCreationServiceImpl implements TripCreationService {
 
     private TripCreationWaypointResponse response(TripWaypoint value) {
         return new TripCreationWaypointResponse(String.valueOf(value.getId()), value.getPlaceName(), value.getPlaceAddress(),
-                value.getLng(), value.getLat(), value.getWaypointType(), value.getSeqNo(), value.getStayMinutes(), value.getRemark());
+                value.getLng(), value.getLat(), normalizeWaypointType(value.getWaypointType()), value.getSeqNo(),
+                normalizeStayMinutes(value.getStayMinutes()), normalizeWaypointRemark(value.getRemark()));
     }
 
     private LocationResponse response(LocationRequest value) {

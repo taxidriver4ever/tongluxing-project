@@ -15,10 +15,14 @@ class SearchLocationPage extends StatefulWidget {
     super.key,
     this.originLatitude,
     this.originLongitude,
+    this.embedded = false,
+    this.autofocus = false,
   });
 
   final double? originLatitude;
   final double? originLongitude;
+  final bool embedded;
+  final bool autofocus;
 
   @override
   State<SearchLocationPage> createState() => _SearchLocationPageState();
@@ -226,17 +230,32 @@ class _SearchLocationPageState extends State<SearchLocationPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: Colors.white,
-    body: SafeArea(
+  Widget build(BuildContext context) {
+    final content = SafeArea(
+      top: !widget.embedded,
       child: Stack(
         children: [
           Column(
             children: [
+              if (widget.embedded) ...[
+                const SizedBox(height: 9),
+                const SizedBox(
+                  width: 44,
+                  height: 5,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Color(0xFFD2D5DA),
+                      borderRadius: BorderRadius.all(Radius.circular(99)),
+                    ),
+                  ),
+                ),
+              ],
               _SearchHeader(
                 controller: _controller,
                 focusNode: _focusNode,
                 hasKeyword: _hasKeyword,
+                autofocus: widget.autofocus,
+                closeMode: widget.embedded,
                 onBack: () => Navigator.pop(context),
                 onChanged: _onKeywordChanged,
                 onSubmitted: _search,
@@ -255,8 +274,17 @@ class _SearchLocationPageState extends State<SearchLocationPage> {
             ),
         ],
       ),
-    ),
-  );
+    );
+    if (!widget.embedded) {
+      return Scaffold(backgroundColor: Colors.white, body: content);
+    }
+    return Material(
+      color: Colors.white,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      clipBehavior: Clip.antiAlias,
+      child: content,
+    );
+  }
 
   Widget _buildContent() {
     final locations = _hasKeyword ? _results : _history;
@@ -338,6 +366,8 @@ class _SearchHeader extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.hasKeyword,
+    required this.autofocus,
+    required this.closeMode,
     required this.onBack,
     required this.onChanged,
     required this.onSubmitted,
@@ -347,6 +377,8 @@ class _SearchHeader extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool hasKeyword;
+  final bool autofocus;
+  final bool closeMode;
   final VoidCallback onBack;
   final ValueChanged<String> onChanged;
   final ValueChanged<String> onSubmitted;
@@ -365,13 +397,16 @@ class _SearchHeader extends StatelessWidget {
         children: [
           IconButton(
             onPressed: onBack,
-            icon: const Icon(LucideIcons.chevronLeft, size: 30),
+            icon: Icon(
+              closeMode ? LucideIcons.x : LucideIcons.chevronLeft,
+              size: closeMode ? 26 : 30,
+            ),
           ),
           Expanded(
             child: TextField(
               controller: controller,
               focusNode: focusNode,
-              autofocus: false,
+              autofocus: autofocus,
               textInputAction: TextInputAction.search,
               onChanged: onChanged,
               onSubmitted: onSubmitted,

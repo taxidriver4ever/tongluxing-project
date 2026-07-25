@@ -15,8 +15,8 @@ import io.flutter.plugin.common.MethodChannel
 import java.util.Locale
 
 class MainActivity : FlutterActivity() {
-    // 高德地图属于 Android PlatformView。使用 texture 渲染后，Flutter 的搜索抽屉、
-    // 路线规划卡片等组件才能稳定叠加在原生地图上方。
+    // 高德地图属于 Android PlatformView。使用 Texture 模式后，Flutter 的搜索抽屉、
+    // 路线卡片和输入框可以稳定绘制在地图上层，避免“发现”页只剩空白底板。
     override fun getRenderMode(): RenderMode = RenderMode.texture
 
     private val permissionChannel = "com.tongluxing/permissions"

@@ -112,7 +112,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
               ),
               title: const Text('确认开启行程'),
               content: const Text(
-                '开启后将持续使用定位计算实际行驶路程。请允许后台定位，并不要清理或强制停止应用；清理后台后将无法继续计算行驶路程。\n\n'
+                '开启后将持续使用定位计算实际行驶路程。请允许后台定位，并保持同路行在后台运行；如果清理或强制停止应用，将无法继续定位，也无法计算本次行程的路程值。\n\n'
                 '为避免误操作，你需要位于起点 5 公里范围内。',
               ),
               actions: [

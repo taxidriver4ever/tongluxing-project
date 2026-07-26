@@ -48,7 +48,6 @@ class _RouteMapViewState extends State<RouteMapView> {
 
   bool _nativeSupported = false;
   bool _checking = true;
-  DateTime? _cameraInteractionEnabledAt;
 
   bool get _nativeRequested =>
       !kIsWeb &&
@@ -98,10 +97,24 @@ class _RouteMapViewState extends State<RouteMapView> {
         borderRadius: BorderRadius.circular(18),
         clipBehavior: Clip.hardEdge,
         child: ClipRect(
-          child: SizedBox.expand(
-            child: _nativeSupported
-                ? _buildNativeMap(context, route)
-                : _buildFallback(route),
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            // Listener 只旁听移动/缩放事件，不参与手势竞争，
+            // 因此不会阻断高德地图的拖动和双指缩放。
+            onPointerMove: widget.interactive
+                ? (_) => widget.onMapInteraction?.call()
+                : null,
+            onPointerSignal: widget.interactive
+                ? (_) => widget.onMapInteraction?.call()
+                : null,
+            onPointerUp: widget.interactive
+                ? (_) => widget.onMapInteraction?.call()
+                : null,
+            child: SizedBox.expand(
+              child: _nativeSupported
+                  ? _buildNativeMap(context, route)
+                  : _buildFallback(route),
+            ),
           ),
         ),
       ),
@@ -141,19 +154,9 @@ class _RouteMapViewState extends State<RouteMapView> {
             }
           : const <Polyline>{},
       markers: _markers(stops),
-      onMapCreated: (_) {
-        // 忽略地图初始化阶段的自动镜头移动，避免路线卡片刚打开就被隐藏。
-        _cameraInteractionEnabledAt = DateTime.now().add(
-          const Duration(milliseconds: 900),
-        );
-      },
+      // 收起控件由外层 Listener 在真实点击、拖动或缩放时触发。
+      // 不再使用 onCameraMove，避免地图惯性移动导致“展开”后立刻再次收起。
       onTap: (_) => widget.onMapInteraction?.call(),
-      onCameraMove: (_) {
-        final enabledAt = _cameraInteractionEnabledAt;
-        if (enabledAt != null && DateTime.now().isAfter(enabledAt)) {
-          widget.onMapInteraction?.call();
-        }
-      },
       onLocationChanged: widget.onLocationChanged,
     );
   }
@@ -182,12 +185,13 @@ class _RouteMapViewState extends State<RouteMapView> {
     }).toSet();
   }
 
-  Widget _buildFallback(List<LocationSelection> route) => GestureDetector(
-    behavior: HitTestBehavior.opaque,
-    onTap: widget.onMapInteraction,
-    onScaleStart: widget.interactive
-        ? (_) => widget.onMapInteraction?.call()
-        : null,
+  Widget _buildFallback(List<LocationSelection> route) => InteractiveViewer(
+    panEnabled: widget.interactive,
+    scaleEnabled: widget.interactive,
+    minScale: 1,
+    maxScale: 5,
+    boundaryMargin: const EdgeInsets.all(200),
+    clipBehavior: Clip.none,
     child: Stack(
       fit: StackFit.expand,
       children: [

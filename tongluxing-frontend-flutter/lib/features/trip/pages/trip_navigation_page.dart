@@ -38,6 +38,8 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
   int teammateDistanceMeters = 0;
   int teammateDistanceStatus = 0;
   bool showTeamPanel = false;
+  bool controlsCollapsed = false;
+  DateTime? ignoreMapCollapseUntil;
   String? conversationId;
   List<LocationSelection> teamLocations = const [];
   DateTime? lastTrackUploadAt;
@@ -341,6 +343,24 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
     ];
   }
 
+  void _collapseControls() {
+    if (!mounted || controlsCollapsed) return;
+    final ignoreUntil = ignoreMapCollapseUntil;
+    if (ignoreUntil != null && DateTime.now().isBefore(ignoreUntil)) return;
+    setState(() => controlsCollapsed = true);
+  }
+
+  void _expandControls() {
+    if (!mounted) return;
+    // 防止地图惯性移动或原生地图延迟回调在展开后立即再次收起。
+    ignoreMapCollapseUntil = DateTime.now().add(
+      const Duration(milliseconds: 800),
+    );
+    if (controlsCollapsed) {
+      setState(() => controlsCollapsed = false);
+    }
+  }
+
   Future<void> _announce() async {
     if (!voiceEnabled) return;
     try {
@@ -537,47 +557,50 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                   : _routeStops,
               height: MediaQuery.sizeOf(context).height,
               showMyLocation: true,
+              interactive: true,
               trafficEnabled: true,
               drawPolyline: !showTeamPanel,
               onLocationChanged: _handleAmapLocation,
+              onMapInteraction: _collapseControls,
             ),
           ),
-          Positioned(
-            left: 18,
-            right: 18,
-            top: 18,
-            child: Row(
-              children: [
-                IconButton.filled(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(LucideIcons.arrowLeft),
-                ),
-                const Spacer(),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: false, label: Text('路线')),
-                    ButtonSegment(value: true, label: Text('队友')),
-                  ],
-                  selected: {showTeamPanel},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (value) =>
-                      setState(() => showTeamPanel = value.first),
-                  style: const ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                    backgroundColor: WidgetStatePropertyAll(Colors.white),
+          if (!controlsCollapsed)
+            Positioned(
+              left: 18,
+              right: 18,
+              top: 18,
+              child: Row(
+                children: [
+                  IconButton.filled(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(LucideIcons.arrowLeft),
                   ),
-                ),
-                const Spacer(),
-                IconButton.filled(
-                  onPressed: _toggleVoice,
-                  icon: Icon(
-                    voiceEnabled ? LucideIcons.volume2 : LucideIcons.volumeX,
+                  const Spacer(),
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(value: false, label: Text('路线')),
+                      ButtonSegment(value: true, label: Text('队友')),
+                    ],
+                    selected: {showTeamPanel},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (value) =>
+                        setState(() => showTeamPanel = value.first),
+                    style: const ButtonStyle(
+                      visualDensity: VisualDensity.compact,
+                      backgroundColor: WidgetStatePropertyAll(Colors.white),
+                    ),
                   ),
-                ),
-              ],
+                  const Spacer(),
+                  IconButton.filled(
+                    onPressed: _toggleVoice,
+                    icon: Icon(
+                      voiceEnabled ? LucideIcons.volume2 : LucideIcons.volumeX,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          if (!showTeamPanel)
+          if (!controlsCollapsed && !showTeamPanel)
             Positioned(
               left: 16,
               right: 16,
@@ -621,7 +644,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                 ),
               ),
             ),
-          if (showTeamPanel)
+          if (!controlsCollapsed && showTeamPanel)
             Positioned(
               left: 16,
               right: 16,
@@ -666,119 +689,172 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                 ),
               ),
             ),
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 20,
-            child: Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(26),
-                boxShadow: const [
-                  BoxShadow(color: Color(0x22000000), blurRadius: 24),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      const Icon(
-                        LucideIcons.mapPinCheck,
-                        color: AppColors.primary,
+          if (!controlsCollapsed)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 20,
+              child: Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(26),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x22000000), blurRadius: 24),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          LucideIcons.mapPinCheck,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                '下一导航目标',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.muted,
+                                ),
+                              ),
+                              Text(
+                                _currentTarget?.name ?? widget.trip.endName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      '路线仅供参考，系统只记录轨迹并按顺序判断节点到达。',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.secondaryText,
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              '下一导航目标',
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF4E5),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            LucideIcons.triangleAlert,
+                            size: 17,
+                            color: Color(0xFFB66A00),
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '请勿清理应用后台，否则将无法持续定位并计算本次行程的路程值。',
                               style: TextStyle(
                                 fontSize: 11,
-                                color: AppColors.muted,
+                                height: 1.35,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF8A5200),
                               ),
                             ),
-                            Text(
-                              _currentTarget?.name ?? widget.trip.endName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _Metric(
+                          value:
+                              '${(trackedDistanceMeters / 1000).toStringAsFixed(1)} km',
+                          label: uploadingTrack ? '轨迹同步中' : '实际里程',
+                        ),
+                        _Metric(
+                          value: widget.trip.distanceMeters == null
+                              ? '--'
+                              : '${((widget.trip.distanceMeters ?? 0) / 1000).round()} km',
+                          label: '参考里程',
+                        ),
+                        _Metric(
+                          value:
+                              '$completedWaypointCount/${widget.trip.waypoints.length}',
+                          label: '节点进度',
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _openAmapNavigation,
+                        icon: const Icon(LucideIcons.navigation, size: 18),
+                        label: Text(
+                          '导航到 ${_currentTarget?.name ?? widget.trip.endName}',
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    '路线仅供参考，系统只记录轨迹并按顺序判断节点到达。',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: AppColors.secondaryText,
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _Metric(
-                        value:
-                            '${(trackedDistanceMeters / 1000).toStringAsFixed(1)} km',
-                        label: uploadingTrack ? '轨迹同步中' : '实际里程',
-                      ),
-                      _Metric(
-                        value: widget.trip.distanceMeters == null
-                            ? '--'
-                            : '${((widget.trip.distanceMeters ?? 0) / 1000).round()} km',
-                        label: '参考里程',
-                      ),
-                      _Metric(
-                        value:
-                            '$completedWaypointCount/${widget.trip.waypoints.length}',
-                        label: '节点进度',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: _openAmapNavigation,
-                      icon: const Icon(LucideIcons.navigation, size: 18),
-                      label: Text(
-                        '导航到 ${_currentTarget?.name ?? widget.trip.endName}',
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: confirmingArrival || uploadingTrack
+                            ? null
+                            : _confirmArrival,
+                        icon: const Icon(LucideIcons.mapPinCheck, size: 18),
+                        label: Text(
+                          confirmingArrival ? '正在核验位置…' : '确认到达当前节点',
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: confirmingArrival || uploadingTrack
-                          ? null
-                          : _confirmArrival,
-                      icon: const Icon(LucideIcons.mapPinCheck, size: 18),
-                      label: Text(confirmingArrival ? '正在核验位置…' : '确认到达当前节点'),
+                    const SizedBox(height: 8),
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.danger,
+                      ),
+                      onPressed: ending ? null : end,
+                      child: Text(ending ? '正在结束…' : '结束行程'),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.danger,
-                    ),
-                    onPressed: ending ? null : end,
-                    child: Text(ending ? '正在结束…' : '结束行程'),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
         ],
       ),
     ),
+    floatingActionButton: controlsCollapsed
+        ? FloatingActionButton.extended(
+            heroTag: 'trip-navigation-expand-controls',
+            onPressed: _expandControls,
+            elevation: 10,
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            tooltip: '展开导航控件',
+            icon: const Icon(Icons.keyboard_arrow_up_rounded),
+            label: const Text(
+              '展开控件',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+          )
+        : null,
+    floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
   );
 }
 

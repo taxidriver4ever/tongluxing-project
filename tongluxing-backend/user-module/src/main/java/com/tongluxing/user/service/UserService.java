@@ -11,6 +11,8 @@ import com.tongluxing.user.model.UserModels.UserProfileVO;
 import com.tongluxing.user.model.UserModels.FollowStatusVO;
 import com.tongluxing.user.model.UserModels.FollowUserVO;
 import com.tongluxing.user.model.UserModels.UserSearchVO;
+import com.tongluxing.user.model.UserModels.PrivacySettingsVO;
+import com.tongluxing.user.model.UserModels.UpdatePrivacySettingsRequest;
 import java.util.List;
 
 /**
@@ -29,6 +31,13 @@ public interface UserService {
      * 修改当前登录用户资料，并返回修改后的最新资料。
      */
     UserProfileVO updateCurrentProfile(UpdateUserProfileRequest request);
+
+    PrivacySettingsVO getCurrentPrivacySettings();
+
+    PrivacySettingsVO updateCurrentPrivacySettings(UpdatePrivacySettingsRequest request);
+
+    /** 应用聚合层读取指定用户的公开范围。 */
+    PrivacySettingsVO getPrivacySettings(Long userId);
 
     /**
      * 提交当前登录用户的驾驶证认证申请。

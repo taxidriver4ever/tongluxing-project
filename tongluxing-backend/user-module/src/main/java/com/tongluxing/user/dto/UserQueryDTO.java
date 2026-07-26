@@ -94,6 +94,13 @@ public class UserQueryDTO {
 
     /** 是否允许邀请相关能力。 */
     private Boolean inviteEnabledFlag;
+    private Boolean cityVisibleFlag;
+    private Boolean bioVisibleFlag;
+    private Boolean tripStatsVisibleFlag;
+    private Boolean levelVisibleFlag;
+    private Boolean locationEnabledFlag;
+    private Boolean notificationEnabledFlag;
+    private LocalDateTime updatedAt;
 
     private Integer totalTripCount;
     private Long totalDistanceMeters;

@@ -451,6 +451,8 @@ public class TripServiceImpl implements TripService {
         trip.setEstimatedDays(request.estimatedDays());
         trip.setTotalDistanceMeters(request.routeDistance());
         trip.setMaxVehicleCount(request.maxVehicleCount());
+        trip.setVehicleRequirements(vehicleRequirements(request.vehicleRequirements()));
+        trip.setBudgetDescription(normalize(request.budgetDescription()));
         trip.setTravelDepth(normalize(request.travelDepth()));
         trip.setPublicFlag(Boolean.TRUE.equals(request.publicFlag()) ? 1 : 0);
         trip.setRemark(normalize(request.remark()));
@@ -478,6 +480,8 @@ public class TripServiceImpl implements TripService {
         trip.setEstimatedDays(request.estimatedDays());
         trip.setTotalDistanceMeters(request.routeDistance());
         trip.setMaxVehicleCount(request.maxVehicleCount());
+        trip.setVehicleRequirements(vehicleRequirements(request.vehicleRequirements()));
+        trip.setBudgetDescription(normalize(request.budgetDescription()));
         trip.setTravelDepth(normalize(request.travelDepth()));
         trip.setPublicFlag(Boolean.TRUE.equals(request.publicFlag()) ? 1 : 0);
         trip.setRemark(normalize(request.remark()));
@@ -758,6 +762,8 @@ public class TripServiceImpl implements TripService {
                 trip.getTotalDistanceMeters(),
                 trip.getMaxVehicleCount(),
                 trip.getJoinedVehicleCount(),
+                vehicleRequirementsList(trip.getVehicleRequirements()),
+                trip.getBudgetDescription(),
                 trip.getTravelDepth(),
                 trip.getPublicFlag() != null && trip.getPublicFlag() == 1,
                 trip.getStatus(),
@@ -768,6 +774,23 @@ public class TripServiceImpl implements TripService {
                 formatTime(trip.getCreatedAt()),
                 formatTime(trip.getUpdatedAt())
         );
+    }
+
+    private String vehicleRequirements(List<String> values) {
+        if (values == null || values.isEmpty() || values.stream().anyMatch("不限"::equals)) return "不限";
+        List<String> allowed = List.of("SUV", "轿车", "越野车", "摩托车", "MPV", "新能源");
+        List<String> normalized = values.stream()
+                .filter(StringUtils::hasText).map(String::trim).filter(allowed::contains).distinct().toList();
+        if (normalized.isEmpty()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "请选择有效的车辆要求");
+        }
+        return String.join(",", normalized);
+    }
+
+    private List<String> vehicleRequirementsList(String value) {
+        if (!StringUtils.hasText(value)) return List.of("不限");
+        return java.util.Arrays.stream(value.split(","))
+                .map(String::trim).filter(v -> !v.isEmpty()).distinct().toList();
     }
 
     /**

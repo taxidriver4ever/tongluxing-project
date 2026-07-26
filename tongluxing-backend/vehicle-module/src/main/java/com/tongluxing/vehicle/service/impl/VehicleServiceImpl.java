@@ -444,6 +444,12 @@ public class VehicleServiceImpl implements VehicleService {
         return response;
     }
 
+    @Override
+    public PublicVehicleCardResponse getPublicMainCard(Long userId) {
+        VehicleProfile vehicle = vehicleProfileMapper.findMainByUserId(userId);
+        return vehicle == null ? null : toPublicCardResponse(vehicle);
+    }
+
     /** 校验车辆属于当前用户，防止越权操作。 */
     private VehicleProfile requireOwnedVehicle(Long vehicleId, Long userId) {
         VehicleProfile vehicle = vehicleProfileMapper.findByIdAndUserId(vehicleId, userId);

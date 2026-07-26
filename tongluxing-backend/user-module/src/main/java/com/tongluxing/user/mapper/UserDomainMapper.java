@@ -210,7 +210,11 @@ public interface UserDomainMapper {
      */
     @Select("""
             select user_id userId,profile_visibility profileVisibility,vehicle_visibility vehicleVisibility,
-                   invite_enabled_flag inviteEnabledFlag from user_privacy_setting where user_id=#{userId} and deleted=0 limit 1
+                   invite_enabled_flag inviteEnabledFlag,city_visible_flag cityVisibleFlag,
+                   bio_visible_flag bioVisibleFlag,trip_stats_visible_flag tripStatsVisibleFlag,
+                   level_visible_flag levelVisibleFlag,location_enabled_flag locationEnabledFlag,
+                   notification_enabled_flag notificationEnabledFlag
+            from user_privacy_setting where user_id=#{userId} and deleted=0 limit 1
             """)
     UserQueryDTO findPrivacy(@Param("userId") Long userId);
 
@@ -220,8 +224,21 @@ public interface UserDomainMapper {
      * <p>默认公开个人主页和车辆信息，并允许邀请相关能力。</p>
      */
     @Insert("""
-            insert into user_privacy_setting(id,user_id,profile_visibility,vehicle_visibility,invite_enabled_flag,created_at,updated_at,deleted)
-            values(#{id},#{userId},'PUBLIC','PUBLIC',1,#{now},#{now},0)
+            insert into user_privacy_setting(id,user_id,profile_visibility,vehicle_visibility,invite_enabled_flag,
+                city_visible_flag,bio_visible_flag,trip_stats_visible_flag,level_visible_flag,
+                location_enabled_flag,notification_enabled_flag,created_at,updated_at,deleted)
+            values(#{id},#{userId},'PUBLIC','PUBLIC',1,1,1,1,1,1,1,#{now},#{now},0)
             """)
     int insertPrivacy(@Param("id") Long id, @Param("userId") Long userId, @Param("now") LocalDateTime now);
+
+    @Update("""
+            update user_privacy_setting
+            set profile_visibility=#{profileVisibility},vehicle_visibility=#{vehicleVisibility},
+                invite_enabled_flag=#{inviteEnabledFlag},city_visible_flag=#{cityVisibleFlag},
+                bio_visible_flag=#{bioVisibleFlag},trip_stats_visible_flag=#{tripStatsVisibleFlag},
+                level_visible_flag=#{levelVisibleFlag},location_enabled_flag=#{locationEnabledFlag},
+                notification_enabled_flag=#{notificationEnabledFlag},updated_at=#{updatedAt}
+            where user_id=#{userId} and deleted=0
+            """)
+    int updatePrivacy(UserQueryDTO value);
 }

@@ -26,7 +26,7 @@ public interface TripMapper {
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
                    actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
@@ -44,7 +44,7 @@ public interface TripMapper {
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
                    actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
@@ -73,7 +73,7 @@ public interface TripMapper {
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
                    actual_start_time, actual_end_time, created_at, updated_at, deleted
             from trip
             where user_id = #{userId}
@@ -112,7 +112,7 @@ public interface TripMapper {
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
                    actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
@@ -132,7 +132,7 @@ public interface TripMapper {
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
                    actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
@@ -153,7 +153,7 @@ public interface TripMapper {
                  end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                  route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                  departure_time, estimated_days, total_distance_meters,
-                 max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                 max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
                  actual_start_time, actual_end_time,
                  created_at, updated_at, deleted)
             values
@@ -162,7 +162,7 @@ public interface TripMapper {
                  #{endName}, #{endLat}, #{endLng}, #{endLocationName}, #{endLocationAddress}, #{endLatitude}, #{endLongitude},
                  #{routeSummary}, #{routePolylineKey}, #{routeDistance}, #{routeDuration}, #{routePolyline}, #{waypointsJson},
                  #{departureTime}, #{estimatedDays}, #{totalDistanceMeters},
-                 #{maxVehicleCount}, #{joinedVehicleCount}, #{travelDepth}, #{publicFlag}, #{status}, #{remark},
+                 #{maxVehicleCount}, #{joinedVehicleCount}, #{vehicleRequirements}, #{budgetDescription}, #{travelDepth}, #{publicFlag}, #{status}, #{remark},
                  #{actualStartTime}, #{actualEndTime},
                  #{createdAt}, #{updatedAt}, 0)
             """)
@@ -202,6 +202,8 @@ public interface TripMapper {
                 estimated_days = #{estimatedDays},
                 total_distance_meters = #{totalDistanceMeters},
                 max_vehicle_count = #{maxVehicleCount},
+                vehicle_requirements = #{vehicleRequirements},
+                budget_description = #{budgetDescription},
                 travel_depth = #{travelDepth},
                 public_flag = #{publicFlag},
                 remark = #{remark},
@@ -257,7 +259,7 @@ public interface TripMapper {
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
                    actual_start_time, actual_end_time, created_at, updated_at, deleted
             from trip
             where id = #{tripId} and user_id = #{userId} and deleted = 0
@@ -283,7 +285,7 @@ public interface TripMapper {
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
                    actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip

@@ -177,7 +177,7 @@ class _TripDiscoveryFilterSheetState extends State<TripDiscoveryFilterSheet> {
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
-                children: ['', 'SUV', '轿车', '越野车']
+                children: ['', 'SUV', '轿车', '越野车', '摩托车', 'MPV', '新能源']
                     .map(
                       (value) => ChoiceChip(
                         label: Text(value.isEmpty ? '不限' : value),

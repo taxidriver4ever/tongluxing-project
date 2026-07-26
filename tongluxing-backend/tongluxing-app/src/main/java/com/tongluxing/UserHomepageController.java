@@ -6,8 +6,10 @@ import com.tongluxing.auth.entity.AuthAccount;
 import com.tongluxing.auth.mapper.AuthAccountMapper;
 import com.tongluxing.growth.service.GrowthService;
 import com.tongluxing.user.model.UserModels.UserHomepageVO;
+import com.tongluxing.user.model.UserModels.PublicVehicleSummaryVO;
 import com.tongluxing.user.service.UserService;
 import com.tongluxing.user.support.CurrentUserContext;
+import com.tongluxing.vehicle.service.VehicleService;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -18,6 +20,7 @@ public class UserHomepageController {
     private final AuthAccountMapper authAccountMapper;
     private final IpProvinceResolver ipProvinceResolver;
     private final CurrentUserContext currentUserContext;
+    private final VehicleService vehicleService;
 
     @GetMapping("/v1/users/{userId}/homepage")
     public Result<UserHomepageVO> homepage(@PathVariable Long userId) {
@@ -28,8 +31,15 @@ public class UserHomepageController {
         AuthAccount account = authAccountMapper.findByUserId(userId);
         String province = ipProvinceResolver.resolve(
                 account == null ? null : account.getLastLoginIp(), profile.cityName());
+        var privacy = userService.getPrivacySettings(userId);
+        var vehicle = "PUBLIC".equals(privacy.vehicleVisibility())
+                ? vehicleService.getPublicMainCard(userId) : null;
+        PublicVehicleSummaryVO mainVehicle = vehicle == null ? null
+                : new PublicVehicleSummaryVO(vehicle.brand(), vehicle.model(), vehicle.vehicleType());
         return Result.success(new UserHomepageVO(profile,
-                growthService.getSummary(userId), growthService.getBadgeWall(userId), province,
+                Boolean.TRUE.equals(privacy.levelVisible()) ? growthService.getSummary(userId) : null,
+                Boolean.TRUE.equals(privacy.levelVisible()) ? growthService.getBadgeWall(userId) : null,
+                mainVehicle, province,
                 userService.getFollowStatus(userId)));
     }
 }

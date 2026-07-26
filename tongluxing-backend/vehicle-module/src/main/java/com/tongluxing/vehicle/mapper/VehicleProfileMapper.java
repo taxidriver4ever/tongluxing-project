@@ -30,6 +30,17 @@ public interface VehicleProfileMapper {
             """)
     List<VehicleProfile> findByUserId(@Param("userId") Long userId);
 
+    @Select("""
+            select id, user_id, plate_no_cipher, plate_no_mask, brand, model, vehicle_type, color,
+                   seat_count, energy_type, vehicle_photo_image_key, certification_status, is_default as default_flag,
+                   created_at, updated_at, deleted
+            from vehicle_profile
+            where user_id=#{userId} and deleted=0
+            order by is_default desc, certification_status='APPROVED' desc, created_at desc
+            limit 1
+            """)
+    VehicleProfile findMainByUserId(@Param("userId") Long userId);
+
     /** 查询当前用户拥有的指定车辆，用于鉴权和详情读取。 */
     @Select("""
             select id, user_id, plate_no_cipher, plate_no_mask, brand, model, vehicle_type, color,

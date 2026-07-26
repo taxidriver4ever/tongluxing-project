@@ -35,6 +35,8 @@ public interface MatchTripPort {
             Integer ownerBadgeCount,
             String vehicleType,
             String vehicleSummary,
+            String vehicleRequirements,
+            String budgetDescription,
             String title,
             String description,
             String coverImageKey,

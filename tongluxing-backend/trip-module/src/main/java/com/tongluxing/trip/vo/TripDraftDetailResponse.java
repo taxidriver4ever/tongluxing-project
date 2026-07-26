@@ -6,6 +6,7 @@ import java.util.List;
 public record TripDraftDetailResponse(
         String draftId, String title, String startTime, LocationResponse startLocation,
         LocationResponse destination, String description, String coverImageKey, Integer expectPeople, Integer durationDays,
+        List<String> vehicleRequirements, String budgetDescription, String notes,
         String status, String publishedTripId, List<TripCreationWaypointResponse> waypoints,
         TripDraftRouteResponse route, String updatedAt
 ) { }

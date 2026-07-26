@@ -98,6 +98,9 @@ class TripDraftModel {
     this.coverImageKey = '',
     this.expectPeople = 5,
     this.durationDays = 1,
+    this.vehicleRequirements = const ['不限'],
+    this.budgetDescription = '',
+    this.notes = '',
     this.updatedAt,
     this.waypoints = const [],
     this.route,
@@ -112,6 +115,9 @@ class TripDraftModel {
   final String coverImageKey;
   final int expectPeople;
   final int durationDays;
+  final List<String> vehicleRequirements;
+  final String budgetDescription;
+  final String notes;
   final String? updatedAt;
   final List<TripDraftWaypointModel> waypoints;
   final TripDraftRouteModel? route;
@@ -135,6 +141,11 @@ class TripDraftModel {
     coverImageKey: json['coverImageKey']?.toString() ?? '',
     expectPeople: _int(json['expectPeople']) ?? 5,
     durationDays: _int(json['durationDays']) ?? 1,
+    vehicleRequirements: (json['vehicleRequirements'] as List? ?? const ['不限'])
+        .map((e) => e.toString())
+        .toList(),
+    budgetDescription: json['budgetDescription']?.toString() ?? '',
+    notes: json['notes']?.toString() ?? '',
     updatedAt: json['updatedAt']?.toString(),
     waypoints: (json['waypoints'] as List? ?? const [])
         .whereType<Map>()
@@ -247,6 +258,9 @@ class TripModel {
     this.startLocation,
     this.endLocation,
     this.routePolyline,
+    this.vehicleRequirements = const ['不限'],
+    this.budgetDescription = '',
+    this.notes = '',
   });
   final String id;
   final String title;
@@ -264,6 +278,9 @@ class TripModel {
   final LocationSelection? startLocation;
   final LocationSelection? endLocation;
   final String? routePolyline;
+  final List<String> vehicleRequirements;
+  final String budgetDescription;
+  final String notes;
 
   List<LocationSelection> get routePoints {
     final parsed = parseRoutePolyline(routePolyline);
@@ -309,6 +326,11 @@ class TripModel {
           )
         : null,
     routePolyline: json['routePolyline']?.toString(),
+    vehicleRequirements: (json['vehicleRequirements'] as List? ?? const ['不限'])
+        .map((e) => e.toString())
+        .toList(),
+    budgetDescription: json['budgetDescription']?.toString() ?? '',
+    notes: json['remark']?.toString() ?? '',
   );
 }
 
@@ -625,10 +647,8 @@ class TripPublicDetailModel {
     this.routePolyline = '',
     this.routeDistanceMeters = 0,
     this.routeDurationSeconds = 0,
-    this.vehicleRequirement = '',
+    this.vehicleRequirements = const ['不限'],
     this.budgetDescription = '',
-    this.costSharingType = '',
-    this.meetingPoint = '',
     this.notes = '',
     this.announcement = '',
     this.joinRequirement = '',
@@ -644,10 +664,8 @@ class TripPublicDetailModel {
   final String routePolyline;
   final int routeDistanceMeters;
   final int routeDurationSeconds;
-  final String vehicleRequirement;
+  final List<String> vehicleRequirements;
   final String budgetDescription;
-  final String costSharingType;
-  final String meetingPoint;
   final String notes;
   final String announcement;
   final String joinRequirement;
@@ -676,10 +694,11 @@ class TripPublicDetailModel {
       routePolyline: json['routePolyline']?.toString() ?? '',
       routeDistanceMeters: _int(json['routeDistanceMeters']) ?? 0,
       routeDurationSeconds: _int(json['routeDurationSeconds']) ?? 0,
-      vehicleRequirement: json['vehicleRequirement']?.toString() ?? '',
+      vehicleRequirements:
+          (json['vehicleRequirements'] as List? ?? const ['不限'])
+              .map((e) => e.toString())
+              .toList(),
       budgetDescription: json['budgetDescription']?.toString() ?? '',
-      costSharingType: json['costSharingType']?.toString() ?? '',
-      meetingPoint: json['meetingPoint']?.toString() ?? '',
       notes: json['notes']?.toString() ?? '',
       announcement: json['announcement']?.toString() ?? '',
       joinRequirement: json['joinRequirement']?.toString() ?? '',
@@ -781,8 +800,7 @@ class ConversationModel {
         avatarUrl: json['avatarUrl']?.toString() ?? '',
         peerUserId: json['peerUserId']?.toString() ?? '',
         relationType: json['relationType']?.toString() ?? 'GROUP',
-        remainingTextMessages:
-            _int(json['remainingTextMessages']) ?? 0,
+        remainingTextMessages: _int(json['remainingTextMessages']) ?? 0,
         canSendMedia: json['canSendMedia'] != false,
       );
 }
@@ -870,9 +888,8 @@ List<LocationSelection> parseRoutePolyline(String? raw) {
       return decoded
           .whereType<Map>()
           .map(
-            (value) => LocationSelection.fromJson(
-              Map<String, dynamic>.from(value),
-            ),
+            (value) =>
+                LocationSelection.fromJson(Map<String, dynamic>.from(value)),
           )
           .where((point) => point.latitude != 0 || point.longitude != 0)
           .toList(growable: false);

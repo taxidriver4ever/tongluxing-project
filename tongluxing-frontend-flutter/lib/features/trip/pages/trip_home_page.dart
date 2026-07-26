@@ -225,24 +225,7 @@ class _MyTripsPageState extends State<_MyTripsPage> {
         padding: const EdgeInsets.fromLTRB(10, 14, 10, 28),
         children: [
           _DashboardHeader(profile: profile),
-          const SizedBox(height: 17),
-          Text(
-            '你好，$nickname',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppColors.text,
-              fontSize: 22,
-              height: 1.15,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            '轻松规划下一段同行旅程',
-            style: TextStyle(color: AppColors.muted, fontSize: 12.5),
-          ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           _DashboardGrid(
             current: current,
             onCurrent: () => current == null
@@ -284,7 +267,7 @@ class _MyTripsPageState extends State<_MyTripsPage> {
             _EmptyUpcoming(onCreate: () => open(const TripCreatePage()))
           else
             SizedBox(
-              height: 150,
+              height: 166,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: upcoming.length,
@@ -340,13 +323,36 @@ class _DashboardHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final nickname = profile['nickname']?.toString() ?? '同路行用户';
-    return Align(
-      alignment: Alignment.centerRight,
-      child: UserAvatar(
-        nickname: nickname,
-        avatarImageKey: profile['avatarImageKey']?.toString() ?? '',
-        radius: 18,
-      ),
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '你好，$nickname',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.text,
+                  fontSize: 23,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 5),
+              const Text(
+                '轻松规划下一段同行旅程',
+                style: TextStyle(color: AppColors.muted, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+        UserAvatar(
+          nickname: nickname,
+          avatarImageKey: profile['avatarImageKey']?.toString() ?? '',
+          radius: 21,
+        ),
+      ],
     );
   }
 }
@@ -487,7 +493,7 @@ class _CurrentJourneyCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 18,
+                            fontSize: 23,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
@@ -500,9 +506,23 @@ class _CurrentJourneyCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Colors.white70,
-                            fontSize: 11.5,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
+                        if (trip != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            '车型要求：${trip!.vehicleRequirements.join(' / ')}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -601,7 +621,7 @@ class _UpcomingTripCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              height: 82,
+              height: 88,
               width: double.infinity,
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
@@ -638,6 +658,17 @@ class _UpcomingTripCard extends StatelessWidget {
                     style: const TextStyle(
                       color: AppColors.muted,
                       fontSize: 10.5,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '车型：${trip.vehicleRequirements.join(' / ')}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ],

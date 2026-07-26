@@ -38,6 +38,8 @@ import com.tongluxing.user.model.UserModels.UserProfileVO;
 import com.tongluxing.user.model.UserModels.FollowStatusVO;
 import com.tongluxing.user.model.UserModels.FollowUserVO;
 import com.tongluxing.user.model.UserModels.UserSearchVO;
+import com.tongluxing.user.model.UserModels.PrivacySettingsVO;
+import com.tongluxing.user.model.UserModels.UpdatePrivacySettingsRequest;
 import com.tongluxing.user.service.UserService;
 import com.tongluxing.user.support.CurrentUserContext;
 
@@ -215,13 +217,56 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(ResultCode.NOT_FOUND, "用户主页不存在");
         }
         UserProfileVO profile = profile(row);
+        boolean showCity = Boolean.TRUE.equals(privacy.getCityVisibleFlag());
+        boolean showBio = Boolean.TRUE.equals(privacy.getBioVisibleFlag());
+        boolean showStats = Boolean.TRUE.equals(privacy.getTripStatsVisibleFlag());
         PublicProfileVO result = new PublicProfileVO(profile.userId(), profile.tongluxingId(),
                 profile.nickname(), profile.avatarImageKey(),
-                profile.cityName(), profile.bio(), profile.drivingLicenseCertificationStatus(),
-                row.getTotalTripCount(), row.getTotalDistanceMeters(), row.getTotalDurationMinutes(),
-                row.getCompletedWaypointCount());
+                showCity ? profile.cityName() : "", showBio ? profile.bio() : "",
+                profile.drivingLicenseCertificationStatus(),
+                showStats ? row.getTotalTripCount() : 0, showStats ? row.getTotalDistanceMeters() : 0L,
+                showStats ? row.getTotalDurationMinutes() : 0L,
+                showStats ? row.getCompletedWaypointCount() : 0);
         cachePut(PUBLIC_CACHE.formatted(userId), result, Duration.ofMinutes(15));
         return result;
+    }
+
+    @Override
+    public PrivacySettingsVO getCurrentPrivacySettings() {
+        return privacy(ensurePrivacy(currentUserContext.requireUserId()));
+    }
+
+    @Override
+    public PrivacySettingsVO getPrivacySettings(Long userId) {
+        return privacy(ensurePrivacy(userId));
+    }
+
+    @Override
+    @Transactional
+    public PrivacySettingsVO updateCurrentPrivacySettings(UpdatePrivacySettingsRequest request) {
+        long userId = currentUserContext.requireUserId();
+        UserQueryDTO row = ensurePrivacy(userId);
+        if (request.profileVisibility() != null) row.setProfileVisibility(request.profileVisibility());
+        if (request.vehicleVisibility() != null) row.setVehicleVisibility(request.vehicleVisibility());
+        if (request.inviteEnabled() != null) row.setInviteEnabledFlag(request.inviteEnabled());
+        if (request.cityVisible() != null) row.setCityVisibleFlag(request.cityVisible());
+        if (request.bioVisible() != null) row.setBioVisibleFlag(request.bioVisible());
+        if (request.tripStatsVisible() != null) row.setTripStatsVisibleFlag(request.tripStatsVisible());
+        if (request.levelVisible() != null) row.setLevelVisibleFlag(request.levelVisible());
+        if (request.locationEnabled() != null) row.setLocationEnabledFlag(request.locationEnabled());
+        if (request.notificationEnabled() != null) row.setNotificationEnabledFlag(request.notificationEnabled());
+        row.setUpdatedAt(LocalDateTime.now());
+        mapper.updatePrivacy(row);
+        redis.delete(PUBLIC_CACHE.formatted(userId));
+        return privacy(mapper.findPrivacy(userId));
+    }
+
+    private PrivacySettingsVO privacy(UserQueryDTO row) {
+        return new PrivacySettingsVO(row.getProfileVisibility(), row.getVehicleVisibility(),
+                Boolean.TRUE.equals(row.getInviteEnabledFlag()), Boolean.TRUE.equals(row.getCityVisibleFlag()),
+                Boolean.TRUE.equals(row.getBioVisibleFlag()), Boolean.TRUE.equals(row.getTripStatsVisibleFlag()),
+                Boolean.TRUE.equals(row.getLevelVisibleFlag()), Boolean.TRUE.equals(row.getLocationEnabledFlag()),
+                Boolean.TRUE.equals(row.getNotificationEnabledFlag()));
     }
 
     /**

@@ -133,6 +133,11 @@ public class TripCreationServiceImpl implements TripCreationService {
         if (request.destination() != null) draft.setEndLocationJson(json(request.destination()));
         if (request.expectPeople() != null) draft.setPeopleCount(request.expectPeople());
         if (request.durationDays() != null) draft.setDurationDays(request.durationDays());
+        if (request.vehicleRequirements() != null) {
+            draft.setVehicleRequirements(vehicleRequirements(request.vehicleRequirements()));
+        }
+        if (request.budgetDescription() != null) draft.setBudgetDescription(text(request.budgetDescription()));
+        if (request.notes() != null) draft.setNotes(text(request.notes()));
         draft.setUpdatedAt(LocalDateTime.now());
         if (draftMapper.update(draft) == 0) throw new BusinessException(409, "草稿状态不允许修改");
     }
@@ -256,7 +261,8 @@ public class TripCreationServiceImpl implements TripCreationService {
                 draft.getDescription(), draft.getCoverImageKey(), draft.getPeopleCount(), start, end,
                 start.name() + " - " + end.name(), formatTime(draft.getDepartureTime()), draft.getDurationDays(),
                 route.getPlanDistance(), route.getPlanDuration(), route.getPolyline(), draft.getPeopleCount(),
-                "MIDDLE", true, draft.getDescription(), waypoints.stream().map(this::waypointLocation).toList()));
+                "MIDDLE", true, vehicleRequirementsList(draft.getVehicleRequirements()),
+                draft.getBudgetDescription(), draft.getNotes(), waypoints.stream().map(this::waypointLocation).toList()));
         long tripId = Long.parseLong(trip.tripId());
         LocalDateTime now = LocalDateTime.now();
         for (TripWaypoint value : waypoints) {
@@ -380,6 +386,7 @@ public class TripCreationServiceImpl implements TripCreationService {
         return new TripDraftDetailResponse(String.valueOf(draft.getId()), draft.getTitle(), formatTime(draft.getDepartureTime()),
                 response(start), response(end), draft.getDescription(), draft.getCoverImageKey(),
                 draft.getPeopleCount(), draft.getDurationDays(),
+                vehicleRequirementsList(draft.getVehicleRequirements()), draft.getBudgetDescription(), draft.getNotes(),
                 draft.getDraftStatus(), draft.getPublishedTripId() == null ? "" : String.valueOf(draft.getPublishedTripId()),
                 waypoints.stream().map(this::response).toList(),
                 route == null ? null : routeResponse(route, start, end, waypoints), formatTime(draft.getUpdatedAt()));
@@ -496,6 +503,20 @@ public class TripCreationServiceImpl implements TripCreationService {
     }
 
     private String text(String value) { return value == null ? "" : value.trim(); }
+
+    private String vehicleRequirements(List<String> values) {
+        if (values == null || values.isEmpty() || values.stream().anyMatch("不限"::equals)) return "不限";
+        List<String> allowed = List.of("SUV", "轿车", "越野车", "摩托车", "MPV", "新能源");
+        List<String> normalized = values.stream().map(this::text).filter(allowed::contains).distinct().toList();
+        if (normalized.isEmpty()) throw bad("请选择有效的车辆要求");
+        return String.join(",", normalized);
+    }
+
+    private List<String> vehicleRequirementsList(String value) {
+        if (!StringUtils.hasText(value)) return List.of("不限");
+        return java.util.Arrays.stream(value.split(",")).map(String::trim).filter(v -> !v.isEmpty()).distinct().toList();
+    }
+
     private BusinessException bad(String message) { return new BusinessException(ResultCode.BAD_REQUEST, message); }
     private BusinessException notFound(String message) { return new BusinessException(ResultCode.NOT_FOUND, message); }
 }

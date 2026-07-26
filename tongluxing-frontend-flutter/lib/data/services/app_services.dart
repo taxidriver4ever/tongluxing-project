@@ -317,6 +317,8 @@ class TripService {
             'maxVehicleCount': maxVehicleCount,
             'travelDepth': raw['travelDepth'] ?? 'LIGHT',
             'publicFlag': raw['publicFlag'] != false,
+            'vehicleRequirements': raw['vehicleRequirements'] ?? const ['不限'],
+            'budgetDescription': raw['budgetDescription'],
             'remark': raw['remark'],
             'waypoints': waypoints ?? raw['waypoints'] ?? const [],
           },
@@ -1285,6 +1287,20 @@ class UserProfileService {
       Map<String, dynamic>.from(
         await api.get('/v1/users/$userId/homepage') as Map,
       );
+
+  Future<Map<String, dynamic>> privacySettings() async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/users/me/privacy-settings') as Map,
+      );
+
+  Future<Map<String, dynamic>> updatePrivacySettings(
+    Map<String, dynamic> values,
+  ) async => Map<String, dynamic>.from(
+    await api.put('/v1/users/me/privacy-settings', body: values) as Map,
+  );
+
+  Future<Map<String, dynamic>> account() async =>
+      Map<String, dynamic>.from(await api.get('/v1/auth/me') as Map);
 }
 
 class DrivingLicenseService {

@@ -303,13 +303,13 @@ class _DiscoverySearchEntry extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
             Icon(
               LucideIcons.search,
               size: 18,
               color: focused ? AppColors.primary : AppColors.muted,
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: 2),
             Expanded(
               child: TextField(
                 controller: controller,
@@ -324,6 +324,7 @@ class _DiscoverySearchEntry extends StatelessWidget {
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
                   isCollapsed: true,
+                  contentPadding: EdgeInsets.zero,
                   hintStyle: TextStyle(color: AppColors.muted),
                 ),
               ),

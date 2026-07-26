@@ -12,6 +12,7 @@ import '../../chat/pages/chat_session_page.dart';
 import '../../profile/pages/profile_system_pages.dart';
 import '../../profile/widgets/user_avatar.dart';
 import 'trip_detail_page.dart';
+import 'trip_route_map_page.dart';
 import 'trip_discovery_widgets.dart';
 import '../widgets/trip_discovery_theme.dart';
 import '../widgets/route_map_view.dart';
@@ -260,7 +261,7 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
                       pinned: true,
                       expandedHeight:
                           current != null && current.routePoints.length >= 2
-                          ? 640
+                          ? 520
                           : 360,
                       toolbarHeight: 54,
                       elevation: 0,
@@ -647,30 +648,17 @@ class _OwnerCard extends StatelessWidget {
                         ],
                       ],
                     ),
-                    const SizedBox(height: 5),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '发起行程 · ${activeLabel(owner.lastActiveAt)}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: TripDiscoveryColors.secondaryText,
-                              fontSize: 10.5,
-                            ),
-                          ),
+                    if (owner.certificationStatus == 'APPROVED') ...[
+                      const SizedBox(height: 5),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: _SmallLabel(
+                          '● 认证车主',
+                          Color(0xFFE5F4FF),
+                          TripDiscoveryColors.primary,
                         ),
-                        if (owner.certificationStatus == 'APPROVED') ...[
-                          const SizedBox(width: 5),
-                          const _SmallLabel(
-                            '● 认证车主',
-                            Color(0xFFE5F4FF),
-                            TripDiscoveryColors.primary,
-                          ),
-                        ],
-                      ],
-                    ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -858,24 +846,60 @@ class _TripRouteMapCard extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        RouteMapView(
-          polylinePoints: detail.routePoints,
-          stops: [
-            LocationSelection(
-              name: detail.trip.startName,
-              address: '',
-              latitude: detail.routePoints.first.latitude,
-              longitude: detail.routePoints.first.longitude,
-            ),
-            LocationSelection(
-              name: detail.trip.endName,
-              address: '',
-              latitude: detail.routePoints.last.latitude,
-              longitude: detail.routePoints.last.longitude,
-            ),
-          ],
-          height: 230,
-          interactive: true,
+        InkWell(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => TripRouteMapPage(detail: detail)),
+          ),
+          borderRadius: BorderRadius.circular(14),
+          child: Stack(
+            alignment: Alignment.bottomRight,
+            children: [
+              IgnorePointer(
+                child: RouteMapView(
+                  polylinePoints: detail.routePoints,
+                  stops: [
+                    LocationSelection(
+                      name: detail.trip.startName,
+                      address: '',
+                      latitude: detail.routePoints.first.latitude,
+                      longitude: detail.routePoints.first.longitude,
+                    ),
+                    LocationSelection(
+                      name: detail.trip.endName,
+                      address: '',
+                      latitude: detail.routePoints.last.latitude,
+                      longitude: detail.routePoints.last.longitude,
+                    ),
+                  ],
+                  height: 230,
+                  interactive: false,
+                ),
+              ),
+              Container(
+                margin: const EdgeInsets.all(10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .94),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(LucideIcons.scanSearch, size: 15),
+                    SizedBox(width: 5),
+                    Text(
+                      '查看完整路线',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 10),
         Padding(
@@ -899,8 +923,6 @@ class _TripInformationCard extends StatelessWidget {
   const _TripInformationCard({required this.detail});
 
   final TripPublicDetailModel detail;
-
-  String _value(String value) => value.trim().isEmpty ? '发起人暂未填写' : value;
 
   @override
   Widget build(BuildContext context) {
@@ -935,16 +957,13 @@ class _TripInformationCard extends StatelessWidget {
           const SizedBox(height: 10),
           _InfoLine(
             icon: LucideIcons.carFront,
-            text: '车型要求：${_value(detail.vehicleRequirement)}',
+            text: '车型要求：${detail.vehicleRequirements.join(' / ')}',
           ),
-          _InfoLine(
-            icon: LucideIcons.walletCards,
-            text: '费用预算：${_value(detail.budgetDescription)}',
-          ),
-          _InfoLine(
-            icon: LucideIcons.mapPin,
-            text: '集合地点：${_value(detail.meetingPoint)}',
-          ),
+          if (detail.budgetDescription.trim().isNotEmpty)
+            _InfoLine(
+              icon: LucideIcons.walletCards,
+              text: '费用预算：${detail.budgetDescription}',
+            ),
           if (detail.notes.trim().isNotEmpty)
             _InfoLine(
               icon: LucideIcons.circleAlert,

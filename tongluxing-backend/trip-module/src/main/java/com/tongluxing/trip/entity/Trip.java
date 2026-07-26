@@ -42,6 +42,8 @@ public class Trip {
     private Integer totalDistanceMeters;
     private Integer maxVehicleCount;
     private Integer joinedVehicleCount;
+    private String vehicleRequirements;
+    private String budgetDescription;
     private String travelDepth;
     private Integer publicFlag;
     private String status;

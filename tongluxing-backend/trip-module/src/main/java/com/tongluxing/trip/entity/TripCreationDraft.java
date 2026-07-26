@@ -17,6 +17,9 @@ public class TripCreationDraft {
     private LocalDateTime departureTime;
     private Integer durationDays;
     private Integer peopleCount;
+    private String vehicleRequirements;
+    private String budgetDescription;
+    private String notes;
     private String remark;
     private String draftStatus;
     private Long publishedTripId;

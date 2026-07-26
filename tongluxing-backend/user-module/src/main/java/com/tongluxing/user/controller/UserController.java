@@ -19,6 +19,8 @@ import com.tongluxing.user.model.UserModels.UserProfileVO;
 import com.tongluxing.user.model.UserModels.FollowStatusVO;
 import com.tongluxing.user.model.UserModels.FollowUserVO;
 import com.tongluxing.user.model.UserModels.UserSearchVO;
+import com.tongluxing.user.model.UserModels.PrivacySettingsVO;
+import com.tongluxing.user.model.UserModels.UpdatePrivacySettingsRequest;
 import java.util.List;
 import org.springframework.web.bind.annotation.RequestParam;
 import com.tongluxing.user.service.UserService;
@@ -55,6 +57,17 @@ public class UserController {
     @PutMapping("/me/profile")
     public Result<UserProfileVO> updateProfile(@Valid @RequestBody UpdateUserProfileRequest request) {
         return Result.success(userService.updateCurrentProfile(request));
+    }
+
+    @GetMapping("/me/privacy-settings")
+    public Result<PrivacySettingsVO> privacySettings() {
+        return Result.success(userService.getCurrentPrivacySettings());
+    }
+
+    @PutMapping("/me/privacy-settings")
+    public Result<PrivacySettingsVO> updatePrivacySettings(
+            @Valid @RequestBody UpdatePrivacySettingsRequest request) {
+        return Result.success(userService.updateCurrentPrivacySettings(request));
     }
 
     /**

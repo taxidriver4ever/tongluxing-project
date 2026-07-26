@@ -517,111 +517,315 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  bool location = true;
-  bool notification = true;
+  bool loading = true;
+  String? error;
+  Map<String, dynamic> profile = const {};
+  Map<String, dynamic> account = const {};
+  List<dynamic> vehicles = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => load());
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final api = context.read<AppSession>().api;
+      final values = await Future.wait<dynamic>([
+        UserProfileService(api).me(),
+        UserProfileService(api).account(),
+        VehicleService(api).mine(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        profile = Map<String, dynamic>.from(values[0] as Map);
+        account = Map<String, dynamic>.from(values[1] as Map);
+        vehicles = List<dynamic>.from(values[2] as List);
+      });
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final certified =
+        profile['drivingLicenseCertificationStatus']?.toString() ??
+        'UNSUBMITTED';
+    final approvedVehicles = vehicles
+        .where((item) => item.status == 'APPROVED')
+        .length;
+    return Scaffold(
+      appBar: AppBar(title: const Text('设置与个人信息')),
+      body: loading && profile.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: load,
+              child: ListView(
+                padding: const EdgeInsets.all(22),
+                children: [
+                  if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        error!,
+                        style: const TextStyle(color: AppColors.danger),
+                      ),
+                    ),
+                  _SettingCard(
+                    title: '基本信息',
+                    children: [
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text('头像与昵称'),
+                        subtitle: Text(
+                          '${profile['nickname'] ?? '同路行用户'} · ${profile['tongluxingId'] ?? ''}',
+                        ),
+                      ),
+                      const Divider(),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('手机号'),
+                        trailing: Text(account['phone']?.toString() ?? '未获取'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _SettingCard(
+                    title: '认证状态',
+                    children: [
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          LucideIcons.contact,
+                          color: certified == 'APPROVED'
+                              ? AppColors.success
+                              : AppColors.warning,
+                        ),
+                        title: const Text('驾驶证认证'),
+                        trailing: Text(_certificationLabel(certified)),
+                      ),
+                      const Divider(),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          LucideIcons.carFront,
+                          color: approvedVehicles > 0
+                              ? AppColors.success
+                              : AppColors.warning,
+                        ),
+                        title: const Text('车辆认证'),
+                        trailing: Text('$approvedVehicles 辆已认证'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _SettingCard(
+                    title: '其他',
+                    children: [
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(LucideIcons.shieldCheck),
+                        title: const Text('隐私与权限'),
+                        subtitle: const Text('公开资料、行程定位与消息通知'),
+                        trailing: const Icon(LucideIcons.chevronRight),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const PrivacyPermissionsPage(),
+                          ),
+                        ),
+                      ),
+                      const Divider(),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('关于同路行'),
+                        trailing: const Text('v1.0.0'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+    );
+  }
+
+  String _certificationLabel(String value) => switch (value) {
+    'APPROVED' => '已认证',
+    'PENDING' => '审核中',
+    'REJECTED' => '未通过',
+    _ => '未认证',
+  };
+}
+
+class PrivacyPermissionsPage extends StatefulWidget {
+  const PrivacyPermissionsPage({super.key});
+
+  @override
+  State<PrivacyPermissionsPage> createState() => _PrivacyPermissionsPageState();
+}
+
+class _PrivacyPermissionsPageState extends State<PrivacyPermissionsPage> {
+  Map<String, dynamic> settings = const {};
+  bool loading = true;
+  bool saving = false;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => load());
+  }
+
+  Future<void> load() async {
+    try {
+      final value = await UserProfileService(
+        context.read<AppSession>().api,
+      ).privacySettings();
+      if (mounted) setState(() => settings = value);
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> update(String key, Object value) async {
+    if (saving) return;
+    final before = settings;
+    setState(() {
+      saving = true;
+      settings = {...settings, key: value};
+    });
+    try {
+      final result = await UserProfileService(
+        context.read<AppSession>().api,
+      ).updatePrivacySettings({key: value});
+      if (mounted) setState(() => settings = result);
+    } catch (e) {
+      if (mounted) {
+        setState(() => settings = before);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('设置与个人信息')),
-    body: ListView(
-      padding: const EdgeInsets.all(22),
-      children: [
-        const _SettingCard(
-          title: '基本信息',
-          children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text('头像与昵称'),
-              subtitle: Text('林宇 · 同路行号 TLX10086'),
-              trailing: Icon(LucideIcons.chevronRight),
-            ),
-            Divider(),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text('手机号'),
-              trailing: Text('138****8000'),
-            ),
-            Divider(),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text('微信账号'),
-              trailing: Text('已绑定', style: TextStyle(color: AppColors.success)),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        const _SettingCard(
-          title: '认证状态',
-          children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(LucideIcons.badgeCheck, color: AppColors.success),
-              title: Text('实名认证'),
-              trailing: Text('已认证'),
-            ),
-            Divider(),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(LucideIcons.contact, color: AppColors.success),
-              title: Text('驾驶证认证'),
-              trailing: Text('已认证'),
-            ),
-            Divider(),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(LucideIcons.carFront, color: AppColors.warning),
-              title: Text('车辆认证'),
-              trailing: Text('1 辆审核中'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        TlxCard(
-          color: const Color(0xFFF8FAFD),
-          child: Column(
+    appBar: AppBar(title: const Text('隐私与权限')),
+    body: loading
+        ? const Center(child: CircularProgressIndicator())
+        : error != null && settings.isEmpty
+        ? Center(
+            child: FilledButton(onPressed: load, child: const Text('重新加载')),
+          )
+        : ListView(
+            padding: const EdgeInsets.all(20),
             children: [
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('行程定位'),
-                subtitle: const Text('用于导航、轨迹和队伍位置'),
-                value: location,
-                onChanged: (v) => setState(() => location = v),
+              _SettingCard(
+                title: '公开资料',
+                children: [
+                  _privacySwitch(
+                    '公开个人主页',
+                    '关闭后，其他用户无法查看你的资料主页',
+                    settings['profileVisibility'] == 'PUBLIC',
+                    (value) => update(
+                      'profileVisibility',
+                      value ? 'PUBLIC' : 'PRIVATE',
+                    ),
+                  ),
+                  const Divider(),
+                  _privacySwitch(
+                    '展示常驻城市',
+                    '在个人主页展示城市信息',
+                    settings['cityVisible'] == true,
+                    (value) => update('cityVisible', value),
+                  ),
+                  const Divider(),
+                  _privacySwitch(
+                    '展示个人简介',
+                    '在个人主页展示自我介绍',
+                    settings['bioVisible'] == true,
+                    (value) => update('bioVisible', value),
+                  ),
+                  const Divider(),
+                  _privacySwitch(
+                    '展示行程数据',
+                    '公开行程次数、累计里程等数据',
+                    settings['tripStatsVisible'] == true,
+                    (value) => update('tripStatsVisible', value),
+                  ),
+                  const Divider(),
+                  _privacySwitch(
+                    '展示用户等级',
+                    '公开当前等级和勋章',
+                    settings['levelVisible'] == true,
+                    (value) => update('levelVisible', value),
+                  ),
+                  const Divider(),
+                  _privacySwitch(
+                    '展示主要车型',
+                    '公开默认车辆的品牌、型号和车辆类型',
+                    settings['vehicleVisibility'] == 'PUBLIC',
+                    (value) => update(
+                      'vehicleVisibility',
+                      value ? 'PUBLIC' : 'PRIVATE',
+                    ),
+                  ),
+                ],
               ),
-              const Divider(),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('消息通知'),
-                subtitle: const Text('行程提醒、聊天和优惠通知'),
-                value: notification,
-                onChanged: (v) => setState(() => notification = v),
+              const SizedBox(height: 16),
+              _SettingCard(
+                title: '应用权限',
+                children: [
+                  _privacySwitch(
+                    '行程定位',
+                    '用于导航、轨迹与队伍位置共享',
+                    settings['locationEnabled'] == true,
+                    (value) => update('locationEnabled', value),
+                  ),
+                  const Divider(),
+                  _privacySwitch(
+                    '消息通知',
+                    '行程提醒、聊天和系统通知',
+                    settings['notificationEnabled'] == true,
+                    (value) => update('notificationEnabled', value),
+                  ),
+                  const Divider(),
+                  _privacySwitch(
+                    '允许同行邀请',
+                    '允许其他用户向你发送同行邀请',
+                    settings['inviteEnabled'] == true,
+                    (value) => update('inviteEnabled', value),
+                  ),
+                ],
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 16),
-        const _SettingCard(
-          title: '其他',
-          children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text('隐私与权限'),
-              trailing: Icon(LucideIcons.chevronRight),
-            ),
-            Divider(),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text('清理缓存'),
-              trailing: Text('18.6 MB'),
-            ),
-            Divider(),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text('关于同路行'),
-              trailing: Text('v1.0.0'),
-            ),
-          ],
-        ),
-      ],
-    ),
+  );
+
+  Widget _privacySwitch(
+    String title,
+    String subtitle,
+    bool value,
+    ValueChanged<bool> onChanged,
+  ) => SwitchListTile(
+    contentPadding: EdgeInsets.zero,
+    title: Text(title),
+    subtitle: Text(subtitle),
+    value: value,
+    onChanged: saving ? null : onChanged,
   );
 }
 

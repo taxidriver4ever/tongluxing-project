@@ -43,8 +43,6 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
 
   Future<void> load() async {
     final api = context.read<AppSession>().api;
-    final owner =
-        widget.userId == context.read<AppSession>().userId?.toString();
     if (mounted) {
       setState(() {
         error = null;
@@ -57,9 +55,12 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
 
     try {
       final profileService = UserProfileService(api);
-      final profile = owner
-          ? await profileService.me()
-          : await profileService.publicProfile(widget.userId);
+      final homepage = await profileService.homepage(widget.userId);
+      final profile = <String, dynamic>{
+        ...Map<String, dynamic>.from(homepage['profile'] as Map? ?? const {}),
+        'levelCode': (homepage['growth'] as Map?)?['levelCode'],
+        'mainVehicle': homepage['mainVehicle'],
+      };
 
       Map<String, dynamic> follow = <String, dynamic>{
         'userId': widget.userId,
@@ -235,6 +236,21 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
         ? p['nickname'].toString()
         : '同路行用户';
     final tongluxingId = p['tongluxingId']?.toString().trim() ?? '';
+    final cityName = p['cityName']?.toString().trim() ?? '';
+    final bio = p['bio']?.toString().trim() ?? '';
+    final certified = p['drivingLicenseCertificationStatus'] == 'APPROVED';
+    final levelCode = p['levelCode']?.toString() ?? '';
+    final mainVehicle = Map<String, dynamic>.from(
+      p['mainVehicle'] as Map? ?? const {},
+    );
+    final vehicleText = [
+      mainVehicle['brand']?.toString() ?? '',
+      mainVehicle['model']?.toString() ?? '',
+      mainVehicle['vehicleType']?.toString() ?? '',
+    ].where((value) => value.trim().isNotEmpty).join(' · ');
+    final totalDistanceMeters =
+        (p['totalDistanceMeters'] as num?)?.toDouble() ?? 0;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF3F5F8),
       body: data == null
@@ -244,7 +260,10 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                   : Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(error!, textAlign: TextAlign.center),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(error!, textAlign: TextAlign.center),
+                        ),
                         const SizedBox(height: 10),
                         FilledButton(
                           onPressed: load,
@@ -253,92 +272,152 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                       ],
                     ),
             )
-          : CustomScrollView(
-              slivers: [
-                SliverToBoxAdapter(
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          Color(0xFF075DBB),
-                          Color(0xFF0877E5),
-                          Color(0xFF2E9AEF),
-                        ],
+          : RefreshIndicator(
+              onRefresh: load,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Color(0xFF075DBB),
+                            Color(0xFF0877E5),
+                            Color(0xFF2E9AEF),
+                          ],
+                        ),
                       ),
-                    ),
-                    child: SafeArea(
-                      bottom: false,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(18, 6, 18, 24),
-                        child: Column(
-                          children: [
-                            SizedBox(
-                              height: 42,
-                              child: Row(
-                                children: [
-                                  IconButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    icon: const Icon(
-                                      LucideIcons.arrowLeft,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  if (isOwner)
-                                    IconButton(
-                                      tooltip: '编辑个人资料',
-                                      onPressed: _editProfile,
-                                      icon: const Icon(
-                                        LucideIcons.pencil,
-                                        color: Colors.white,
+                      child: SafeArea(
+                        bottom: false,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 13),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                height: 32,
+                                child: Row(
+                                  children: [
+                                    SizedBox(
+                                      width: 30,
+                                      height: 30,
+                                      child: IconButton(
+                                        tooltip: '返回',
+                                        constraints:
+                                            const BoxConstraints.tightFor(
+                                              width: 30,
+                                              height: 30,
+                                            ),
+                                        padding: EdgeInsets.zero,
+                                        onPressed: () => Navigator.pop(context),
+                                        icon: const Icon(
+                                          LucideIcons.arrowLeft,
+                                          size: 20,
+                                          color: Colors.white,
+                                        ),
                                       ),
                                     ),
-                                ],
-                              ),
-                            ),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                UserAvatar(
-                                  nickname: nickname,
-                                  avatarImageKey:
-                                      p['avatarImageKey']?.toString() ?? '',
-                                  avatarUrl: avatarUrl,
-                                  radius: 40,
-                                  onTap: () => _previewAvatar(p),
-                                  heroTag: 'profile-avatar-${widget.userId}',
+                                    const Spacer(),
+                                    if (isOwner)
+                                      SizedBox(
+                                        width: 30,
+                                        height: 30,
+                                        child: IconButton(
+                                          tooltip: '编辑个人资料',
+                                          constraints:
+                                              const BoxConstraints.tightFor(
+                                                width: 30,
+                                                height: 30,
+                                              ),
+                                          padding: EdgeInsets.zero,
+                                          onPressed: _editProfile,
+                                          icon: const Icon(
+                                            LucideIcons.pencil,
+                                            size: 16,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
-                                const SizedBox(width: 18),
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(top: 5),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  UserAvatar(
+                                    nickname: nickname,
+                                    avatarImageKey:
+                                        p['avatarImageKey']?.toString() ?? '',
+                                    avatarUrl: avatarUrl,
+                                    radius: 30,
+                                    onTap: () => _previewAvatar(p),
+                                    heroTag: 'profile-avatar-${widget.userId}',
+                                  ),
+                                  const SizedBox(width: 11),
+                                  Expanded(
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
                                         Row(
                                           children: [
-                                            Expanded(
+                                            Flexible(
                                               child: Text(
                                                 nickname,
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: const TextStyle(
                                                   color: Colors.white,
-                                                  fontSize: 21,
+                                                  fontSize: 17,
+                                                  height: 1.15,
                                                   fontWeight: FontWeight.w900,
                                                 ),
                                               ),
                                             ),
-                                            if (p['drivingLicenseCertificationStatus'] ==
-                                                'APPROVED')
-                                              const Icon(
-                                                LucideIcons.badgeCheck,
-                                                color: Color(0xFF8CF5D1),
-                                                size: 18,
+                                            if (certified) ...[
+                                              const SizedBox(width: 5),
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 5,
+                                                      vertical: 2,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.16),
+                                                  borderRadius:
+                                                      BorderRadius.circular(5),
+                                                  border: Border.all(
+                                                    color: Colors.white24,
+                                                  ),
+                                                ),
+                                                child: const Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      LucideIcons.badgeCheck,
+                                                      size: 11,
+                                                      color: Color(0xFF8CF5D1),
+                                                    ),
+                                                    SizedBox(width: 3),
+                                                    Text(
+                                                      '已认证',
+                                                      style: TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 9.5,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
+                                            ],
                                           ],
                                         ),
                                         if (tongluxingId.isNotEmpty) ...[
@@ -347,7 +426,7 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                                             onTap: () =>
                                                 _copyTongluxingId(tongluxingId),
                                             borderRadius: BorderRadius.circular(
-                                              6,
+                                              5,
                                             ),
                                             child: Padding(
                                               padding:
@@ -364,8 +443,8 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                                                       overflow:
                                                           TextOverflow.ellipsis,
                                                       style: const TextStyle(
-                                                        color: Colors.white,
-                                                        fontSize: 12.5,
+                                                        color: Colors.white70,
+                                                        fontSize: 11,
                                                         fontWeight:
                                                             FontWeight.w700,
                                                       ),
@@ -374,92 +453,132 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                                                   const SizedBox(width: 4),
                                                   const Icon(
                                                     LucideIcons.copy,
-                                                    size: 13,
-                                                    color: Colors.white70,
+                                                    size: 11,
+                                                    color: Colors.white60,
                                                   ),
                                                 ],
                                               ),
                                             ),
                                           ),
                                         ],
-                                        const SizedBox(height: 5),
-                                        Text(
-                                          p['cityName']
-                                                      ?.toString()
-                                                      .isNotEmpty ==
-                                                  true
-                                              ? '${p['cityName']} · 同路行车友'
-                                              : '常驻地暂未填写',
-                                          style: const TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 12.5,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 5),
-                                        Text(
-                                          p['bio']?.toString().isNotEmpty ==
-                                                  true
-                                              ? p['bio'].toString()
-                                              : '愿每一次出发都有同路人',
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 13,
-                                            height: 1.35,
-                                          ),
-                                        ),
                                       ],
                                     ),
                                   ),
+                                ],
+                              ),
+                              const SizedBox(height: 9),
+                              _PublicProfileLine(
+                                icon: certified
+                                    ? LucideIcons.shieldCheck
+                                    : LucideIcons.shield,
+                                text: certified ? '驾驶证已认证' : '暂未完成驾驶认证',
+                              ),
+                              const SizedBox(height: 5),
+                              _PublicProfileLine(
+                                icon: LucideIcons.mapPin,
+                                text: cityName.isNotEmpty
+                                    ? '$cityName · 同路行车友'
+                                    : '常驻地暂未填写',
+                              ),
+                              if (levelCode.isNotEmpty) ...[
+                                const SizedBox(height: 5),
+                                _PublicProfileLine(
+                                  icon: LucideIcons.sparkles,
+                                  text: '用户等级：$levelCode',
                                 ),
                               ],
-                            ),
-                            const SizedBox(height: 24),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _ProfileMetric(
-                                    value: '${follow['followingCount'] ?? 0}',
-                                    label: '关注',
-                                  ),
-                                ),
-                                Expanded(
-                                  child: _ProfileMetric(
-                                    value: '${follow['followerCount'] ?? 0}',
-                                    label: '粉丝',
-                                  ),
-                                ),
-                                Expanded(
-                                  child: _ProfileMetric(
-                                    value: '${p['totalTripCount'] ?? 0}',
-                                    label: '行程',
-                                  ),
-                                ),
-                                Expanded(
-                                  child: _ProfileMetric(
-                                    value:
-                                        '${(((p['totalDistanceMeters'] as num?)?.toDouble() ?? 0) / 1000).round()}',
-                                    label: '公里',
-                                  ),
+                              if (vehicleText.isNotEmpty) ...[
+                                const SizedBox(height: 5),
+                                _PublicProfileLine(
+                                  icon: LucideIcons.carFront,
+                                  text: '主要车型：$vehicleText',
                                 ),
                               ],
-                            ),
-                            if (!isOwner) ...[
-                              const SizedBox(height: 14),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 40,
+                              const SizedBox(height: 5),
+                              _PublicProfileLine(
+                                icon: LucideIcons.squarePen,
+                                text: bio.isNotEmpty ? bio : '愿每一次出发都有同路人',
+                                maxLines: 2,
+                              ),
+                              const SizedBox(height: 11),
+                              if (isOwner)
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.start,
+                                  children: [
+                                    _ProfileMetric(
+                                      value: '${follow['followingCount'] ?? 0}',
+                                      label: '关注',
+                                    ),
+                                    _ProfileMetric(
+                                      value: '${follow['followerCount'] ?? 0}',
+                                      label: '粉丝',
+                                    ),
+                                    _ProfileMetric(
+                                      value: '${p['totalTripCount'] ?? 0}',
+                                      label: '行程',
+                                    ),
+                                    _ProfileMetric(
+                                      value:
+                                          '${(totalDistanceMeters / 1000).round()}',
+                                      label: '公里',
+                                    ),
+                                  ],
+                                )
+                              else
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        alignment: Alignment.centerLeft,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            _ProfileMetric(
+                                              value:
+                                                  '${follow['followingCount'] ?? 0}',
+                                              label: '关注',
+                                            ),
+                                            _ProfileMetric(
+                                              value:
+                                                  '${follow['followerCount'] ?? 0}',
+                                              label: '粉丝',
+                                            ),
+                                            _ProfileMetric(
+                                              value:
+                                                  '${p['totalTripCount'] ?? 0}',
+                                              label: '行程',
+                                            ),
+                                            _ProfileMetric(
+                                              value:
+                                                  '${(totalDistanceMeters / 1000).round()}',
+                                              label: '公里',
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    SizedBox(
+                                      width: 80,
+                                      height: 30,
                                       child: follow['following'] == true
                                           ? OutlinedButton(
                                               style: OutlinedButton.styleFrom(
+                                                minimumSize: Size.zero,
                                                 foregroundColor: Colors.white,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                    ),
                                                 side: const BorderSide(
                                                   color: Colors.white70,
                                                 ),
                                                 shape: const StadiumBorder(),
+                                                textStyle: const TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
                                               ),
                                               onPressed: followBusy
                                                   ? null
@@ -468,10 +587,20 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                                             )
                                           : FilledButton(
                                               style: FilledButton.styleFrom(
-                                                backgroundColor: Colors.white,
-                                                foregroundColor:
-                                                    AppColors.primary,
+                                                minimumSize: Size.zero,
+                                                backgroundColor: const Color(
+                                                  0xFF22D3AE,
+                                                ),
+                                                foregroundColor: Colors.white,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                    ),
                                                 shape: const StadiumBorder(),
+                                                textStyle: const TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
                                               ),
                                               onPressed: followBusy
                                                   ? null
@@ -479,157 +608,206 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                                               child: Text(_followText(follow)),
                                             ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 40,
-                                      child: OutlinedButton.icon(
+                                    const SizedBox(width: 6),
+                                    SizedBox(
+                                      width: 30,
+                                      height: 30,
+                                      child: OutlinedButton(
                                         style: OutlinedButton.styleFrom(
+                                          minimumSize: Size.zero,
+                                          padding: EdgeInsets.zero,
                                           foregroundColor: Colors.white,
                                           side: const BorderSide(
                                             color: Colors.white70,
                                           ),
-                                          shape: const StadiumBorder(),
+                                          shape: const CircleBorder(),
                                         ),
                                         onPressed: _startChat,
-                                        icon: const Icon(
+                                        child: const Icon(
                                           LucideIcons.messageCircle,
-                                          size: 17,
-                                        ),
-                                        label: const Text(
-                                          '发起私聊',
-                                          style: TextStyle(fontSize: 13),
+                                          size: 15,
                                         ),
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
+                                  ],
+                                ),
                             ],
-                          ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                SliverPersistentHeader(
-                  pinned: true,
-                  delegate: _ProfileTabHeader(
-                    section: section,
-                    onChanged: (value) => setState(() => section = value),
-                  ),
-                ),
-                if (section == 0)
-                  publicTripsLoading
-                      ? const SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: Center(child: CircularProgressIndicator()),
-                        )
-                      : publicTrips.isEmpty
-                      ? const SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: Center(
-                            child: Text(
-                              '暂时没有公开招募中的行程',
-                              style: TextStyle(color: AppColors.muted),
-                            ),
-                          ),
-                        )
-                      : SliverPadding(
-                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
-                          sliver: SliverList(
-                            delegate: SliverChildBuilderDelegate((_, index) {
-                              if (index.isOdd) return const SizedBox(height: 8);
-                              final trip = publicTrips[index ~/ 2];
-                              return _PublicTripTile(
-                                trip: trip,
-                                onTap: () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => TripDiscoveryDetailPage(
-                                      tripId: trip.tripId,
-                                      initial: trip,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }, childCount: publicTrips.length * 2 - 1),
-                          ),
-                        )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
-                    sliver: SliverList(
-                      delegate: SliverChildListDelegate([
-                        _ProfileInfoCard(
-                          icon: LucideIcons.userRound,
-                          title: '个人简介',
-                          value: p['bio']?.toString().isNotEmpty == true
-                              ? p['bio'].toString()
-                              : '暂未填写',
-                        ),
-                        const SizedBox(height: 8),
-                        _ProfileInfoCard(
-                          icon: LucideIcons.mapPin,
-                          title: '常驻地',
-                          value: p['cityName']?.toString().isNotEmpty == true
-                              ? p['cityName'].toString()
-                              : '暂未填写',
-                        ),
-                        const SizedBox(height: 8),
-                        _ProfileInfoCard(
-                          icon: LucideIcons.shieldCheck,
-                          title: '驾驶认证',
-                          value:
-                              p['drivingLicenseCertificationStatus'] ==
-                                  'APPROVED'
-                              ? '已通过驾驶证认证'
-                              : '暂未认证',
-                        ),
-                      ]),
+                  SliverPersistentHeader(
+                    pinned: true,
+                    delegate: _ProfileTabHeader(
+                      section: section,
+                      tripCount: publicTrips.length,
+                      onChanged: (value) => setState(() => section = value),
                     ),
                   ),
-              ],
+                  if (section == 0)
+                    publicTripsLoading
+                        ? const SliverFillRemaining(
+                            hasScrollBody: false,
+                            child: Center(child: CircularProgressIndicator()),
+                          )
+                        : publicTrips.isEmpty
+                        ? const SliverFillRemaining(
+                            hasScrollBody: false,
+                            child: Center(
+                              child: Text(
+                                '暂时没有公开招募中的行程',
+                                style: TextStyle(color: AppColors.muted),
+                              ),
+                            ),
+                          )
+                        : SliverPadding(
+                            padding: const EdgeInsets.fromLTRB(10, 8, 10, 24),
+                            sliver: SliverList(
+                              delegate: SliverChildBuilderDelegate((_, index) {
+                                if (index.isOdd) {
+                                  return const SizedBox(height: 7);
+                                }
+                                final trip = publicTrips[index ~/ 2];
+                                return _PublicTripTile(
+                                  trip: trip,
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => TripDiscoveryDetailPage(
+                                        tripId: trip.tripId,
+                                        initial: trip,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }, childCount: publicTrips.length * 2 - 1),
+                            ),
+                          )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 24),
+                      sliver: SliverList(
+                        delegate: SliverChildListDelegate([
+                          _ProfileInfoCard(
+                            icon: LucideIcons.userRound,
+                            title: '个人简介',
+                            value: bio.isNotEmpty ? bio : '暂未填写',
+                          ),
+                          const SizedBox(height: 7),
+                          _ProfileInfoCard(
+                            icon: LucideIcons.mapPin,
+                            title: '常驻地',
+                            value: cityName.isNotEmpty ? cityName : '暂未填写',
+                          ),
+                          const SizedBox(height: 7),
+                          _ProfileInfoCard(
+                            icon: LucideIcons.shieldCheck,
+                            title: '驾驶认证',
+                            value: certified ? '已通过驾驶证认证' : '暂未认证',
+                          ),
+                        ]),
+                      ),
+                    ),
+                ],
+              ),
             ),
     );
   }
 }
 
-class _ProfileMetric extends StatelessWidget {
-  const _ProfileMetric({required this.value, required this.label});
-  final String value;
-  final String label;
+class _PublicProfileLine extends StatelessWidget {
+  const _PublicProfileLine({
+    required this.icon,
+    required this.text,
+    this.maxLines = 1,
+  });
+
+  final IconData icon;
+  final String text;
+  final int maxLines;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.center,
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text(
-        value,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 17,
-          fontWeight: FontWeight.w900,
-        ),
+      Padding(
+        padding: const EdgeInsets.only(top: 1),
+        child: Icon(icon, size: 13, color: Colors.white70),
       ),
-      Text(
-        label,
-        style: const TextStyle(color: Colors.white70, fontSize: 10.5),
+      const SizedBox(width: 6),
+      Expanded(
+        child: Text(
+          text,
+          maxLines: maxLines,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 11.5,
+            height: 1.28,
+          ),
+        ),
       ),
     ],
   );
 }
 
+class _ProfileMetric extends StatelessWidget {
+  const _ProfileMetric({required this.value, required this.label});
+
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 50,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.fade,
+          softWrap: false,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 13,
+            height: 1.05,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 1),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 9,
+            height: 1.1,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _ProfileTabHeader extends SliverPersistentHeaderDelegate {
-  const _ProfileTabHeader({required this.section, required this.onChanged});
+  const _ProfileTabHeader({
+    required this.section,
+    required this.tripCount,
+    required this.onChanged,
+  });
+
   final int section;
+  final int tripCount;
   final ValueChanged<int> onChanged;
 
   @override
-  double get minExtent => 48;
+  double get minExtent => 44;
+
   @override
-  double get maxExtent => 48;
+  double get maxExtent => 44;
 
   @override
   Widget build(
@@ -639,10 +817,12 @@ class _ProfileTabHeader extends SliverPersistentHeaderDelegate {
   ) => Material(
     color: Colors.white,
     elevation: overlapsContent ? 1 : 0,
+    borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+    clipBehavior: Clip.antiAlias,
     child: Row(
       children: [
         _ProfileTab(
-          label: '公开行程',
+          label: '发布 ($tripCount)',
           active: section == 0,
           onTap: () => onChanged(0),
         ),
@@ -657,7 +837,7 @@ class _ProfileTabHeader extends SliverPersistentHeaderDelegate {
 
   @override
   bool shouldRebuild(covariant _ProfileTabHeader oldDelegate) =>
-      oldDelegate.section != section;
+      oldDelegate.section != section || oldDelegate.tripCount != tripCount;
 }
 
 class _ProfileTab extends StatelessWidget {
@@ -666,6 +846,7 @@ class _ProfileTab extends StatelessWidget {
     required this.active,
     required this.onTap,
   });
+
   final String label;
   final bool active;
   final VoidCallback onTap;
@@ -680,17 +861,17 @@ class _ProfileTab extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              fontSize: 14,
-              color: active ? AppColors.primary : AppColors.muted,
+              fontSize: 13,
+              color: active ? AppColors.text : AppColors.muted,
               fontWeight: active ? FontWeight.w900 : FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 9),
+          const SizedBox(height: 7),
           Container(
-            width: 28,
-            height: 3,
+            width: 26,
+            height: 2.5,
             decoration: BoxDecoration(
-              color: active ? AppColors.primary : Colors.transparent,
+              color: active ? const Color(0xFF22D3AE) : Colors.transparent,
               borderRadius: BorderRadius.circular(99),
             ),
           ),
@@ -702,18 +883,19 @@ class _ProfileTab extends StatelessWidget {
 
 class _PublicTripTile extends StatelessWidget {
   const _PublicTripTile({required this.trip, required this.onTap});
+
   final TripDiscoverModel trip;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) => Material(
     color: Colors.white,
-    borderRadius: BorderRadius.circular(12),
+    borderRadius: BorderRadius.circular(10),
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(10),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(11, 10, 10, 9),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -725,47 +907,48 @@ class _PublicTripTile extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 15.5,
+                      fontSize: 14,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
                 ),
+                const SizedBox(width: 8),
                 const Text(
                   '招募中',
                   style: TextStyle(
                     color: AppColors.primary,
-                    fontSize: 11.5,
+                    fontSize: 10.5,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 5),
             Text(
               '${trip.startName} → ${trip.endName}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 12.5,
+                fontSize: 11.5,
                 color: AppColors.secondaryText,
               ),
             ),
-            const SizedBox(height: 7),
+            const SizedBox(height: 6),
             Row(
               children: [
                 const Icon(
                   LucideIcons.calendar,
-                  size: 14,
+                  size: 12.5,
                   color: AppColors.muted,
                 ),
-                const SizedBox(width: 5),
+                const SizedBox(width: 4),
                 Expanded(
                   child: Text(
                     trip.departureTime,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 10.5,
                       color: AppColors.muted,
                     ),
                   ),
@@ -773,14 +956,14 @@ class _PublicTripTile extends StatelessWidget {
                 Text(
                   '${trip.memberCount}/${trip.maxMemberCount} 人',
                   style: const TextStyle(
-                    fontSize: 11.5,
+                    fontSize: 10.5,
                     color: AppColors.muted,
                   ),
                 ),
-                const SizedBox(width: 5),
+                const SizedBox(width: 3),
                 const Icon(
                   LucideIcons.chevronRight,
-                  size: 16,
+                  size: 14,
                   color: AppColors.muted,
                 ),
               ],
@@ -798,37 +981,38 @@ class _ProfileInfoCard extends StatelessWidget {
     required this.title,
     required this.value,
   });
+
   final IconData icon;
   final String title;
   final String value;
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(14),
+    padding: const EdgeInsets.fromLTRB(11, 10, 11, 10),
     decoration: BoxDecoration(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(10),
     ),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 19, color: AppColors.primary),
-        const SizedBox(width: 10),
+        Icon(icon, size: 16, color: AppColors.primary),
+        const SizedBox(width: 8),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 title,
-                style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                style: const TextStyle(fontSize: 10.5, color: AppColors.muted),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
               Text(
                 value,
                 style: const TextStyle(
-                  fontSize: 14,
+                  fontSize: 12.5,
                   fontWeight: FontWeight.w700,
-                  height: 1.4,
+                  height: 1.35,
                 ),
               ),
             ],

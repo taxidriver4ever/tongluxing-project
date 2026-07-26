@@ -70,4 +70,7 @@ public interface VehicleService {
 
     /** 查询车辆公开卡片信息，不包含敏感明文字段。 */
     PublicVehicleCardResponse getPublicCard(Long vehicleId);
+
+    /** 用户公开主页展示的主要车型；没有车辆时返回 null。 */
+    PublicVehicleCardResponse getPublicMainCard(Long userId);
 }

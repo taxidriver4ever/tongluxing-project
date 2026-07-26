@@ -274,6 +274,23 @@ ON DUPLICATE KEY UPDATE
     updated_at = NOW(),
     deleted = 0;
 
+UPDATE trip
+SET vehicle_requirements = CASE id
+        WHEN 920000000000010201 THEN 'SUV,越野车'
+        WHEN 920000000000010202 THEN '轿车,SUV'
+        WHEN 920000000000010203 THEN '摩托车'
+        WHEN 920000000000010204 THEN '不限'
+        WHEN 920000000000010205 THEN '新能源,SUV'
+        ELSE 'MPV,轿车'
+    END,
+    budget_description = CASE id
+        WHEN 920000000000010201 THEN '约1500元/人，油费路费AA'
+        WHEN 920000000000010202 THEN '约800元/人，餐饮住宿自理'
+        WHEN 920000000000010203 THEN '约600元/人'
+        ELSE NULL
+    END
+WHERE id BETWEEN 920000000000010201 AND 920000000000010206;
+
 -- 推荐页面读取 match_result；直接为当前演示源行程生成稳定的推荐结果。
 INSERT INTO match_result (
     id, source_trip_id, target_trip_id, source_user_id, target_user_id,

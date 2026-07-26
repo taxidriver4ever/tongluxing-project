@@ -195,7 +195,7 @@ public class MatchServiceImpl implements MatchService {
                 continue;
             }
             if (StringUtils.hasText(request.vehicleType())
-                    && !request.vehicleType().trim().equalsIgnoreCase(valueOrEmpty(trip.vehicleType()))) {
+                    && !matchesVehicleRequirement(trip.vehicleRequirements(), request.vehicleType())) {
                 continue;
             }
             if (Boolean.TRUE.equals(request.driverVerified()) && !Boolean.TRUE.equals(trip.driverVerified())) {
@@ -305,7 +305,7 @@ public class MatchServiceImpl implements MatchService {
             if (from != null && trip.departureTime().toLocalDate().isBefore(from)) continue;
             if (to != null && trip.departureTime().toLocalDate().isAfter(to)) continue;
             if (StringUtils.hasText(vehicleType)
-                    && !vehicleType.trim().equalsIgnoreCase(valueOrEmpty(trip.vehicleType()))) continue;
+                    && !matchesVehicleRequirement(trip.vehicleRequirements(), vehicleType)) continue;
             int distance = latitude == null || longitude == null ? -1
                     : meters(latitude, longitude, trip.startLatitude(), trip.startLongitude());
             int score = discoveryScore(trip, team, reference, distance);
@@ -387,7 +387,7 @@ public class MatchServiceImpl implements MatchService {
                 trip.routePolyline(), trip.routeDistance(),
                 trip.routeDuration(), trip.joinedVehicleCount(), trip.maxVehicleCount(), current, max,
                  Math.max(0, max - current), discoveryScore(trip, team, null, -1),
-                 trip.vehicleSummary(), null, null, trip.startName(), trip.remark(),
+                 vehicleRequirements(trip.vehicleRequirements()), trip.budgetDescription(), trip.remark(),
                  team == null ? null : team.notice(), team == null ? null : team.teamDesc(),
                  discoverTags(trip), discoverOwner(trip, userId), members,
                 relationship, ownerTrip, allowConsultation, allowApply, joinable,
@@ -526,8 +526,8 @@ public class MatchServiceImpl implements MatchService {
 
     private List<String> discoverTags(MatchTripDTO trip) {
         List<String> tags = new ArrayList<>();
-        if (StringUtils.hasText(trip.vehicleType())) tags.add(trip.vehicleType());
-        if (StringUtils.hasText(trip.travelDepth())) tags.add(trip.travelDepth());
+        tags.addAll(vehicleRequirements(trip.vehicleRequirements()).stream()
+                .filter(value -> !"不限".equals(value)).toList());
         if (Boolean.TRUE.equals(trip.driverVerified())) tags.add("驾驶员已认证");
         return tags;
     }
@@ -711,6 +711,19 @@ public class MatchServiceImpl implements MatchService {
 
     private String normalizeLocation(String value) {
         return value == null ? "" : value.trim().replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+    }
+
+    private boolean matchesVehicleRequirement(String requirements, String selected) {
+        if (!StringUtils.hasText(selected)) return true;
+        List<String> values = vehicleRequirements(requirements);
+        return values.contains("不限")
+                || values.stream().anyMatch(value -> value.equalsIgnoreCase(selected.trim()));
+    }
+
+    private List<String> vehicleRequirements(String requirements) {
+        if (!StringUtils.hasText(requirements)) return List.of("不限");
+        return java.util.Arrays.stream(requirements.split(","))
+                .map(String::trim).filter(StringUtils::hasText).distinct().toList();
     }
 
     private String valueOrEmpty(String value) {

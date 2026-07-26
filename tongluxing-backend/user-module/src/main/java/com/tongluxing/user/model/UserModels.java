@@ -134,6 +134,34 @@ public final class UserModels {
     ) {
     }
 
+    /** 当前用户可编辑的公开资料、定位与通知权限。 */
+    public record PrivacySettingsVO(
+            String profileVisibility,
+            String vehicleVisibility,
+            Boolean inviteEnabled,
+            Boolean cityVisible,
+            Boolean bioVisible,
+            Boolean tripStatsVisible,
+            Boolean levelVisible,
+            Boolean locationEnabled,
+            Boolean notificationEnabled
+    ) {
+    }
+
+    /** 隐私设置增量更新请求。 */
+    public record UpdatePrivacySettingsRequest(
+            @Pattern(regexp = "PUBLIC|PRIVATE") String profileVisibility,
+            @Pattern(regexp = "PUBLIC|TEAM_ONLY|PRIVATE") String vehicleVisibility,
+            Boolean inviteEnabled,
+            Boolean cityVisible,
+            Boolean bioVisible,
+            Boolean tripStatsVisible,
+            Boolean levelVisible,
+            Boolean locationEnabled,
+            Boolean notificationEnabled
+    ) {
+    }
+
     /** 驾驶证认证状态返回对象。 */
     public record CertificationVO(
             Long certificationId, Long userId, String status, String rejectReason,
@@ -350,8 +378,11 @@ public final class UserModels {
     /**
      * 用户主页聚合数据返回对象。
      */
+    public record PublicVehicleSummaryVO(String brand, String model, String vehicleType) {
+    }
+
     public record UserHomepageVO(PublicProfileVO profile, GrowthSummaryVO growth, BadgeWallVO badges,
-                                 String ipProvince, FollowStatusVO follow) {
+                                 PublicVehicleSummaryVO mainVehicle, String ipProvince, FollowStatusVO follow) {
     }
 
     /**

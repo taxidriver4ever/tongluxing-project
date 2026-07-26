@@ -32,6 +32,8 @@ public record TripResponse(
         Integer totalDistanceMeters,
         Integer maxVehicleCount,
         Integer joinedVehicleCount,
+        List<String> vehicleRequirements,
+        String budgetDescription,
         String travelDepth,
         Boolean publicFlag,
         String status,

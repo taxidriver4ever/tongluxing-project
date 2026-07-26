@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$DeviceId,
     [string]$BackendRoot,
     [switch]$ConfigureOnly,
@@ -178,12 +178,12 @@ if (-not (Test-Path -LiteralPath $manifestPath)) {
 $apkPath = Join-Path $PSScriptRoot 'build\app\outputs\flutter-apk\app-debug.apk'
 $buildRoot = Join-Path $PSScriptRoot 'build'
 
-Push-Location $PSScriptRoot
+$scriptExitCode = 1
+
+Push-Location -LiteralPath $PSScriptRoot
 try {
-    # 不再因为 APK 暂时不存在就自动 flutter clean。
-    # 本脚本后面会明确执行 flutter build apk，缺少 APK 本身不代表缓存损坏。
-    # 自动 clean 会删除 .dart_tool 等依赖状态，迫使每次重新 pub get，反而容易触发
-    # Windows 桌面插件的符号链接权限检查。
+    # Do not clean automatically just because the APK is missing.
+    # The script explicitly builds the APK below.
     if ($ForceClean) {
         Write-Host 'Cleaning Flutter/Gradle incremental build state...'
         & flutter clean
@@ -197,26 +197,30 @@ try {
     $packageConfigPath = Join-Path $PSScriptRoot '.dart_tool\package_config.json'
     $pluginDependenciesPath = Join-Path $PSScriptRoot '.flutter-plugins-dependencies'
 
-    $needsPubGet = $ForcePubGet -or
+    $needsPubGet = (
+        $ForcePubGet -or
         -not (Test-Path -LiteralPath $packageConfigPath) -or
         -not (Test-Path -LiteralPath $pluginDependenciesPath)
+    )
 
     if (-not $needsPubGet) {
         $dependencyInputTimes = @(
             (Get-Item -LiteralPath $pubspecPath).LastWriteTimeUtc
         )
+
         if (Test-Path -LiteralPath $pubspecLockPath) {
             $dependencyInputTimes += (Get-Item -LiteralPath $pubspecLockPath).LastWriteTimeUtc
         }
 
         $dependencyOutputTimes = @(
-            (Get-Item -LiteralPath $packageConfigPath).LastWriteTimeUtc,
+            (Get-Item -LiteralPath $packageConfigPath).LastWriteTimeUtc
             (Get-Item -LiteralPath $pluginDependenciesPath).LastWriteTimeUtc
         )
 
         $latestDependencyInput = $dependencyInputTimes |
             Sort-Object -Descending |
             Select-Object -First 1
+
         $oldestDependencyOutput = $dependencyOutputTimes |
             Sort-Object |
             Select-Object -First 1
@@ -227,11 +231,6 @@ try {
     if ($needsPubGet) {
         Write-Host 'Resolving Flutter dependencies...'
 
-        # 这里只运行 Android。项目仍带有 windows/ 平台目录，而 image_picker、
-        # url_launcher 等依赖又包含 Windows 插件实现。Flutter pub get 在 Windows
-        # 主机上会顺便为这些桌面插件创建 .plugin_symlinks，从而要求开发人员模式
-        # 或管理员权限。临时隐藏 windows/，只让本轮依赖生成面向 Android；完成后
-        # 原样恢复 Windows 工程，不删除、不修改其中任何文件。
         $windowsPlatformPath = Join-Path $PSScriptRoot 'windows'
         $windowsPlatformBackupPath = Join-Path $PSScriptRoot '.windows_android_pub_get_backup'
         $windowsPlatformTemporarilyHidden = $false
@@ -242,7 +241,10 @@ try {
                     throw "Temporary Windows platform backup already exists: $windowsPlatformBackupPath"
                 }
 
-                Move-Item -LiteralPath $windowsPlatformPath -Destination $windowsPlatformBackupPath
+                Move-Item `
+                    -LiteralPath $windowsPlatformPath `
+                    -Destination $windowsPlatformBackupPath
+
                 $windowsPlatformTemporarilyHidden = $true
                 Write-Host 'Temporarily disabled the Windows desktop platform for Android dependency resolution.'
             }
@@ -251,24 +253,46 @@ try {
             if ($LASTEXITCODE -ne 0) {
                 throw 'flutter pub get failed.'
             }
-        } finally {
+        }
+        catch {
+            throw
+        }
+        finally {
             if ($windowsPlatformTemporarilyHidden) {
                 if (Test-Path -LiteralPath $windowsPlatformPath) {
-                    Remove-Item -LiteralPath $windowsPlatformPath -Recurse -Force
+                    Remove-Item `
+                        -LiteralPath $windowsPlatformPath `
+                        -Recurse `
+                        -Force
                 }
-                Move-Item -LiteralPath $windowsPlatformBackupPath -Destination $windowsPlatformPath
+
+                if (Test-Path -LiteralPath $windowsPlatformBackupPath) {
+                    Move-Item `
+                        -LiteralPath $windowsPlatformBackupPath `
+                        -Destination $windowsPlatformPath
+                }
+
                 Write-Host 'Restored the Windows desktop platform directory.'
             }
         }
-    } else {
+    }
+    else {
         Write-Host 'Flutter dependencies are unchanged; skipping flutter pub get.'
     }
 
     if (-not $SkipPrebuild) {
-        # 先明确生成 APK。这样真正的 Dart/Gradle 编译错误会直接显示，
-        # 不会被最后的“AndroidManifest.xml not found”误导信息覆盖。
         Write-Host 'Prebuilding debug APK...'
-        & flutter build apk --debug --no-pub "--dart-define=API_BASE_URL=$apiBaseUrl"
+
+        $buildArgs = @(
+            'build'
+            'apk'
+            '--debug'
+            '--no-pub'
+            "--dart-define=API_BASE_URL=$apiBaseUrl"
+        )
+
+        & flutter @buildArgs
+
         if ($LASTEXITCODE -ne 0) {
             throw 'Debug APK build failed. Fix the compile error printed above before running on the phone.'
         }
@@ -279,12 +303,12 @@ try {
 
         Write-Host "Debug APK ready: $apkPath"
     }
+    elseif (-not (Test-Path -LiteralPath $apkPath)) {
+        throw "SkipPrebuild was requested, but the debug APK does not exist: $apkPath"
+    }
 
-    # Windows 版 Android build-tools 的 aapt 在某些版本中无法从包含中文或其他
-    # 非 ASCII 字符的路径读取 APK。Gradle/aapt2 可以正常生成 APK，但 flutter run
-    # 随后的 `aapt dump xmltree` 会把它误报为 APK/AndroidManifest.xml 不存在。
-    # 因此将已构建 APK 复制到同一磁盘的纯英文临时目录，并让 flutter run 使用
-    # 这个预构建 APK。项目源码仍然位于原目录，调试与热重载入口保持不变。
+    # Some Windows Android build-tools cannot inspect an APK located under a
+    # path containing non-ASCII characters. Copy it to a short ASCII-only path.
     $driveRoot = [System.IO.Path]::GetPathRoot($PSScriptRoot)
     if (-not $driveRoot) {
         throw "Unable to determine the drive root for: $PSScriptRoot"
@@ -302,21 +326,31 @@ try {
 
     $sourceApkLength = (Get-Item -LiteralPath $apkPath).Length
     $copiedApkLength = (Get-Item -LiteralPath $asciiApkPath).Length
+
     if ($sourceApkLength -le 0 -or $sourceApkLength -ne $copiedApkLength) {
         throw "The copied APK is incomplete: $asciiApkPath"
     }
 
     Write-Host "Launching through ASCII APK path: $asciiApkPath"
+
     $flutterRunArgs = @(
-        'run',
-        '--no-pub',
-        '-d',
-        $DeviceId,
-        "--use-application-binary=$asciiApkPath",
+        'run'
+        '--no-pub'
+        '-d'
+        $DeviceId
+        "--use-application-binary=$asciiApkPath"
         "--dart-define=API_BASE_URL=$apiBaseUrl"
     )
+
     & flutter @flutterRunArgs
-    exit $LASTEXITCODE
-} finally {
+    $scriptExitCode = $LASTEXITCODE
+}
+catch {
+    Write-Error $_
+    $scriptExitCode = 1
+}
+finally {
     Pop-Location
 }
+
+exit $scriptExitCode

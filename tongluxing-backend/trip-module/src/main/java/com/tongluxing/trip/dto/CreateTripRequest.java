@@ -30,6 +30,8 @@ public record CreateTripRequest(
         @NotNull @Min(1) @Max(20) Integer maxVehicleCount,
         @NotBlank @Size(max = 16) String travelDepth,
         @NotNull Boolean publicFlag,
+        @Size(max = 8) List<@Size(max = 16) String> vehicleRequirements,
+        @Size(max = 128) String budgetDescription,
         @Size(max = 255) String remark,
         @Valid List<WaypointLocationRequest> waypoints
 ) {

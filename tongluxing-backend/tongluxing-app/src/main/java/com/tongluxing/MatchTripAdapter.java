@@ -84,6 +84,7 @@ public class MatchTripAdapter implements MatchTripPort {
                 badges == null || badges.earned() == null ? 0 : badges.earned().size(),
                 vehicle == null ? null : vehicle.getVehicleType(),
                 vehicleSummary.isBlank() ? "已认证车辆" : vehicleSummary,
+                trip.getVehicleRequirements(), trip.getBudgetDescription(),
                 trip.getTitle(), trip.getDescription(), trip.getCoverImageKey(),
                 trip.getStartName(), trip.getEndName(),
                 decimal(trip.getStartLat()), decimal(trip.getStartLng()), decimal(trip.getEndLat()), decimal(trip.getEndLng()),

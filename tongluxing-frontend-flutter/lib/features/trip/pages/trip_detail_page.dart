@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -7,8 +10,10 @@ import '../../../app/routes.dart';
 import '../../../app/theme.dart';
 import '../../../common/widgets/app_widgets.dart';
 import '../../../data/models/app_models.dart';
+import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import 'trip_navigation_page.dart';
+import 'trip_route_map_page.dart';
 import '../widgets/trip_route_preview.dart';
 import '../../chat/pages/chat_session_page.dart';
 
@@ -21,7 +26,11 @@ class TripDetailPage extends StatefulWidget {
 }
 
 class _TripDetailPageState extends State<TripDetailPage> {
+  static const _location = MethodChannel('com.tongluxing/permissions');
+  static const double _startRadiusMeters = 5000;
+
   TripModel? trip;
+  TripDraftRouteModel? plannedRoadRoute;
   bool loading = false;
   String? error;
   bool settling = false;
@@ -35,9 +44,18 @@ class _TripDetailPageState extends State<TripDetailPage> {
   Future<void> load() async {
     setState(() => loading = true);
     try {
-      trip = await TripService(
-        context.read<AppSession>().api,
-      ).detail(widget.tripId);
+      final service = TripService(context.read<AppSession>().api);
+      trip = await service.detail(widget.tripId);
+      if (trip!.startLocation != null && trip!.endLocation != null) {
+        final stored = parseRoutePolyline(trip!.routePolyline ?? '');
+        if (stored.length < 2 || stored.length <= trip!.waypoints.length + 2) {
+          plannedRoadRoute = await service.planRoadRoute(
+            start: trip!.startLocation!,
+            end: trip!.endLocation!,
+            waypoints: trip!.waypoints,
+          );
+        }
+      }
       error = null;
     } catch (e) {
       if (trip == null) error = e.toString();
@@ -84,7 +102,68 @@ class _TripDetailPageState extends State<TripDetailPage> {
         }
         return;
       }
-      trip = await service.start(widget.tripId);
+      final allowed =
+          await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              icon: const Icon(
+                LucideIcons.mapPinCheck,
+                color: AppColors.primary,
+              ),
+              title: const Text('确认开启行程'),
+              content: const Text(
+                '开启后将持续使用定位计算实际行驶路程。请允许后台定位，并不要清理或强制停止应用；清理后台后将无法继续计算行驶路程。\n\n'
+                '为避免误操作，你需要位于起点 5 公里范围内。',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('暂不开启'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('继续并检查位置'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (!allowed || !mounted) return;
+      final granted =
+          await _location.invokeMethod<bool>('requestLocation') ?? false;
+      if (!granted) {
+        throw const ApiException('需要定位权限才能核验起点并开启行程');
+      }
+      final raw = await _location.invokeMapMethod<String, dynamic>(
+        'getCurrentLocation',
+      );
+      if (raw == null) throw const ApiException('暂时无法获取当前位置，请稍后重试');
+      final latitude = (raw['latitude'] as num?)?.toDouble();
+      final longitude = (raw['longitude'] as num?)?.toDouble();
+      final accuracy = (raw['accuracy'] as num?)?.toDouble();
+      if (latitude == null || longitude == null) {
+        throw const ApiException('当前位置数据不完整，请稍后重试');
+      }
+      final startLocation = trip?.startLocation;
+      if (startLocation != null) {
+        final distance = _distanceMeters(
+          latitude,
+          longitude,
+          startLocation.latitude,
+          startLocation.longitude,
+        );
+        if (distance > _startRadiusMeters) {
+          throw ApiException(
+            '你距离行程起点约 ${(distance / 1000).toStringAsFixed(1)} 公里，需进入 5 公里范围内才能开启行程',
+          );
+        }
+      }
+      trip = await service.start(
+        widget.tripId,
+        latitude: latitude,
+        longitude: longitude,
+        accuracy: accuracy,
+      );
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -99,6 +178,26 @@ class _TripDetailPageState extends State<TripDetailPage> {
     }
   }
 
+  double _distanceMeters(
+    double latitude1,
+    double longitude1,
+    double latitude2,
+    double longitude2,
+  ) {
+    const radius = 6371000.0;
+    final latitudeDelta = (latitude2 - latitude1) * math.pi / 180;
+    final longitudeDelta = (longitude2 - longitude1) * math.pi / 180;
+    final startLatitude = latitude1 * math.pi / 180;
+    final endLatitude = latitude2 * math.pi / 180;
+    final value =
+        math.sin(latitudeDelta / 2) * math.sin(latitudeDelta / 2) +
+        math.cos(startLatitude) *
+            math.cos(endLatitude) *
+            math.sin(longitudeDelta / 2) *
+            math.sin(longitudeDelta / 2);
+    return radius * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value));
+  }
+
   Future<void> settle() async {
     setState(() => settling = true);
     try {
@@ -110,8 +209,18 @@ class _TripDetailPageState extends State<TripDetailPage> {
         context: context,
         builder: (dialogContext) => AlertDialog(
           icon: const Icon(LucideIcons.sparkles, color: AppColors.primary),
-          title: Text(result.duplicate ? '该行程已经完成结算' : '结算完成'),
-          content: const Text('行程数据与结算结果已更新'),
+          title: Text(
+            result.status == 'REVIEW_REQUIRED'
+                ? '已提交人工复核'
+                : result.duplicate
+                ? '该行程已经完成结算'
+                : '结算完成',
+          ),
+          content: Text(
+            result.status == 'REVIEW_REQUIRED'
+                ? '轨迹覆盖率或节点到达证据不足，复核完成前暂不发成长值'
+                : '行程数据与成长值结算结果已更新',
+          ),
           actions: [
             FilledButton(
               onPressed: () => Navigator.pop(dialogContext),
@@ -187,7 +296,26 @@ class _TripDetailPageState extends State<TripDetailPage> {
                       ),
                     ),
                   ),
-                  SliverToBoxAdapter(child: _RouteHeader(trip: trip!)),
+                  SliverToBoxAdapter(
+                    child: _RouteHeader(
+                      trip: trip!,
+                      plannedRoadRoute: plannedRoadRoute,
+                      onTap: () {
+                        final route =
+                            plannedRoadRoute?.polylinePoints ??
+                            trip!.routePoints;
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => TripRouteMapPage.forTrip(
+                              trip: trip!,
+                              routePoints: route,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                   SliverToBoxAdapter(
                     child: _TripDetailBody(
                       trip: trip!,
@@ -212,31 +340,106 @@ class _TripDetailPageState extends State<TripDetailPage> {
 }
 
 class _RouteHeader extends StatelessWidget {
-  const _RouteHeader({required this.trip});
+  const _RouteHeader({
+    required this.trip,
+    required this.onTap,
+    this.plannedRoadRoute,
+  });
+
+  static const double _aspectRatio = 2.48;
+  static const double _maxWidth = 560;
+
   final TripModel trip;
+  final TripDraftRouteModel? plannedRoadRoute;
+  final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    if (trip.startLocation != null && trip.endLocation != null) {
-      return TripRoutePreview(
-        mapOnly: true,
-        mapHeight: 178,
-        points: [trip.startLocation!, ...trip.waypoints, trip.endLocation!],
-      );
-    }
-    return SizedBox(
-      height: 178,
-      child: ColoredBox(
-        color: const Color(0xFFEFF4FA),
-        child: CustomPaint(
-          painter: const _FallbackRoutePainter(),
-          child: const Center(
-            child: Icon(LucideIcons.route, size: 34, color: AppColors.primary),
-          ),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+    child: Align(
+      alignment: Alignment.center,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _maxWidth),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final mapHeight = (constraints.maxWidth / _aspectRatio)
+                .clamp(124.0, 210.0)
+                .toDouble();
+            if (trip.startLocation != null && trip.endLocation != null) {
+              return InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(18),
+                child: Stack(
+                  alignment: Alignment.bottomRight,
+                  children: [
+                    IgnorePointer(
+                      child: TripRoutePreview(
+                        mapOnly: true,
+                        mapHeight: mapHeight,
+                        route:
+                            plannedRoadRoute ??
+                            TripDraftRouteModel(
+                              status: 'SUCCESS',
+                              points: [
+                                trip.startLocation!,
+                                ...trip.waypoints,
+                                trip.endLocation!,
+                              ],
+                              routePolyline: trip.routePolyline ?? '',
+                              distanceMeters: trip.distanceMeters,
+                              providerType: 'AMAP_WEB_V5',
+                            ),
+                        points: [
+                          trip.startLocation!,
+                          ...trip.waypoints,
+                          trip.endLocation!,
+                        ],
+                      ),
+                    ),
+                    Container(
+                      margin: const EdgeInsets.all(10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 11,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .94),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                      child: const Text(
+                        '查看完整路线',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+            return SizedBox(
+              height: mapHeight,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                clipBehavior: Clip.hardEdge,
+                child: ColoredBox(
+                  color: const Color(0xFFEFF4FA),
+                  child: CustomPaint(
+                    painter: const _FallbackRoutePainter(),
+                    child: const Center(
+                      child: Icon(
+                        LucideIcons.route,
+                        size: 34,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       ),
-    );
-  }
+    ),
+  );
 }
 
 class _TripDetailBody extends StatelessWidget {
@@ -262,7 +465,7 @@ class _TripDetailBody extends StatelessWidget {
   Widget build(BuildContext context) => ColoredBox(
     color: Colors.white,
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 34),
+      padding: const EdgeInsets.fromLTRB(18, 6, 18, 34),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

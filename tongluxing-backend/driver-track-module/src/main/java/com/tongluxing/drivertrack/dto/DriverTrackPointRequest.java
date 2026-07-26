@@ -17,6 +17,9 @@ public record DriverTrackPointRequest(
         @DecimalMin("0") BigDecimal speed,
         @DecimalMin("0") @DecimalMax("360") BigDecimal direction,
         @DecimalMin("0") BigDecimal accuracy,
-        @NotNull LocalDateTime recordTime
+        @NotNull LocalDateTime recordTime,
+        String deviceId,
+        Long sequenceNo,
+        Boolean mockLocation
 ) {
 }

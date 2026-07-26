@@ -338,28 +338,49 @@ class _TripCreatePageState extends State<TripCreatePage> {
   }
 
   Future<void> _pickTime() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final initialDate =
+        startTime != null && startTime!.isAfter(now)
+        ? startTime!
+        : now.add(const Duration(days: 1));
     final date = await showDatePicker(
       context: context,
-      initialDate: startTime ?? DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDate: initialDate,
+      firstDate: today,
+      lastDate: today.add(const Duration(days: 365)),
     );
     if (date == null || !mounted) return;
+    final selectingToday =
+        date.year == now.year &&
+        date.month == now.month &&
+        date.day == now.day;
+    final suggestedTime = selectingToday
+        ? TimeOfDay.fromDateTime(now.add(const Duration(minutes: 5)))
+        : startTime != null &&
+              startTime!.year == date.year &&
+              startTime!.month == date.month &&
+              startTime!.day == date.day
+        ? TimeOfDay.fromDateTime(startTime!)
+        : const TimeOfDay(hour: 8, minute: 0);
     final time = await showTimePicker(
       context: context,
-      initialTime: startTime == null
-          ? const TimeOfDay(hour: 8, minute: 0)
-          : TimeOfDay.fromDateTime(startTime!),
+      initialTime: suggestedTime,
     );
     if (time == null || !mounted) return;
+    final selected = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    if (!selected.isAfter(DateTime.now())) {
+      _showMessage('出发时间必须晚于当前时间，请重新选择时分');
+      return;
+    }
     setState(() {
-      startTime = DateTime(
-        date.year,
-        date.month,
-        date.day,
-        time.hour,
-        time.minute,
-      );
+      startTime = selected;
     });
   }
 
@@ -999,7 +1020,6 @@ class _TripCreatePageState extends State<TripCreatePage> {
   Widget _buildRouteSheetActions() => Row(
     children: [
       Expanded(
-        flex: 5,
         child: OutlinedButton(
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -1013,7 +1033,6 @@ class _TripCreatePageState extends State<TripCreatePage> {
       ),
       const SizedBox(width: 12),
       Expanded(
-        flex: 9,
         child: FilledButton(
           onPressed: submitting || routePlanning ? null : _next,
           child: FittedBox(
@@ -1243,7 +1262,6 @@ class _TripCreatePageState extends State<TripCreatePage> {
           ? Row(
               children: [
                 Expanded(
-                  flex: 5,
                   child: OutlinedButton(
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -1257,7 +1275,6 @@ class _TripCreatePageState extends State<TripCreatePage> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  flex: 9,
                   child: FilledButton(
                     onPressed: submitting || routePlanning ? null : _next,
                     child: Text(routePlanning ? '正在规划路线…' : '下一步：填写行程信息'),

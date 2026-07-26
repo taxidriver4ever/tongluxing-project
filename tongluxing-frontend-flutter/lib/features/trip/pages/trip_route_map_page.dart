@@ -5,24 +5,51 @@ import '../../../data/models/app_models.dart';
 import '../widgets/route_map_view.dart';
 
 class TripRouteMapPage extends StatelessWidget {
-  const TripRouteMapPage({required this.detail, super.key});
+  const TripRouteMapPage({
+    required this.detail,
+    this.routePoints,
+    super.key,
+  }) : trip = null;
 
-  final TripPublicDetailModel detail;
+  const TripRouteMapPage.forTrip({
+    required this.trip,
+    required this.routePoints,
+    super.key,
+  }) : detail = null;
+
+  final TripPublicDetailModel? detail;
+  final TripModel? trip;
+  final List<LocationSelection>? routePoints;
 
   @override
   Widget build(BuildContext context) {
-    final points = detail.routePoints;
+    final publicDetail = detail;
+    final ownedTrip = trip;
+    final points =
+        routePoints ??
+        publicDetail?.routePoints ??
+        ownedTrip?.routePoints ??
+        const <LocationSelection>[];
+    final startName = publicDetail?.trip.startName ?? ownedTrip?.startName ?? '起点';
+    final endName = publicDetail?.trip.endName ?? ownedTrip?.endName ?? '终点';
+    final waypointNames =
+        publicDetail?.trip.waypoints ??
+        ownedTrip?.waypoints.map((value) => value.name).toList() ??
+        const <String>[];
+    final distanceMeters =
+        publicDetail?.routeDistanceMeters ?? ownedTrip?.distanceMeters ?? 0;
+    final durationSeconds = publicDetail?.routeDurationSeconds ?? 0;
     final stops = points.length < 2
         ? const <LocationSelection>[]
         : [
             LocationSelection(
-              name: detail.trip.startName,
+              name: startName,
               address: '',
               latitude: points.first.latitude,
               longitude: points.first.longitude,
             ),
             LocationSelection(
-              name: detail.trip.endName,
+              name: endName,
               address: '',
               latitude: points.last.latitude,
               longitude: points.last.longitude,
@@ -64,9 +91,9 @@ class TripRouteMapPage extends StatelessWidget {
                         Expanded(
                           child: Text(
                             [
-                              detail.trip.startName,
-                              ...detail.trip.waypoints,
-                              detail.trip.endName,
+                              startName,
+                              ...waypointNames,
+                              endName,
                             ].join(' → '),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -80,8 +107,8 @@ class TripRouteMapPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '${(detail.routeDistanceMeters / 1000).toStringAsFixed(1)} km'
-                      ' · 预计 ${(detail.routeDurationSeconds / 60).ceil()} 分钟'
+                      '${(distanceMeters / 1000).toStringAsFixed(1)} km'
+                      '${durationSeconds > 0 ? ' · 预计 ${(durationSeconds / 60).ceil()} 分钟' : ''}'
                       ' · 可双指缩放地图',
                       style: const TextStyle(
                         color: Color(0xFF667085),

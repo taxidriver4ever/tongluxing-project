@@ -325,8 +325,23 @@ class TripService {
         )
         as Map,
   );
-  Future<TripModel> start(String id) async => TripModel.fromJson(
-    Map<String, dynamic>.from(await api.post('/v1/trips/$id/start') as Map),
+  Future<TripModel> start(
+    String id, {
+    required double latitude,
+    required double longitude,
+    double? accuracy,
+  }) async => TripModel.fromJson(
+    Map<String, dynamic>.from(
+      await api.post(
+            '/v1/trips/$id/start',
+            body: {
+              'latitude': latitude,
+              'longitude': longitude,
+              'accuracy': accuracy,
+            },
+          )
+          as Map,
+    ),
   );
   Future<TripModel> end(String id) async => TripModel.fromJson(
     Map<String, dynamic>.from(await api.post('/v1/trips/$id/end') as Map),
@@ -343,6 +358,9 @@ class TripService {
     double? speed,
     double? direction,
     double? accuracy,
+    String? deviceId,
+    int? sequenceNo,
+    bool mockLocation = false,
   }) async => Map<String, dynamic>.from(
     await api.post(
           '/v1/driver-tracks/points',
@@ -354,6 +372,9 @@ class TripService {
             'direction': direction,
             'accuracy': accuracy,
             'recordTime': recordTime.toIso8601String(),
+            'deviceId': deviceId,
+            'sequenceNo': sequenceNo,
+            'mockLocation': mockLocation,
           },
         )
         as Map,
@@ -370,12 +391,35 @@ class TripService {
         as Map,
   );
 
+  Future<Map<String, dynamic>> teammateDistanceState(String tripId) async =>
+      Map<String, dynamic>.from(
+        await api.get('/v1/driver-tracks/trips/$tripId/deviation') as Map,
+      );
+
   Future<TripSettlementModel> settle(String id) async =>
       TripSettlementModel.fromJson(
         Map<String, dynamic>.from(
           await api.post('/v1/trips/$id/settle') as Map,
         ),
       );
+
+  Future<TripDraftRouteModel> planRoadRoute({
+    required LocationSelection start,
+    required LocationSelection end,
+    List<LocationSelection> waypoints = const [],
+  }) async => TripDraftRouteModel.fromJson(
+    Map<String, dynamic>.from(
+      await api.post(
+            '/v1/map/routes/plan',
+            body: {
+              'startLocation': start.toJson(),
+              'endLocation': end.toJson(),
+              'waypoints': waypoints.map((point) => point.toJson()).toList(),
+            },
+          )
+          as Map,
+    ),
+  );
 
   Future<TripDraftModel> createDraft(Map<String, dynamic> body) async =>
       TripDraftModel.fromJson(

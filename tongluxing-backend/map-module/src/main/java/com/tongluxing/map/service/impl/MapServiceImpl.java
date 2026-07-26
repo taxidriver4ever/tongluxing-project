@@ -48,7 +48,7 @@ import lombok.RequiredArgsConstructor;
 public class MapServiceImpl implements MapService {
 
     /** 当前地图服务商标识。 */
-    private static final String PROVIDER_TYPE = "AMAP_WEB_V5";
+    private static final String PROVIDER_TYPE = "AMAP_WEB_V5_DISTANCE_OPTIMIZED";
 
     /** 路线规划 Mapper。 */
     private final MapRoutePlanMapper routePlanMapper;

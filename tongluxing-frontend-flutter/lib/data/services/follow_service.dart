@@ -33,6 +33,15 @@ class FollowService {
         .toList();
   }
 
+  Future<int> unreadFollowerCount() async {
+    final data = Map<String, dynamic>.from(
+      await api.get('/v1/users/me/followers/unread-count') as Map,
+    );
+    return int.tryParse('${data['unreadCount'] ?? 0}') ?? 0;
+  }
+
+  Future<void> markFollowersRead() => api.post('/v1/users/me/followers/read');
+
   Future<List<Map<String, dynamic>>> myFollowing({
     int page = 1,
     int size = 20,

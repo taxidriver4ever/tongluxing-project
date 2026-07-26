@@ -36,6 +36,7 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
   bool actionBusy = false;
   bool followed = false;
   bool saved = false;
+  List<LocationSelection> roadRoute = const [];
   String? error;
 
   @override
@@ -50,11 +51,32 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
       error = null;
     });
     try {
-      detail = await TripDiscoveryService(
-        context.read<AppSession>().api,
+      final api = context.read<AppSession>().api;
+      final loaded = await TripDiscoveryService(
+        api,
       ).publicDetail(widget.tripId);
-      followed = detail!.owner.followed;
-      saved = detail!.favorited;
+      detail = loaded;
+      followed = loaded.owner.followed;
+      saved = loaded.favorited;
+      roadRoute = loaded.routePoints;
+      final stored = loaded.routePoints;
+      // 旧行程常常只保存起点、途经点和终点。此时必须向路线规划接口
+      // 请求真实道路折线，不能把这些位置直接用直线连接。
+      if (stored.length >= 2 &&
+          stored.length <= loaded.trip.waypoints.length + 2) {
+        try {
+          final planned = await TripService(api).planRoadRoute(
+            start: stored.first,
+            end: stored.last,
+            waypoints: stored.sublist(1, stored.length - 1),
+          );
+          if (planned.polylinePoints.length > 2) {
+            roadRoute = planned.polylinePoints;
+          }
+        } catch (_) {
+          // 保留后端折线并展示加载失败状态；页面主体仍可正常使用。
+        }
+      }
     } catch (e) {
       error = e.toString();
     }
@@ -259,10 +281,6 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
                   slivers: [
                     SliverAppBar(
                       pinned: true,
-                      expandedHeight:
-                          current != null && current.routePoints.length >= 2
-                          ? 520
-                          : 360,
                       toolbarHeight: 54,
                       elevation: 0,
                       scrolledUnderElevation: 0,
@@ -309,9 +327,12 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
                         ),
                         const SizedBox(width: 5),
                       ],
-                      flexibleSpace: FlexibleSpaceBar(
-                        collapseMode: CollapseMode.pin,
-                        background: _DiscoveryHero(trip: trip, detail: current),
+                    ),
+                    SliverToBoxAdapter(
+                      child: _DiscoveryHero(
+                        trip: trip,
+                        detail: current,
+                        routePoints: roadRoute,
                       ),
                     ),
                     SliverPadding(
@@ -398,13 +419,19 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
       : value.ownerTrip
       ? LucideIcons.settings
       : LucideIcons.send;
+
 }
 
 class _DiscoveryHero extends StatelessWidget {
-  const _DiscoveryHero({required this.trip, required this.detail});
+  const _DiscoveryHero({
+    required this.trip,
+    required this.detail,
+    required this.routePoints,
+  });
 
   final TripDiscoverModel trip;
   final TripPublicDetailModel? detail;
+  final List<LocationSelection> routePoints;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -412,7 +439,7 @@ class _DiscoveryHero extends StatelessWidget {
       gradient: TripDiscoveryColors.headerGradient,
     ),
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(16, 88, 16, 14),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -470,15 +497,17 @@ class _DiscoveryHero extends StatelessWidget {
               _HeroMeta(
                 icon: LucideIcons.users,
                 text:
-                    '${trip.joinedVehicleCount}/${trip.maxVehicleCount}辆车 · ${trip.memberCount}人',
+                    '${trip.memberCount}人',
               ),
             ],
           ),
-          const Spacer(),
-          if (detail != null && detail!.routePoints.length >= 2)
-            _TripRouteMapCard(detail: detail!)
-          else
+          if (detail != null && routePoints.length >= 2) ...[
+            const SizedBox(height: 14),
+            _TripRouteMapCard(detail: detail!, routePoints: routePoints),
+          ] else ...[
+            const Spacer(),
             _RouteStopsSummary(trip: trip),
+          ],
         ],
       ),
     ),
@@ -814,107 +843,124 @@ class _BadgeDot extends StatelessWidget {
 }
 
 class _TripRouteMapCard extends StatelessWidget {
-  const _TripRouteMapCard({required this.detail});
+  const _TripRouteMapCard({required this.detail, required this.routePoints});
+
+  static const double aspectRatio = 2.48;
+  static const double minHeight = 124;
+  static const double maxHeight = 210;
+  static const double maxWidth = 560;
 
   final TripPublicDetailModel detail;
+  final List<LocationSelection> routePoints;
 
   @override
-  Widget build(BuildContext context) => _WhiteCard(
-    padding: const EdgeInsets.fromLTRB(12, 13, 12, 12),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 3),
-          child: Row(
-            children: [
-              Icon(
-                LucideIcons.route,
-                color: TripDiscoveryColors.primary,
-                size: 19,
-              ),
-              SizedBox(width: 8),
-              Text(
-                '完整路线',
-                style: TextStyle(
-                  color: TripDiscoveryColors.text,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w900,
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.center,
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: maxWidth),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final mapHeight = (constraints.maxWidth / aspectRatio)
+              .clamp(minHeight, maxHeight)
+              .toDouble();
+          final radius = BorderRadius.circular(16);
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: radius,
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x160B4A87),
+                  blurRadius: 14,
+                  offset: Offset(0, 5),
                 ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        InkWell(
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => TripRouteMapPage(detail: detail)),
-          ),
-          borderRadius: BorderRadius.circular(14),
-          child: Stack(
-            alignment: Alignment.bottomRight,
-            children: [
-              IgnorePointer(
-                child: RouteMapView(
-                  polylinePoints: detail.routePoints,
-                  stops: [
-                    LocationSelection(
-                      name: detail.trip.startName,
-                      address: '',
-                      latitude: detail.routePoints.first.latitude,
-                      longitude: detail.routePoints.first.longitude,
-                    ),
-                    LocationSelection(
-                      name: detail.trip.endName,
-                      address: '',
-                      latitude: detail.routePoints.last.latitude,
-                      longitude: detail.routePoints.last.longitude,
-                    ),
-                  ],
-                  height: 230,
-                  interactive: false,
-                ),
-              ),
-              Container(
-                margin: const EdgeInsets.all(10),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 7,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: .94),
-                  borderRadius: BorderRadius.circular(99),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(LucideIcons.scanSearch, size: 15),
-                    SizedBox(width: 5),
-                    Text(
-                      '查看完整路线',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 3),
-          child: Text(
-            '${(detail.routeDistanceMeters / 1000).toStringAsFixed(1)} km · '
-            '预计 ${(detail.routeDurationSeconds / 60).ceil()} 分钟 · 高德驾车路线',
-            style: const TextStyle(
-              color: TripDiscoveryColors.secondaryText,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
+              ],
             ),
-          ),
-        ),
-      ],
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: radius,
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TripRouteMapPage(
+                      detail: detail,
+                      routePoints: routePoints,
+                    ),
+                  ),
+                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: mapHeight,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    clipBehavior: Clip.hardEdge,
+                    children: [
+                      IgnorePointer(
+                        child: RouteMapView(
+                          polylinePoints: routePoints,
+                          stops: [
+                            LocationSelection(
+                              name: detail.trip.startName,
+                              address: '',
+                              latitude: routePoints.first.latitude,
+                              longitude: routePoints.first.longitude,
+                            ),
+                            LocationSelection(
+                              name: detail.trip.endName,
+                              address: '',
+                              latitude: routePoints.last.latitude,
+                              longitude: routePoints.last.longitude,
+                            ),
+                          ],
+                          height: mapHeight,
+                          interactive: false,
+                        ),
+                      ),
+                      Positioned(
+                        right: 10,
+                        bottom: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: .94),
+                            borderRadius: BorderRadius.circular(99),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x19000000),
+                                blurRadius: 8,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(LucideIcons.scanSearch, size: 14),
+                              SizedBox(width: 5),
+                              Text(
+                                '查看完整路线',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     ),
   );
 }

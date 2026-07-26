@@ -226,12 +226,15 @@ class TripDraftRouteModel {
         ),
       );
     }
-    final durationSeconds = _int(json['estimatedDuration']);
+    final durationSeconds = _int(
+      json['estimatedDuration'] ?? json['routeDuration'],
+    );
     return TripDraftRouteModel(
-      status: json['status']?.toString() ?? 'STALE',
+      status: (json['status'] ?? json['planStatus'])?.toString() ?? 'STALE',
       points: points,
-      routePolyline: json['polyline']?.toString() ?? '',
-      distanceMeters: _int(json['totalDistance']),
+      routePolyline:
+          (json['polyline'] ?? json['routePolyline'])?.toString() ?? '',
+      distanceMeters: _int(json['totalDistance'] ?? json['routeDistance']),
       durationMinutes: durationSeconds == null
           ? null
           : (durationSeconds / 60).ceil(),
@@ -285,11 +288,7 @@ class TripModel {
   List<LocationSelection> get routePoints {
     final parsed = parseRoutePolyline(routePolyline);
     if (parsed.length >= 2) return parsed;
-    return [
-      if (startLocation != null) startLocation!,
-      ...waypoints,
-      if (endLocation != null) endLocation!,
-    ];
+    return [?startLocation, ...waypoints, ?endLocation];
   }
 
   factory TripModel.fromJson(Map<String, dynamic> json) => TripModel(

@@ -19,6 +19,11 @@ public class DriverTrackRecord {
     private BigDecimal direction;
     private BigDecimal accuracy;
     private Integer distanceFromPrev;
+    private String deviceId;
+    private Long sequenceNo;
+    private Integer mockLocation;
+    private String pointStatus;
+    private Integer validPoint;
     private LocalDateTime recordTime;
     private LocalDateTime createdAt;
     private Integer deleted;

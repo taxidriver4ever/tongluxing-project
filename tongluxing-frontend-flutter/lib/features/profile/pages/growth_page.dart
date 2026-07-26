@@ -46,7 +46,18 @@ class _GrowthPageState extends State<GrowthPage> {
     final exp = (data['totalPoints'] as num?)?.toInt() ?? 0;
     final next = (data['nextLevelPoints'] as num?)?.toInt() ?? 0;
     final level = data['levelCode']?.toString() ?? 'LV1';
-    final progress = exp + next == 0 ? 1.0 : exp / (exp + next);
+    const levelFloors = <String, int>{
+      'LV1': 0,
+      'LV2': 500,
+      'LV3': 2000,
+      'LV4': 5000,
+      'LV5': 10000,
+      'LV6': 20000,
+    };
+    final floor = levelFloors[level] ?? 0;
+    final progress = next == 0
+        ? 1.0
+        : ((exp - floor) / ((exp - floor) + next)).clamp(0.0, 1.0);
     final earnedCount = (badges['earned'] as List? ?? const []).length;
     return Scaffold(
       appBar: AppBar(title: const Text('成长中心')),
@@ -55,7 +66,7 @@ class _GrowthPageState extends State<GrowthPage> {
         error: error,
         onRetry: load,
         child: ListView(
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
             TlxCard(
               color: const Color(0xFFF8FAFD),
@@ -70,7 +81,7 @@ class _GrowthPageState extends State<GrowthPage> {
                             Text(
                               level,
                               style: TextStyle(
-                                fontSize: 28,
+                                fontSize: 24,
                                 fontWeight: FontWeight.w800,
                                 color: AppColors.primary,
                               ),
@@ -88,7 +99,7 @@ class _GrowthPageState extends State<GrowthPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 14),
                   LinearProgressIndicator(
                     value: progress.clamp(0, 1),
                     minHeight: 8,
@@ -106,7 +117,7 @@ class _GrowthPageState extends State<GrowthPage> {
                 ],
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 12),
             TlxCard(
               color: Color(0xFFF8FAFD),
               child: Column(
@@ -116,7 +127,7 @@ class _GrowthPageState extends State<GrowthPage> {
                     '成长数据',
                     style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
                   ),
-                  SizedBox(height: 18),
+                  SizedBox(height: 14),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
@@ -128,7 +139,7 @@ class _GrowthPageState extends State<GrowthPage> {
                 ],
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 12),
             TlxCard(
               color: Color(0xFFF8FAFD),
               child: Column(
@@ -175,7 +186,7 @@ class _Stat extends StatelessWidget {
     children: [
       Text(
         value,
-        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+        style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
       ),
       Text(label, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
     ],
@@ -187,7 +198,7 @@ class _GrowthRow extends StatelessWidget {
   final String name, value;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 13),
+    padding: const EdgeInsets.symmetric(vertical: 10),
     child: Row(
       children: [
         Expanded(

@@ -1,5 +1,6 @@
 package com.tongluxing.trip.service.impl;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -48,6 +49,7 @@ import com.tongluxing.trip.mapper.TripMapper;
 import com.tongluxing.trip.mapper.TripMemberSnapshotMapper;
 import com.tongluxing.trip.mapper.TripRouteMapper;
 import com.tongluxing.trip.mapper.TripWaypointMapper;
+import com.tongluxing.trip.mapper.TripExecutionSettlementMapper;
 import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.service.TripFinishedEvent;
 import com.tongluxing.trip.service.TripPublishedEvent;
@@ -100,6 +102,7 @@ public class TripServiceImpl implements TripService {
     private final TripRouteMapper routeMapper;
     private final TripMemberSnapshotMapper memberMapper;
     private final TripAuditLogMapper auditLogMapper;
+    private final TripExecutionSettlementMapper executionSettlementMapper;
     private final TripVehiclePort vehiclePort;
     private final TripParticipationPort participationPort;
     private final TripUserProfilePort userProfilePort;
@@ -273,7 +276,36 @@ public class TripServiceImpl implements TripService {
     @Override
     @Transactional
     public TripResponse startTrip(Long tripId) {
-        return startTrip(tripId, null);
+        return startTrip(tripId, (List<Long>) null);
+    }
+
+    /** App 开启入口：定位误差过大或距离起点超过 5 公里时拒绝开启。 */
+    @Override
+    @Transactional
+    public TripResponse startTrip(
+            Long tripId, BigDecimal latitude, BigDecimal longitude, BigDecimal accuracy) {
+        Long userId = currentUserContext.requireUserId();
+        Trip trip = requireOwnerTrip(tripId, userId);
+        BigDecimal startLatitude = trip.getStartLatitude() != null
+                ? trip.getStartLatitude() : trip.getStartLat();
+        BigDecimal startLongitude = trip.getStartLongitude() != null
+                ? trip.getStartLongitude() : trip.getStartLng();
+        if (startLatitude == null || startLongitude == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "行程起点缺少坐标，请先编辑并重新选择起点");
+        }
+        if (accuracy != null && accuracy.doubleValue() > 500D) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "当前定位精度较低，请到开阔位置后重试");
+        }
+        double distanceMeters = haversineMeters(
+                latitude.doubleValue(), longitude.doubleValue(),
+                startLatitude.doubleValue(), startLongitude.doubleValue());
+        if (distanceMeters > 5_000D) {
+            throw new BusinessException(
+                    ResultCode.BAD_REQUEST,
+                    "你距离行程起点约 %.1f 公里，需进入 5 公里范围内才能开启行程"
+                            .formatted(distanceMeters / 1_000D));
+        }
+        return startTrip(tripId, (List<Long>) null);
     }
 
     /** 行程确认卡入口只让明确确认的用户进入本次行程。 */
@@ -329,6 +361,17 @@ public class TripServiceImpl implements TripService {
                 throw new BusinessException(ResultCode.BAD_REQUEST, "当前状态不允许开始行程");
             }
             Trip after = tripMapper.findById(tripId);
+            int plannedDistance = after.getTotalDistanceMeters() != null
+                    ? after.getTotalDistanceMeters()
+                    : after.getRouteDistance() == null ? 0 : after.getRouteDistance();
+            executionSettlementMapper.createExecution(
+                    SnowflakeIdGenerator.nextId(), tripId, userId, plannedDistance, now);
+            Long executionId = executionSettlementMapper.executionId(tripId);
+            for (Long participantId : participantIds) {
+                executionSettlementMapper.createExecutionMember(
+                        SnowflakeIdGenerator.nextId(), executionId, tripId, participantId,
+                        participantId.equals(userId) ? "CAPTAIN" : "MEMBER", now);
+            }
             insertAuditLog(tripId, userId, "START", before, after, "开始行程");
             List<Long> chatMemberIds = List.copyOf(participantIds);
             eventPublisher.publishEvent(new TripStartedEvent(
@@ -447,7 +490,7 @@ public class TripServiceImpl implements TripService {
         trip.setRouteDuration(request.routeDuration());
         trip.setRoutePolyline(normalize(request.routePolyline()));
         trip.setWaypointsJson(toJson(sortWaypoints(request.waypoints())));
-        trip.setDepartureTime(parseTime(request.departureTime()));
+        trip.setDepartureTime(parseFutureTime(request.departureTime()));
         trip.setEstimatedDays(request.estimatedDays());
         trip.setTotalDistanceMeters(request.routeDistance());
         trip.setMaxVehicleCount(request.maxVehicleCount());
@@ -476,7 +519,7 @@ public class TripServiceImpl implements TripService {
         trip.setRouteDuration(request.routeDuration());
         trip.setRoutePolyline(normalize(request.routePolyline()));
         trip.setWaypointsJson(toJson(sortWaypoints(request.waypoints())));
-        trip.setDepartureTime(parseTime(request.departureTime()));
+        trip.setDepartureTime(parseFutureTime(request.departureTime()));
         trip.setEstimatedDays(request.estimatedDays());
         trip.setTotalDistanceMeters(request.routeDistance());
         trip.setMaxVehicleCount(request.maxVehicleCount());
@@ -975,6 +1018,25 @@ public class TripServiceImpl implements TripService {
         } catch (DateTimeParseException ignored) {
             return LocalDateTime.parse(text, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         }
+    }
+
+    private LocalDateTime parseFutureTime(String value) {
+        LocalDateTime parsed = parseTime(value);
+        if (!parsed.isAfter(LocalDateTime.now())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "出发时间必须晚于当前时间");
+        }
+        return parsed;
+    }
+
+    private double haversineMeters(double latitude1, double longitude1, double latitude2, double longitude2) {
+        double latitudeDelta = Math.toRadians(latitude2 - latitude1);
+        double longitudeDelta = Math.toRadians(longitude2 - longitude1);
+        double startLatitude = Math.toRadians(latitude1);
+        double endLatitude = Math.toRadians(latitude2);
+        double value = Math.sin(latitudeDelta / 2D) * Math.sin(latitudeDelta / 2D)
+                + Math.cos(startLatitude) * Math.cos(endLatitude)
+                * Math.sin(longitudeDelta / 2D) * Math.sin(longitudeDelta / 2D);
+        return 6_371_000D * 2D * Math.atan2(Math.sqrt(value), Math.sqrt(1D - value));
     }
 
     /**

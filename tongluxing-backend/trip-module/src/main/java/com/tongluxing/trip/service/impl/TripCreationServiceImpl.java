@@ -281,6 +281,9 @@ public class TripCreationServiceImpl implements TripCreationService {
         if (!"DRAFT".equals(draft.getDraftStatus())) throw new BusinessException(409, "草稿状态不允许发布");
         if (!StringUtils.hasText(draft.getTitle())) throw bad("行程标题必填");
         if (draft.getDepartureTime() == null) throw bad("出发时间必填");
+        if (!draft.getDepartureTime().isAfter(LocalDateTime.now())) {
+            throw bad("出发时间必须晚于当前时间");
+        }
         LocationRequest start = location(draft.getStartLocationJson());
         LocationRequest end = location(draft.getEndLocationJson());
         if (start == null) throw bad("起点必填");

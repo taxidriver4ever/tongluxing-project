@@ -18,6 +18,7 @@ class RouteMapView extends StatefulWidget {
     this.showMyLocation = false,
     this.interactive = true,
     this.trafficEnabled = false,
+    this.drawPolyline = true,
     this.onLocationChanged,
     this.onMapInteraction,
     super.key,
@@ -29,6 +30,7 @@ class RouteMapView extends StatefulWidget {
   final bool showMyLocation;
   final bool interactive;
   final bool trafficEnabled;
+  final bool drawPolyline;
   final ValueChanged<AMapLocation>? onLocationChanged;
   final VoidCallback? onMapInteraction;
 
@@ -83,7 +85,7 @@ class _RouteMapViewState extends State<RouteMapView> {
   @override
   Widget build(BuildContext context) {
     final route = _samplePolyline(widget.polylinePoints);
-    if (route.length < 2) {
+    if (route.isEmpty) {
       return SizedBox(
         height: widget.height,
         child: const Center(child: Text('暂无可展示的路线')),
@@ -94,9 +96,14 @@ class _RouteMapViewState extends State<RouteMapView> {
       width: double.infinity,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
-        child: _nativeSupported
-            ? _buildNativeMap(context, route)
-            : _buildFallback(route),
+        clipBehavior: Clip.hardEdge,
+        child: ClipRect(
+          child: SizedBox.expand(
+            child: _nativeSupported
+                ? _buildNativeMap(context, route)
+                : _buildFallback(route),
+          ),
+        ),
       ),
     );
   }
@@ -120,17 +127,19 @@ class _RouteMapViewState extends State<RouteMapView> {
       zoomGesturesEnabled: widget.interactive,
       touchPoiEnabled: widget.interactive,
       myLocationStyleOptions: MyLocationStyleOptions(widget.showMyLocation),
-      polylines: {
-        Polyline(
-          points: route
-              .map((point) => LatLng(point.latitude, point.longitude))
-              .toList(growable: false),
-          width: 8,
-          color: AppColors.primary,
-          capType: CapType.round,
-          joinType: JoinType.round,
-        ),
-      },
+      polylines: widget.drawPolyline && route.length >= 2
+          ? {
+              Polyline(
+                points: route
+                    .map((point) => LatLng(point.latitude, point.longitude))
+                    .toList(growable: false),
+                width: 8,
+                color: AppColors.primary,
+                capType: CapType.round,
+                joinType: JoinType.round,
+              ),
+            }
+          : const <Polyline>{},
       markers: _markers(stops),
       onMapCreated: (_) {
         // 忽略地图初始化阶段的自动镜头移动，避免路线卡片刚打开就被隐藏。
@@ -191,6 +200,7 @@ class _RouteMapViewState extends State<RouteMapView> {
               widget.stops.isEmpty
                   ? <LocationSelection>[route.first, route.last]
                   : widget.stops,
+              drawPolyline: widget.drawPolyline,
             ),
           ),
         ),
@@ -287,10 +297,15 @@ class _MapBackdropPainter extends CustomPainter {
 }
 
 class _PolylinePainter extends CustomPainter {
-  const _PolylinePainter(this.route, this.stops);
+  const _PolylinePainter(
+    this.route,
+    this.stops, {
+    required this.drawPolyline,
+  });
 
   final List<LocationSelection> route;
   final List<LocationSelection> stops;
+  final bool drawPolyline;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -310,19 +325,22 @@ class _PolylinePainter extends CustomPainter {
               (size.height - pad * 2),
     );
 
-    final path = Path()..moveTo(project(route.first).dx, project(route.first).dy);
-    for (final point in route.skip(1)) {
-      path.lineTo(project(point).dx, project(point).dy);
+    if (drawPolyline && route.length >= 2) {
+      final path = Path()
+        ..moveTo(project(route.first).dx, project(route.first).dy);
+      for (final point in route.skip(1)) {
+        path.lineTo(project(point).dx, project(point).dy);
+      }
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = AppColors.primary
+          ..strokeWidth = 6
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round,
+      );
     }
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = AppColors.primary
-        ..strokeWidth = 6
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
-    );
     for (var index = 0; index < stops.length; index++) {
       final center = project(stops[index]);
       canvas.drawCircle(
@@ -339,5 +357,7 @@ class _PolylinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _PolylinePainter oldDelegate) =>
-      oldDelegate.route != route || oldDelegate.stops != stops;
+      oldDelegate.route != route ||
+      oldDelegate.stops != stops ||
+      oldDelegate.drawPolyline != drawPolyline;
 }

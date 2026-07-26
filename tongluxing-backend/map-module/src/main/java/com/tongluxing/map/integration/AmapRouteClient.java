@@ -53,6 +53,7 @@ public class AmapRouteClient {
                                 .queryParam("origin", coordinate(start))
                                 .queryParam("destination", coordinate(end))
                                 .queryParam("strategy", properties.getDrivingStrategy())
+                                .queryParam("count", 3)
                                 .queryParam("show_fields", "cost,polyline");
                         if (StringUtils.hasText(waypointValue)) {
                             builder.queryParam("waypoints", waypointValue);
@@ -87,7 +88,18 @@ public class AmapRouteClient {
         if (!paths.isArray() || paths.isEmpty()) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "高德未找到可用驾车路线");
         }
+        // 高德推荐策略可能返回多条可驾驶路线。展示场景选择其中道路距离
+        // 最短的一条，避免固定取第一条推荐路线造成不必要的绕行。
         JsonNode path = paths.get(0);
+        int shortestDistance = safeDistance(path);
+        for (int index = 1; index < paths.size(); index++) {
+            JsonNode candidate = paths.get(index);
+            int candidateDistance = safeDistance(candidate);
+            if (candidateDistance < shortestDistance) {
+                path = candidate;
+                shortestDistance = candidateDistance;
+            }
+        }
         int distance = parsePositiveInt(path.path("distance").asText(), "路线距离");
         int duration = parsePositiveInt(path.path("cost").path("duration").asText(), "路线耗时");
         List<LocationDto> polyline = parsePolyline(path.path("steps"));
@@ -97,6 +109,15 @@ public class AmapRouteClient {
             throw new BusinessException(ResultCode.BAD_REQUEST, "高德路线几何数据为空");
         }
         return new AmapRouteResult(distance, duration, List.copyOf(polyline));
+    }
+
+    private int safeDistance(JsonNode path) {
+        try {
+            return new BigDecimal(path.path("distance").asText())
+                    .setScale(0, RoundingMode.HALF_UP).intValueExact();
+        } catch (NumberFormatException | ArithmeticException exception) {
+            return Integer.MAX_VALUE;
+        }
     }
 
     private List<LocationDto> parsePolyline(JsonNode steps) {

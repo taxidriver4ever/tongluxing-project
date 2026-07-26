@@ -29,7 +29,7 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
     private final DriverTrackDistanceRecordMapper distanceMapper;
     private final DriverTrackGrowthPort growthPort;
 
-    @Value("${mileage.settlement.stage-meters:50000}")
+    @Value("${mileage.settlement.stage-meters:5000}")
     private Integer stageMeters;
 
     @Value("${mileage.growth.points-per-km:1}")
@@ -39,36 +39,15 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
     @Transactional
     public MileageSettlementResponse settleMileage(Long tripId, Long userId, Integer distanceMeters) {
         int effectiveDistance = distanceMeters == null ? 0 : Math.max(0, distanceMeters);
-        int normalizedStageMeters = stageMeters == null || stageMeters <= 0 ? 50_000 : stageMeters;
-        // 里程按用户跨行程累计：例如前一程 30km、后一程 20km，会在累计 50km 时发一次。
-        // max 兼容内部联调接口直接传入里程、尚未写入轨迹明细的场景。
-        int cumulativeDistance = Math.max(effectiveDistance, distanceMapper.sumTrackedDistance(userId));
-        int stageCount = cumulativeDistance / normalizedStageMeters;
-        int alreadySettledStages = distanceMapper.countMileageStages(userId);
-        int settledStages = 0;
-        int grantedPoints = 0;
-
-        for (int stage = alreadySettledStages + 1; stage <= stageCount; stage++) {
-            int stageDistance = stage * normalizedStageMeters;
-            String settleKey = settleKey(userId, stageDistance);
-            if (distanceMapper.findBySettleKey(settleKey) != null) {
-                continue;
-            }
-            int points = calculatePoints(normalizedStageMeters);
-            insertSettlement(tripId, userId, cumulativeDistance, stageDistance,
-                    SETTLE_TYPE_MILESTONE, settleKey);
-            growthPort.grantMileageGrowth(userId, settleKey, points, remark(stageDistance));
-            settledStages++;
-            grantedPoints += points;
-        }
-
+        // 修订版规则：上传途中只记录，不实时发成长值。最终由行程结算一次性按
+        // floor(settlementDistance / 5000) * 10 发给所有有效成员，且不足 5km 不跨行程累计。
         return new MileageSettlementResponse(
                 String.valueOf(tripId),
                 String.valueOf(userId),
                 effectiveDistance,
-                settledStages,
-                grantedPoints,
-                settledStages == 0 && stageCount > 0
+                0,
+                0,
+                false
         );
     }
 
@@ -82,7 +61,7 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
             return new MileageSettlementResponse(String.valueOf(tripId), String.valueOf(userId),
                     effectiveDistance, 0, 0, true);
         }
-        // 途经点只记录到达事实，不发成长值；驾驶成长值唯一口径是累计每 50 公里。
+        // 途经点只记录到达事实，不发成长值；成长值在最终结算按每 5 公里 10 点统一发放。
         insertSettlement(tripId, userId, effectiveDistance, effectiveDistance,
                 SETTLE_TYPE_WAYPOINT, settleKey);
         return new MileageSettlementResponse(String.valueOf(tripId), String.valueOf(userId),

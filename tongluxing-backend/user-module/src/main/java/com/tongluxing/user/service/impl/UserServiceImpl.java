@@ -300,7 +300,12 @@ public class UserServiceImpl implements UserService {
         getPublicProfile(userId);
         if (followMapper.exists(currentUserId, userId) == 0) {
             try {
-                followMapper.insert(SnowflakeIdGenerator.nextId(), currentUserId, userId, LocalDateTime.now());
+                LocalDateTime now = LocalDateTime.now();
+                Long relationId = SnowflakeIdGenerator.nextId();
+                followMapper.insert(relationId, currentUserId, userId, now);
+                followMapper.insertFollowNotification(
+                        SnowflakeIdGenerator.nextId(), currentUserId, userId,
+                        "USER_FOLLOW:" + relationId, now);
             } catch (DuplicateKeyException ignored) {
                 // 并发重复关注按幂等成功处理。
             }
@@ -327,6 +332,19 @@ public class UserServiceImpl implements UserService {
     public List<FollowUserVO> getMyFollowers(int page, int size) {
         Long currentUserId = currentUserContext.requireUserId();
         return getFollowers(currentUserId, page, size);
+    }
+
+    @Override
+    public long countMyUnreadFollowerNotifications() {
+        return followMapper.countUnreadFollowerNotifications(
+                currentUserContext.requireUserId());
+    }
+
+    @Override
+    @Transactional
+    public void markMyFollowerNotificationsRead() {
+        followMapper.markFollowerNotificationsRead(
+                currentUserContext.requireUserId(), LocalDateTime.now());
     }
 
     @Override

@@ -219,7 +219,7 @@ class TripDiscoveryCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          '${trip.joinedVehicleCount}/${trip.maxVehicleCount}辆车 · ${trip.memberCount}人',
+                          '${trip.memberCount}人',
                           style: const TextStyle(
                             color: TripDiscoveryColors.secondaryText,
                             fontSize: 10,

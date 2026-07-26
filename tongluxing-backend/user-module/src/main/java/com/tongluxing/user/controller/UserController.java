@@ -122,6 +122,20 @@ public class UserController {
         return Result.success(userService.getMyFollowers(page, size));
     }
 
+    /** “谁关注了我”的真实未读关系数，不再由前端用固定数字模拟。 */
+    @GetMapping("/me/followers/unread-count")
+    public Result<java.util.Map<String, Long>> myFollowersUnreadCount() {
+        return Result.success(java.util.Map.of(
+                "unreadCount", userService.countMyUnreadFollowerNotifications()));
+    }
+
+    /** 用户实际打开关注列表后再清除未读状态。 */
+    @PostMapping("/me/followers/read")
+    public Result<Void> markMyFollowersRead() {
+        userService.markMyFollowerNotificationsRead();
+        return Result.success();
+    }
+
     /** 当前登录用户关注的用户列表。 */
     @GetMapping("/me/following")
     public Result<List<FollowUserVO>> myFollowing(@RequestParam(defaultValue = "1") int page,

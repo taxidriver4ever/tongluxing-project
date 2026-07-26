@@ -1,5 +1,6 @@
 package com.tongluxing.trip.service;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 import com.tongluxing.trip.dto.CreateTripRequest;
@@ -50,6 +51,9 @@ public interface TripService {
      * 开始驾驶行程。
      */
     TripResponse startTrip(Long tripId);
+
+    /** 校验队长实时位置后开启行程；App 正常开启入口必须使用此方法。 */
+    TripResponse startTrip(Long tripId, BigDecimal latitude, BigDecimal longitude, BigDecimal accuracy);
 
     /**
      * 按行程确认卡的确认名单开始驾驶；未确认或已拒绝的成员不会进入本次行程。

@@ -15,7 +15,8 @@ class InteractionMessagesPage extends StatefulWidget {
   const InteractionMessagesPage({super.key});
 
   @override
-  State<InteractionMessagesPage> createState() => _InteractionMessagesPageState();
+  State<InteractionMessagesPage> createState() =>
+      _InteractionMessagesPageState();
 }
 
 class _InteractionMessagesPageState extends State<InteractionMessagesPage>
@@ -25,19 +26,42 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
   List<Map<String, dynamic>> followers = const [];
   bool applicationsLoading = true;
   bool followersLoading = true;
+  bool followersMarkedRead = false;
+  int selectedTab = 0;
   String? applicationsError;
   String? followersError;
 
   @override
   void initState() {
     super.initState();
+    tabs.addListener(_handleTabChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => load());
   }
 
   @override
   void dispose() {
+    tabs.removeListener(_handleTabChanged);
     tabs.dispose();
     super.dispose();
+  }
+
+  void _handleTabChanged() {
+    if (!tabs.indexIsChanging && tabs.index != selectedTab) {
+      setState(() => selectedTab = tabs.index);
+    }
+    if (!tabs.indexIsChanging && tabs.index == 1) {
+      _markFollowersSeen();
+    }
+  }
+
+  Future<void> _markFollowersSeen() async {
+    if (followersMarkedRead || followersLoading) return;
+    followersMarkedRead = true;
+    try {
+      await FollowService(context.read<AppSession>().api).markFollowersRead();
+    } catch (_) {
+      followersMarkedRead = false;
+    }
   }
 
   Future<void> load() async {
@@ -81,7 +105,10 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
     } catch (error) {
       if (mounted) setState(() => followersError = '$error');
     } finally {
-      if (mounted) setState(() => followersLoading = false);
+      if (mounted) {
+        setState(() => followersLoading = false);
+        if (tabs.index == 1) _markFollowersSeen();
+      }
     }
   }
 
@@ -184,42 +211,50 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
       bottom: TabBar(
         controller: tabs,
         indicatorSize: TabBarIndicatorSize.label,
+        onTap: (index) {
+          if (selectedTab != index) setState(() => selectedTab = index);
+          if (index == 1) _markFollowersSeen();
+        },
         tabs: [
-          Tab(text: '入队申请${applications.isEmpty ? '' : ' (${applications.length})'}'),
-          Tab(text: '谁关注了我${followers.isEmpty ? '' : ' (${followers.length})'}'),
+          Tab(
+            text:
+                '入队申请${applications.isEmpty ? '' : ' (${applications.length})'}',
+          ),
+          Tab(
+            text: '谁关注了我${followers.isEmpty ? '' : ' (${followers.length})'}',
+          ),
         ],
       ),
     ),
-    body: TabBarView(
-      controller: tabs,
-      children: [
-        _tabBody(
-          loading: applicationsLoading,
-          error: applicationsError,
-          onRetry: _loadApplications,
-          child: _ApplicationList(
-            rows: applications,
-            onRefresh: _loadApplications,
-            onFollow: toggleApplicationFollow,
-            onReview: review,
-            onProfile: openProfile,
-            onChat: openChat,
+    // 部分 Android 设备上 TabBarView 与页面里的原生地图 PlatformView
+    // 组合后会出现标签已切换但第二页没有合成到画面的情况。这里根据
+    // TabController 直接重建当前页，确保“谁关注了我”的真实数据可见。
+    body: selectedTab == 0
+        ? _tabBody(
+            loading: applicationsLoading,
+            error: applicationsError,
+            onRetry: _loadApplications,
+            child: _ApplicationList(
+              rows: applications,
+              onRefresh: _loadApplications,
+              onFollow: toggleApplicationFollow,
+              onReview: review,
+              onProfile: openProfile,
+              onChat: openChat,
+            ),
+          )
+        : _tabBody(
+            loading: followersLoading,
+            error: followersError,
+            onRetry: _loadFollowers,
+            child: _FollowerList(
+              rows: followers,
+              onRefresh: _loadFollowers,
+              onFollow: toggleFollow,
+              onProfile: openProfile,
+              onChat: openChat,
+            ),
           ),
-        ),
-        _tabBody(
-          loading: followersLoading,
-          error: followersError,
-          onRetry: _loadFollowers,
-          child: _FollowerList(
-            rows: followers,
-            onRefresh: _loadFollowers,
-            onFollow: toggleFollow,
-            onProfile: openProfile,
-            onChat: openChat,
-          ),
-        ),
-      ],
-    ),
   );
 }
 
@@ -307,27 +342,46 @@ class _ApplicationList extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(nickname, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
+                          Text(
+                            nickname,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
                           const SizedBox(height: 3),
                           Text(
                             '申请加入 ${row['conversationName'] ?? '行程群'}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.muted,
+                            ),
                           ),
-                          if (row['applicationMessage']?.toString().trim().isNotEmpty == true)
+                          if (row['applicationMessage']
+                                  ?.toString()
+                                  .trim()
+                                  .isNotEmpty ==
+                              true)
                             Text(
                               row['applicationMessage'].toString(),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 12, color: AppColors.secondaryText),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.secondaryText,
+                              ),
                             ),
                         ],
                       ),
                     ),
                     Text(
                       _compactDate(row['createdAt']?.toString() ?? ''),
-                      style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.muted,
+                      ),
                     ),
                   ],
                 ),
@@ -340,11 +394,15 @@ class _ApplicationList extends StatelessWidget {
                         child: row['following'] == true
                             ? OutlinedButton(
                                 onPressed: () => onFollow(index),
-                                child: Text(row['mutual'] == true ? '互相关注' : '已关注'),
+                                child: Text(
+                                  row['mutual'] == true ? '互相关注' : '已关注',
+                                ),
                               )
                             : FilledButton(
                                 onPressed: () => onFollow(index),
-                                child: Text(row['followedByTarget'] == true ? '回关' : '关注'),
+                                child: Text(
+                                  row['followedByTarget'] == true ? '回关' : '关注',
+                                ),
                               ),
                       ),
                     ),
@@ -428,93 +486,75 @@ class _FollowerList extends StatelessWidget {
       onRefresh: onRefresh,
       child: ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
         itemCount: rows.length,
-        separatorBuilder: (_, _) => const Divider(height: 1, indent: 66),
+        separatorBuilder: (_, _) => const SizedBox(height: 8),
         itemBuilder: (_, index) {
           final row = rows[index];
           final userId = row['userId']?.toString() ?? '';
           final nickname = row['nickname']?.toString() ?? '同路行用户';
           final mutual = row['mutual'] == true;
-          return SizedBox(
-            height: 76,
-            child: Row(
-              children: [
-                UserAvatar(
-                  nickname: nickname,
-                  avatarImageKey: row['avatarImageKey']?.toString() ?? '',
-                  radius: 22,
-                  onTap: () => onProfile(userId),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: InkWell(
-                    onTap: () => onProfile(userId),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                nickname,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
+          final avatarKey = row['avatarImageKey']?.toString() ?? '';
+          return Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () => onProfile(userId),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 11, 8, 11),
+                child: Row(
+                  children: [
+                    UserAvatar(
+                      nickname: nickname,
+                      avatarImageKey: avatarKey,
+                      radius: 22,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            nickname,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
                             ),
-                            if (mutual) ...[
-                              const SizedBox(width: 5),
-                              const Text(
-                                '互相关注',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          '${_compactDate(row['followedAt']?.toString() ?? '')} 关注了你',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppColors.muted,
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 3),
+                          Text(
+                            '${_compactDate(row['followedAt']?.toString() ?? '')} 关注了你${mutual ? ' · 互相关注' : ''}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.muted,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ),
-                SizedBox(
-                  height: 31,
-                  child: mutual
-                      ? OutlinedButton(
-                          onPressed: () => onFollow(index),
-                          child: const Text('互相关注'),
-                        )
-                      : FilledButton(
-                          onPressed: () => onFollow(index),
-                          child: const Text('回关'),
-                        ),
-                ),
-                const SizedBox(width: 6),
-                SizedBox(
-                  height: 31,
-                  child: OutlinedButton(
-                    onPressed: () => onChat(userId),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 9),
+                    const SizedBox(width: 6),
+                    TextButton(
+                      onPressed: () => onFollow(index),
+                      child: Text(mutual ? '已互关' : '回关'),
                     ),
-                    child: const Icon(LucideIcons.messageCircle, size: 17),
-                  ),
+                    IconButton(
+                      tooltip: '发起私聊',
+                      onPressed: () => onChat(userId),
+                      icon: const Icon(
+                        LucideIcons.messageCircle,
+                        size: 19,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           );
         },

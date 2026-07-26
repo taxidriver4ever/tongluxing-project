@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import com.tongluxing.user.dto.UserFollowQueryDTO;
 
@@ -24,6 +25,40 @@ public interface UserFollowMapper {
             """)
     int insert(@Param("id") Long id, @Param("followerId") Long followerId,
                @Param("followedId") Long followedId, @Param("now") LocalDateTime now);
+
+    @Insert("""
+            insert into notify_message
+                (id, receiver_type, receiver_id, scene, event_type, title, content,
+                 target_type, target_id, read_status, request_id, created_at, updated_at, deleted)
+            values
+                (#{id}, 'USER', #{followedId}, 'INTERACTION', 'USER_FOLLOW', '新的关注',
+                 '有用户关注了你', 'USER', cast(#{followerId} as char), 'UNREAD',
+                 #{requestId}, #{now}, #{now}, 0)
+            """)
+    int insertFollowNotification(@Param("id") Long id,
+                                 @Param("followerId") Long followerId,
+                                 @Param("followedId") Long followedId,
+                                 @Param("requestId") String requestId,
+                                 @Param("now") LocalDateTime now);
+
+    @Select("""
+            select count(*)
+            from notify_message
+            where receiver_type='USER' and receiver_id=#{userId}
+              and scene='INTERACTION' and event_type='USER_FOLLOW'
+              and read_status='UNREAD' and deleted=0
+            """)
+    long countUnreadFollowerNotifications(@Param("userId") Long userId);
+
+    @Update("""
+            update notify_message
+            set read_status='READ', read_at=#{now}, updated_at=#{now}
+            where receiver_type='USER' and receiver_id=#{userId}
+              and scene='INTERACTION' and event_type='USER_FOLLOW'
+              and read_status='UNREAD' and deleted=0
+            """)
+    int markFollowerNotificationsRead(@Param("userId") Long userId,
+                                      @Param("now") LocalDateTime now);
 
     @Delete("delete from user_follow where follower_user_id=#{followerId} and followed_user_id=#{followedId}")
     int delete(@Param("followerId") Long followerId, @Param("followedId") Long followedId);

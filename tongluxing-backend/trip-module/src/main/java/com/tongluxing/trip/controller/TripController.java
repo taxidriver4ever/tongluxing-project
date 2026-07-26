@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.trip.dto.CreateTripRequest;
+import com.tongluxing.trip.dto.StartTripRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
 import com.tongluxing.trip.dto.TripTimeConflictRequest;
 import com.tongluxing.trip.service.TripService;
@@ -116,9 +117,11 @@ public class TripController {
     @PostMapping("/{tripId}/start")
     public Result<TripResponse> startTrip(
             @PathVariable Long tripId,
+            @Valid @RequestBody StartTripRequest request,
             @RequestHeader(value = "X-Client-Type", required = false) String clientType) {
         rejectMiniProgramStart(clientType);
-        return Result.success(tripService.startTrip(tripId));
+        return Result.success(tripService.startTrip(
+                tripId, request.latitude(), request.longitude(), request.accuracy()));
     }
 
     private void rejectMiniProgramStart(String clientType) {

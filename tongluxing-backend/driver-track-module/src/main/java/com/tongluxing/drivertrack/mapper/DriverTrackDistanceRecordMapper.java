@@ -35,7 +35,7 @@ public interface DriverTrackDistanceRecordMapper {
             """)
     DriverTrackDistanceRecord findBySettleKey(@Param("settleKey") String settleKey);
 
-    /** 用户全部有效轨迹的累计里程，用于跨行程保留不足 50 公里的余量。 */
+    /** 历史兼容统计；修订版结算禁止跨行程保留不足 5 公里的余量。 */
     @Select("""
             select coalesce(sum(distance_from_prev), 0)
             from driver_track_record
@@ -43,7 +43,7 @@ public interface DriverTrackDistanceRecordMapper {
             """)
     int sumTrackedDistance(@Param("driverId") Long driverId);
 
-    /** 已经发放过的 50 公里阶段数，兼容上线前按单行程生成的历史结算记录。 */
+    /** 历史阶段记录数量；仅用于兼容旧数据，不参与修订版成长值结算。 */
     @Select("""
             select count(*)
             from driver_track_distance_record

@@ -209,6 +209,10 @@ class MainActivity : FlutterActivity() {
                     "speed" to latest.speed.toDouble(),
                     "direction" to latest.bearing.toDouble(),
                     "accuracy" to latest.accuracy.toDouble(),
+                    "isMock" to (
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2 &&
+                            latest.isFromMockProvider
+                        ),
                 ),
             )
         } catch (exception: SecurityException) {

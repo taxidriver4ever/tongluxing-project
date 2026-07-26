@@ -14,6 +14,7 @@ import 'invite_page.dart';
 import 'merchant_onboarding_page.dart';
 import 'profile_extra_pages.dart';
 import 'follow_relations_page.dart';
+import 'growth_page.dart';
 import 'profile_system_pages.dart';
 import 'vehicle_list_page.dart';
 
@@ -82,9 +83,9 @@ class ProfilePageState extends State<ProfilePage> {
     if (value.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: value));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('同路行号已复制')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('同路行号已复制')));
   }
 
   @override
@@ -208,7 +209,10 @@ class ProfilePageState extends State<ProfilePage> {
                     onTap: () => _copyTongluxingId(tongluxingId),
                     borderRadius: BorderRadius.circular(8),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -249,6 +253,11 @@ class ProfilePageState extends State<ProfilePage> {
                     LucideIcons.carFront,
                     '我的车辆',
                     () => _open(const VehicleListPage()),
+                  ),
+                  _Menu(
+                    LucideIcons.trendingUp,
+                    '我的成长',
+                    () => _open(const GrowthPage()),
                   ),
                   _Menu(
                     LucideIcons.medal,

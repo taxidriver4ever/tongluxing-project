@@ -34,6 +34,12 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
   bool confirmingArrival = false;
   int trackedDistanceMeters = 0;
   int completedWaypointCount = 0;
+  int trackSequence = 0;
+  int teammateDistanceMeters = 0;
+  int teammateDistanceStatus = 0;
+  bool showTeamPanel = false;
+  String? conversationId;
+  List<LocationSelection> teamLocations = const [];
   DateTime? lastTrackUploadAt;
   Timer? trackTimer;
 
@@ -42,6 +48,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _announce();
+      _ensureConversation();
       _startTracking();
     });
   }
@@ -52,7 +59,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
     if (!granted || !mounted) return;
     await _uploadCurrentPoint();
     trackTimer = Timer.periodic(
-      const Duration(seconds: 15),
+      const Duration(seconds: 5),
       (_) => _uploadCurrentPoint(),
     );
   }
@@ -62,7 +69,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
     final lastUpload = lastTrackUploadAt;
     if (!force &&
         lastUpload != null &&
-        DateTime.now().difference(lastUpload) < const Duration(seconds: 10)) {
+        DateTime.now().difference(lastUpload) < const Duration(seconds: 3)) {
       return;
     }
     try {
@@ -76,6 +83,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
         speed: (raw['speed'] as num?)?.toDouble(),
         direction: (raw['direction'] as num?)?.toDouble(),
         accuracy: (raw['accuracy'] as num?)?.toDouble(),
+        mockLocation: raw['isMock'] == true,
       );
     } on PlatformException {
       // 定位暂不可用时保留导航界面，下一周期自动重试。
@@ -93,9 +101,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          const SnackBar(
-            content: Text('尚未进入当前节点 150 米范围，请靠近后再确认'),
-          ),
+          const SnackBar(content: Text('尚未在当前节点 100 米范围内保持足够时间，请靠近后再确认')),
         );
     }
   }
@@ -104,7 +110,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
     if (!isLocationValid(value)) return;
     final lastUpload = lastTrackUploadAt;
     if (lastUpload != null &&
-        DateTime.now().difference(lastUpload) < const Duration(seconds: 10)) {
+        DateTime.now().difference(lastUpload) < const Duration(seconds: 3)) {
       return;
     }
     await _uploadTrackValues(
@@ -122,6 +128,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
     double? speed,
     double? direction,
     double? accuracy,
+    bool mockLocation = false,
   }) async {
     if (uploadingTrack || !mounted) return;
     uploadingTrack = true;
@@ -135,6 +142,9 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
             direction: direction,
             accuracy: accuracy,
             recordTime: DateTime.now(),
+            deviceId: 'app-${context.read<AppSession>().userId ?? 'anonymous'}',
+            sequenceNo: ++trackSequence,
+            mockLocation: mockLocation,
           );
       lastTrackUploadAt = DateTime.now();
       if (!mounted) return;
@@ -144,6 +154,12 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
             trackedDistanceMeters;
       });
       _notifySettlement(response);
+      await _shareAndLoadTeamLocations(
+        latitude: latitude,
+        longitude: longitude,
+        speed: speed,
+      );
+      await _refreshTeammateDistance();
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -152,6 +168,71 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
       }
     } finally {
       uploadingTrack = false;
+    }
+  }
+
+  Future<void> _ensureConversation() async {
+    if (conversationId != null || !mounted) return;
+    try {
+      final conversation = await ChatService(
+        context.read<AppSession>().api,
+      ).tripConversation(widget.trip.id);
+      conversationId = conversation.id;
+    } catch (_) {
+      // 行程群可能刚创建，下一次定位上报时自动重试。
+    }
+  }
+
+  Future<void> _shareAndLoadTeamLocations({
+    required double latitude,
+    required double longitude,
+    double? speed,
+  }) async {
+    await _ensureConversation();
+    final id = conversationId;
+    if (id == null || id.isEmpty || !mounted) return;
+    try {
+      final rows = await ChatService(
+        context.read<AppSession>().api,
+      ).shareLocation(
+        id,
+        latitude: latitude,
+        longitude: longitude,
+        speed: speed,
+      );
+      final points = rows
+          .map(
+            (row) => LocationSelection(
+              id: row['userId']?.toString(),
+              name: row['nickname']?.toString().trim().isNotEmpty == true
+                  ? row['nickname'].toString()
+                  : '行程成员',
+              address: '实时位置',
+              latitude: (row['latitude'] as num).toDouble(),
+              longitude: (row['longitude'] as num).toDouble(),
+            ),
+          )
+          .toList(growable: false);
+      if (mounted) setState(() => teamLocations = points);
+    } catch (_) {
+      // 实时位置共享暂时失败不影响本地轨迹计算。
+    }
+  }
+
+  Future<void> _refreshTeammateDistance() async {
+    try {
+      final state = await TripService(
+        context.read<AppSession>().api,
+      ).teammateDistanceState(widget.trip.id);
+      if (!mounted) return;
+      setState(() {
+        teammateDistanceMeters =
+            (state['deviationDistance'] as num?)?.toInt() ?? 0;
+        teammateDistanceStatus =
+            (state['deviationStatus'] as num?)?.toInt() ?? 0;
+      });
+    } catch (_) {
+      // 队友位置暂不可用不影响轨迹采集，下一批次自动恢复。
     }
   }
 
@@ -198,9 +279,9 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
       // 统一在下方提示，避免第三方应用未安装时抛错中断导航页。
     }
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('无法打开高德导航，请确认已安装高德地图')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('无法打开高德导航，请确认已安装高德地图')));
     }
   }
 
@@ -229,23 +310,22 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
       _announceCurrentStage();
       return;
     }
-    if (points > 0) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text('完成新的 50 公里里程阶段，实时发放 +$points 成长值')));
-    }
+    // 成长值在结束后按有效轨迹统一结算，不在上传途中发放。
   }
 
   LocationSelection? get _currentTarget {
     if (completedWaypointCount < widget.trip.waypoints.length) {
       return widget.trip.waypoints[completedWaypointCount];
     }
-    return widget.trip.endLocation ?? (_routePoints.isEmpty ? null : _routePoints.last);
+    return widget.trip.endLocation ??
+        (_routePoints.isEmpty ? null : _routePoints.last);
   }
 
   String get _routeText {
     final target = _currentTarget;
-    if (target == null) return '${widget.trip.startName}前往${widget.trip.endName}';
+    if (target == null) {
+      return '${widget.trip.startName}前往${widget.trip.endName}';
+    }
     return '当前阶段：前往 ${target.name}';
   }
 
@@ -264,7 +344,9 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
   Future<void> _announce() async {
     if (!voiceEnabled) return;
     try {
-      await voice.invokeMethod('speak', {'text': '行程记录已开始。$_routeText。实际道路可根据路况灵活选择，请注意行车安全。'});
+      await voice.invokeMethod('speak', {
+        'text': '行程记录已开始。$_routeText。实际道路可根据路况灵活选择，请注意行车安全。',
+      });
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -273,7 +355,6 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
       }
     }
   }
-
 
   Future<void> _announceCurrentStage() async {
     if (!voiceEnabled) return;
@@ -287,6 +368,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
       // 语音不可用不影响节点切换。
     }
   }
+
   Future<void> _toggleVoice() async {
     setState(() => voiceEnabled = !voiceEnabled);
     if (voiceEnabled) {
@@ -353,7 +435,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      '实际里程已在行驶过程中按途经点和每 50 公里分段发放。',
+                      '将按实际有效轨迹统一结算：每满 5 公里获得 10 成长值，不跨行程结转。',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: AppColors.secondaryText),
                     ),
@@ -394,10 +476,16 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
             color: AppColors.primary,
             size: 36,
           ),
-          title: Text(result.duplicate ? '该行程已结算' : '行程结算完成'),
+          title: Text(
+            result.status == 'REVIEW_REQUIRED'
+                ? '已提交人工复核'
+                : result.duplicate
+                ? '该行程已结算'
+                : '行程结算完成',
+          ),
           content: Text(
             '有效成员：${result.memberCount} 人\n'
-            '行程结束不发固定奖励，成长值按累计每 50 公里实时发放\n'
+            '${result.status == 'REVIEW_REQUIRED' ? '轨迹覆盖率或节点到达证据不足，复核完成前暂不发成长值' : '成长值：每满 5 公里 10 点，本次每位成员 +${result.pointsPerMember}'}\n'
             '实际驾驶里程：${(trackedDistanceMeters / 1000).toStringAsFixed(1)} km',
             textAlign: TextAlign.center,
           ),
@@ -441,11 +529,16 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
         children: [
           Positioned.fill(
             child: RouteMapView(
-              polylinePoints: _routePoints,
-              stops: _routeStops,
+              polylinePoints: showTeamPanel
+                  ? (teamLocations.isEmpty ? _routeStops : teamLocations)
+                  : _routePoints,
+              stops: showTeamPanel
+                  ? (teamLocations.isEmpty ? _routeStops : teamLocations)
+                  : _routeStops,
               height: MediaQuery.sizeOf(context).height,
               showMyLocation: true,
               trafficEnabled: true,
+              drawPolyline: !showTeamPanel,
               onLocationChanged: _handleAmapLocation,
             ),
           ),
@@ -460,6 +553,21 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                   icon: const Icon(LucideIcons.arrowLeft),
                 ),
                 const Spacer(),
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: false, label: Text('路线')),
+                    ButtonSegment(value: true, label: Text('队友')),
+                  ],
+                  selected: {showTeamPanel},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (value) =>
+                      setState(() => showTeamPanel = value.first),
+                  style: const ButtonStyle(
+                    visualDensity: VisualDensity.compact,
+                    backgroundColor: WidgetStatePropertyAll(Colors.white),
+                  ),
+                ),
+                const Spacer(),
                 IconButton.filled(
                   onPressed: _toggleVoice,
                   icon: Icon(
@@ -469,45 +577,95 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
               ],
             ),
           ),
-          Positioned(
-            left: 16,
-            right: 16,
-            top: 82,
-            child: Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: const Color(0xFF285CFF),
-                borderRadius: BorderRadius.circular(22),
-              ),
-              child: Row(
-                children: [
-                  const Icon(LucideIcons.route, color: Colors.white, size: 34),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '已完成 $completedWaypointCount / ${widget.trip.waypoints.length} 个途经节点',
-                          style: const TextStyle(color: Colors.white70),
-                        ),
-                        Text(
-                          _routeText,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
+          if (!showTeamPanel)
+            Positioned(
+              left: 16,
+              right: 16,
+              top: 82,
+              child: Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF285CFF),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      LucideIcons.route,
+                      color: Colors.white,
+                      size: 34,
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '已完成 $completedWaypointCount / ${widget.trip.waypoints.length} 个途经节点',
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                          Text(
+                            _routeText,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
+          if (showTeamPanel)
+            Positioned(
+              left: 16,
+              right: 16,
+              top: 82,
+              child: Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(22),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x22000000), blurRadius: 20),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      teammateDistanceStatus == 3
+                          ? LucideIcons.cloudOff
+                          : teammateDistanceStatus == 2
+                          ? LucideIcons.triangleAlert
+                          : teammateDistanceStatus == 1
+                          ? LucideIcons.moveRight
+                          : LucideIcons.usersRound,
+                      color: teammateDistanceStatus > 0
+                          ? AppColors.danger
+                          : AppColors.primary,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        teammateDistanceStatus == 3
+                            ? '队友位置超过 2 分钟未更新'
+                            : teammateDistanceStatus == 2
+                            ? '与队长距离 ${teammateDistanceMeters}m，已持续严重远离'
+                            : teammateDistanceStatus == 1
+                            ? '与队长距离 ${teammateDistanceMeters}m，请注意跟队'
+                            : '队友距离正常（${teammateDistanceMeters}m）',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           Positioned(
             left: 16,
             right: 16,
@@ -525,18 +683,29 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                 children: [
                   Row(
                     children: [
-                      const Icon(LucideIcons.mapPinCheck, color: AppColors.primary),
+                      const Icon(
+                        LucideIcons.mapPinCheck,
+                        color: AppColors.primary,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('下一导航目标', style: TextStyle(fontSize: 11, color: AppColors.muted)),
+                            const Text(
+                              '下一导航目标',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppColors.muted,
+                              ),
+                            ),
                             Text(
                               _currentTarget?.name ?? widget.trip.endName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontWeight: FontWeight.w900),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                           ],
                         ),
@@ -546,7 +715,10 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                   const SizedBox(height: 12),
                   const Text(
                     '路线仅供参考，系统只记录轨迹并按顺序判断节点到达。',
-                    style: TextStyle(fontSize: 11, color: AppColors.secondaryText),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.secondaryText,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -564,7 +736,8 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                         label: '参考里程',
                       ),
                       _Metric(
-                        value: '$completedWaypointCount/${widget.trip.waypoints.length}',
+                        value:
+                            '$completedWaypointCount/${widget.trip.waypoints.length}',
                         label: '节点进度',
                       ),
                     ],
@@ -575,7 +748,9 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                     child: OutlinedButton.icon(
                       onPressed: _openAmapNavigation,
                       icon: const Icon(LucideIcons.navigation, size: 18),
-                      label: Text('导航到 ${_currentTarget?.name ?? widget.trip.endName}'),
+                      label: Text(
+                        '导航到 ${_currentTarget?.name ?? widget.trip.endName}',
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -586,9 +761,7 @@ class _TripNavigationPageState extends State<TripNavigationPage> {
                           ? null
                           : _confirmArrival,
                       icon: const Icon(LucideIcons.mapPinCheck, size: 18),
-                      label: Text(
-                        confirmingArrival ? '正在核验位置…' : '确认到达当前节点',
-                      ),
+                      label: Text(confirmingArrival ? '正在核验位置…' : '确认到达当前节点'),
                     ),
                   ),
                   const SizedBox(height: 8),

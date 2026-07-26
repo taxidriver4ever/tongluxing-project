@@ -28,8 +28,8 @@ import lombok.RequiredArgsConstructor;
 /**
  * 地图模块接口。
  *
- * <p>提供路线规划、地点解析和附近地图点位查询能力。当前底层实现为本地 MOCK 计算，
- * 后续可替换为真实地图服务商。</p>
+ * <p>提供路线规划、地点解析和附近地图点位查询能力。驾车路线由高德 Web 服务
+ * 返回真实道路折线，并在多个候选方案中选择距离最短的路线。</p>
  */
 @Validated
 @RestController

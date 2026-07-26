@@ -79,6 +79,10 @@ public interface UserService {
 
     List<FollowUserVO> getMyFollowers(int page, int size);
 
+    long countMyUnreadFollowerNotifications();
+
+    void markMyFollowerNotificationsRead();
+
     List<FollowUserVO> getMyFollowing(int page, int size);
 
     /** 查询当前用户与对方互相关注的用户列表。 */

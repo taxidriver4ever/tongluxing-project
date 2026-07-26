@@ -51,7 +51,7 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
       final session = context.read<AppSession>();
       final conversations = await ChatService(session.api).conversations();
       List<Map<String, dynamic>> applications = const [];
-      List<Map<String, dynamic>> followerRows = const [];
+      var unreadFollowers = 0;
       try {
         applications = await ChatService(
           session.api,
@@ -60,14 +60,15 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
         // 互动角标加载失败不应导致整个聊天列表空白。
       }
       try {
-        followerRows = await FollowService(session.api).myFollowers(size: 20);
+        unreadFollowers = await FollowService(
+          session.api,
+        ).unreadFollowerCount();
       } catch (_) {
-        // 当前用户粉丝接口失败时保留聊天主列表。
+        // 未读数接口失败时只隐藏角标，不用历史粉丝总数冒充未读消息。
       }
       if (!mounted) return;
       allRows = List<ConversationModel>.from(conversations);
-      interactionCount = applications.length +
-          followerRows.where((row) => row['following'] != true).length;
+      interactionCount = applications.length + unreadFollowers;
       _applySearch();
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
@@ -82,11 +83,12 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
       rows = keyword.isEmpty
           ? List<ConversationModel>.from(allRows)
           : allRows
-              .where(
-                (row) => row.name.toLowerCase().contains(keyword) ||
-                    row.preview.toLowerCase().contains(keyword),
-              )
-              .toList();
+                .where(
+                  (row) =>
+                      row.name.toLowerCase().contains(keyword) ||
+                      row.preview.toLowerCase().contains(keyword),
+                )
+                .toList();
     });
   }
 
@@ -110,7 +112,9 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
       await load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
       }
     }
   }
@@ -122,15 +126,19 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
       rows = rows.where((item) => item.id != row.id).toList();
     });
     try {
-      await ChatService(context.read<AppSession>().api).hideConversation(row.id);
+      await ChatService(
+        context.read<AppSession>().api,
+      ).hideConversation(row.id);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已从消息列表移除，聊天记录仍保留')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('已从消息列表移除，聊天记录仍保留')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
         await load();
       }
     }
@@ -224,71 +232,69 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
             child: loading && allRows.isEmpty
                 ? const Center(child: CircularProgressIndicator())
                 : error != null && allRows.isEmpty
-                    ? Center(
-                        child: FilledButton.icon(
-                          onPressed: load,
-                          icon: const Icon(LucideIcons.refreshCw, size: 17),
-                          label: const Text('重新加载'),
-                        ),
-                      )
-                    : RefreshIndicator(
-                        onRefresh: load,
-                        child: ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.only(bottom: 22),
-                          children: [
-                            _InteractionCard(
-                              count: interactionCount,
-                              onTap: () async {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const InteractionMessagesPage(),
-                                  ),
-                                );
-                                if (mounted) load();
-                              },
-                            ),
-                            if (rows.isEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 90),
-                                child: Column(
-                                  children: [
-                                    const Icon(
-                                      LucideIcons.messageCircle,
-                                      size: 44,
-                                      color: AppColors.muted,
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Text(
-                                      search.text.trim().isEmpty
-                                          ? '暂时没有聊天会话'
-                                          : '没有匹配的会话',
-                                      style: const TextStyle(color: AppColors.muted),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            else
-                              ...rows.map(
-                                (row) => _SwipeConversationTile(
-                                  key: ValueKey(row.id),
-                                  row: row,
-                                  onOpen: () => openConversation(row),
-                                  onPin: () => updateSettings(
-                                    row,
-                                    pinned: !row.pinned,
-                                  ),
-                                  onMute: () => updateSettings(
-                                    row,
-                                    muted: !row.muted,
-                                  ),
-                                  onDelete: () => hideConversation(row),
-                                ),
+                ? Center(
+                    child: FilledButton.icon(
+                      onPressed: load,
+                      icon: const Icon(LucideIcons.refreshCw, size: 17),
+                      label: const Text('重新加载'),
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: load,
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.only(bottom: 22),
+                      children: [
+                        _InteractionCard(
+                          count: interactionCount,
+                          onTap: () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const InteractionMessagesPage(),
                               ),
-                          ],
+                            );
+                            if (mounted) load();
+                          },
                         ),
-                      ),
+                        if (rows.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 90),
+                            child: Column(
+                              children: [
+                                const Icon(
+                                  LucideIcons.messageCircle,
+                                  size: 44,
+                                  color: AppColors.muted,
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  search.text.trim().isEmpty
+                                      ? '暂时没有聊天会话'
+                                      : '没有匹配的会话',
+                                  style: const TextStyle(
+                                    color: AppColors.muted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          ...rows.map(
+                            (row) => _SwipeConversationTile(
+                              key: ValueKey(row.id),
+                              row: row,
+                              onOpen: () => openConversation(row),
+                              onPin: () =>
+                                  updateSettings(row, pinned: !row.pinned),
+                              onMute: () =>
+                                  updateSettings(row, muted: !row.muted),
+                              onDelete: () => hideConversation(row),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
           ),
         ],
       ),
@@ -320,20 +326,34 @@ class _InteractionCard extends StatelessWidget {
                   color: AppColors.primary,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(LucideIcons.heart, color: Colors.white, size: 21),
+                child: const Icon(
+                  LucideIcons.heart,
+                  color: Colors.white,
+                  size: 21,
+                ),
               ),
               if (count > 0)
                 Positioned(
                   right: -4,
                   top: -4,
                   child: Container(
-                    constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                    constraints: const BoxConstraints(
+                      minWidth: 18,
+                      minHeight: 18,
+                    ),
                     padding: const EdgeInsets.symmetric(horizontal: 5),
                     alignment: Alignment.center,
-                    decoration: const BoxDecoration(color: AppColors.danger, shape: BoxShape.circle),
+                    decoration: const BoxDecoration(
+                      color: AppColors.danger,
+                      shape: BoxShape.circle,
+                    ),
                     child: Text(
                       count > 99 ? '99+' : '$count',
-                      style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w800),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                 ),
@@ -345,7 +365,10 @@ class _InteractionCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('互动消息', style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900)),
+                Text(
+                  '互动消息',
+                  style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900),
+                ),
                 SizedBox(height: 3),
                 Text(
                   '入队申请、谁关注了我和互动提醒',
@@ -356,7 +379,11 @@ class _InteractionCard extends StatelessWidget {
               ],
             ),
           ),
-          const Icon(LucideIcons.chevronRight, size: 18, color: AppColors.muted),
+          const Icon(
+            LucideIcons.chevronRight,
+            size: 18,
+            color: AppColors.muted,
+          ),
         ],
       ),
     ),
@@ -404,14 +431,18 @@ class _SwipeConversationTileState extends State<_SwipeConversationTile> {
                 _SwipeAction(
                   width: actionWidth,
                   color: const Color(0xFF7E8795),
-                  icon: widget.row.pinned ? LucideIcons.pinOff : LucideIcons.pin,
+                  icon: widget.row.pinned
+                      ? LucideIcons.pinOff
+                      : LucideIcons.pin,
                   label: widget.row.pinned ? '取消置顶' : '置顶',
                   onTap: widget.onPin,
                 ),
                 _SwipeAction(
                   width: actionWidth,
                   color: const Color(0xFFF59E0B),
-                  icon: widget.row.muted ? LucideIcons.bell : LucideIcons.bellOff,
+                  icon: widget.row.muted
+                      ? LucideIcons.bell
+                      : LucideIcons.bellOff,
                   label: widget.row.muted ? '取消免扰' : '免打扰',
                   onTap: widget.onMute,
                 ),
@@ -431,11 +462,15 @@ class _SwipeConversationTileState extends State<_SwipeConversationTile> {
             transform: Matrix4.translationValues(offset, 0, 0),
             child: GestureDetector(
               onHorizontalDragUpdate: (details) => setState(
-                () => offset = (offset + details.delta.dx).clamp(-totalWidth, 0).toDouble(),
+                () => offset = (offset + details.delta.dx)
+                    .clamp(-totalWidth, 0)
+                    .toDouble(),
               ),
               onHorizontalDragEnd: (_) => settle(),
               child: Material(
-                color: widget.row.pinned ? const Color(0xFFF4F7FC) : Colors.white,
+                color: widget.row.pinned
+                    ? const Color(0xFFF4F7FC)
+                    : Colors.white,
                 child: InkWell(
                   onTap: () {
                     if (offset < 0) {
@@ -467,17 +502,27 @@ class _SwipeConversationTileState extends State<_SwipeConversationTile> {
                                       widget.row.name,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800),
+                                      style: const TextStyle(
+                                        fontSize: 15.5,
+                                        fontWeight: FontWeight.w800,
+                                      ),
                                     ),
                                   ),
                                   if (widget.row.muted)
                                     const Padding(
                                       padding: EdgeInsets.only(right: 5),
-                                      child: Icon(LucideIcons.bellOff, size: 13, color: AppColors.muted),
+                                      child: Icon(
+                                        LucideIcons.bellOff,
+                                        size: 13,
+                                        color: AppColors.muted,
+                                      ),
                                     ),
                                   Text(
                                     _formatTime(widget.row.time),
-                                    style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: AppColors.muted,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -486,21 +531,40 @@ class _SwipeConversationTileState extends State<_SwipeConversationTile> {
                                 children: [
                                   Expanded(
                                     child: Text(
-                                      widget.row.preview.isEmpty ? '暂无消息' : widget.row.preview,
+                                      widget.row.preview.isEmpty
+                                          ? '暂无消息'
+                                          : widget.row.preview,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(fontSize: 12.5, color: AppColors.muted),
+                                      style: const TextStyle(
+                                        fontSize: 12.5,
+                                        color: AppColors.muted,
+                                      ),
                                     ),
                                   ),
                                   if (widget.row.unread > 0)
                                     Container(
-                                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-                                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                                      constraints: const BoxConstraints(
+                                        minWidth: 18,
+                                        minHeight: 18,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 5,
+                                      ),
                                       alignment: Alignment.center,
-                                      decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                                      decoration: const BoxDecoration(
+                                        color: AppColors.primary,
+                                        shape: BoxShape.circle,
+                                      ),
                                       child: Text(
-                                        widget.row.unread > 99 ? '99+' : '${widget.row.unread}',
-                                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w800),
+                                        widget.row.unread > 99
+                                            ? '99+'
+                                            : '${widget.row.unread}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w800,
+                                        ),
                                       ),
                                     ),
                                 ],
@@ -549,7 +613,14 @@ class _SwipeAction extends StatelessWidget {
           children: [
             Icon(icon, size: 18, color: Colors.white),
             const SizedBox(height: 4),
-            Text(label, style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w700)),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ],
         ),
       ),
@@ -561,7 +632,9 @@ String _formatTime(String value) {
   final parsed = DateTime.tryParse(value)?.toLocal();
   if (parsed == null) return value.length > 10 ? value.substring(0, 10) : value;
   final now = DateTime.now();
-  if (parsed.year == now.year && parsed.month == now.month && parsed.day == now.day) {
+  if (parsed.year == now.year &&
+      parsed.month == now.month &&
+      parsed.day == now.day) {
     return '${parsed.hour.toString().padLeft(2, '0')}:${parsed.minute.toString().padLeft(2, '0')}';
   }
   if (parsed.year == now.year) return '${parsed.month}/${parsed.day}';

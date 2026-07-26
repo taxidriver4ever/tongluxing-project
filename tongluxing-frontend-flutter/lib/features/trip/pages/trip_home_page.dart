@@ -150,8 +150,8 @@ class _MyTripsPageState extends State<_MyTripsPage> {
         error = null;
       });
     }
+    final api = context.read<AppSession>().api;
     try {
-      final api = context.read<AppSession>().api;
       final values = await Future.wait<dynamic>([
         TripService(api).dashboard(),
         UserProfileService(api).me(),
@@ -176,7 +176,6 @@ class _MyTripsPageState extends State<_MyTripsPage> {
     } catch (e) {
       // 兼容尚未部署聚合接口的旧后端，自动回退到原有接口。
       try {
-        final api = context.read<AppSession>().api;
         final values = await Future.wait<dynamic>([
           TripService(api).current(),
           TripService(api).mine(),
@@ -223,7 +222,7 @@ class _MyTripsPageState extends State<_MyTripsPage> {
       onRefresh: load,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+        padding: const EdgeInsets.fromLTRB(10, 14, 10, 28),
         children: [
           _DashboardHeader(profile: profile),
           const SizedBox(height: 17),
@@ -294,9 +293,8 @@ class _MyTripsPageState extends State<_MyTripsPage> {
                   final trip = upcoming[index];
                   return _UpcomingTripCard(
                     trip: trip,
-                    onTap: () => open(
-                      TripDetailPage(tripId: trip.id, initial: trip),
-                    ),
+                    onTap: () =>
+                        open(TripDetailPage(tripId: trip.id, initial: trip)),
                   );
                 },
               ),
@@ -311,22 +309,22 @@ class _MyTripsPageState extends State<_MyTripsPage> {
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () => open(
-                    const TripOverviewPage(historyMode: true),
-                  ),
+                  onPressed: () =>
+                      open(const TripOverviewPage(historyMode: true)),
                   child: const Text('查看历史'),
                 ),
               ],
             ),
             const SizedBox(height: 6),
-            ...recent.take(2).map(
-              (trip) => _RecentTripTile(
-                trip: trip,
-                onTap: () => open(
-                  TripDetailPage(tripId: trip.id, initial: trip),
+            ...recent
+                .take(2)
+                .map(
+                  (trip) => _RecentTripTile(
+                    trip: trip,
+                    onTap: () =>
+                        open(TripDetailPage(tripId: trip.id, initial: trip)),
+                  ),
                 ),
-              ),
-            ),
           ],
         ],
       ),
@@ -342,36 +340,13 @@ class _DashboardHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final nickname = profile['nickname']?.toString() ?? '同路行用户';
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: const Color(0xFFDCE9F9)),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(LucideIcons.navigation, size: 16),
-              SizedBox(width: 6),
-              Text(
-                '同路行 1.0',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              SizedBox(width: 5),
-              Icon(LucideIcons.chevronDown, size: 14),
-            ],
-          ),
-        ),
-        const Spacer(),
-        UserAvatar(
-          nickname: nickname,
-          avatarImageKey: profile['avatarImageKey']?.toString() ?? '',
-          radius: 18,
-        ),
-      ],
+    return Align(
+      alignment: Alignment.centerRight,
+      child: UserAvatar(
+        nickname: nickname,
+        avatarImageKey: profile['avatarImageKey']?.toString() ?? '',
+        radius: 18,
+      ),
     );
   }
 }
@@ -396,8 +371,9 @@ class _DashboardGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      SizedBox(
-        height: 124,
+      AspectRatio(
+        // 高 / 宽约为 0.618，保持横向黄金矩形。
+        aspectRatio: 1 / 0.618,
         child: _CurrentJourneyCard(trip: current, onTap: onCurrent),
       ),
       const SizedBox(height: 10),
@@ -726,10 +702,7 @@ class _EmptyUpcoming extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '还没有即将出发的行程',
-                style: TextStyle(fontWeight: FontWeight.w800),
-              ),
+              Text('还没有即将出发的行程', style: TextStyle(fontWeight: FontWeight.w800)),
               SizedBox(height: 3),
               Text(
                 '创建行程后会在这里展示',

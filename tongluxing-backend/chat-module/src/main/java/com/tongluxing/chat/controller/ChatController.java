@@ -102,10 +102,17 @@ public class ChatController {
         return Result.success(chatService.getMessages(conversationId, beforeMessageId, limit));
     }
 
-    /** 仅清除当前用户本地可见的聊天记录。 */
+    /** 从当前用户消息列表隐藏会话；聊天记录保留，新消息到达后自动重新出现。 */
+    @DeleteMapping("/conversations/{conversationId}/visibility/me")
+    public Result<Void> hideConversation(@PathVariable Long conversationId) {
+        chatService.hideConversation(conversationId);
+        return Result.success();
+    }
+
+    /** 兼容旧客户端。语义已调整为隐藏会话，不再清除历史消息。 */
     @DeleteMapping("/conversations/{conversationId}/messages/me")
     public Result<Void> clearLocalMessages(@PathVariable Long conversationId) {
-        chatService.clearLocalMessages(conversationId);
+        chatService.hideConversation(conversationId);
         return Result.success();
     }
 

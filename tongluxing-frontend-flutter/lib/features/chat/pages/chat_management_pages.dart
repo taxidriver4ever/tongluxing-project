@@ -12,18 +12,44 @@ import '../../../data/services/app_services.dart';
 import '../../profile/pages/profile_system_pages.dart';
 import '../../profile/widgets/user_avatar.dart';
 import '../../trip/pages/trip_detail_page.dart';
+import '../../trip/pages/trip_quick_edit_page.dart';
 
 class ChatGroupDetailsPage extends StatefulWidget {
   const ChatGroupDetailsPage({required this.conversation, super.key});
+
   final ConversationModel conversation;
+
   @override
   State<ChatGroupDetailsPage> createState() => _ChatGroupDetailsPageState();
 }
 
 class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
-  List<Map<String, dynamic>> members = [];
-  Map<String, dynamic> workspace = {};
-  bool muted = false, pinned = false, loading = true;
+  List<Map<String, dynamic>> members = const [];
+  Map<String, dynamic> workspace = const {};
+  bool muted = false;
+  bool pinned = false;
+  bool loading = true;
+  String? error;
+
+  bool get isOwner => workspace['selfRole'] == 'OWNER';
+
+  String get groupName {
+    final value = workspace['conversationName']?.toString().trim() ?? '';
+    return value.isEmpty ? widget.conversation.name : value;
+  }
+
+  String get groupIntroduction {
+    final custom = workspace['groupIntroduction']?.toString().trim() ?? '';
+    if (custom.isNotEmpty) return custom;
+    final tripName = workspace['tripName']?.toString().trim() ?? '';
+    return tripName.isEmpty ? '由行程自动创建的同行群聊' : '“$tripName”行程同行群';
+  }
+
+  String get groupAnnouncement {
+    final value = workspace['announcement']?.toString().trim() ?? '';
+    return value.isEmpty ? '未填写' : value;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -31,399 +57,271 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
   }
 
   Future<void> load() async {
-    final s = ChatService(context.read<AppSession>().api);
-    final values = await Future.wait([
-      s.members(widget.conversation.id),
-      s.settings(widget.conversation.id),
-      s.groupWorkspace(widget.conversation.id),
-    ]);
-    members = values[0] as List<Map<String, dynamic>>;
-    final set = values[1] as Map<String, dynamic>;
-    workspace = values[2] as Map<String, dynamic>;
-    muted = set['muted'] == true;
-    pinned = set['pinned'] == true;
-    if (mounted) setState(() => loading = false);
+    if (mounted) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    }
+    try {
+      final service = ChatService(context.read<AppSession>().api);
+      final values = await Future.wait([
+        service.members(widget.conversation.id),
+        service.settings(widget.conversation.id),
+        service.groupWorkspace(widget.conversation.id),
+      ]);
+      if (!mounted) return;
+      final settings = values[1] as Map<String, dynamic>;
+      setState(() {
+        members = values[0] as List<Map<String, dynamic>>;
+        workspace = values[2] as Map<String, dynamic>;
+        muted = settings['muted'] == true;
+        pinned = settings['pinned'] == true;
+        loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        loading = false;
+        error = '$e';
+      });
+    }
   }
 
   Future<void> update({bool? nextMuted, bool? nextPinned}) async {
-    muted = nextMuted ?? muted;
-    pinned = nextPinned ?? pinned;
-    setState(() {});
-    await ChatService(
-      context.read<AppSession>().api,
-    ).updateSettings(widget.conversation.id, muted: muted, pinned: pinned);
+    final oldMuted = muted;
+    final oldPinned = pinned;
+    setState(() {
+      muted = nextMuted ?? muted;
+      pinned = nextPinned ?? pinned;
+    });
+    try {
+      await ChatService(
+        context.read<AppSession>().api,
+      ).updateSettings(widget.conversation.id, muted: muted, pinned: pinned);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        muted = oldMuted;
+        pinned = oldPinned;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(toolbarHeight: 48, title: const Text('群聊详情', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
-    body: loading
-        ? const Center(child: CircularProgressIndicator())
-        : ListView(
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
-            children: [
-              _TripSummary(workspace: workspace),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '群成员（${members.length}）',
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    '点击头像查看资料',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                  ),
-                ],
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F6F8),
+      appBar: AppBar(
+        centerTitle: true,
+        backgroundColor: const Color(0xFFF5F6F8),
+        toolbarHeight: 50,
+        title: const Text(
+          '聊天信息',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+        ),
+      ),
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : error != null
+          ? Center(
+              child: FilledButton.icon(
+                onPressed: load,
+                icon: const Icon(LucideIcons.refreshCw, size: 17),
+                label: const Text('重新加载'),
               ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 10,
-                runSpacing: 12,
-                children: members.map((m) {
-                  final vehicles =
-                      (workspace['memberVehicles'] as List? ?? const [])
-                          .where(
-                            (v) =>
-                                (v as Map)['userId']?.toString() ==
-                                m['userId']?.toString(),
-                          )
-                          .toList();
-                  final vehicle = vehicles.isEmpty
-                      ? null
-                      : Map<String, dynamic>.from(vehicles.first as Map);
-                  return SizedBox(
-                    width: 56,
-                    child: InkWell(
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              PublicProfilePage(userId: m['userId'].toString()),
+            )
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
+              children: [
+                _GroupIdentityCard(
+                  conversation: widget.conversation,
+                  groupName: groupName,
+                ),
+                const SizedBox(height: 12),
+                _MembersPreviewCard(members: members, onTap: _openMembers),
+                const SizedBox(height: 12),
+                _ChatInfoSection(
+                  children: [
+                    _ChatInfoRow(
+                      title: '群名称与头像',
+                      value: groupName,
+                      avatar: UserAvatar(
+                        nickname: groupName,
+                        avatarImageKey: widget.conversation.avatarImageKey,
+                        avatarUrl: widget.conversation.avatarUrl,
+                        radius: 13,
+                      ),
+                      showChevron: isOwner,
+                      onTap: isOwner ? _rename : null,
+                    ),
+                    _ChatInfoRow(title: '群简介', value: groupIntroduction),
+                    _ChatInfoRow(title: '群公告', value: groupAnnouncement),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _ChatInfoSection(
+                  children: [
+                    _ChatInfoRow(
+                      title: '行程信息',
+                      showChevron: true,
+                      onTap: _openTripInfo,
+                    ),
+                    if (isOwner)
+                      _ChatInfoRow(
+                        title: '修改行程',
+                        value: '保存后会通知群友',
+                        showChevron: true,
+                        onTap: _editTrip,
+                      ),
+                    if (isOwner)
+                      _ChatInfoRow(
+                        title: '修改群名称',
+                        showChevron: true,
+                        onTap: _rename,
+                      ),
+                    _ChatInfoRow(
+                      title: '举报与违规反馈',
+                      showChevron: true,
+                      onTap: () => _open(
+                        ChatReportPage(
+                          conversation: widget.conversation,
+                          members: members,
                         ),
                       ),
-                      child: Column(
-                        children: [
-                          UserAvatar(
-                            nickname: m['nickname']?.toString() ?? '同路行用户',
-                            avatarImageKey:
-                                m['avatarImageKey']?.toString() ?? '',
-                            avatarUrl: m['avatarUrl']?.toString() ?? '',
-                            radius: 22,
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => PublicProfilePage(
-                                  userId: m['userId'].toString(),
-                                ),
-                              ),
-                            ).then((_) => load()),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            m['nickname']?.toString() ?? '同路行用户',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                          if (m['memberRole'] == 'OWNER')
-                            const Text(
-                              '队长',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                          if (m['memberRole'] == 'NAVIGATOR')
-                            const Text(
-                              '领航员',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Color(0xFFE58B00),
-                              ),
-                            ),
-                          if (m['memberRole'] == 'ADMIN')
-                            const Text(
-                              '管理员',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Color(0xFF16A36A),
-                              ),
-                            ),
-                          Text(
-                            '${m['totalTripCount'] ?? 0}次 · ${(((m['totalDistanceMeters'] ?? 0) as num) / 1000).toStringAsFixed(0)}km',
-                            style: const TextStyle(
-                              fontSize: 9,
-                              color: AppColors.muted,
-                            ),
-                          ),
-                          if (vehicle != null)
-                            Text(
-                              '${vehicle['brand'] ?? ''}${vehicle['model'] ?? ''}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 9,
-                                color: AppColors.muted,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                '群聊工具',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 12),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                mainAxisExtent: 78,
-                children: [
-                  _Tool(
-                    icon: LucideIcons.route,
-                    label: '行程信息',
-                    onTap: () {
-                      final tripId =
-                          workspace['tripId']?.toString() ??
-                          widget.conversation.bizId;
-                      if (tripId.isEmpty) return;
-                      _open(TripDetailPage(tripId: tripId));
-                    },
-                  ),
-                  _Tool(
-                    icon: LucideIcons.mapPinned,
-                    label: '实时位置',
-                    onTap: () => _open(
-                      ChatLocationSharePage(conversation: widget.conversation),
-                    ),
-                  ),
-                  _Tool(
-                    icon: LucideIcons.megaphone,
-                    label: '群公告',
-                    onTap: () => _open(
-                      ChatItemsPage(
-                        conversation: widget.conversation,
-                        type: 'ANNOUNCEMENT',
-                        title: '群公告',
-                      ),
-                    ),
-                  ),
-                  _Tool(
-                    icon: LucideIcons.listChecks,
-                    label: '投票',
-                    onTap: () => _open(
-                      ChatItemsPage(
-                        conversation: widget.conversation,
-                        type: 'POLL',
-                        title: '群投票',
-                      ),
-                    ),
-                  ),
-                  _Tool(
-                    icon: LucideIcons.alarmClock,
-                    label: '行程提醒',
-                    onTap: () => _open(
-                      ChatItemsPage(
-                        conversation: widget.conversation,
-                        type: 'REMINDER',
-                        title: '行程提醒',
-                      ),
-                    ),
-                  ),
-                  if (workspace['selfRole'] == 'OWNER')
-                    _Tool(
-                      icon: LucideIcons.carFront,
-                      label: '确认行程',
-                      onTap: _createTripConfirmation,
-                    ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.danger,
-                    alignment: Alignment.centerLeft,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 15,
-                    ),
-                  ),
-                  onPressed: () => _open(
-                    ChatReportPage(
-                      conversation: widget.conversation,
-                      members: members,
-                    ),
-                  ),
-                  icon: const Icon(LucideIcons.shieldAlert),
-                  label: const Text('举报与违规反馈'),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    _SettingSwitchRow(
-                      value: muted,
-                      onChanged: (v) => update(nextMuted: v),
-                      title: '消息免打扰',
-                      icon: LucideIcons.bellOff,
-                    ),
-                    const Divider(height: 1),
-                    _SettingSwitchRow(
-                      value: pinned,
-                      onChanged: (v) => update(nextPinned: v),
-                      title: '置顶聊天',
-                      icon: LucideIcons.pin,
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      dense: true,
-                      leading: const Icon(LucideIcons.trash2, size: 20, color: AppColors.danger),
-                      title: const Text('清空聊天记录', style: TextStyle(fontSize: 14, color: AppColors.danger)),
-                      subtitle: const Text('仅清除当前账号看到的记录', style: TextStyle(fontSize: 11)),
-                      onTap: _clearMessages,
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 16),
-              if (workspace['selfRole'] == 'OWNER') ...[
-                OutlinedButton.icon(
-                  onPressed: _manageMembers,
-                  icon: const Icon(LucideIcons.usersRound),
-                  label: const Text('管理群成员'),
+                const SizedBox(height: 12),
+                _ChatInfoSection(
+                  children: [
+                    _SettingSwitchRow(
+                      value: muted,
+                      onChanged: (value) => update(nextMuted: value),
+                      title: '消息免打扰',
+                      icon: LucideIcons.bellOff,
+                    ),
+                    _SettingSwitchRow(
+                      value: pinned,
+                      onChanged: (value) => update(nextPinned: value),
+                      title: '置顶聊天',
+                      icon: LucideIcons.pin,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 5),
-                OutlinedButton.icon(
-                  onPressed: _rename,
-                  icon: const Icon(LucideIcons.pencil),
-                  label: const Text('修改群名称'),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.danger,
+                if (!isOwner) ...[
+                  const SizedBox(height: 12),
+                  _ChatInfoSection(
+                    children: [
+                      _ChatInfoRow(
+                        title: '退出群聊',
+                        titleColor: AppColors.danger,
+                        trailing: const Icon(
+                          LucideIcons.logOut,
+                          color: AppColors.danger,
+                          size: 21,
+                        ),
+                        onTap: _exitGroup,
+                      ),
+                    ],
                   ),
-                  onPressed: _closeGroup,
-                  icon: const Icon(LucideIcons.logOut),
-                  label: const Text('结束群聊'),
-                ),
-                const SizedBox(height: 16),
+                ],
               ],
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF7E8),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Text(
-                  '群聊与当前行程绑定。行程结束后仅标记为“已结束”，群聊继续保留并允许成员交流；风险消息仍按平台规则留存。',
-                  style: TextStyle(color: Color(0xFF8B5A00), height: 1.5),
-                ),
-              ),
-            ],
-          ),
-  );
+            ),
+    );
+  }
 
-  Future<void> _clearMessages() async {
+  void _openMembers() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatGroupMembersPage(
+          conversation: widget.conversation,
+          members: members,
+        ),
+      ),
+    );
+  }
+
+  void _openTripInfo() {
+    final tripId = workspace['tripId']?.toString() ?? widget.conversation.bizId;
+    if (tripId.isEmpty) return;
+    _open(TripDetailPage(tripId: tripId));
+  }
+
+  Future<void> _editTrip() async {
+    if (!isOwner) return;
+    final tripId = workspace['tripId']?.toString() ?? widget.conversation.bizId;
+    if (tripId.isEmpty) return;
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => TripQuickEditPage(tripId: tripId)),
+    );
+    if (changed == true && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('行程已更新，群友已收到通知')));
+      await load();
+    }
+  }
+
+  Future<void> _exitGroup() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('清空聊天记录？'),
-        content: const Text('该操作仅清除你当前账号看到的聊天记录，无法恢复，不影响其他成员和后台风控留档。'),
+        title: const Text('退出群聊？'),
+        content: const Text('退出后将不再接收该行程群消息。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('确认清空'),
+            child: const Text('退出'),
           ),
         ],
       ),
     );
     if (confirmed != true || !mounted) return;
-    await ChatService(context.read<AppSession>().api)
-        .clearLocalMessages(widget.conversation.id);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('聊天记录已清空')),
-      );
-    }
+    await ChatService(
+      context.read<AppSession>().api,
+    ).exitGroup(widget.conversation.id);
+    if (mounted) Navigator.pop(context, true);
   }
 
   Future<void> _open(Widget page) async {
     await Navigator.push(context, MaterialPageRoute(builder: (_) => page));
-    await load();
-  }
-
-  Future<void> _createTripConfirmation() async {
-    if (!const ['PUBLISHED', 'READY'].contains(workspace['tripStatus'])) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('行程确认仅用于待开始行程；当前行程已开始或已结束')));
-      return;
-    }
-    await ChatService(
-      context.read<AppSession>().api,
-    ).createTripConfirmation(widget.conversation.id);
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('行程确认卡片已发送到群聊')));
-    await load();
+    if (mounted) await load();
   }
 
   Future<void> _rename() async {
-    final controller = TextEditingController(
-      text: workspace['conversationName']?.toString(),
-    );
+    if (!isOwner) return;
+    final controller = TextEditingController(text: groupName);
     final name = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('修改群名称'),
         content: TextField(
           controller: controller,
           maxLength: 64,
-          decoration: const InputDecoration(
-            labelText: '群名称',
-            contentPadding: EdgeInsets.fromLTRB(16, 18, 16, 16),
-          ),
+          autofocus: true,
+          decoration: const InputDecoration(labelText: '群名称'),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
             child: const Text('保存'),
           ),
         ],
       ),
     );
-    // 等待弹窗退场动画结束，避免取消时 TextField 仍在绘制却提前销毁控制器。
     await Future<void>.delayed(const Duration(milliseconds: 250));
     controller.dispose();
     if (name?.isNotEmpty != true || !mounted) return;
@@ -432,124 +330,450 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
     ).renameGroup(widget.conversation.id, name!);
     await load();
   }
+}
 
-  Future<void> _manageMembers() async {
-    final selfId = context.read<AppSession>().userId;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: .62,
-          maxChildSize: .9,
-          builder: (_, controller) => ListView(
-            controller: controller,
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-            children: [
-              const Text(
-                '管理群成员',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+class ChatGroupMembersPage extends StatefulWidget {
+  const ChatGroupMembersPage({
+    required this.conversation,
+    required this.members,
+    super.key,
+  });
+
+  final ConversationModel conversation;
+  final List<Map<String, dynamic>> members;
+
+  @override
+  State<ChatGroupMembersPage> createState() => _ChatGroupMembersPageState();
+}
+
+class _ChatGroupMembersPageState extends State<ChatGroupMembersPage> {
+  final search = TextEditingController();
+  late List<Map<String, dynamic>> rows;
+
+  @override
+  void initState() {
+    super.initState();
+    rows = List<Map<String, dynamic>>.from(widget.members);
+  }
+
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
+
+  void _filter(String value) {
+    final keyword = value.trim().toLowerCase();
+    setState(() {
+      rows = keyword.isEmpty
+          ? List<Map<String, dynamic>>.from(widget.members)
+          : widget.members.where((member) {
+              final nickname =
+                  member['nickname']?.toString().toLowerCase() ?? '';
+              final userId = member['userId']?.toString().toLowerCase() ?? '';
+              return nickname.contains(keyword) || userId.contains(keyword);
+            }).toList();
+    });
+  }
+
+  bool _isManager(Map<String, dynamic> member) {
+    final role = member['memberRole']?.toString() ?? '';
+    return role == 'OWNER' || role == 'ADMIN' || role == 'NAVIGATOR';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final managers = rows.where(_isManager).toList();
+    final regularMembers = rows.where((member) => !_isManager(member)).toList();
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        toolbarHeight: 58,
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '群成员(${widget.members.length})',
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+            ),
+            const Text(
+              '群主优先',
+              style: TextStyle(fontSize: 10.5, color: AppColors.muted),
+            ),
+          ],
+        ),
+      ),
+      body: Column(
+        children: [
+          Container(
+            height: 46,
+            margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF4F5F7),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: TextField(
+              controller: search,
+              onChanged: _filter,
+              textAlignVertical: TextAlignVertical.center,
+              decoration: const InputDecoration(
+                hintText: '搜索',
+                prefixIcon: Icon(LucideIcons.search, size: 21),
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                contentPadding: EdgeInsets.zero,
               ),
-              const SizedBox(height: 10),
-              for (final member in members)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: CircleAvatar(
-                    backgroundColor: AppColors.primarySoft,
-                    child: Text(
-                      member['nickname']?.toString().characters.firstOrNull ??
-                          '同',
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+              children: [
+                if (managers.isNotEmpty) ...[
+                  _MemberSectionTitle('群主/管理员（${managers.length}人）'),
+                  const SizedBox(height: 8),
+                  ...managers.map(_memberTile),
+                  const SizedBox(height: 16),
+                ],
+                _MemberSectionTitle('群成员（${regularMembers.length}人）'),
+                const SizedBox(height: 8),
+                if (regularMembers.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 32),
+                    child: Center(
+                      child: Text(
+                        '没有匹配的群成员',
+                        style: TextStyle(color: AppColors.muted),
+                      ),
                     ),
+                  )
+                else
+                  ...regularMembers.map(_memberTile),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _memberTile(Map<String, dynamic> member) {
+    final role = member['memberRole']?.toString() ?? '';
+    final roleName = switch (role) {
+      'OWNER' => '群主',
+      'ADMIN' => '管理员',
+      'NAVIGATOR' => '领航员',
+      _ => '',
+    };
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              PublicProfilePage(userId: member['userId']?.toString() ?? ''),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            UserAvatar(
+              nickname: member['nickname']?.toString() ?? '同路行用户',
+              avatarImageKey: member['avatarImageKey']?.toString() ?? '',
+              avatarUrl: member['avatarUrl']?.toString() ?? '',
+              radius: 24,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                member['nickname']?.toString() ?? '同路行用户',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            if (roleName.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.primarySoft,
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Text(
+                  roleName,
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
                   ),
-                  title: Text(member['nickname']?.toString() ?? '同路行用户'),
-                  subtitle: Text(
-                    member['memberRole'] == 'OWNER'
-                        ? '队长'
-                        : member['memberRole'] == 'NAVIGATOR'
-                        ? '领航员'
-                        : '普通成员',
-                  ),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PublicProfilePage(
-                        userId: member['userId'].toString(),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberSectionTitle extends StatelessWidget {
+  const _MemberSectionTitle(this.value);
+
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    value,
+    style: const TextStyle(
+      color: AppColors.muted,
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+    ),
+  );
+}
+
+class _GroupIdentityCard extends StatelessWidget {
+  const _GroupIdentityCard({
+    required this.conversation,
+    required this.groupName,
+  });
+
+  final ConversationModel conversation;
+  final String groupName;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Row(
+      children: [
+        UserAvatar(
+          nickname: groupName,
+          avatarImageKey: conversation.avatarImageKey,
+          avatarUrl: conversation.avatarUrl,
+          radius: 30,
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Text(
+            groupName,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _MembersPreviewCard extends StatelessWidget {
+  const _MembersPreviewCard({required this.members, required this.onTap});
+
+  final List<Map<String, dynamic>> members;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = members.take(5).toList();
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      '群聊成员',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
-                  trailing:
-                      member['memberRole'] == 'OWNER' ||
-                          member['userId']?.toString() == selfId
-                      ? null
-                      : PopupMenuButton<String>(
-                          tooltip: '成员权限',
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(value: 'ADMIN', child: Text('设为管理员')),
-                            PopupMenuItem(
-                              value: 'NAVIGATOR',
-                              child: Text('设为领航员'),
+                  Text(
+                    '${members.length}',
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const SizedBox(
+                    width: 20,
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Icon(
+                        LucideIcons.chevronRight,
+                        size: 18,
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  for (final member in preview)
+                    Expanded(
+                      child: Column(
+                        children: [
+                          UserAvatar(
+                            nickname: member['nickname']?.toString() ?? '同路行用户',
+                            avatarImageKey:
+                                member['avatarImageKey']?.toString() ?? '',
+                            avatarUrl: member['avatarUrl']?.toString() ?? '',
+                            radius: 22,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            member['nickname']?.toString() ?? '同路行用户',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 10.5,
+                              color: AppColors.secondaryText,
                             ),
-                            PopupMenuItem(
-                              value: 'MEMBER',
-                              child: Text('设为普通成员'),
-                            ),
-                            PopupMenuDivider(),
-                            PopupMenuItem(value: 'REMOVE', child: Text('移除成员')),
-                          ],
-                          onSelected: (value) async {
-                            final service = ChatService(
-                              context.read<AppSession>().api,
-                            );
-                            if (value == 'REMOVE') {
-                              await service.removeMember(
-                                widget.conversation.id,
-                                member['userId'].toString(),
-                              );
-                            } else {
-                              await service.updateMemberRole(
-                                widget.conversation.id,
-                                member['userId'].toString(),
-                                value,
-                              );
-                            }
-                            if (!sheetContext.mounted) return;
-                            Navigator.pop(sheetContext);
-                            await load();
-                          },
-                        ),
-                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  for (var i = preview.length; i < 5; i++)
+                    const Expanded(child: SizedBox()),
+                ],
+              ),
             ],
           ),
         ),
       ),
     );
   }
+}
 
-  Future<void> _closeGroup() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认结束群聊？'),
-        content: const Text('群聊将归档，成员不能继续发送消息。历史记录仍会按风控规则保留。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
+class _ChatInfoSection extends StatelessWidget {
+  const _ChatInfoSection({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(children: children),
+  );
+}
+
+class _ChatInfoRow extends StatelessWidget {
+  const _ChatInfoRow({
+    required this.title,
+    this.value = '',
+    this.avatar,
+    this.trailing,
+    this.showChevron = false,
+    this.onTap,
+    this.titleColor,
+  });
+
+  final String title;
+  final String value;
+  final Widget? avatar;
+  final Widget? trailing;
+  final bool showChevron;
+  final VoidCallback? onTap;
+  final Color? titleColor;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final titleWidth = (constraints.maxWidth * .38).clamp(126.0, 152.0);
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: titleWidth,
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: titleColor ?? AppColors.text,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      if (avatar != null) ...[
+                        avatar!,
+                        const SizedBox(width: 8),
+                      ],
+                      if (value.isNotEmpty)
+                        Flexible(
+                          child: Text(
+                            value,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 13.5,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 20,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: trailing != null
+                        ? trailing!
+                        : showChevron
+                        ? const Icon(
+                            LucideIcons.chevronRight,
+                            size: 18,
+                            color: AppColors.muted,
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ),
+              ],
+            ),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('确认结束'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    await ChatService(
-      context.read<AppSession>().api,
-    ).closeGroup(widget.conversation.id);
-    if (mounted) Navigator.pop(context);
-  }
+        ),
+      );
+    },
+  );
 }
 
 class _TripSummary extends StatelessWidget {
@@ -578,52 +802,6 @@ class _TripSummary extends StatelessWidget {
         style: const TextStyle(color: AppColors.muted, fontSize: 12),
       ),
     ],
-  );
-}
-
-class _Tool extends StatelessWidget {
-  const _Tool({required this.icon, required this.label, required this.onTap});
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(12),
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: AppColors.primarySoft,
-              borderRadius: BorderRadius.circular(13),
-            ),
-            child: Icon(icon, size: 20, color: AppColors.primary),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-            ),
-          ),
-          const Icon(
-            LucideIcons.chevronRight,
-            size: 16,
-            color: AppColors.muted,
-          ),
-        ],
-      ),
-    ),
   );
 }
 

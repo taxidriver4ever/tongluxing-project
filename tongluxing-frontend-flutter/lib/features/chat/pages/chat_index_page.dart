@@ -115,37 +115,23 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
     }
   }
 
-  Future<void> clearConversation(ConversationModel row) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('删除聊天记录？'),
-        content: const Text('删除后仅清除你看到的聊天记录，不影响其他成员及后台风控留档，且无法恢复。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('确认删除'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
+  Future<void> hideConversation(ConversationModel row) async {
+    // 用户要求“删除后直接消失”，因此先做乐观移除；接口失败再重新加载恢复。
+    setState(() {
+      allRows = allRows.where((item) => item.id != row.id).toList();
+      rows = rows.where((item) => item.id != row.id).toList();
+    });
     try {
-      await ChatService(context.read<AppSession>().api).clearLocalMessages(row.id);
+      await ChatService(context.read<AppSession>().api).hideConversation(row.id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('聊天记录已从当前账号视图清除')),
+          const SnackBar(content: Text('已从消息列表移除，聊天记录仍保留')),
         );
-        await load();
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        await load();
       }
     }
   }
@@ -289,9 +275,15 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
                                   key: ValueKey(row.id),
                                   row: row,
                                   onOpen: () => openConversation(row),
-                                  onPin: () => updateSettings(row, pinned: !row.pinned),
-                                  onMute: () => updateSettings(row, muted: !row.muted),
-                                  onDelete: () => clearConversation(row),
+                                  onPin: () => updateSettings(
+                                    row,
+                                    pinned: !row.pinned,
+                                  ),
+                                  onMute: () => updateSettings(
+                                    row,
+                                    muted: !row.muted,
+                                  ),
+                                  onDelete: () => hideConversation(row),
                                 ),
                               ),
                           ],
@@ -315,9 +307,7 @@ class _InteractionCard extends StatelessWidget {
     child: Container(
       height: 72,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFFEDF0F4))),
-      ),
+      color: Colors.white,
       child: Row(
         children: [
           Stack(
@@ -429,7 +419,7 @@ class _SwipeConversationTileState extends State<_SwipeConversationTile> {
                   width: actionWidth,
                   color: AppColors.danger,
                   icon: LucideIcons.trash2,
-                  label: '删除记录',
+                  label: '删除聊天',
                   onTap: widget.onDelete,
                 ),
               ],
@@ -524,12 +514,6 @@ class _SwipeConversationTileState extends State<_SwipeConversationTile> {
                 ),
               ),
             ),
-          ),
-          const Positioned(
-            left: 67,
-            right: 0,
-            bottom: 0,
-            child: Divider(height: 1, color: Color(0xFFEDF0F4)),
           ),
         ],
       ),

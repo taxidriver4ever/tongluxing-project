@@ -7,7 +7,6 @@ import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
 import '../../../data/services/location_snapshot.dart';
-import '../widgets/trip_discovery_theme.dart';
 import 'trip_discovery_detail_page.dart';
 import 'trip_discovery_filter_sheet.dart';
 import 'trip_discovery_widgets.dart';
@@ -132,10 +131,7 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
     await _load(reset: true);
   }
 
-  Future<void> _openSearch({
-    String? keyword,
-    int initialTab = 0,
-  }) async {
+  Future<void> _openSearch({String? keyword, int initialTab = 0}) async {
     final value = (keyword ?? search.text).trim();
     searchFocus.unfocus();
     await Navigator.push(
@@ -250,10 +246,8 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => TripDiscoveryDetailPage(
-                  tripId: trip.tripId,
-                  initial: trip,
-                ),
+                builder: (_) =>
+                    TripDiscoveryDetailPage(tripId: trip.tripId, initial: trip),
               ),
             ),
           );
@@ -315,7 +309,7 @@ class _DiscoverySearchEntry extends StatelessWidget {
               size: 18,
               color: focused ? AppColors.primary : AppColors.muted,
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
             Expanded(
               child: TextField(
                 controller: controller,
@@ -385,24 +379,9 @@ class _SearchSuggestionPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final suggestions = keyword.isEmpty
         ? const <({String label, String keyword, int tab, IconData icon})>[
-            (
-              label: '深圳周末自驾',
-              keyword: '深圳',
-              tab: 0,
-              icon: LucideIcons.flame,
-            ),
-            (
-              label: '广州出发',
-              keyword: '广州',
-              tab: 1,
-              icon: LucideIcons.mapPin,
-            ),
-            (
-              label: '沿海路线',
-              keyword: '沿海',
-              tab: 2,
-              icon: LucideIcons.route,
-            ),
+            (label: '深圳周末自驾', keyword: '深圳', tab: 0, icon: LucideIcons.flame),
+            (label: '广州出发', keyword: '广州', tab: 1, icon: LucideIcons.mapPin),
+            (label: '沿海路线', keyword: '沿海', tab: 2, icon: LucideIcons.route),
           ]
         : <({String label, String keyword, int tab, IconData icon})>[
             (

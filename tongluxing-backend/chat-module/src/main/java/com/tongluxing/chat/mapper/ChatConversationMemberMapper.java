@@ -60,7 +60,7 @@ public interface ChatConversationMemberMapper {
             """)
     int countSharedTrip(@Param("userId") Long userId, @Param("peerUserId") Long peerUserId);
 
-    /** 本地清空聊天记录：只更新当前成员的可见消息截止点。 */
+    /** 从消息列表隐藏会话：记录当前最后消息作为隐藏游标，历史消息本身不删除。 */
     @Update("""
             update chat_conversation_member
             set cleared_before_message_id=#{messageId}, unread_count=0, updated_at=#{now}
@@ -71,6 +71,17 @@ public interface ChatConversationMemberMapper {
                            @Param("userId") Long userId,
                            @Param("messageId") Long messageId,
                            @Param("now") LocalDateTime now);
+
+    /** 用户从联系人或行程入口重新打开会话后，恢复其在消息列表中的可见性。 */
+    @Update("""
+            update chat_conversation_member
+            set cleared_before_message_id=null, updated_at=#{now}
+            where conversation_id=#{conversationId} and user_id=#{userId}
+              and member_status='ACTIVE' and deleted=0
+            """)
+    int restoreVisibility(@Param("conversationId") Long conversationId,
+                          @Param("userId") Long userId,
+                          @Param("now") LocalDateTime now);
 
     /** 拉取消息后清除未读数。 */
     @Update("""

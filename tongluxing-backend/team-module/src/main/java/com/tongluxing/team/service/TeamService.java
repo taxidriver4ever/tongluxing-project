@@ -20,6 +20,19 @@ public interface TeamService {
     TeamResponse createTeam(CreateTeamRequest request);
 
     /**
+     * 为公开发布行程确保存在可申请加入的车队。
+     *
+     * <p>仅供后端行程生命周期联调使用，不暴露为控制器接口。</p>
+     */
+    TeamResponse ensurePublishedTripTeam(
+            Long tripId,
+            Long ownerUserId,
+            Long ownerVehicleId,
+            String teamName,
+            Integer maxMemberCount
+    );
+
+    /**
      * 查询车队详情。
      */
     TeamResponse getTeam(Long teamId);

@@ -120,7 +120,10 @@
   <select id="registeredUsers" resultType="long">select count(1) from auth_account where deleted=0</select>
   <select id="activeUsers" resultType="long">select count(1) from user_profile where profile_status='ACTIVE' and deleted=0</select>
   <select id="newUsers" resultType="long">select count(1) from auth_account where deleted=0 and created_at between #{start} and #{end}</select>
+  <select id="certifiedDrivers" resultType="long">select count(1) from user_driving_license_certification where certification_status='APPROVED' and deleted=0</select>
   <select id="certifiedVehicles" resultType="long">select count(1) from vehicle_profile where certification_status='APPROVED' and deleted=0</select>
+  <select id="pendingDrivingLicenses" resultType="long">select count(1) from user_driving_license_certification where certification_status='PENDING' and deleted=0</select>
+  <select id="pendingVehicleCertifications" resultType="long">select count(1) from vehicle_certification where status='PENDING'</select>
   <select id="merchants" resultType="long">select count(1) from merchant_profile where audit_status='APPROVED' and deleted=0</select>
   <select id="pendingMerchants" resultType="long">select count(1) from merchant_profile where audit_status='PENDING' and deleted=0</select>
   <select id="activeMerchants" resultType="long">select count(1) from merchant_profile where audit_status='APPROVED' and status='ACTIVE' and deleted=0</select>
@@ -132,6 +135,16 @@
   <select id="verifications" resultType="long">select count(1) from verification_record where deleted=0</select>
   <select id="commission" resultType="java.math.BigDecimal">select coalesce(sum(platform_commission_amount),0) from payment_profit_sharing_record where sharing_status='SUCCESS' and deleted=0</select>
   <select id="couponOffers" resultType="long">select count(1) from merchant_coupon_offer where deleted=0</select>
+  <select id="pendingMerchantCoupons" resultType="long">select count(1) from merchant_coupon_offer where audit_status='PENDING' and deleted=0</select>
+  <select id="couponIssuedBetween" resultType="long">select count(1) from coupon_user where deleted=0 and created_at between #{start} and #{end}</select>
+  <select id="couponUsedBetween" resultType="long">select count(1) from coupon_user where deleted=0 and coupon_status in ('USED','VERIFIED') and used_at between #{start} and #{end}</select>
+  <select id="tripsPublishedBetween" resultType="long">select count(1) from trip where deleted=0 and created_at between #{start} and #{end} and status &lt;&gt; 'DRAFT'</select>
+  <select id="recruitingTrips" resultType="long">select count(1) from trip where deleted=0 and status in ('PUBLISHED','READY','CONFIRMING')</select>
+  <select id="runningTrips" resultType="long">select count(1) from trip where deleted=0 and status in ('RUNNING','ONGOING')</select>
+  <select id="tripsCompletedBetween" resultType="long">select count(1) from trip where deleted=0 and status in ('FINISHED','SETTLED','ENDED') and actual_end_time between #{start} and #{end}</select>
+  <select id="openCustomerTickets" resultType="long">select count(1) from customer_service_ticket where deleted=0 and ticket_status in ('OPEN','PROCESSING')</select>
+  <select id="pendingChatReports" resultType="long">select count(1) from chat_report where report_status='PENDING'</select>
+  <select id="activeSosEvents" resultType="long">select count(1) from sos_event where deleted=0 and event_status in ('PENDING','PROCESSING')</select>
   <select id="pendingRefunds" resultType="long">select count(1) from payment_refund_record where audit_status='PENDING' and deleted=0</select>
   <select id="pendingSettlements" resultType="long">select count(1) from payment_profit_sharing_record where sharing_status in ('WAIT_SHARING','PENDING','FAILED') and deleted=0</select>
   <select id="trends" resultType="com.tongluxing.admin.vo.AdminTrendPointVO">

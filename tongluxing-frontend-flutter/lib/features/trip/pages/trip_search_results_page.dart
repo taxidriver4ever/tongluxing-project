@@ -29,8 +29,7 @@ class TripSearchResultsPage extends StatefulWidget {
   final int initialTab;
 
   @override
-  State<TripSearchResultsPage> createState() =>
-      _TripSearchResultsPageState();
+  State<TripSearchResultsPage> createState() => _TripSearchResultsPageState();
 }
 
 class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
@@ -133,8 +132,9 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
     final targetPage = reset ? 1 : page + 1;
     try {
       if (showingUsers) {
-        final result = await UserDiscoveryService(context.read<AppSession>().api)
-            .search(keyword: submittedKeyword, page: 1, size: 40);
+        final result = await UserDiscoveryService(
+          context.read<AppSession>().api,
+        ).search(keyword: submittedKeyword, page: 1, size: 40);
         if (!mounted || serial != requestSerial) return;
         setState(() {
           users = result;
@@ -145,13 +145,15 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
         });
       } else {
         final point = LocationSnapshot.current ?? LocationSnapshot.demoFallback;
-        final result = await TripDiscoveryService(context.read<AppSession>().api)
-            .discover(
+        final result =
+            await TripDiscoveryService(context.read<AppSession>().api).discover(
               keyword: submittedKeyword,
               searchType: searchType,
               sort: sort,
               latitude: point.latitude,
               longitude: point.longitude,
+              startCity: filter.startCity,
+              destination: filter.destination,
               departureDateFrom: filter.departureFrom,
               departureDateTo: filter.departureTo,
               vehicleType: filter.vehicleType,
@@ -210,7 +212,9 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
       setState(() => users[index] = {...row, ...value});
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
       }
     }
   }
@@ -230,6 +234,7 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
   Widget build(BuildContext context) => AnnotatedRegion<SystemUiOverlayStyle>(
     value: SystemUiOverlayStyle.dark,
     child: Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: showingUsers
           ? Colors.white
           : TripDiscoveryColors.pageBackground,
@@ -320,11 +325,8 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
         child: ListView.separated(
           padding: const EdgeInsets.fromLTRB(16, 5, 12, 24),
           itemCount: users.length,
-          separatorBuilder: (_, _) => const Divider(
-            height: 1,
-            indent: 68,
-            color: Color(0xFFEFF2F6),
-          ),
+          separatorBuilder: (_, _) =>
+              const Divider(height: 1, indent: 68, color: Color(0xFFEFF2F6)),
           itemBuilder: (_, index) => _SearchUserRow(
             data: users[index],
             onOpen: () => Navigator.push(
@@ -370,10 +372,8 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => TripDiscoveryDetailPage(
-                  tripId: trip.tripId,
-                  initial: trip,
-                ),
+                builder: (_) =>
+                    TripDiscoveryDetailPage(tripId: trip.tripId, initial: trip),
               ),
             ),
           );
@@ -447,7 +447,7 @@ class _SearchTopBar extends StatelessWidget {
                     size: 17,
                     color: focused ? AppColors.primary : AppColors.muted,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: TextField(
                       controller: controller,
@@ -674,7 +674,8 @@ class _SearchTripCard extends StatelessWidget {
   final TripDiscoverModel trip;
   final VoidCallback onTap;
 
-  String get route => [trip.startName, ...trip.waypoints, trip.endName].join(' → ');
+  String get route =>
+      [trip.startName, ...trip.waypoints, trip.endName].join(' → ');
 
   @override
   Widget build(BuildContext context) => Material(

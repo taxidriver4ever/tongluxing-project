@@ -1055,11 +1055,15 @@ class _TripCreatePageState extends State<TripCreatePage> {
       TextField(
         controller: description,
         maxLength: 1000,
-        maxLines: 5,
+        minLines: 4,
+        maxLines: 6,
+        textAlignVertical: TextAlignVertical.top,
         decoration: const InputDecoration(
           labelText: '行程说明',
           hintText: '介绍集合方式、节奏、同行要求和注意事项',
           alignLabelWithHint: true,
+          floatingLabelBehavior: FloatingLabelBehavior.always,
+          contentPadding: EdgeInsets.fromLTRB(16, 25, 16, 16),
         ),
       ),
       const SizedBox(height: 14),

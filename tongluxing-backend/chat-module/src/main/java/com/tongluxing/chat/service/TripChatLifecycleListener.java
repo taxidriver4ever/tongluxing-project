@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import com.tongluxing.trip.service.TripFinishedEvent;
 import com.tongluxing.trip.service.TripPublishedEvent;
 import com.tongluxing.trip.service.TripStartedEvent;
+import com.tongluxing.trip.service.TripUpdatedEvent;
 import lombok.RequiredArgsConstructor;
 
 /** 将行程状态流转与聊天群生命周期连接起来，避免 trip-module 反向依赖 chat-module。 */
@@ -26,5 +27,10 @@ public class TripChatLifecycleListener {
     @EventListener
     public void onTripFinished(TripFinishedEvent event) {
         chatService.closeTripConversation(event.tripId());
+    }
+
+    @EventListener
+    public void onTripUpdated(TripUpdatedEvent event) {
+        chatService.notifyTripUpdated(event.tripId(), event.operatorUserId());
     }
 }

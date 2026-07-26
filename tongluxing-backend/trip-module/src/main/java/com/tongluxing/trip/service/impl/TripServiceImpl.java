@@ -52,6 +52,7 @@ import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.service.TripFinishedEvent;
 import com.tongluxing.trip.service.TripPublishedEvent;
 import com.tongluxing.trip.service.TripStartedEvent;
+import com.tongluxing.trip.service.TripUpdatedEvent;
 import com.tongluxing.trip.vo.ActiveTripStateResponse;
 import com.tongluxing.trip.vo.MyTripDashboardResponse;
 import com.tongluxing.trip.vo.TripListResponse;
@@ -137,6 +138,9 @@ public class TripServiceImpl implements TripService {
                 trip.getId(),
                 StringUtils.hasText(trip.getTitle()) ? trip.getTitle() : "行程车队群",
                 userId,
+                vehicle.vehicleId(),
+                trip.getMaxVehicleCount(),
+                trip.getPublicFlag() != null && trip.getPublicFlag() == 1,
                 List.of(userId)
         ));
         return buildResponse(trip.getId());
@@ -261,6 +265,7 @@ public class TripServiceImpl implements TripService {
         upsertRoute(route);
         insertAuditLog(tripId, userId, "UPDATE", before, trip, "编辑行程");
         clearTripCaches(userId, tripId);
+        eventPublisher.publishEvent(new TripUpdatedEvent(tripId, userId));
         return buildResponse(tripId);
     }
 

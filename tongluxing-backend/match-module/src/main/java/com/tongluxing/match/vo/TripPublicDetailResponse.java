@@ -22,6 +22,7 @@ public record TripPublicDetailResponse(
         Integer memberCount,
         Integer maxMemberCount,
         Integer remainingSeats,
+        Integer matchScore,
         String vehicleRequirement,
         String budgetDescription,
         String costSharingType,

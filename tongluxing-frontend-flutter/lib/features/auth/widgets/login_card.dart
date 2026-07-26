@@ -37,18 +37,30 @@ class _LoginCardState extends State<LoginCard> {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 34),
+      padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
       decoration: BoxDecoration(
         color: AppColors.card,
-        borderRadius: BorderRadius.circular(32),
+        borderRadius: BorderRadius.circular(30),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF28446F).withValues(alpha: 0.06),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
+          ),
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
+          const Text(
             '欢迎回来\n开启下一段旅程',
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.headlineMedium,
+            style: TextStyle(
+              color: AppColors.text,
+              fontSize: 23,
+              height: 1.32,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 30),
           AuthTextField(
@@ -57,14 +69,14 @@ class _LoginCardState extends State<LoginCard> {
             hintText: widget.phoneHint,
             keyboardType: TextInputType.phone,
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           AuthTextField(
             label: '密码',
             controller: _passwordController,
-            hintText: '••••••••',
+            hintText: '请输入密码',
             obscureText: true,
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 24),
           _LoginButton(
             label: '登录',
             loading: widget.loading,
@@ -76,7 +88,7 @@ class _LoginCardState extends State<LoginCard> {
               ),
             ),
           ),
-          const SizedBox(height: 30),
+          const SizedBox(height: 22),
           const _DividerLabel(),
           const SizedBox(height: 18),
           _LoginButton(
@@ -100,10 +112,10 @@ class _DividerLabel extends StatelessWidget {
       children: [
         Expanded(child: Divider(color: AppColors.border, height: 1)),
         Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
+          padding: EdgeInsets.symmetric(horizontal: 12),
           child: Text(
             '或',
-            style: TextStyle(color: AppColors.muted, fontSize: 14),
+            style: TextStyle(color: AppColors.muted, fontSize: 13),
           ),
         ),
         Expanded(child: Divider(color: AppColors.border, height: 1)),
@@ -129,24 +141,27 @@ class _LoginButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      height: 54,
+      height: 50,
       child: FilledButton(
         onPressed: loading ? null : onPressed,
         style: FilledButton.styleFrom(
           elevation: 0,
           backgroundColor: primary ? AppColors.primary : AppColors.card,
           foregroundColor: primary ? Colors.white : AppColors.secondaryText,
-          disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.55),
+          disabledBackgroundColor: primary
+              ? AppColors.primary.withValues(alpha: 0.55)
+              : AppColors.card,
+          disabledForegroundColor: AppColors.muted,
           shape: StadiumBorder(
             side: primary
                 ? BorderSide.none
                 : const BorderSide(color: AppColors.border),
           ),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
         ),
         child: loading
             ? const SizedBox.square(
-                dimension: 20,
+                dimension: 18,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
                   color: Colors.white,

@@ -258,7 +258,10 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
                   slivers: [
                     SliverAppBar(
                       pinned: true,
-                      expandedHeight: 350,
+                      expandedHeight:
+                          current != null && current.routePoints.length >= 2
+                          ? 640
+                          : 360,
                       toolbarHeight: 54,
                       elevation: 0,
                       scrolledUnderElevation: 0,
@@ -276,7 +279,9 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
                           onPressed: actionBusy ? null : toggleFavorite,
                           icon: Icon(
                             LucideIcons.star,
-                            color: saved ? const Color(0xFFFFD166) : Colors.white,
+                            color: saved
+                                ? const Color(0xFFFFD166)
+                                : Colors.white,
                             size: 24,
                           ),
                         ),
@@ -305,10 +310,7 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
                       ],
                       flexibleSpace: FlexibleSpaceBar(
                         collapseMode: CollapseMode.pin,
-                        background: _DiscoveryHero(
-                          trip: trip,
-                          routePolyline: current?.routePolyline ?? '',
-                        ),
+                        background: _DiscoveryHero(trip: trip, detail: current),
                       ),
                     ),
                     SliverPadding(
@@ -338,10 +340,6 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
                               ).then((_) => load()),
                             ),
                             const SizedBox(height: 9),
-                            if (current.routePoints.length >= 2) ...[
-                              _TripRouteMapCard(detail: current),
-                              const SizedBox(height: 9),
-                            ],
                             _TripInformationCard(detail: current),
                           ],
                         ],
@@ -402,10 +400,10 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
 }
 
 class _DiscoveryHero extends StatelessWidget {
-  const _DiscoveryHero({required this.trip, required this.routePolyline});
+  const _DiscoveryHero({required this.trip, required this.detail});
 
   final TripDiscoverModel trip;
-  final String routePolyline;
+  final TripPublicDetailModel? detail;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -413,7 +411,7 @@ class _DiscoveryHero extends StatelessWidget {
       gradient: TripDiscoveryColors.headerGradient,
     ),
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(16, 64, 16, 11),
+      padding: const EdgeInsets.fromLTRB(16, 88, 16, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -432,10 +430,10 @@ class _DiscoveryHero extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Text(
             trip.title,
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: Colors.white,
@@ -444,51 +442,82 @@ class _DiscoveryHero extends StatelessWidget {
               fontWeight: FontWeight.w900,
             ),
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 7),
           Text(
             [trip.startName, ...trip.waypoints, trip.endName].join(' → '),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            maxLines: 2,
+            overflow: TextOverflow.fade,
             style: const TextStyle(
               color: Colors.white,
               fontSize: 13.5,
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 11),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const NeverScrollableScrollPhysics(),
-            child: Row(
-              children: [
-                _HeroMeta(
-                  icon: LucideIcons.calendarDays,
-                  text: '${formatDiscoverDate(trip.departureTime)} 出发',
-                ),
-                const SizedBox(width: 7),
-                _HeroMeta(
-                  icon: LucideIcons.clock3,
-                  text: '预计${trip.estimatedDays}天',
-                ),
-                const SizedBox(width: 7),
-                _HeroMeta(
-                  icon: LucideIcons.users,
-                  text:
-                      '${trip.joinedVehicleCount}/${trip.maxVehicleCount}辆车 · ${trip.memberCount}人',
-                ),
-              ],
-            ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: [
+              _HeroMeta(
+                icon: LucideIcons.calendarDays,
+                text: '${formatDiscoverDate(trip.departureTime)} 出发',
+              ),
+              _HeroMeta(
+                icon: LucideIcons.clock3,
+                text: '预计${trip.estimatedDays}天',
+              ),
+              _HeroMeta(
+                icon: LucideIcons.users,
+                text:
+                    '${trip.joinedVehicleCount}/${trip.maxVehicleCount}辆车 · ${trip.memberCount}人',
+              ),
+            ],
           ),
           const Spacer(),
-          RouteSketch(
-            start: trip.startName,
-            waypoints: trip.waypoints,
-            end: trip.endName,
-            routePolyline: routePolyline,
-            height: 128,
-          ),
+          if (detail != null && detail!.routePoints.length >= 2)
+            _TripRouteMapCard(detail: detail!)
+          else
+            _RouteStopsSummary(trip: trip),
         ],
       ),
+    ),
+  );
+}
+
+class _RouteStopsSummary extends StatelessWidget {
+  const _RouteStopsSummary({required this.trip});
+
+  final TripDiscoverModel trip;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: const Color(0xEEFFFFFF),
+      borderRadius: BorderRadius.circular(18),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(
+          LucideIcons.route,
+          size: 20,
+          color: TripDiscoveryColors.primary,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            [trip.startName, ...trip.waypoints, trip.endName].join(' → '),
+            style: const TextStyle(
+              color: TripDiscoveryColors.text,
+              fontSize: 12.5,
+              height: 1.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -944,11 +973,8 @@ class _TripInformationCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ...visibleMembers.map(
-                  (member) => _MemberTile(member: member),
-                ),
-                if (more > 0)
-                  _MemberMore(count: more),
+                ...visibleMembers.map((member) => _MemberTile(member: member)),
+                if (more > 0) _MemberMore(count: more),
               ],
             ),
         ],
@@ -1164,10 +1190,7 @@ class _BottomAction extends StatelessWidget {
               color: outlined ? Colors.white : (enabled ? null : Colors.grey),
               borderRadius: BorderRadius.circular(28),
               border: outlined
-                  ? Border.all(
-                      color: TripDiscoveryColors.primary,
-                      width: 1.2,
-                    )
+                  ? Border.all(color: TripDiscoveryColors.primary, width: 1.2)
                   : null,
             ),
             child: Row(
@@ -1326,7 +1349,10 @@ class _ApplySheetState extends State<_ApplySheet> {
 }
 
 class _WhiteCard extends StatelessWidget {
-  const _WhiteCard({required this.child, this.padding = const EdgeInsets.all(18)});
+  const _WhiteCard({
+    required this.child,
+    this.padding = const EdgeInsets.all(18),
+  });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
@@ -1346,23 +1372,6 @@ class _WhiteCard extends StatelessWidget {
       ],
     ),
     child: child,
-  );
-}
-
-class _HeaderTag extends StatelessWidget {
-  const _HeaderTag(this.text);
-  final String text;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-    decoration: BoxDecoration(
-      color: const Color(0x33FFFFFF),
-      borderRadius: BorderRadius.circular(9),
-    ),
-    child: Text(
-      text,
-      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-    ),
   );
 }
 

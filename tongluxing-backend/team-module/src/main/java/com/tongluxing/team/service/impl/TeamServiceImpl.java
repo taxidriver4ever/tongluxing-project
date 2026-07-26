@@ -94,6 +94,47 @@ public class TeamServiceImpl implements TeamService {
         return toTeamResponse(team);
     }
 
+    @Override
+    @Transactional
+    public TeamResponse ensurePublishedTripTeam(
+            Long tripId,
+            Long ownerUserId,
+            Long ownerVehicleId,
+            String teamName,
+            Integer maxMemberCount) {
+        Team existing = teamMapper.findAnyActiveByTripId(tripId);
+        if (existing != null) {
+            return toTeamResponse(existing);
+        }
+        TeamTripDTO trip = tripPort.getTrip(tripId);
+        if (trip == null || !ownerUserId.equals(trip.ownerUserId())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "公开行程不存在");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        Team team = new Team();
+        team.setId(SnowflakeIdGenerator.nextId());
+        team.setTripId(trip.tripId());
+        team.setOwnerUserId(ownerUserId);
+        team.setOwnerVehicleId(ownerVehicleId);
+        team.setTeamName(StringUtils.hasText(teamName) ? teamName : trip.startName() + "同行车队");
+        team.setTeamDesc("由公开行程自动创建，可在发现行程中申请加入");
+        team.setStartName(trip.startName());
+        team.setEndName(trip.endName());
+        team.setDepartureTime(trip.departureTime());
+        team.setMaxMemberCount(Math.max(2, Math.min(20, maxMemberCount == null ? 4 : maxMemberCount)));
+        team.setCurrentMemberCount(1);
+        team.setJoinMode("APPLICATION");
+        team.setTeamStatus("ACTIVE");
+        team.setPublicFlag(1);
+        team.setNotice("");
+        team.setCreatedAt(now);
+        team.setUpdatedAt(now);
+        teamMapper.insert(team);
+        addMember(team.getId(), ownerUserId, ownerVehicleId, "OWNER");
+        audit(team.getId(), ownerUserId, "CREATE_TEAM", "公开行程自动创建车队");
+        return toTeamResponse(team);
+    }
+
     /**
      * 查询车队详情，不存在时统一抛出业务异常。
      */

@@ -15,6 +15,7 @@ import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import '../../profile/pages/profile_system_pages.dart';
 import '../../profile/widgets/user_avatar.dart';
+import 'chat_location_detail_page.dart';
 import 'chat_management_pages.dart';
 
 class ChatSessionPage extends StatefulWidget {
@@ -41,7 +42,8 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
 
   bool get isPrivate => widget.conversation.isPrivate;
   bool get privateUnlocked => privatePermission['unlocked'] == true;
-  bool get canSendMedia => !isPrivate ||
+  bool get canSendMedia =>
+      !isPrivate ||
       (privatePermission.isEmpty
           ? widget.conversation.canSendMedia
           : privatePermission['canSendMedia'] == true);
@@ -161,7 +163,9 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   }
 
   String _privateSubtitle() {
-    final type = privatePermission['relationType']?.toString() ?? widget.conversation.relationType;
+    final type =
+        privatePermission['relationType']?.toString() ??
+        widget.conversation.relationType;
     return switch (type) {
       'MUTUAL' => '互相关注 · 联系人',
       'SAME_TRIP' => '同一行程 · 可正常私聊',
@@ -197,7 +201,10 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
               unlocked
                   ? (_privateSubtitle())
                   : '对方回复或回关前，还可发送 $remainingPrivateMessages 条文字消息',
-              style: const TextStyle(fontSize: 11.5, color: AppColors.primaryDark),
+              style: const TextStyle(
+                fontSize: 11.5,
+                color: AppColors.primaryDark,
+              ),
             ),
           ),
         ],
@@ -234,7 +241,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
         ),
         actions: [
           IconButton(
-            tooltip: isPrivate ? '查看资料' : '群聊详情',
+            tooltip: isPrivate ? '查看资料' : '聊天信息',
             onPressed: () async {
               if (isPrivate) {
                 final peerUserId = widget.conversation.peerUserId;
@@ -256,7 +263,10 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
               }
               await load();
             },
-            icon: Icon(isPrivate ? LucideIcons.userRound : LucideIcons.ellipsis, size: 20),
+            icon: Icon(
+              isPrivate ? LucideIcons.userRound : LucideIcons.ellipsis,
+              size: 20,
+            ),
           ),
         ],
       ),
@@ -342,7 +352,11 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
             child: loading
                 ? const Center(child: CircularProgressIndicator())
                 : messages.isEmpty
-                ? Center(child: Text(isPrivate ? '暂无消息，发一条文字打个招呼吧' : '暂无消息，和车队成员打个招呼吧'))
+                ? Center(
+                    child: Text(
+                      isPrivate ? '暂无消息，发一条文字打个招呼吧' : '暂无消息，和车队成员打个招呼吧',
+                    ),
+                  )
                 : ListView.builder(
                     controller: scroll,
                     reverse: false,
@@ -391,7 +405,10 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
                           decoration: const InputDecoration(
                             hintText: '输入消息...',
                             isDense: true,
-                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 9,
+                            ),
                           ),
                         ),
                       ),
@@ -400,15 +417,15 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
                         width: 38,
                         height: 38,
                         child: IconButton.filled(
-                        onPressed: sending ? null : send,
-                        icon: sending
-                            ? const SizedBox.square(
-                                dimension: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(LucideIcons.send, size: 18),
+                          onPressed: sending ? null : send,
+                          icon: sending
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(LucideIcons.send, size: 18),
                         ),
                       ),
                     ],
@@ -451,7 +468,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
       );
     }
     final payload = _payload(message);
-    final card = type.endsWith('_CARD');
+    final card = type.endsWith('_CARD') || type == 'LOCATION';
     final maxBubbleWidth = MediaQuery.sizeOf(context).width - 104;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -481,12 +498,12 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
                     ),
                   ),
                 GestureDetector(
-                  onTap: card
+                  onTap: type == 'LOCATION'
+                      ? () => _showLocation(payload)
+                      : card
                       ? () => _openCard(type, payload)
                       : type == 'IMAGE' || type == 'FILE'
                       ? () => _openAttachment(payload)
-                      : type == 'LOCATION'
-                      ? () => _showLocation(payload)
                       : null,
                   child: Container(
                     constraints: BoxConstraints(maxWidth: maxBubbleWidth),
@@ -587,16 +604,11 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
       );
     }
     if (type == 'LOCATION') {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            LucideIcons.mapPin,
-            color: self ? Colors.white : AppColors.primary,
-          ),
-          const SizedBox(width: 9),
-          Flexible(child: Text(content, style: _bubbleText(self))),
-        ],
+      return _LocationPreviewCard(
+        payload: payload,
+        title: payload['address']?.toString().trim().isNotEmpty == true
+            ? payload['address'].toString()
+            : content,
       );
     }
     if (type == 'IMAGE') {
@@ -623,7 +635,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
                   height: 170,
                   width: 220,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const SizedBox(
+                  errorBuilder: (_, _, _) => const SizedBox(
                     width: 220,
                     height: 120,
                     child: Center(child: Text('图片加载失败')),
@@ -685,8 +697,9 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
         ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() => respondingConfirmations.remove(confirmationId));
+      }
     }
   }
 
@@ -819,9 +832,9 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   void _more() {
     focus.unfocus();
     if (isPrivate && !canSendMedia) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('对方回复或回关后才可发送图片和位置')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('对方回复或回关后才可发送图片和位置')));
       return;
     }
     setState(() => toolsExpanded = !toolsExpanded);
@@ -829,7 +842,6 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   }
 
   Widget _toolPanel() {
-    final manager = !isPrivate && const ['OWNER', 'ADMIN'].contains(workspace['selfRole']);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
@@ -839,20 +851,13 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
       ),
       child: Row(
         children: [
-          Expanded(child: _action(LucideIcons.image, '图片', '从相册选择', _pickImage)),
+          Expanded(
+            child: _action(LucideIcons.image, '图片', '从相册选择', _pickImage),
+          ),
           const SizedBox(width: 8),
-          Expanded(child: _action(LucideIcons.mapPin, '位置', '发送当前位置', _sendLocation)),
-          if (manager) ...[
-            const SizedBox(width: 8),
-            Expanded(
-              child: _action(
-                LucideIcons.listChecks,
-                '投票',
-                '共同决策',
-                () => _openManagement('POLL', '群投票'),
-              ),
-            ),
-          ],
+          Expanded(
+            child: _action(LucideIcons.mapPin, '位置', '发送当前位置', _sendLocation),
+          ),
         ],
       ),
     );
@@ -959,11 +964,15 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
       await permissionChannel.invokeMethod<Map>('getCurrentLocation') ??
           const {},
     );
+    final address = location['address']?.toString().trim();
     await ChatService(api).send(
       widget.conversation.id,
-      '我的当前位置',
+      address?.isNotEmpty == true ? address! : '我的当前位置',
       type: 'LOCATION',
-      payload: location,
+      payload: {
+        ...location,
+        'address': address?.isNotEmpty == true ? address : '当前位置',
+      },
     );
     await load(silent: true);
     _showLatest();
@@ -982,34 +991,34 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     );
   }
 
-  Future<void> _showLocation(Map<String, dynamic> payload) => showDialog<void>(
-    context: context,
-    builder: (c) => AlertDialog(
-      title: const Text('成员共享的位置'),
-      content: Text(
-        '纬度：${payload['latitude'] ?? '--'}\n经度：${payload['longitude'] ?? '--'}',
-      ),
-      actions: [
-        FilledButton(
-          onPressed: () => Navigator.pop(c),
-          child: const Text('知道了'),
-        ),
-      ],
-    ),
-  );
-
-  Future<void> _openManagement(String type, String title) async {
+  Future<void> _showLocation(Map<String, dynamic> payload) async {
+    final latitude = _coordinate(payload['latitude'] ?? payload['lat']);
+    final longitude = _coordinate(payload['longitude'] ?? payload['lng']);
+    if (latitude == null || longitude == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('该位置缺少有效的地图坐标')));
+      }
+      return;
+    }
+    final address = payload['address']?.toString().trim() ?? '';
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ChatItemsPage(
-          conversation: widget.conversation,
-          type: type,
-          title: title,
+        builder: (_) => ChatLocationDetailPage(
+          latitude: latitude,
+          longitude: longitude,
+          title: address.isEmpty ? '成员共享的位置' : address,
+          address: address,
         ),
       ),
     );
-    await load();
+  }
+
+  double? _coordinate(Object? value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
   }
 
   Future<void> _openCard(String type, Map<String, dynamic> payload) async {
@@ -1428,6 +1437,134 @@ class _TripConfirmationCardPageState extends State<TripConfirmationCardPage> {
   };
 }
 
+class _LocationPreviewCard extends StatelessWidget {
+  const _LocationPreviewCard({required this.payload, required this.title});
+  final Map<String, dynamic> payload;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 224,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              height: 126,
+              width: double.infinity,
+              child: CustomPaint(
+                painter: _LocationMapPainter(),
+                child: const Center(
+                  child: Icon(
+                    LucideIcons.mapPin,
+                    color: AppColors.danger,
+                    size: 34,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 9),
+          Text(
+            title.isEmpty ? '当前位置' : title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: AppColors.text,
+            ),
+          ),
+          const SizedBox(height: 5),
+          const Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '点击查看地图',
+                  style: TextStyle(fontSize: 11, color: AppColors.muted),
+                ),
+              ),
+              Icon(LucideIcons.chevronRight, size: 14, color: AppColors.muted),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LocationMapPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()..color = const Color(0xFFEAF4EC),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          -20,
+          size.height * .62,
+          size.width * .62,
+          size.height * .35,
+        ),
+        const Radius.circular(30),
+      ),
+      Paint()..color = const Color(0xFFCDEEFF),
+    );
+    final road = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 5
+      ..strokeCap = StrokeCap.round;
+    for (double y = 18; y < size.height; y += 34) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y + 10), road);
+    }
+    for (double x = 24; x < size.width; x += 48) {
+      canvas.drawLine(Offset(x, 0), Offset(x - 18, size.height), road);
+    }
+    final mainRoad = Paint()
+      ..color = const Color(0xFFF7CE69)
+      ..strokeWidth = 10
+      ..strokeCap = StrokeCap.round;
+    final mainPath = Path()
+      ..moveTo(-10, size.height * .28)
+      ..cubicTo(
+        size.width * .25,
+        size.height * .18,
+        size.width * .55,
+        size.height * .72,
+        size.width + 10,
+        size.height * .58,
+      );
+    canvas.drawPath(mainPath, mainRoad);
+    final route = Paint()
+      ..color = AppColors.primary
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final routePath = Path()
+      ..moveTo(size.width * .08, size.height * .8)
+      ..quadraticBezierTo(
+        size.width * .43,
+        size.height * .48,
+        size.width * .5,
+        size.height * .5,
+      )
+      ..quadraticBezierTo(
+        size.width * .72,
+        size.height * .18,
+        size.width * .92,
+        size.height * .25,
+      );
+    canvas.drawPath(routePath, route);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 class _ChatImagePreviewPage extends StatefulWidget {
   const _ChatImagePreviewPage({required this.imageUrl});
   final String imageUrl;
@@ -1498,7 +1635,7 @@ class _ChatImagePreviewPageState extends State<_ChatImagePreviewPage> {
           fit: BoxFit.contain,
           loadingBuilder: (_, child, progress) =>
               progress == null ? child : const CircularProgressIndicator(),
-          errorBuilder: (_, __, ___) =>
+          errorBuilder: (_, _, _) =>
               const Text('图片加载失败', style: TextStyle(color: Colors.white)),
         ),
       ),

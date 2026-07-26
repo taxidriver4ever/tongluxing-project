@@ -50,45 +50,76 @@ class _CustomerSupportPageState extends State<CustomerSupportPage> {
     final submitted = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          22,
-          22,
-          22,
-          MediaQuery.viewInsetsOf(ctx).bottom + 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              complaint ? '提交投诉' : '联系客服',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+        child: SafeArea(
+          top: false,
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(ctx).height * .78,
             ),
-            const SizedBox(height: 18),
-            TextField(
-              controller: title,
-              decoration: const InputDecoration(labelText: '问题标题'),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFF),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: content,
-              minLines: 4,
-              maxLines: 7,
-              decoration: const InputDecoration(
-                labelText: '问题描述',
-                alignLabelWithHint: true,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD4D9E2),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    complaint ? '提交投诉' : '联系客服',
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 18),
+                  TextField(
+                    controller: title,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: '问题标题',
+                      contentPadding: EdgeInsets.fromLTRB(16, 18, 16, 16),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: content,
+                    minLines: 4,
+                    maxLines: 7,
+                    textAlignVertical: TextAlignVertical.top,
+                    decoration: const InputDecoration(
+                      labelText: '问题描述',
+                      alignLabelWithHint: true,
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
+                      contentPadding: EdgeInsets.fromLTRB(16, 24, 16, 16),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('提交工单'),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('提交工单'),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -132,18 +163,32 @@ class _CustomerSupportPageState extends State<CustomerSupportPage> {
             Row(
               children: [
                 Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () => create(false),
-                    icon: const Icon(LucideIcons.headphones),
-                    label: const Text('联系客服'),
+                  child: SizedBox(
+                    height: 50,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
+                      onPressed: () => create(false),
+                      icon: const Icon(LucideIcons.headphones, size: 19),
+                      label: const Text('联系客服'),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => create(true),
-                    icon: const Icon(LucideIcons.triangleAlert),
-                    label: const Text('提交投诉'),
+                  child: SizedBox(
+                    height: 50,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        side: const BorderSide(color: AppColors.primary),
+                        foregroundColor: AppColors.primary,
+                      ),
+                      onPressed: () => create(true),
+                      icon: const Icon(LucideIcons.triangleAlert, size: 19),
+                      label: const Text('提交投诉'),
+                    ),
                   ),
                 ),
               ],

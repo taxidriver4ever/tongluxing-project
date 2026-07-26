@@ -252,9 +252,8 @@ class TripService {
     await api.get('/v1/trips/me/active-state') as Map,
   );
 
-  Future<Map<String, dynamic>> dashboard() async => Map<String, dynamic>.from(
-    await api.get('/v1/trips/me/dashboard') as Map,
-  );
+  Future<Map<String, dynamic>> dashboard() async =>
+      Map<String, dynamic>.from(await api.get('/v1/trips/me/dashboard') as Map);
 
   Future<Map<String, dynamic>> checkTimeConflict({
     required DateTime departureTime,
@@ -283,6 +282,46 @@ class TripService {
 
   Future<TripModel> detail(String id) async => TripModel.fromJson(
     Map<String, dynamic>.from(await api.get('/v1/trips/$id') as Map),
+  );
+
+  Future<Map<String, dynamic>> rawDetail(String id) async =>
+      Map<String, dynamic>.from(await api.get('/v1/trips/$id') as Map);
+
+  Future<Map<String, dynamic>> updateFromRaw(
+    String id,
+    Map<String, dynamic> raw, {
+    required String title,
+    required String description,
+    required String departureTime,
+    required int maxVehicleCount,
+    Map<String, dynamic>? startLocation,
+    Map<String, dynamic>? endLocation,
+    List<Map<String, dynamic>>? waypoints,
+  }) async => Map<String, dynamic>.from(
+    await api.put(
+          '/v1/trips/$id',
+          body: {
+            'vehicleId': raw['vehicleId'],
+            'title': title,
+            'description': description,
+            'coverImageKey': raw['coverImageKey'],
+            'expectedPeople': raw['expectedPeople'],
+            'startLocation': startLocation ?? raw['startLocation'],
+            'endLocation': endLocation ?? raw['endLocation'],
+            'routeSummary': raw['routeSummary'],
+            'departureTime': departureTime,
+            'estimatedDays': raw['estimatedDays'],
+            'routeDistance': raw['routeDistance'],
+            'routeDuration': raw['routeDuration'],
+            'routePolyline': raw['routePolyline'],
+            'maxVehicleCount': maxVehicleCount,
+            'travelDepth': raw['travelDepth'] ?? 'LIGHT',
+            'publicFlag': raw['publicFlag'] != false,
+            'remark': raw['remark'],
+            'waypoints': waypoints ?? raw['waypoints'] ?? const [],
+          },
+        )
+        as Map,
   );
   Future<TripModel> start(String id) async => TripModel.fromJson(
     Map<String, dynamic>.from(await api.post('/v1/trips/$id/start') as Map),
@@ -428,7 +467,9 @@ class TripService {
     );
     return (data as List? ?? const [])
         .whereType<Map>()
-        .map((e) => TripDraftWaypointModel.fromJson(Map<String, dynamic>.from(e)))
+        .map(
+          (e) => TripDraftWaypointModel.fromJson(Map<String, dynamic>.from(e)),
+        )
         .toList();
   }
 
@@ -888,9 +929,12 @@ class ChatService {
         await api.get('/v1/chats/conversations/$id/private-permission') as Map,
       );
 
-  Future<void> clearLocalMessages(String id) async {
-    await api.delete('/v1/chats/conversations/$id/messages/me');
+  Future<void> hideConversation(String id) async {
+    await api.delete('/v1/chats/conversations/$id/visibility/me');
   }
+
+  @Deprecated('Use hideConversation; message history is no longer cleared')
+  Future<void> clearLocalMessages(String id) => hideConversation(id);
 
   Future<Map<String, dynamic>> groupWorkspace(String id) async =>
       Map<String, dynamic>.from(
@@ -1062,6 +1106,9 @@ class ChatService {
 
   Future<void> closeGroup(String id) =>
       api.post('/v1/chats/conversations/$id/group/close');
+
+  Future<void> exitGroup(String id) =>
+      api.delete('/v1/chats/conversations/$id/members/me');
 }
 
 class ChatAttachmentService {

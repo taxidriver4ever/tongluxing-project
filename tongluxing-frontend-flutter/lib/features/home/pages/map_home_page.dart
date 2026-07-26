@@ -32,9 +32,12 @@ class MapHomePage extends StatefulWidget {
 
 class _MapHomePageState extends State<MapHomePage> {
   static const _permissionChannel = MethodChannel('com.tongluxing/permissions');
-  static const double _collapsedSheetSize = .145;
-  static const double _halfSheetSize = .50;
-  static const double _expandedSheetSize = .88;
+  // 初始状态保留约 2/3 地图、1/3 操作卡。
+  static const double _collapsedSheetSize = .33;
+  static const double _keyboardMinSheetSize = .36;
+  static const double _halfSheetSize = .48;
+  static const double _expandedSheetSize = .76;
+  static const double _keyboardMaxSheetSize = .92;
 
   final searchController = TextEditingController();
   final searchFocus = FocusNode();
@@ -229,9 +232,7 @@ class _MapHomePageState extends State<MapHomePage> {
     if (!searchSheetController.isAttached) return;
     final current = searchSheetController.size;
     _animateSearchSheet(
-      current > _halfSheetSize - .05
-          ? _collapsedSheetSize
-          : _halfSheetSize,
+      current > _halfSheetSize - .05 ? _collapsedSheetSize : _halfSheetSize,
     );
   }
 
@@ -294,7 +295,7 @@ class _MapHomePageState extends State<MapHomePage> {
       );
       _moveToLocation(LatLng(saved.latitude, saved.longitude));
       await _loadHistory();
-      await _animateSearchSheet(.42);
+      await _animateSearchSheet(.36);
     } on ApiException catch (error) {
       _showMessage(error.message);
     }
@@ -331,101 +332,117 @@ class _MapHomePageState extends State<MapHomePage> {
   }
 
   @override
-  Widget build(BuildContext context) => Stack(
-    children: [
-      Positioned.fill(
-        child: _MapSurface(
-          nativeEnabled: amapRuntimeSupported,
-          checkingSupport: checkingAmapSupport,
-          trafficEnabled: trafficEnabled,
-          locationEnabled: locationEnabled,
-          selectedLocation: selectedLocation,
-          onMapCreated: (controller) => mapController = controller,
-          onMapTap: _collapseSearchSheet,
-          onLocationChanged: (location) {
-            if (!isLocationValid(location)) return;
-            lastLocation = location.latLng;
-            LocationSnapshot.current = LocationSnapshot(
-              location.latLng.latitude,
-              location.latLng.longitude,
-            );
-            if (centerOnNextLocation) _moveToLocation(location.latLng);
-          },
+  Widget build(BuildContext context) {
+    final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final minSheetSize = keyboardVisible
+        ? _keyboardMinSheetSize
+        : _collapsedSheetSize;
+    final maxSheetSize = keyboardVisible
+        ? _keyboardMaxSheetSize
+        : _expandedSheetSize;
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: _MapSurface(
+            nativeEnabled: amapRuntimeSupported,
+            checkingSupport: checkingAmapSupport,
+            trafficEnabled: trafficEnabled,
+            locationEnabled: locationEnabled,
+            selectedLocation: selectedLocation,
+            onMapCreated: (controller) => mapController = controller,
+            onMapTap: _collapseSearchSheet,
+            onLocationChanged: (location) {
+              if (!isLocationValid(location)) return;
+              lastLocation = location.latLng;
+              LocationSnapshot.current = LocationSnapshot(
+                location.latLng.latitude,
+                location.latLng.longitude,
+              );
+              if (centerOnNextLocation) _moveToLocation(location.latLng);
+            },
+          ),
         ),
-      ),
-      Positioned(
-        right: 16,
-        top: MediaQuery.paddingOf(context).top + 18,
-        child: Column(
-          children: [
-            _MapTool(
-              icon: LucideIcons.locateFixed,
-              label: '定位',
-              active: locationEnabled,
-              onTap: _locate,
-            ),
-            const SizedBox(height: 10),
-            _MapTool(
-              icon: LucideIcons.layers3,
-              label: '路况',
-              active: trafficEnabled,
-              onTap: _toggleTraffic,
-            ),
-            const SizedBox(height: 10),
-            _MapTool(
-              icon: LucideIcons.siren,
-              label: 'SOS',
-              danger: true,
-              onTap: _openSos,
-            ),
-          ],
+        Positioned(
+          right: 16,
+          top: MediaQuery.paddingOf(context).top + 18,
+          child: Column(
+            children: [
+              _MapTool(
+                icon: LucideIcons.locateFixed,
+                label: '定位',
+                active: locationEnabled,
+                onTap: _locate,
+              ),
+              const SizedBox(height: 10),
+              _MapTool(
+                icon: LucideIcons.layers3,
+                label: '路况',
+                active: trafficEnabled,
+                onTap: _toggleTraffic,
+              ),
+              const SizedBox(height: 10),
+              _MapTool(
+                icon: LucideIcons.siren,
+                label: 'SOS',
+                danger: true,
+                onTap: _openSos,
+              ),
+            ],
+          ),
         ),
-      ),
-      NotificationListener<DraggableScrollableNotification>(
-        onNotification: (_) => false,
-        child: DraggableScrollableSheet(
-          controller: searchSheetController,
-          initialChildSize: _collapsedSheetSize,
-          minChildSize: _collapsedSheetSize,
-          maxChildSize: _expandedSheetSize,
-          snap: true,
-          snapSizes: const [
-            _collapsedSheetSize,
-            _halfSheetSize,
-            _expandedSheetSize,
-          ],
-          builder: (context, scrollController) {
-            searchSheetScrollController = scrollController;
-            return _SearchSheet(
-              controller: scrollController,
-              searchController: searchController,
-              focusNode: searchFocus,
-              selectedLocation: selectedLocation,
-              results: searchResults,
-              history: recentLocations,
-              loading: searchLoading,
-              error: searchError,
-              onHandleTap: _toggleSearchSheet,
-              onChanged: _onKeywordChanged,
-              onSubmitted: _search,
-              onClear: _clearSearch,
-              onSelect: _selectLocation,
-              onCreateTrip: () => _createTrip(),
-              onSetStart: selectedLocation == null
-                  ? null
-                  : () => _createTrip(initialStart: selectedLocation),
-              onSetWaypoint: selectedLocation == null
-                  ? null
-                  : () => _createTrip(initialWaypoint: selectedLocation),
-              onSetEnd: selectedLocation == null
-                  ? null
-                  : () => _createTrip(initialEnd: selectedLocation),
-            );
-          },
+        NotificationListener<DraggableScrollableNotification>(
+          onNotification: (_) => false,
+          child: DraggableScrollableSheet(
+            controller: searchSheetController,
+            initialChildSize: minSheetSize,
+            minChildSize: minSheetSize,
+            maxChildSize: maxSheetSize,
+            snap: true,
+            snapSizes: keyboardVisible
+                ? const [
+                    _keyboardMinSheetSize,
+                    _halfSheetSize,
+                    _expandedSheetSize,
+                    _keyboardMaxSheetSize,
+                  ]
+                : const [
+                    _collapsedSheetSize,
+                    _halfSheetSize,
+                    _expandedSheetSize,
+                  ],
+            builder: (context, scrollController) {
+              searchSheetScrollController = scrollController;
+              return _SearchSheet(
+                controller: scrollController,
+                searchController: searchController,
+                focusNode: searchFocus,
+                selectedLocation: selectedLocation,
+                results: searchResults,
+                history: recentLocations,
+                loading: searchLoading,
+                error: searchError,
+                onHandleTap: _toggleSearchSheet,
+                onChanged: _onKeywordChanged,
+                onSubmitted: _search,
+                onClear: _clearSearch,
+                onSelect: _selectLocation,
+                onSetStart: selectedLocation == null
+                    ? null
+                    : () => _createTrip(initialStart: selectedLocation),
+                onSetWaypoint: selectedLocation == null
+                    ? null
+                    : () => _createTrip(initialWaypoint: selectedLocation),
+                onSetEnd: selectedLocation == null
+                    ? null
+                    : () => _createTrip(initialEnd: selectedLocation),
+              );
+            },
+          ),
         ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 }
 
 class _SearchSheet extends StatelessWidget {
@@ -443,7 +460,6 @@ class _SearchSheet extends StatelessWidget {
     required this.onSubmitted,
     required this.onClear,
     required this.onSelect,
-    required this.onCreateTrip,
     required this.onSetStart,
     required this.onSetWaypoint,
     required this.onSetEnd,
@@ -462,7 +478,6 @@ class _SearchSheet extends StatelessWidget {
   final ValueChanged<String> onSubmitted;
   final VoidCallback onClear;
   final ValueChanged<LocationSelection> onSelect;
-  final VoidCallback onCreateTrip;
   final VoidCallback? onSetStart;
   final VoidCallback? onSetWaypoint;
   final VoidCallback? onSetEnd;
@@ -472,180 +487,135 @@ class _SearchSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     decoration: const BoxDecoration(
-      color: Color(0xF51A2230),
-      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      color: Colors.white,
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       boxShadow: [
         BoxShadow(
-          color: Color(0x55000000),
-          blurRadius: 22,
-          offset: Offset(0, -4),
+          color: Color(0x26000000),
+          blurRadius: 18,
+          offset: Offset(0, -3),
         ),
       ],
     ),
     clipBehavior: Clip.antiAlias,
-    child: CustomScrollView(
-      controller: controller,
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      slivers: [
-        SliverToBoxAdapter(
-          child: Column(
-            children: [
-              InkWell(
-                onTap: onHandleTap,
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 10),
-                  child: SizedBox(
-                    width: 44,
-                    height: 5,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Color(0xFF7B8493),
-                        borderRadius: BorderRadius.all(Radius.circular(99)),
+    child: Column(
+      children: [
+        // 头部固定，避免抽屉滚动后搜索框被带出可视区域。
+        InkWell(
+          onTap: onHandleTap,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(vertical: 5),
+            child: SizedBox(
+              width: 32,
+              height: 4,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Color(0xFFD0D5DD),
+                  borderRadius: BorderRadius.all(Radius.circular(99)),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+          child: Container(
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF4F6F8),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: const Color(0xFFE4E7EC)),
+            ),
+            child: TextField(
+              controller: searchController,
+              focusNode: focusNode,
+              onChanged: onChanged,
+              onSubmitted: onSubmitted,
+              textInputAction: TextInputAction.search,
+              style: const TextStyle(color: Color(0xFF1D2939), fontSize: 15),
+              cursorColor: AppColors.primary,
+              decoration: InputDecoration(
+                hintText: '搜索地点或地址',
+                hintStyle: const TextStyle(color: Color(0xFF98A2B3)),
+                prefixIcon: const Icon(
+                  LucideIcons.search,
+                  size: 20,
+                  color: Color(0xFF344054),
+                ),
+                prefixIconConstraints: const BoxConstraints(
+                  minWidth: 40,
+                  minHeight: 40,
+                ),
+                suffixIcon: hasKeyword
+                    ? IconButton(
+                        tooltip: '清空',
+                        onPressed: onClear,
+                        icon: const Icon(
+                          LucideIcons.x,
+                          size: 19,
+                          color: Color(0xFF667085),
+                        ),
+                      )
+                    : null,
+                suffixIconConstraints: const BoxConstraints(
+                  minWidth: 42,
+                  minHeight: 42,
+                ),
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                filled: false,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: CustomScrollView(
+            controller: controller,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            slivers: [
+              if (selectedLocation != null)
+                SliverToBoxAdapter(
+                  child: _SelectedPlaceCard(
+                    location: selectedLocation!,
+                    onSetStart: onSetStart!,
+                    onSetWaypoint: onSetWaypoint!,
+                    onSetEnd: onSetEnd!,
+                  ),
+                ),
+              if (loading)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (error != null)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Text(
+                        error!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Color(0xFF667085)),
                       ),
                     ),
                   ),
+                )
+              else
+                _PlaceListSliver(
+                  title: hasKeyword ? '搜索结果' : '最近搜索',
+                  rows: hasKeyword ? results : history,
+                  emptyText: hasKeyword ? '没有找到相关地点' : '暂无最近搜索',
+                  onSelect: onSelect,
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-                child: Container(
-                  height: 54,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF111820),
-                    borderRadius: BorderRadius.circular(27),
-                    border: Border.all(color: const Color(0xFF3A4554)),
-                  ),
-                  child: TextField(
-                    controller: searchController,
-                    focusNode: focusNode,
-                    onChanged: onChanged,
-                    onSubmitted: onSubmitted,
-                    textInputAction: TextInputAction.search,
-                    style: const TextStyle(color: Colors.white, fontSize: 17),
-                    cursorColor: AppColors.primary,
-                    decoration: InputDecoration(
-                      hintText: '搜索地点或地址',
-                      hintStyle: const TextStyle(color: Color(0xFFACB4C0)),
-                      prefixIcon: const Icon(
-                        LucideIcons.search,
-                        color: Colors.white,
-                      ),
-                      suffixIcon: hasKeyword
-                          ? IconButton(
-                              onPressed: onClear,
-                              icon: const Icon(
-                                LucideIcons.x,
-                                size: 20,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(
-                              LucideIcons.mic,
-                              color: Colors.white,
-                            ),
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      filled: false,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                  ),
-                ),
-              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 20)),
             ],
           ),
         ),
-        if (selectedLocation != null)
-          SliverToBoxAdapter(
-            child: _SelectedPlaceCard(
-              location: selectedLocation!,
-              onSetStart: onSetStart!,
-              onSetWaypoint: onSetWaypoint!,
-              onSetEnd: onSetEnd!,
-            ),
-          )
-        else if (!hasKeyword)
-          SliverToBoxAdapter(
-            child: _QuickCreateCard(onCreateTrip: onCreateTrip),
-          ),
-        if (loading)
-          const SliverFillRemaining(
-            hasScrollBody: false,
-            child: Center(child: CircularProgressIndicator()),
-          )
-        else if (error != null)
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Color(0xFFD1D7E0)),
-                ),
-              ),
-            ),
-          )
-        else
-          _PlaceListSliver(
-            title: hasKeyword ? '搜索结果' : '最近搜索',
-            rows: hasKeyword ? results : history,
-            emptyText: hasKeyword ? '没有找到相关地点' : '暂无最近搜索',
-            onSelect: onSelect,
-          ),
-        const SliverToBoxAdapter(child: SizedBox(height: 32)),
       ],
-    ),
-  );
-}
-
-class _QuickCreateCard extends StatelessWidget {
-  const _QuickCreateCard({required this.onCreateTrip});
-
-  final VoidCallback onCreateTrip;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 2, 16, 14),
-    child: Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF263140),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        children: [
-          const CircleAvatar(
-            backgroundColor: Color(0xFF173D64),
-            child: Icon(LucideIcons.plus, color: Color(0xFF34A5FF)),
-          ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '规划下一段旅程',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                SizedBox(height: 3),
-                Text(
-                  '添加出发点、停靠点和目的地',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFFB4BDC9),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          FilledButton(onPressed: onCreateTrip, child: const Text('创建')),
-        ],
-      ),
     ),
   );
 }
@@ -665,64 +635,83 @@ class _SelectedPlaceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 2, 16, 14),
+    padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
     child: Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF263140),
-        borderRadius: BorderRadius.circular(20),
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE4E7EC)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             location.name,
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
+              color: Color(0xFF101828),
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 3),
           Text(
             location.address,
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Color(0xFFB4BDC9)),
+            style: const TextStyle(color: Color(0xFF667085), fontSize: 13),
           ),
           if (location.distanceLabel != null) ...[
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
               '距当前位置约 ${location.distanceLabel}',
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFF6BB5FF),
-              ),
+              style: const TextStyle(fontSize: 12, color: AppColors.primary),
             ),
           ],
-          const SizedBox(height: 13),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
-                child: OutlinedButton(
-                  onPressed: onSetStart,
-                  child: const Text('设为起点'),
+                child: SizedBox(
+                  height: 38,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      textStyle: const TextStyle(fontSize: 13),
+                    ),
+                    onPressed: onSetStart,
+                    child: const Text('设为起点'),
+                  ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 7),
               Expanded(
-                child: OutlinedButton(
-                  onPressed: onSetWaypoint,
-                  child: const Text('设为停靠点'),
+                child: SizedBox(
+                  height: 38,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      textStyle: const TextStyle(fontSize: 13),
+                    ),
+                    onPressed: onSetWaypoint,
+                    child: const Text('设为停靠点'),
+                  ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 7),
               Expanded(
-                child: FilledButton(
-                  onPressed: onSetEnd,
-                  child: const Text('设为目的地'),
+                child: SizedBox(
+                  height: 38,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      textStyle: const TextStyle(fontSize: 13),
+                    ),
+                    onPressed: onSetEnd,
+                    child: const Text('设为目的地'),
+                  ),
                 ),
               ),
             ],
@@ -751,11 +740,11 @@ class _PlaceListSliver extends StatelessWidget {
     if (rows.isEmpty) {
       return SliverToBoxAdapter(
         child: Padding(
-          padding: const EdgeInsets.all(30),
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
           child: Center(
             child: Text(
               emptyText,
-              style: const TextStyle(color: Color(0xFF9BA5B3)),
+              style: const TextStyle(color: Color(0xFF98A2B3)),
             ),
           ),
         ),
@@ -765,37 +754,46 @@ class _PlaceListSliver extends StatelessWidget {
       slivers: [
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 5),
             child: Text(
               title,
               style: const TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
+                color: Color(0xFF101828),
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),
         ),
         SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           sliver: SliverList.separated(
             itemCount: rows.length,
             separatorBuilder: (_, _) => const Divider(
               height: 1,
-              indent: 58,
-              color: Color(0xFF3A4554),
+              indent: 52,
+              endIndent: 4,
+              color: Color(0xFFEAECF0),
             ),
             itemBuilder: (context, index) {
               final row = rows[index];
               return ListTile(
-                tileColor: const Color(0xFF263140),
+                dense: true,
+                visualDensity: const VisualDensity(vertical: -2),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                tileColor: Colors.white,
                 onTap: () => onSelect(row),
-                leading: const CircleAvatar(
-                  backgroundColor: Color(0xFF364354),
-                  child: Icon(
+                leading: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEEF4FF),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
                     LucideIcons.mapPin,
-                    size: 18,
-                    color: Color(0xFF79BCFF),
+                    size: 17,
+                    color: AppColors.primary,
                   ),
                 ),
                 title: Text(
@@ -803,7 +801,8 @@ class _PlaceListSliver extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: Color(0xFF101828),
+                    fontSize: 15,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -811,7 +810,10 @@ class _PlaceListSliver extends StatelessWidget {
                   row.address,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Color(0xFFB4BDC9)),
+                  style: const TextStyle(
+                    color: Color(0xFF667085),
+                    fontSize: 12.5,
+                  ),
                 ),
                 trailing: row.distanceLabel == null
                     ? null
@@ -819,7 +821,7 @@ class _PlaceListSliver extends StatelessWidget {
                         row.distanceLabel!,
                         style: const TextStyle(
                           fontSize: 12,
-                          color: Color(0xFF9BA5B3),
+                          color: Color(0xFF98A2B3),
                         ),
                       ),
               );
@@ -922,10 +924,7 @@ class _MapSurface extends StatelessWidget {
                 child: const Text(
                   '当前 x86_64 模拟器不支持高德原生地图\n请使用 ARM64 Android 真机预览',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: AppColors.secondaryText,
-                    height: 1.5,
-                  ),
+                  style: TextStyle(color: AppColors.secondaryText, height: 1.5),
                 ),
               ),
             ),

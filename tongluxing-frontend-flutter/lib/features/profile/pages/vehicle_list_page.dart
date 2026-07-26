@@ -231,17 +231,17 @@ class _VehicleListPageState extends State<VehicleListPage> {
         onRefresh: load,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
           children: [
             const Text(
               '管理你的车辆信息，设置常用车辆',
               style: TextStyle(color: AppColors.muted),
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 14),
             _authOverview(context),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
             _statusFilters(),
-            const SizedBox(height: 18),
+            const SizedBox(height: 12),
             if (filteredRows.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 36),
@@ -273,125 +273,114 @@ class _VehicleListPageState extends State<VehicleListPage> {
 
   Widget _vehicleCard(VehicleModel vehicle) {
     final operating = operatingVehicleId == vehicle.id;
+    final statusColor = _statusColor(vehicle.status);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 10),
       child: TlxCard(
-        color: const Color(0xFFF8FAFD),
+        padding: const EdgeInsets.all(14),
+        color: Colors.white,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Container(
-                  width: 82,
-                  height: 66,
+                  width: 56,
+                  height: 56,
                   decoration: BoxDecoration(
                     color: AppColors.primarySoft,
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(14),
                   ),
                   child: const Icon(
                     LucideIcons.carFront,
                     color: AppColors.primary,
-                    size: 32,
+                    size: 27,
                   ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         '${vehicle.brand} ${vehicle.model}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const SizedBox(height: 5),
+                      const SizedBox(height: 4),
                       Text(
                         vehicle.plate,
                         style: const TextStyle(
+                          fontSize: 13,
                           color: AppColors.secondaryText,
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _status(vehicle.status),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _statusColor(vehicle.status),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
                     ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: .10),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Text(
+                    _status(vehicle.status),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: statusColor,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ],
             ),
             if (vehicle.status == 'REJECTED') ...[
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               InkWell(
                 onTap: () => _showRejectDetail(vehicle),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(12),
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(13),
+                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFF2F2),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFFFD7D7)),
+                    color: const Color(0xFFFFF5F5),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFFFDADA)),
                   ),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(
-                        LucideIcons.info,
-                        size: 18,
-                        color: AppColors.danger,
-                      ),
-                      const SizedBox(width: 9),
+                      const Icon(LucideIcons.info, size: 16, color: AppColors.danger),
+                      const SizedBox(width: 8),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              '驳回原因',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.danger,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              vehicle.rejectReason.trim().isEmpty
-                                  ? '后台暂未填写具体原因，点击查看详情'
-                                  : vehicle.rejectReason.trim(),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 13, height: 1.4),
-                            ),
-                          ],
+                        child: Text(
+                          vehicle.rejectReason.trim().isEmpty
+                              ? '认证被驳回，点击查看原因'
+                              : vehicle.rejectReason.trim(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, color: AppColors.danger),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      const Icon(
-                        LucideIcons.chevronRight,
-                        size: 17,
-                        color: AppColors.danger,
-                      ),
+                      const Icon(LucideIcons.chevronRight, size: 16, color: AppColors.danger),
                     ],
                   ),
                 ),
               ),
             ],
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             if (operating)
               const SizedBox(
-                height: 36,
+                height: 38,
                 child: Center(
                   child: SizedBox(
-                    width: 20,
-                    height: 20,
+                    width: 19,
+                    height: 19,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                 ),
@@ -404,38 +393,63 @@ class _VehicleListPageState extends State<VehicleListPage> {
     );
   }
 
+  Widget _compactAction({
+    required String label,
+    required VoidCallback onPressed,
+    IconData? icon,
+    bool danger = false,
+  }) => SizedBox(
+    height: 38,
+    child: OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        foregroundColor: danger ? AppColors.danger : AppColors.primary,
+        side: BorderSide(
+          color: danger ? const Color(0xFFFFC7C7) : const Color(0xFFBFD3FF),
+        ),
+      ),
+      onPressed: onPressed,
+      icon: Icon(icon ?? LucideIcons.circleDot, size: 15),
+      label: Text(label, maxLines: 1, style: const TextStyle(fontSize: 12)),
+    ),
+  );
+
   Widget _vehicleActions(VehicleModel vehicle) {
     if (vehicle.status == 'APPROVED') {
-      return Wrap(
-        spacing: 10,
-        runSpacing: 8,
-        alignment: WrapAlignment.start,
+      return Row(
         children: [
-          if (!vehicle.isDefault)
-            OutlinedButton(
-              onPressed: () => setDefault(vehicle),
-              child: const Text('设为主要车辆'),
-            )
-          else
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 10),
-              child: Text(
-                '目前主要车辆',
-                style: TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+          Expanded(
+            child: vehicle.isDefault
+                ? Container(
+                    height: 38,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySoft,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      '目前主要车辆',
+                      style: TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  )
+                : _compactAction(
+                    label: '设为主要车辆',
+                    icon: LucideIcons.star,
+                    onPressed: () => setDefault(vehicle),
+                  ),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: _compactAction(
+              label: '移除车辆',
+              icon: LucideIcons.trash2,
+              danger: true,
+              onPressed: () => _confirmRemoveApproved(vehicle),
             ),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.danger,
-              side: const BorderSide(color: Color(0xFFFFC7C7)),
-            ),
-            onPressed: () => _confirmRemoveApproved(vehicle),
-            icon: const Icon(LucideIcons.trash2, size: 17),
-            label: const Text('移除车辆'),
           ),
         ],
       );
@@ -444,41 +458,29 @@ class _VehicleListPageState extends State<VehicleListPage> {
       return Row(
         children: [
           Expanded(
-            child: OutlinedButton(
+            child: _compactAction(
+              label: '驳回详情',
+              icon: LucideIcons.fileWarning,
               onPressed: () => _showRejectDetail(vehicle),
-              child: const Text('查看驳回详情'),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 9),
           Expanded(
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.danger,
-                side: const BorderSide(color: Color(0xFFFFC7C7)),
-              ),
+            child: _compactAction(
+              label: '删除记录',
+              icon: LucideIcons.trash2,
+              danger: true,
               onPressed: () => _confirmDeleteRejected(vehicle),
-              icon: const Icon(LucideIcons.trash2, size: 17),
-              label: const Text('删除记录'),
             ),
           ),
         ],
       );
     }
-    if (vehicle.status == 'PENDING') {
-      return const Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          '材料正在审核中，审核期间不能删除车辆',
-          style: TextStyle(color: AppColors.muted, fontSize: 12),
-        ),
-      );
-    }
-    return const Align(
-      alignment: Alignment.centerLeft,
-      child: Text(
-        '完成认证后可设为主要车辆',
-        style: TextStyle(color: AppColors.muted, fontSize: 12),
-      ),
+    return Text(
+      vehicle.status == 'PENDING'
+          ? '材料正在审核中，审核期间不能删除车辆'
+          : '完成认证后可设为主要车辆',
+      style: const TextStyle(color: AppColors.muted, fontSize: 12),
     );
   }
 
@@ -538,7 +540,7 @@ class _VehicleListPageState extends State<VehicleListPage> {
       ),
     };
     return InkWell(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(16),
       onTap: () async {
         await Navigator.push(
           context,
@@ -547,12 +549,13 @@ class _VehicleListPageState extends State<VehicleListPage> {
         load();
       },
       child: TlxCard(
+        padding: const EdgeInsets.all(14),
         color: const Color(0xFFF5F8FF),
         child: Row(
           children: [
             Container(
-              width: 48,
-              height: 48,
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(
                 color: meta.$4.withValues(alpha: .12),
                 shape: BoxShape.circle,

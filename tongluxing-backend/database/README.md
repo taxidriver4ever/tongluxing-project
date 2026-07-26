@@ -4,6 +4,7 @@
 
 - `01_reset_and_create_all_tables.sql`：删除并重建当前数据库中的 103 张同路行业务表，同时写入成长等级、勋章和地图地点目录等基础数据。
 - `02_create_test_users.sql`：创建 8 个联调用户、公开资料、统计数据、成长账户、邀请码、关注关系、已认证车辆和驾驶证测试记录。
+- `03_mock_recommended_trips.sql`：为推荐行程页创建 6 条带途经点的公开招募行程，并为 13888888888 的最新活跃行程生成推荐结果。
 
 ## 执行顺序
 
@@ -20,6 +21,7 @@ SELECT DATABASE();
 ```text
 01_reset_and_create_all_tables.sql
 02_create_test_users.sql
+03_mock_recommended_trips.sql
 ```
 
 5. 覆盖补丁中的后端文件并重新启动 Spring Boot。

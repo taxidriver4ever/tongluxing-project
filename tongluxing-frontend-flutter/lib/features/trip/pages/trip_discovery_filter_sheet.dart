@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../app/theme.dart';
+import '../../../data/models/app_models.dart';
+import '../../home/pages/search_location_page.dart';
 
 class TripDiscoveryFilter {
   const TripDiscoveryFilter({
@@ -79,6 +81,25 @@ class _TripDiscoveryFilterSheetState extends State<TripDiscoveryFilterSheet> {
     if (value != null) setState(() => first ? from = value : to = value);
   }
 
+  Future<void> pickLocation(bool first) async {
+    FocusScope.of(context).unfocus();
+    final value = await showModalBottomSheet<LocationSelection>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => const FractionallySizedBox(
+        heightFactor: 0.9,
+        child: SearchLocationPage(embedded: true, autofocus: true),
+      ),
+    );
+    if (value == null || !mounted) return;
+    setState(() => (first ? start : end).text = value.name);
+  }
+
   @override
   Widget build(BuildContext context) => Padding(
     padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
@@ -115,9 +136,14 @@ class _TripDiscoveryFilterSheetState extends State<TripDiscoveryFilterSheet> {
                   Expanded(
                     child: TextField(
                       controller: start,
+                      readOnly: true,
+                      showCursor: false,
+                      onTap: () => pickLocation(true),
                       decoration: const InputDecoration(
                         labelText: '出发城市',
                         prefixIcon: Icon(LucideIcons.mapPin),
+                        suffixIcon: Icon(LucideIcons.search, size: 18),
+                        hintText: '搜索选择',
                       ),
                     ),
                   ),
@@ -125,9 +151,14 @@ class _TripDiscoveryFilterSheetState extends State<TripDiscoveryFilterSheet> {
                   Expanded(
                     child: TextField(
                       controller: end,
+                      readOnly: true,
+                      showCursor: false,
+                      onTap: () => pickLocation(false),
                       decoration: const InputDecoration(
                         labelText: '目的地',
                         prefixIcon: Icon(LucideIcons.flag),
+                        suffixIcon: Icon(LucideIcons.search, size: 18),
+                        hintText: '搜索选择',
                       ),
                     ),
                   ),

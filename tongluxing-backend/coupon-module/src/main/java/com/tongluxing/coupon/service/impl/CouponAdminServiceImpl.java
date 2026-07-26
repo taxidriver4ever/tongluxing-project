@@ -2,6 +2,7 @@ package com.tongluxing.coupon.service.impl;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 
@@ -18,13 +19,23 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class CouponAdminServiceImpl implements CouponAdminService {
+    private static final Set<String> SUPPORTED_TYPES = Set.of(
+            "CAR_WASH", "MAINTENANCE", "CASH", "GENERAL_CASH",
+            "FUEL", "EV_CHARGING", "PARKING", "HOTEL", "DINING",
+            "CAR_BEAUTY", "TIRE", "CAR_SUPPLIES", "ROAD_RESCUE",
+            "REPAIR", "SCENIC", "CAMPING", "DRIVER_SERVICE");
+
     private final CouponMapper mapper;
     private final ObjectMapper objectMapper;
 
     @Override public AdminCouponTemplateVO create(AdminCouponTemplateRequest request) {
         try { objectMapper.readTree(request.scopeJson()); } catch(Exception e) { throw new BusinessException("适用范围必须是合法 JSON"); }
+        String couponType = request.couponType().trim().toUpperCase();
+        if (!SUPPORTED_TYPES.contains(couponType)) {
+            throw new BusinessException("不支持的券类型");
+        }
         long id=SnowflakeIdGenerator.nextId();
-        mapper.insertAdminTemplate(id,request.couponName().trim(),request.couponType().trim(),request.issuerId(),
+        mapper.insertAdminTemplate(id,request.couponName().trim(),couponType,request.issuerId(),
                 request.thresholdAmount(),request.discountAmount(),request.scopeJson(),request.validDays(),
                 request.totalQuantity(),request.perUserLimit(),LocalDateTime.now());
         return mapper.findAdminTemplate(id);

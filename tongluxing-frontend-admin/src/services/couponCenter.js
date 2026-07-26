@@ -7,3 +7,5 @@ export const auditPartnerCoupon = (id,result) => apiRequest(`/v1/admin/partner-c
 export const getPlatformCoupons = (status='') => apiRequest(`/v1/admin/coupon-templates?status=${encodeURIComponent(status)}`)
 export const createPlatformCoupon = data => apiRequest('/v1/admin/coupon-templates',{method:'POST',body:JSON.stringify(data)})
 export const updatePlatformCouponStatus = (id,status) => apiRequest(`/v1/admin/coupon-templates/${id}/status`,{method:'PUT',body:JSON.stringify({status})})
+
+export const issuePlatformCoupon = data => apiRequest('/v1/admin/coupon-templates/issues',{method:'POST',body:JSON.stringify(data)})

@@ -61,6 +61,8 @@ public interface ChatConversationMapper {
             join chat_conversation_member m on m.conversation_id = c.id and m.deleted = 0
             where m.user_id = #{userId} and m.member_status = 'ACTIVE'
               and c.conversation_status in ('ACTIVE','HISTORY') and c.deleted = 0
+              and (m.cleared_before_message_id is null
+                   or coalesce(c.last_message_id, 0) &gt; m.cleared_before_message_id)
             <if test="title != null and title != ''">
               and lower(c.conversation_name) like concat('%', lower(#{title}), '%')
             </if>

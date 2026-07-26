@@ -294,9 +294,8 @@ public class MatchServiceImpl implements MatchService {
                 continue;
             }
             MatchTeamDTO team = teamPort.findActiveTeamByTripId(trip.tripId());
-            if (team == null) continue;
-            int current = team.currentMemberCount() == null ? 1 : team.currentMemberCount();
-            int max = team.maxMemberCount() == null ? 1 : team.maxMemberCount();
+            int current = discoverCurrentCount(trip, team);
+            int max = discoverMaxCount(trip, team, current);
             if (max - current < requiredSeats) continue;
             List<String> waypoints = waypointNames(trip.waypointsJson());
             if (StringUtils.hasText(normalizedKeyword)
@@ -347,7 +346,6 @@ public class MatchServiceImpl implements MatchService {
                 continue;
             }
             MatchTeamDTO team = teamPort.findActiveTeamByTripId(trip.tripId());
-            if (team == null) continue;
             records.add(toDiscoverCard(trip, team, waypointNames(trip.waypointsJson()),
                     discoveryScore(trip, team, null, -1), -1, currentUserId));
         }
@@ -364,21 +362,23 @@ public class MatchServiceImpl implements MatchService {
         Long userId = currentUserContext.requireUserId();
         MatchTripDTO trip = requireRecruitingTrip(tripId);
         MatchTeamDTO team = teamPort.findActiveTeamByTripId(tripId);
-        if (team == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "行程车队不存在");
-        }
-        int current = team.currentMemberCount() == null ? 1 : team.currentMemberCount();
-        int max = team.maxMemberCount() == null ? 1 : team.maxMemberCount();
-        String relationship = teamPort.relationshipStatus(team.teamId(), userId);
+        int current = discoverCurrentCount(trip, team);
+        int max = discoverMaxCount(trip, team, current);
+        String relationship = team == null
+                ? (userId.equals(trip.userId()) ? "OWNER" : "NONE")
+                : teamPort.relationshipStatus(team.teamId(), userId);
         boolean ownerTrip = userId.equals(trip.userId());
         var follow = userService.getFollowStatus(trip.userId());
-        var members = teamPort.listPublicMembers(team.teamId(), 50).stream()
-                .map(member -> new TripPublicMemberResponse(String.valueOf(member.userId()), member.nickname(),
-                        member.avatarImageKey(), member.role(), member.certificationStatus(),
-                        member.totalTripCount(), member.totalDistanceMeters()))
-                .toList();
+        var members = team == null
+                ? List.<TripPublicMemberResponse>of()
+                : teamPort.listPublicMembers(team.teamId(), 50).stream()
+                    .map(member -> new TripPublicMemberResponse(String.valueOf(member.userId()), member.nickname(),
+                            member.avatarImageKey(), member.role(), member.certificationStatus(),
+                            member.totalTripCount(), member.totalDistanceMeters()))
+                    .toList();
         boolean joinable = current < max;
-        boolean allowApply = !ownerTrip && joinable && List.of("NONE", "REJECTED").contains(relationship);
+        boolean allowApply = team != null && !ownerTrip && joinable
+                && List.of("NONE", "REJECTED").contains(relationship);
         boolean allowConsultation = !ownerTrip && (Boolean.TRUE.equals(follow.following())
                 || Boolean.TRUE.equals(follow.mutual()) || "JOINED".equals(relationship));
         return new TripPublicDetailResponse(String.valueOf(trip.tripId()), trip.title(), trip.status(),
@@ -386,8 +386,10 @@ public class MatchServiceImpl implements MatchService {
                 trip.estimatedDays(), trip.description(), trip.coverImageKey(),
                 trip.routePolyline(), trip.routeDistance(),
                 trip.routeDuration(), trip.joinedVehicleCount(), trip.maxVehicleCount(), current, max,
-                Math.max(0, max - current), trip.vehicleSummary(), null, null, trip.startName(), trip.remark(),
-                team.notice(), team.teamDesc(), discoverTags(trip), discoverOwner(trip, userId), members,
+                 Math.max(0, max - current), discoveryScore(trip, team, null, -1),
+                 trip.vehicleSummary(), null, null, trip.startName(), trip.remark(),
+                 team == null ? null : team.notice(), team == null ? null : team.teamDesc(),
+                 discoverTags(trip), discoverOwner(trip, userId), members,
                 relationship, ownerTrip, allowConsultation, allowApply, joinable,
                 tripFavoriteMapper.exists(userId, tripId) > 0);
     }
@@ -487,14 +489,29 @@ public class MatchServiceImpl implements MatchService {
 
     private TripDiscoverCardResponse toDiscoverCard(MatchTripDTO trip, MatchTeamDTO team, List<String> waypoints,
                                                      int score, int distance, Long currentUserId) {
-        int current = team.currentMemberCount() == null ? 1 : team.currentMemberCount();
-        int max = team.maxMemberCount() == null ? 1 : team.maxMemberCount();
+        int current = discoverCurrentCount(trip, team);
+        int max = discoverMaxCount(trip, team, current);
+        String relationship = team == null
+                ? (currentUserId.equals(trip.userId()) ? "OWNER" : "NONE")
+                : teamPort.relationshipStatus(team.teamId(), currentUserId);
         return new TripDiscoverCardResponse(String.valueOf(trip.tripId()), trip.title(), trip.status(),
                 trip.startName(), waypoints, trip.endName(), format(trip.departureTime()), trip.estimatedDays(),
                 trip.description(), trip.joinedVehicleCount(), trip.maxVehicleCount(), current, max,
                 Math.max(0, max - current), score, distance < 0 ? null : distance,
                 discoverTags(trip), trip.coverImageKey(),
-                teamPort.relationshipStatus(team.teamId(), currentUserId), discoverOwner(trip, currentUserId));
+                relationship, discoverOwner(trip, currentUserId));
+    }
+
+    private int discoverCurrentCount(MatchTripDTO trip, MatchTeamDTO team) {
+        if (team != null && team.currentMemberCount() != null) {
+            return Math.max(1, team.currentMemberCount());
+        }
+        return Math.max(1, trip.joinedVehicleCount() == null ? 1 : trip.joinedVehicleCount());
+    }
+
+    private int discoverMaxCount(MatchTripDTO trip, MatchTeamDTO team, int current) {
+        Integer configured = team != null ? team.maxMemberCount() : trip.maxVehicleCount();
+        return Math.max(current, configured == null ? current : configured);
     }
 
     private TripDiscoverOwnerResponse discoverOwner(MatchTripDTO trip, Long currentUserId) {
@@ -554,7 +571,8 @@ public class MatchServiceImpl implements MatchService {
                     .filter(target::contains).count();
             return Math.min(100, start + end + time + (int) Math.min(10, overlap * 5) + 10);
         }
-        int remaining = Math.max(0, team.maxMemberCount() - team.currentMemberCount());
+        int current = discoverCurrentCount(trip, team);
+        int remaining = Math.max(0, discoverMaxCount(trip, team, current) - current);
         int score = 58 + Math.min(10, remaining * 2)
                 + Math.min(10, Math.max(0, trip.ownerTotalTripCount()))
                 + (Boolean.TRUE.equals(trip.driverVerified()) ? 7 : 0);

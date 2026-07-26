@@ -27,9 +27,18 @@ public class AdminOverviewServiceImpl implements AdminOverviewService {
     public AdminOperationOverviewVO overview(LocalDateTime startTime, LocalDateTime endTime) {
         LocalDateTime start = startTime == null ? LocalDate.now().atStartOfDay() : startTime;
         LocalDateTime end = endTime == null ? start.toLocalDate().plusDays(1).atStartOfDay().minusNanos(1) : endTime;
-        return new AdminOperationOverviewVO(mapper.registeredUsers(), mapper.activeUsers(), mapper.newUsers(start,end),
-                mapper.certifiedVehicles(), mapper.merchants(), mapper.pendingMerchants(), mapper.activeMerchants(),
-                mapper.groupbuys(), mapper.orders(), mapper.ordersBetween(start,end), mapper.paidAmount(), mapper.paidBetween(start,end),
-                mapper.verifications(), mapper.commission(), mapper.couponOffers(), mapper.pendingRefunds(), mapper.pendingSettlements(), mapper.trends());
+        return new AdminOperationOverviewVO(
+                mapper.registeredUsers(), mapper.activeUsers(), mapper.newUsers(start, end),
+                mapper.certifiedDrivers(), mapper.certifiedVehicles(),
+                mapper.pendingDrivingLicenses(), mapper.pendingVehicleCertifications(),
+                mapper.merchants(), mapper.pendingMerchants(), mapper.activeMerchants(),
+                mapper.pendingMerchantCoupons(), mapper.groupbuys(),
+                mapper.orders(), mapper.ordersBetween(start, end), mapper.paidAmount(), mapper.paidBetween(start, end),
+                mapper.verifications(), mapper.commission(), mapper.couponOffers(),
+                mapper.couponIssuedBetween(start, end), mapper.couponUsedBetween(start, end),
+                mapper.tripsPublishedBetween(start, end), mapper.recruitingTrips(), mapper.runningTrips(),
+                mapper.tripsCompletedBetween(start, end), mapper.openCustomerTickets(),
+                mapper.pendingChatReports(), mapper.activeSosEvents(),
+                mapper.pendingRefunds(), mapper.pendingSettlements(), mapper.trends());
     }
 }

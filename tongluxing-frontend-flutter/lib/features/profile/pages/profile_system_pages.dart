@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -31,6 +29,7 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
   String? error;
   String avatarUrl = '';
   bool followBusy = false;
+  bool publicTripsLoading = true;
   int section = 0;
 
   bool get isOwner =>
@@ -44,12 +43,14 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
 
   Future<void> load() async {
     final api = context.read<AppSession>().api;
-    final owner = widget.userId == context.read<AppSession>().userId?.toString();
+    final owner =
+        widget.userId == context.read<AppSession>().userId?.toString();
     if (mounted) {
       setState(() {
         error = null;
         data = null;
         publicTrips = const [];
+        publicTripsLoading = true;
         avatarUrl = '';
       });
     }
@@ -103,9 +104,15 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
               ),
             )
             .toList();
-        if (mounted) setState(() => publicTrips = values);
+        if (mounted) {
+          setState(() {
+            publicTrips = values;
+            publicTripsLoading = false;
+          });
+        }
       } catch (_) {
-        // 公开行程属于附加区域；接口异常时只显示空状态，不覆盖资料卡片。
+        // 公开行程属于附加区域；接口异常时保留资料主体并允许下拉刷新。
+        if (mounted) setState(() => publicTripsLoading = false);
       }
     } catch (e) {
       if (!mounted) return;
@@ -118,6 +125,7 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
 
   Future<void> _toggleFollow() async {
     if (isOwner || followBusy) return;
+    final service = FollowService(context.read<AppSession>().api);
     final follow = Map<String, dynamic>.from(
       data?['follow'] as Map? ?? const {},
     );
@@ -144,7 +152,6 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
     }
     setState(() => followBusy = true);
     try {
-      final service = FollowService(context.read<AppSession>().api);
       final value = currentlyFollowing
           ? await service.unfollow(widget.userId)
           : await service.follow(widget.userId);
@@ -155,7 +162,9 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
       }
     } finally {
       if (mounted) setState(() => followBusy = false);
@@ -204,9 +213,9 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
     if (value.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: value));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('同路行号已复制')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('同路行号已复制')));
   }
 
   String _followText(Map<String, dynamic> follow) {
@@ -237,7 +246,10 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                       children: [
                         Text(error!, textAlign: TextAlign.center),
                         const SizedBox(height: 10),
-                        FilledButton(onPressed: load, child: const Text('重新加载')),
+                        FilledButton(
+                          onPressed: load,
+                          child: const Text('重新加载'),
+                        ),
                       ],
                     ),
             )
@@ -249,13 +261,17 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: [Color(0xFF075DBB), Color(0xFF0877E5), Color(0xFF2E9AEF)],
+                        colors: [
+                          Color(0xFF075DBB),
+                          Color(0xFF0877E5),
+                          Color(0xFF2E9AEF),
+                        ],
                       ),
                     ),
                     child: SafeArea(
                       bottom: false,
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 4, 14, 18),
+                        padding: const EdgeInsets.fromLTRB(18, 6, 18, 24),
                         child: Column(
                           children: [
                             SizedBox(
@@ -264,14 +280,20 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                                 children: [
                                   IconButton(
                                     onPressed: () => Navigator.pop(context),
-                                    icon: const Icon(LucideIcons.arrowLeft, color: Colors.white),
+                                    icon: const Icon(
+                                      LucideIcons.arrowLeft,
+                                      color: Colors.white,
+                                    ),
                                   ),
                                   const Spacer(),
                                   if (isOwner)
                                     IconButton(
                                       tooltip: '编辑个人资料',
                                       onPressed: _editProfile,
-                                      icon: const Icon(LucideIcons.pencil, color: Colors.white),
+                                      icon: const Icon(
+                                        LucideIcons.pencil,
+                                        color: Colors.white,
+                                      ),
                                     ),
                                 ],
                               ),
@@ -281,18 +303,20 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                               children: [
                                 UserAvatar(
                                   nickname: nickname,
-                                  avatarImageKey: p['avatarImageKey']?.toString() ?? '',
+                                  avatarImageKey:
+                                      p['avatarImageKey']?.toString() ?? '',
                                   avatarUrl: avatarUrl,
-                                  radius: 35,
+                                  radius: 40,
                                   onTap: () => _previewAvatar(p),
                                   heroTag: 'profile-avatar-${widget.userId}',
                                 ),
-                                const SizedBox(width: 14),
+                                const SizedBox(width: 18),
                                 Expanded(
                                   child: Padding(
                                     padding: const EdgeInsets.only(top: 5),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Row(
                                           children: [
@@ -308,17 +332,28 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                                                 ),
                                               ),
                                             ),
-                                            if (p['drivingLicenseCertificationStatus'] == 'APPROVED')
-                                              const Icon(LucideIcons.badgeCheck, color: Color(0xFF8CF5D1), size: 18),
+                                            if (p['drivingLicenseCertificationStatus'] ==
+                                                'APPROVED')
+                                              const Icon(
+                                                LucideIcons.badgeCheck,
+                                                color: Color(0xFF8CF5D1),
+                                                size: 18,
+                                              ),
                                           ],
                                         ),
                                         if (tongluxingId.isNotEmpty) ...[
                                           const SizedBox(height: 5),
                                           InkWell(
-                                            onTap: () => _copyTongluxingId(tongluxingId),
-                                            borderRadius: BorderRadius.circular(6),
+                                            onTap: () =>
+                                                _copyTongluxingId(tongluxingId),
+                                            borderRadius: BorderRadius.circular(
+                                              6,
+                                            ),
                                             child: Padding(
-                                              padding: const EdgeInsets.symmetric(vertical: 1),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    vertical: 1,
+                                                  ),
                                               child: Row(
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
@@ -326,11 +361,13 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                                                     child: Text(
                                                       '同路行号：$tongluxingId',
                                                       maxLines: 1,
-                                                      overflow: TextOverflow.ellipsis,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
                                                       style: const TextStyle(
                                                         color: Colors.white,
                                                         fontSize: 12.5,
-                                                        fontWeight: FontWeight.w700,
+                                                        fontWeight:
+                                                            FontWeight.w700,
                                                       ),
                                                     ),
                                                   ),
@@ -347,19 +384,30 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                                         ],
                                         const SizedBox(height: 5),
                                         Text(
-                                          p['cityName']?.toString().isNotEmpty == true
+                                          p['cityName']
+                                                      ?.toString()
+                                                      .isNotEmpty ==
+                                                  true
                                               ? '${p['cityName']} · 同路行车友'
                                               : '常驻地暂未填写',
-                                          style: const TextStyle(color: Colors.white70, fontSize: 12.5),
+                                          style: const TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 12.5,
+                                          ),
                                         ),
                                         const SizedBox(height: 5),
                                         Text(
-                                          p['bio']?.toString().isNotEmpty == true
+                                          p['bio']?.toString().isNotEmpty ==
+                                                  true
                                               ? p['bio'].toString()
                                               : '愿每一次出发都有同路人',
                                           maxLines: 2,
                                           overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.35),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 13,
+                                            height: 1.35,
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -367,55 +415,98 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 18),
+                            const SizedBox(height: 24),
                             Row(
                               children: [
-                                _ProfileMetric(value: '${follow['followingCount'] ?? 0}', label: '关注'),
-                                _ProfileMetric(value: '${follow['followerCount'] ?? 0}', label: '粉丝'),
-                                _ProfileMetric(value: '${p['totalTripCount'] ?? 0}', label: '行程'),
-                                _ProfileMetric(
-                                  value: '${(((p['totalDistanceMeters'] as num?)?.toDouble() ?? 0) / 1000).round()}',
-                                  label: '公里',
-                                ),
-                                if (!isOwner) ...[
-                                  const SizedBox(width: 8),
-                                  SizedBox(
-                                    height: 36,
-                                    child: follow['following'] == true
-                                        ? OutlinedButton(
-                                            style: OutlinedButton.styleFrom(
-                                              foregroundColor: Colors.white,
-                                              side: const BorderSide(color: Colors.white70),
-                                            ),
-                                            onPressed: followBusy ? null : _toggleFollow,
-                                            child: Text(_followText(follow)),
-                                          )
-                                        : FilledButton(
-                                            style: FilledButton.styleFrom(
-                                              backgroundColor: Colors.white,
-                                              foregroundColor: AppColors.primary,
-                                            ),
-                                            onPressed: followBusy ? null : _toggleFollow,
-                                            child: Text(_followText(follow)),
-                                          ),
+                                Expanded(
+                                  child: _ProfileMetric(
+                                    value: '${follow['followingCount'] ?? 0}',
+                                    label: '关注',
                                   ),
-                                  const SizedBox(width: 7),
-                                  SizedBox(
-                                    height: 36,
-                                    child: OutlinedButton.icon(
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: Colors.white,
-                                        side: const BorderSide(color: Colors.white70),
-                                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                                ),
+                                Expanded(
+                                  child: _ProfileMetric(
+                                    value: '${follow['followerCount'] ?? 0}',
+                                    label: '粉丝',
+                                  ),
+                                ),
+                                Expanded(
+                                  child: _ProfileMetric(
+                                    value: '${p['totalTripCount'] ?? 0}',
+                                    label: '行程',
+                                  ),
+                                ),
+                                Expanded(
+                                  child: _ProfileMetric(
+                                    value:
+                                        '${(((p['totalDistanceMeters'] as num?)?.toDouble() ?? 0) / 1000).round()}',
+                                    label: '公里',
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (!isOwner) ...[
+                              const SizedBox(height: 14),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: SizedBox(
+                                      height: 40,
+                                      child: follow['following'] == true
+                                          ? OutlinedButton(
+                                              style: OutlinedButton.styleFrom(
+                                                foregroundColor: Colors.white,
+                                                side: const BorderSide(
+                                                  color: Colors.white70,
+                                                ),
+                                                shape: const StadiumBorder(),
+                                              ),
+                                              onPressed: followBusy
+                                                  ? null
+                                                  : _toggleFollow,
+                                              child: Text(_followText(follow)),
+                                            )
+                                          : FilledButton(
+                                              style: FilledButton.styleFrom(
+                                                backgroundColor: Colors.white,
+                                                foregroundColor:
+                                                    AppColors.primary,
+                                                shape: const StadiumBorder(),
+                                              ),
+                                              onPressed: followBusy
+                                                  ? null
+                                                  : _toggleFollow,
+                                              child: Text(_followText(follow)),
+                                            ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: SizedBox(
+                                      height: 40,
+                                      child: OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.white,
+                                          side: const BorderSide(
+                                            color: Colors.white70,
+                                          ),
+                                          shape: const StadiumBorder(),
+                                        ),
+                                        onPressed: _startChat,
+                                        icon: const Icon(
+                                          LucideIcons.messageCircle,
+                                          size: 17,
+                                        ),
+                                        label: const Text(
+                                          '发起私聊',
+                                          style: TextStyle(fontSize: 13),
+                                        ),
                                       ),
-                                      onPressed: _startChat,
-                                      icon: const Icon(LucideIcons.messageCircle, size: 16),
-                                      label: const Text('发起私聊', style: TextStyle(fontSize: 12)),
                                     ),
                                   ),
                                 ],
-                              ],
-                            ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -430,33 +521,40 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                   ),
                 ),
                 if (section == 0)
-                  publicTrips.isEmpty
+                  publicTripsLoading
                       ? const SliverFillRemaining(
                           hasScrollBody: false,
-                          child: Center(child: Text('暂时没有公开招募中的行程', style: TextStyle(color: AppColors.muted))),
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      : publicTrips.isEmpty
+                      ? const SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: Center(
+                            child: Text(
+                              '暂时没有公开招募中的行程',
+                              style: TextStyle(color: AppColors.muted),
+                            ),
+                          ),
                         )
                       : SliverPadding(
                           padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
                           sliver: SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (_, index) {
-                                if (index.isOdd) return const SizedBox(height: 8);
-                                final trip = publicTrips[index ~/ 2];
-                                return _PublicTripTile(
-                                  trip: trip,
-                                  onTap: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => TripDiscoveryDetailPage(
-                                        tripId: trip.tripId,
-                                        initial: trip,
-                                      ),
+                            delegate: SliverChildBuilderDelegate((_, index) {
+                              if (index.isOdd) return const SizedBox(height: 8);
+                              final trip = publicTrips[index ~/ 2];
+                              return _PublicTripTile(
+                                trip: trip,
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => TripDiscoveryDetailPage(
+                                      tripId: trip.tripId,
+                                      initial: trip,
                                     ),
                                   ),
-                                );
-                              },
-                              childCount: publicTrips.length * 2 - 1,
-                            ),
+                                ),
+                              );
+                            }, childCount: publicTrips.length * 2 - 1),
                           ),
                         )
                 else
@@ -483,7 +581,9 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                         _ProfileInfoCard(
                           icon: LucideIcons.shieldCheck,
                           title: '驾驶认证',
-                          value: p['drivingLicenseCertificationStatus'] == 'APPROVED'
+                          value:
+                              p['drivingLicenseCertificationStatus'] ==
+                                  'APPROVED'
                               ? '已通过驾驶证认证'
                               : '暂未认证',
                         ),
@@ -502,15 +602,22 @@ class _ProfileMetric extends StatelessWidget {
   final String label;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(right: 14),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900)),
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10.5)),
-      ],
-    ),
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      Text(
+        value,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 17,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      Text(
+        label,
+        style: const TextStyle(color: Colors.white70, fontSize: 10.5),
+      ),
+    ],
   );
 }
 
@@ -525,23 +632,40 @@ class _ProfileTabHeader extends SliverPersistentHeaderDelegate {
   double get maxExtent => 48;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) => Material(
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) => Material(
     color: Colors.white,
     elevation: overlapsContent ? 1 : 0,
     child: Row(
       children: [
-        _ProfileTab(label: '公开行程', active: section == 0, onTap: () => onChanged(0)),
-        _ProfileTab(label: '资料', active: section == 1, onTap: () => onChanged(1)),
+        _ProfileTab(
+          label: '公开行程',
+          active: section == 0,
+          onTap: () => onChanged(0),
+        ),
+        _ProfileTab(
+          label: '资料',
+          active: section == 1,
+          onTap: () => onChanged(1),
+        ),
       ],
     ),
   );
 
   @override
-  bool shouldRebuild(covariant _ProfileTabHeader oldDelegate) => oldDelegate.section != section;
+  bool shouldRebuild(covariant _ProfileTabHeader oldDelegate) =>
+      oldDelegate.section != section;
 }
 
 class _ProfileTab extends StatelessWidget {
-  const _ProfileTab({required this.label, required this.active, required this.onTap});
+  const _ProfileTab({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
   final String label;
   final bool active;
   final VoidCallback onTap;
@@ -600,10 +724,20 @@ class _PublicTripTile extends StatelessWidget {
                     trip.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900),
+                    style: const TextStyle(
+                      fontSize: 15.5,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
-                const Text('招募中', style: TextStyle(color: AppColors.primary, fontSize: 11.5, fontWeight: FontWeight.w800)),
+                const Text(
+                  '招募中',
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 6),
@@ -611,24 +745,44 @@ class _PublicTripTile extends StatelessWidget {
               '${trip.startName} → ${trip.endName}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12.5, color: AppColors.secondaryText),
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: AppColors.secondaryText,
+              ),
             ),
             const SizedBox(height: 7),
             Row(
               children: [
-                const Icon(LucideIcons.calendar, size: 14, color: AppColors.muted),
+                const Icon(
+                  LucideIcons.calendar,
+                  size: 14,
+                  color: AppColors.muted,
+                ),
                 const SizedBox(width: 5),
                 Expanded(
                   child: Text(
                     trip.departureTime,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: AppColors.muted,
+                    ),
                   ),
                 ),
-                Text('${trip.memberCount}/${trip.maxMemberCount} 人', style: const TextStyle(fontSize: 11.5, color: AppColors.muted)),
+                Text(
+                  '${trip.memberCount}/${trip.maxMemberCount} 人',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: AppColors.muted,
+                  ),
+                ),
                 const SizedBox(width: 5),
-                const Icon(LucideIcons.chevronRight, size: 16, color: AppColors.muted),
+                const Icon(
+                  LucideIcons.chevronRight,
+                  size: 16,
+                  color: AppColors.muted,
+                ),
               ],
             ),
           ],
@@ -639,7 +793,11 @@ class _PublicTripTile extends StatelessWidget {
 }
 
 class _ProfileInfoCard extends StatelessWidget {
-  const _ProfileInfoCard({required this.icon, required this.title, required this.value});
+  const _ProfileInfoCard({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
   final IconData icon;
   final String title;
   final String value;
@@ -647,7 +805,10 @@ class _ProfileInfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+    ),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -657,9 +818,19 @@ class _ProfileInfoCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+              Text(
+                title,
+                style: const TextStyle(fontSize: 12, color: AppColors.muted),
+              ),
               const SizedBox(height: 4),
-              Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, height: 1.4)),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  height: 1.4,
+                ),
+              ),
             ],
           ),
         ),
@@ -1067,54 +1238,4 @@ class _CityPickerSheetState extends State<_CityPickerSheet> {
       ),
     );
   }
-}
-
-class _Tag extends StatelessWidget {
-  const _Tag(this.text);
-  final String text;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-    decoration: BoxDecoration(
-      color: AppColors.primarySoft,
-      borderRadius: BorderRadius.circular(14),
-    ),
-    child: Text(
-      text,
-      style: const TextStyle(
-        fontSize: 12,
-        color: AppColors.primary,
-        fontWeight: FontWeight.w700,
-      ),
-    ),
-  );
-}
-
-class _Stat extends StatelessWidget {
-  const _Stat(this.label, this.value, this.unit);
-  final String label, value, unit;
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Column(
-      children: [
-        Text.rich(
-          TextSpan(
-            text: value,
-            style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
-            children: [
-              TextSpan(
-                text: ' $unit',
-                style: const TextStyle(fontSize: 11, color: AppColors.muted),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: AppColors.muted),
-        ),
-      ],
-    ),
-  );
 }

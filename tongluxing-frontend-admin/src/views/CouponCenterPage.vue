@@ -8,6 +8,7 @@ import {
   getPartnerCoupons,
   getPlatformCoupons,
   updatePlatformCouponStatus,
+  issuePlatformCoupon,
 } from '../services/couponCenter.js'
 import { showToast } from '../utils.js'
 
@@ -15,7 +16,9 @@ const tab = ref('partners')
 const partnerRows = ref([])
 const platformRows = ref([])
 const open = ref(false)
+const issueOpen = ref(false)
 const processing = ref(false)
+const issueForm = reactive({ userId: '', templateId: '', reason: '运营人工发券' })
 const form = reactive({
   couponName: '平台采购洗车券', couponType: 'CAR_WASH', issuerId: null,
   thresholdAmount: 0, discountAmount: 50, totalQuantity: 1000,
@@ -60,6 +63,29 @@ async function create() {
   }
 }
 
+async function issue() {
+  if (!issueForm.userId || !issueForm.templateId) {
+    showToast('请填写用户 ID 并选择券模板', 'error')
+    return
+  }
+  processing.value = true
+  try {
+    await issuePlatformCoupon({
+      userId: issueForm.userId,
+      templateId: issueForm.templateId,
+      reason: issueForm.reason,
+      requestId: `ADM-${Date.now()}-${issueForm.userId}-${issueForm.templateId}`,
+    })
+    issueOpen.value = false
+    showToast('优惠券已发放到用户券包')
+    await load()
+  } catch (error) {
+    showToast(error.message, 'error')
+  } finally {
+    processing.value = false
+  }
+}
+
 async function changeStatus(row) {
   try {
     await updatePlatformCouponStatus(row.templateId, row.templateStatus === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE')
@@ -76,7 +102,7 @@ onMounted(load)
   <div class="page">
     <div class="page-head">
       <div><div class="eyebrow"><TicketCheck /> COUPON CENTER</div><h1>平台优惠券中心</h1><p>审核合作券、录入平台采购券，并查看发放、领取、使用和核销数据。</p></div>
-      <div class="head-actions"><button class="btn" @click="load"><RefreshCw />刷新</button><button class="btn primary" @click="open = true"><Plus />创建平台券</button></div>
+      <div class="head-actions"><button class="btn" @click="load"><RefreshCw />刷新</button><button class="btn" @click="issueOpen = true"><TicketCheck />人工发券</button><button class="btn primary" @click="open = true"><Plus />创建平台券</button></div>
     </div>
     <div class="toolbar"><button class="btn" :class="{ primary: tab === 'partners' }" @click="tab = 'partners'">合作商待审券</button><button class="btn" :class="{ primary: tab === 'pool' }" @click="tab = 'pool'">平台券池与数据</button></div>
     <section class="panel">
@@ -95,7 +121,7 @@ onMounted(load)
     <BaseModal :open="open" title="创建或录入平台券" @close="open = false">
       <div class="form-grid">
         <div class="form-group full"><label>券名称</label><input v-model.trim="form.couponName" class="field" maxlength="64" placeholder="例如：平台采购洗车券" required></div>
-        <div class="form-group"><label>券类型</label><select v-model="form.couponType" class="field"><option value="CAR_WASH">洗车券</option><option value="MAINTENANCE">保养抵扣券</option><option value="CASH">平台抵扣券</option></select></div>
+        <div class="form-group"><label>券类型</label><select v-model="form.couponType" class="field"><option value="CAR_WASH">洗车券</option><option value="MAINTENANCE">保养抵扣券</option><option value="GENERAL_CASH">平台通用抵扣券</option><option value="FUEL">加油券</option><option value="EV_CHARGING">充电券</option><option value="PARKING">停车券</option><option value="HOTEL">住宿券</option><option value="DINING">餐饮券</option><option value="CAR_BEAUTY">汽车美容券</option><option value="TIRE">轮胎券</option><option value="CAR_SUPPLIES">车品券</option><option value="ROAD_RESCUE">道路救援券</option><option value="REPAIR">维修检测券</option><option value="SCENIC">景区门票券</option><option value="CAMPING">露营地券</option><option value="DRIVER_SERVICE">代驾券</option></select></div>
         <div class="form-group"><label>券面价值</label><input v-model.number="form.discountAmount" class="field" type="number" min="0.01" step="0.01" required></div>
         <div class="form-group"><label>使用门槛</label><input v-model.number="form.thresholdAmount" class="field" type="number" min="0" step="0.01" required></div>
         <div class="form-group"><label>采购 / 发行数量</label><input v-model.number="form.totalQuantity" class="field" type="number" min="1" max="10000000" required></div>
@@ -104,6 +130,15 @@ onMounted(load)
         <div class="form-group full"><label>适用范围 JSON</label><textarea v-model="form.scopeJson" class="field" maxlength="2000" placeholder='{"orderTypes":["MERCHANT"]}' required></textarea></div>
       </div>
       <template #footer><button class="btn" @click="open = false">取消</button><button class="btn primary" :disabled="processing" @click="create">{{ processing ? '创建中…' : '创建并上架' }}</button></template>
+    </BaseModal>
+
+    <BaseModal :open="issueOpen" title="按用户 ID 人工发券" @close="issueOpen = false">
+      <div class="form-grid">
+        <div class="form-group"><label>用户 ID</label><input v-model.trim="issueForm.userId" class="field" inputmode="numeric" placeholder="请输入用户 ID"></div>
+        <div class="form-group"><label>券模板</label><select v-model="issueForm.templateId" class="field"><option value="" disabled>请选择模板</option><option v-for="row in platformRows" :key="row.templateId" :value="String(row.templateId)">{{ row.couponName }}（{{ row.couponType }}）</option></select></div>
+        <div class="form-group full"><label>发放原因</label><input v-model.trim="issueForm.reason" class="field" maxlength="120" placeholder="例如：客服补偿、新人活动"></div>
+      </div>
+      <template #footer><button class="btn" @click="issueOpen = false">取消</button><button class="btn primary" :disabled="processing" @click="issue">{{ processing ? '发放中…' : '确认发券' }}</button></template>
     </BaseModal>
   </div>
 </template>

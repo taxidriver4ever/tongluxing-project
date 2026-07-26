@@ -300,21 +300,41 @@ public class ChatServiceImpl implements ChatService {
         // 限制分页大小，防止一次拉取过多消息影响数据库性能。
         int safeLimit = limit == null ? 20 : Math.max(1, Math.min(limit, 100));
         List<ChatMessage> messages = messageMapper.findMessages(conversationId, beforeMessageId,
-                member.getClearedBeforeMessageId(), safeLimit);
+                null, safeLimit);
         if (beforeMessageId == null) {
             Long latest = messageMapper.findLatestMessageId(conversationId);
-            memberMapper.markRead(conversationId, userId, latest, LocalDateTime.now());
+            LocalDateTime now = LocalDateTime.now();
+            memberMapper.markRead(conversationId, userId, latest, now);
+            // 从个人资料或行程入口重新进入聊天，即视为主动恢复该会话。
+            memberMapper.restoreVisibility(conversationId, userId, now);
         }
         return new MessageListResponse(messages.stream().map(this::toMessageResponse).toList());
     }
 
     @Override
     @Transactional
-    public void clearLocalMessages(Long conversationId) {
+    public void hideConversation(Long conversationId) {
         Long userId = currentUserContext.requireUserId();
         requireActiveMember(conversationId, userId);
         Long latest = messageMapper.findLatestMessageId(conversationId);
+        // 复用历史字段作为“隐藏到哪条消息”的游标。消息查询不再使用该游标，
+        // 因此记录始终保留；只有会话列表会在出现更新消息前暂时隐藏。
         memberMapper.clearLocalMessages(conversationId, userId, latest == null ? 0L : latest, LocalDateTime.now());
+    }
+
+    @Override
+    @Transactional
+    public void notifyTripUpdated(Long tripId, Long operatorUserId) {
+        ChatConversation conversation = conversationMapper.findByBiz("TRIP", tripId);
+        if (conversation == null || !List.of("ACTIVE", "HISTORY").contains(conversation.getConversationStatus())) {
+            return;
+        }
+        ChatConversationMember operator = memberMapper.findByConversationAndUser(conversation.getId(), operatorUserId);
+        if (operator == null || !"OWNER".equals(operator.getMemberRole())) {
+            return;
+        }
+        persistSystemMessage(conversation.getId(), "群主已修改行程信息，点击“行程信息”查看最新安排");
+        memberMapper.incrementUnread(conversation.getId(), operatorUserId, LocalDateTime.now());
     }
 
     /** 发送消息并刷新会话最后一条消息摘要。 */

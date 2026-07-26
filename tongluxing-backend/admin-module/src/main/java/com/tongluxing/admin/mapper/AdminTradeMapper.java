@@ -36,7 +36,10 @@ public interface AdminTradeMapper {
     long registeredUsers();
     long activeUsers();
     long newUsers(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+    long certifiedDrivers();
     long certifiedVehicles();
+    long pendingDrivingLicenses();
+    long pendingVehicleCertifications();
     long merchants();
     long pendingMerchants();
     long activeMerchants();
@@ -48,6 +51,16 @@ public interface AdminTradeMapper {
     long verifications();
     BigDecimal commission();
     long couponOffers();
+    long pendingMerchantCoupons();
+    long couponIssuedBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+    long couponUsedBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+    long tripsPublishedBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+    long recruitingTrips();
+    long runningTrips();
+    long tripsCompletedBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+    long openCustomerTickets();
+    long pendingChatReports();
+    long activeSosEvents();
     long pendingRefunds();
     long pendingSettlements();
     List<AdminTrendPointVO> trends();

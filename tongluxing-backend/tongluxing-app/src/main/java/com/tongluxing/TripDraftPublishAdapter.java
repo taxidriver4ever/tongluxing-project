@@ -10,7 +10,6 @@ import org.springframework.stereotype.Component;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.match.service.MatchService;
-import com.tongluxing.team.dto.CreateTeamRequest;
 import com.tongluxing.team.service.TeamService;
 import com.tongluxing.trip.dto.CreateTripRequest;
 import com.tongluxing.trip.dto.LocationRequest;
@@ -68,10 +67,13 @@ public class TripDraftPublishAdapter implements TripDraftPublishPort {
         }
 
         // 发布为组队场景时，基于刚创建的行程继续创建车队。
-        long teamId = Long.parseLong(teamService.createTeam(new CreateTeamRequest(
-                tripId, vehicle.vehicleId(), draft.startLocation().name() + "到" + draft.endLocation().name() + "车队",
-                draft.remark(), Math.max(2, Math.min(20, draft.peopleCount())), "APPLICATION", true, ""
-        )).teamId());
+        long teamId = Long.parseLong(teamService.ensurePublishedTripTeam(
+                tripId,
+                userId,
+                vehicle.vehicleId(),
+                draft.startLocation().name() + "到" + draft.endLocation().name() + "车队",
+                Math.max(2, Math.min(20, draft.peopleCount()))
+        ).teamId());
         return new PublishOutcome(tripId, teamId);
     }
 

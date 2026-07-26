@@ -371,33 +371,116 @@ class _RouteAddresses extends StatelessWidget {
   final TripModel trip;
 
   @override
+  Widget build(BuildContext context) {
+    final nodes = <({String label, String name, String address, Color color})>[
+      (
+        label: '起点',
+        name: trip.startLocation?.name ?? trip.startName,
+        address: trip.startLocation?.address ?? '',
+        color: AppColors.success,
+      ),
+      for (final entry in trip.waypoints.asMap().entries)
+        (
+          label: '途经点 ${entry.key + 1}',
+          name: entry.value.name,
+          address: entry.value.address,
+          color: const Color(0xFFFFA928),
+        ),
+      (
+        label: '目的地',
+        name: trip.endLocation?.name ?? trip.endName,
+        address: trip.endLocation?.address ?? '',
+        color: AppColors.primary,
+      ),
+    ];
+    return Column(
+      children: [
+        for (final entry in nodes.asMap().entries)
+          _RouteAddressNode(
+            label: entry.value.label,
+            name: entry.value.name,
+            address: entry.value.address,
+            color: entry.value.color,
+            showConnector: entry.key < nodes.length - 1,
+          ),
+      ],
+    );
+  }
+}
+
+class _RouteAddressNode extends StatelessWidget {
+  const _RouteAddressNode({
+    required this.label,
+    required this.name,
+    required this.address,
+    required this.color,
+    required this.showConnector,
+  });
+
+  final String label;
+  final String name;
+  final String address;
+  final Color color;
+  final bool showConnector;
+
+  @override
   Widget build(BuildContext context) => Row(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       SizedBox(
         width: 26,
-        height: 54,
-        child: CustomPaint(painter: const _AddressLinePainter()),
+        child: Column(
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              margin: const EdgeInsets.only(top: 5),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(color: color, width: 2.5),
+              ),
+            ),
+            if (showConnector)
+              Container(
+                width: 2,
+                height: address.trim().isEmpty ? 32 : 46,
+                color: const Color(0xFFD9E2EE),
+              ),
+          ],
+        ),
       ),
       const SizedBox(width: 10),
       Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              trip.startName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              trip.endName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ],
+        child: Padding(
+          padding: EdgeInsets.only(bottom: showConnector ? 12 : 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              if (address.trim().isNotEmpty && address.trim() != name.trim())
+                Text(
+                  address,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.muted, fontSize: 11),
+                ),
+            ],
+          ),
         ),
       ),
     ],
@@ -560,32 +643,6 @@ class _PrimaryAction extends StatelessWidget {
       ),
     ),
   );
-}
-
-class _AddressLinePainter extends CustomPainter {
-  const _AddressLinePainter();
-  @override
-  void paint(Canvas canvas, Size size) {
-    final centerX = size.width / 2;
-    final line = Paint()
-      ..color = AppColors.primary
-      ..strokeWidth = 2;
-    canvas.drawLine(const Offset(13, 10), Offset(centerX, 44), line);
-    final point = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    final border = Paint()
-      ..color = AppColors.primary
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke;
-    for (final y in [8.0, 46.0]) {
-      canvas.drawCircle(Offset(centerX, y), 4, point);
-      canvas.drawCircle(Offset(centerX, y), 4, border);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _FallbackRoutePainter extends CustomPainter {

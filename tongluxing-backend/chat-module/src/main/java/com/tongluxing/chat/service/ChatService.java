@@ -50,8 +50,16 @@ public interface ChatService {
     /** 查询会话历史消息。 */
     MessageListResponse getMessages(Long conversationId, Long beforeMessageId, Integer limit);
 
-    /** 仅清除当前用户看到的本地聊天记录，不影响其他成员与风控留档。 */
-    void clearLocalMessages(Long conversationId);
+    /** 从当前用户消息列表隐藏会话；历史消息保留，新消息到达后会话自动重新出现。 */
+    void hideConversation(Long conversationId);
+
+    /** 兼容旧客户端的接口别名。 */
+    default void clearLocalMessages(Long conversationId) {
+        hideConversation(conversationId);
+    }
+
+    /** 群主修改行程后，在对应行程群发送一条轻量系统通知。 */
+    void notifyTripUpdated(Long tripId, Long operatorUserId);
 
     /** 当前登录用户向会话发送消息。 */
     MessageResponse sendMessage(Long conversationId, SendMessageRequest request);

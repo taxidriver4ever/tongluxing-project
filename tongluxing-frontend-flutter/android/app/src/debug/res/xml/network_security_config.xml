@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+      仅在 android:debuggable=true 时追加信任用户安装的 CA。
+      系统 CA 仍按 Android 默认规则信任；Release 包不会使用本配置。
+    -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

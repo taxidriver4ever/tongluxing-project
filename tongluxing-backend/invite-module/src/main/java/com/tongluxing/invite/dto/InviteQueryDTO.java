@@ -45,6 +45,18 @@ public class InviteQueryDTO {
     /** 被邀请人注册时间快照。 */
     private LocalDateTime inviteeRegisteredAt;
 
+    /** 账号真实注册时间。 */
+    private LocalDateTime registeredAt;
+
+    /** 邀请人昵称，仅用于绑定状态和预览展示。 */
+    private String inviterNickname;
+
+    /** 邀请人头像对象键或可访问地址。 */
+    private String inviterAvatarUrl;
+
+    /** 客户端绑定请求幂等号。 */
+    private String requestId;
+
     /** 邀请关系绑定时间。 */
     private LocalDateTime boundAt;
 

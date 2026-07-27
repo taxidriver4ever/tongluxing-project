@@ -1,12 +1,14 @@
 package com.tongluxing.drivertrack.service.impl;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -17,6 +19,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
+import com.tongluxing.drivertrack.config.TrajectoryProperties;
 import com.tongluxing.drivertrack.dto.DriverTrackBatchRequest;
 import com.tongluxing.drivertrack.dto.DriverTrackPointRequest;
 import com.tongluxing.drivertrack.dto.MockDeviationRequest;
@@ -28,8 +31,11 @@ import com.tongluxing.drivertrack.mapper.DriverTrackRecordMapper;
 import com.tongluxing.drivertrack.mapper.DriverTrackDistanceRecordMapper;
 import com.tongluxing.drivertrack.mapper.DriverMemberDistanceAlertMapper;
 import com.tongluxing.drivertrack.mapper.TripExecutionTrackMapper;
+import com.tongluxing.drivertrack.mapper.TripTrackRiskMapper;
 import com.tongluxing.drivertrack.service.DriverTrackService;
 import com.tongluxing.drivertrack.service.MileageSettlementService;
+import com.tongluxing.drivertrack.service.TripTrackSecurityAuditService;
+import com.tongluxing.drivertrack.support.TrajectoryRuleEngine;
 import com.tongluxing.drivertrack.vo.DriverDeviationResponse;
 import com.tongluxing.drivertrack.vo.DriverDistanceResponse;
 import com.tongluxing.drivertrack.vo.DriverTrackListResponse;
@@ -63,8 +69,6 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     private static final int MILD_DEVIATION_METERS = 100;
     private static final int SEVERE_DEVIATION_METERS = 500;
     private static final int RECOVERY_DEVIATION_METERS = 60;
-    private static final int MAX_RELIABLE_ACCURACY_METERS = 50;
-    private static final int WAYPOINT_ARRIVAL_METERS = 100;
 
     private final CurrentUserContext currentUserContext;
     private final ObjectMapper objectMapper;
@@ -78,6 +82,9 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     private final DriverMemberDistanceAlertMapper memberAlertMapper;
     private final TripExecutionTrackMapper executionTrackMapper;
     private final MileageSettlementService mileageSettlementService;
+    private final TrajectoryProperties trajectoryProperties;
+    private final TripTrackRiskMapper riskMapper;
+    private final TripTrackSecurityAuditService securityAuditService;
 
     @Override
     @Transactional
@@ -85,13 +92,8 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         Long driverId = currentUserContext.requireUserId();
         Trip trip = requireOngoingParticipantTrip(request.tripId(), driverId);
         DriverTrackRecord previousRaw = trackMapper.findLast(request.tripId(), driverId);
-        DriverTrackRecord previousValid = trackMapper.findLastValid(
-                request.tripId(), driverId);
+        DriverTrackRecord previousValid = trackMapper.findLastValid(request.tripId(), driverId);
         FilterResult filter = filterPoint(previousRaw, previousValid, request);
-        int distanceFromPrev = filter.distanceMeters();
-        int rawDistanceFromPrev = previousRaw == null ? 0 : haversineMeters(
-                previousRaw.getLatitude(), previousRaw.getLongitude(),
-                request.latitude(), request.longitude());
 
         LocalDateTime now = LocalDateTime.now();
         DriverTrackRecord record = new DriverTrackRecord();
@@ -100,48 +102,85 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         record.setDriverId(driverId);
         record.setLongitude(request.longitude());
         record.setLatitude(request.latitude());
+        record.setAltitude(request.altitude());
         record.setSpeed(request.speed());
         record.setDirection(request.direction());
         record.setAccuracy(request.accuracy());
-        record.setDistanceFromPrev(distanceFromPrev);
+        record.setRawDistanceFromPrev(filter.rawDistanceMeters());
+        record.setDistanceFromPrev(filter.distanceMeters());
+        record.setCalculatedSpeedKmh(BigDecimal.valueOf(filter.calculatedSpeedKmh()).setScale(2, RoundingMode.HALF_UP));
+        record.setProvider(normalizeProvider(request.provider()));
+        record.setAppState(normalizeAppState(request.appState()));
+        record.setBatteryLevel(request.batteryLevel());
         record.setDeviceId(request.deviceId());
         record.setSequenceNo(request.sequenceNo());
         record.setMockLocation(Boolean.TRUE.equals(request.mockLocation()) ? 1 : 0);
         record.setPointStatus(filter.status());
         record.setValidPoint(filter.valid() ? 1 : 0);
+        record.setRiskScore(filter.riskScore());
+        record.setRiskFlags(filter.riskFlags());
+        record.setRejectReason(filter.rejectReason());
         record.setRecordTime(request.recordTime());
+        record.setClientSendTime(request.clientSendTime());
+        record.setServerReceiveTime(now);
         record.setCreatedAt(now);
         record.setDeleted(0);
-        trackMapper.insert(record);
-        Long executionId = ensureExecutionTrack(trip, driverId, record, rawDistanceFromPrev, now);
-        if (filter.valid()) {
+        try {
+            trackMapper.insert(record);
+        } catch (DuplicateKeyException exception) {
+            throw new BusinessException(409, "该轨迹点已上传，请勿重复提交");
+        }
+
+        Long executionId = ensureExecutionTrack(trip, driverId, record, filter.rawDistanceMeters(), now);
+        saveRiskResult(trip, driverId, previousValid, record, filter, now);
+
+        WaypointArrival waypointArrival = null;
+        if (filter.valid() && !filter.gap()) {
             saveMemberDistanceState(trip, request, driverId, now);
+            if (riskMapper.countFatalAnomaliesSince(
+                    request.tripId(), driverId,
+                    request.recordTime().minusSeconds(trajectoryProperties.getGapSegmentMaxSeconds())) == 0) {
+                waypointArrival = settleReachedWaypoint(
+                        request.tripId(), driverId, request.latitude(), request.longitude(),
+                        request.recordTime(), trackMapper.sumDistance(request.tripId(), driverId));
+            }
+            if (waypointArrival != null) {
+                executionTrackMapper.insertWaypointArrival(
+                        SnowflakeIdGenerator.nextId(), executionId, trip.getId(),
+                        waypointArrival.waypointId(), driverId,
+                        waypointArrival.firstInsideAt(), request.recordTime(),
+                        waypointArrival.evidenceCount(), waypointArrival.distanceMeters());
+            }
         }
 
         int totalDistance = trackMapper.sumDistance(request.tripId(), driverId);
-        // 路线折线仅用于展示和估算，不再进行道路偏航判定。
         MileageSettlementResponse mileageResult = mileageSettlementService
                 .settleMileage(request.tripId(), driverId, totalDistance);
-        WaypointArrival waypointArrival = settleReachedWaypoint(
-                request.tripId(), driverId, request.latitude(), request.longitude(), totalDistance);
-        if (waypointArrival != null) {
-            executionTrackMapper.insertWaypointArrival(
-                    SnowflakeIdGenerator.nextId(), executionId, trip.getId(),
-                    waypointArrival.waypointId(), driverId,
-                    waypointArrival.firstInsideAt(), request.recordTime(),
-                    waypointArrival.evidenceCount(), waypointArrival.distanceMeters());
-        }
+        java.util.Map<String, Object> summary = riskMapper.findSummary(request.tripId());
+        String riskLevel = summary == null ? "LOW" : String.valueOf(summary.get("riskLevel"));
+        boolean reviewRequired = summary != null
+                && !"LOW".equalsIgnoreCase(riskLevel);
+        String message = filter.fatal()
+                ? "部分轨迹数据异常，结算需要审核"
+                : reviewRequired ? "部分轨迹数据异常，结算可能需要审核" : "";
 
         return new DriverTrackUploadResponse(
                 String.valueOf(record.getId()),
-                distanceFromPrev,
+                filter.distanceMeters(),
                 0,
                 0,
                 totalDistance,
                 mileageResult.settledStages() + (waypointArrival == null ? 0 : 1),
                 mileageResult.grantedPoints() + (waypointArrival == null ? 0 : waypointArrival.points()),
                 waypointArrival == null ? null : String.valueOf(waypointArrival.waypointId()),
-                waypointArrival == null ? null : waypointArrival.waypointName()
+                waypointArrival == null ? null : waypointArrival.waypointName(),
+                filter.status(),
+                summary == null || summary.get("riskScore") == null
+                        ? filter.riskScore() : ((Number) summary.get("riskScore")).intValue(),
+                riskLevel,
+                reviewRequired,
+                message,
+                filter.valid()
         );
     }
 
@@ -241,10 +280,14 @@ public class DriverTrackServiceImpl implements DriverTrackService {
                         && ("OWNER".equals(member.getJoinStatus())
                         || "APPROVED".equals(member.getJoinStatus())));
         if (!participant) {
+            securityAuditService.record(tripId, userId, "UNAUTHORIZED_UPLOAD",
+                    "非行程成员尝试上传定位点");
             throw new BusinessException(ResultCode.FORBIDDEN, "只有本次行程的有效成员可以上传轨迹");
         }
         if (!STATUS_RUNNING.equals(trip.getStatus())) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "行程未开始，不能上传轨迹");
+            securityAuditService.record(tripId, userId, "UPLOAD_OUTSIDE_RUNNING_TRIP",
+                    "行程状态为" + trip.getStatus() + "，拒绝轨迹上传");
+            throw new BusinessException(ResultCode.BAD_REQUEST, "行程未开始或已经结束，不能上传轨迹");
         }
         return trip;
     }
@@ -253,73 +296,299 @@ public class DriverTrackServiceImpl implements DriverTrackService {
             DriverTrackRecord previousRaw,
             DriverTrackRecord previousValid,
             DriverTrackPointRequest request) {
-        if (Boolean.TRUE.equals(request.mockLocation())) {
-            return new FilterResult(0, "MOCK_LOCATION", false);
+        LocalDateTime validationNow = LocalDateTime.now();
+        if (request.recordTime().isAfter(
+                validationNow.plusSeconds(trajectoryProperties.getMaxFutureLocationSeconds()))
+                || request.clientSendTime() != null
+                && request.clientSendTime().isBefore(request.recordTime())) {
+            return FilterResult.rejected("TIME_ANOMALY", 0, 2,
+                    "TIME_ANOMALY", "定位采集时间异常", false);
         }
-        if (request.accuracy() != null
-                && request.accuracy().intValue() > MAX_RELIABLE_ACCURACY_METERS) {
-            return new FilterResult(0, "LOW_ACCURACY", false);
+        if (request.latitude().compareTo(BigDecimal.ZERO) == 0
+                && request.longitude().compareTo(BigDecimal.ZERO) == 0) {
+            return FilterResult.rejected("INVALID_COORDINATE", 0, 2,
+                    "INVALID_COORDINATE", "经纬度不能同时为0,0", false);
         }
-        if (previousRaw != null
-                && !request.recordTime().isAfter(previousRaw.getRecordTime())) {
-            return new FilterResult(0, "OUT_OF_ORDER", false);
+        if (previousRaw != null && !request.recordTime().isAfter(previousRaw.getRecordTime())) {
+            return FilterResult.rejected("TIME_REVERSED", 0, 2,
+                    "TIME_REVERSED", "定位时间倒退或数据重放", false);
         }
         if (previousRaw != null && request.sequenceNo() != null
                 && previousRaw.getSequenceNo() != null
                 && java.util.Objects.equals(request.deviceId(), previousRaw.getDeviceId())
                 && request.sequenceNo() <= previousRaw.getSequenceNo()) {
-            return new FilterResult(0, "DUPLICATE_SEQUENCE", false);
+            return FilterResult.rejected("DUPLICATE_POINT", 0, 2,
+                    "DUPLICATE_POINT", "sequenceNo重复或倒退", false);
+        }
+        int accuracy = request.accuracy().intValue();
+        if (accuracy > trajectoryProperties.getAcceptableAccuracyMeters()) {
+            return FilterResult.rejected("LOW_ACCURACY", 0, 0,
+                    "LOW_ACCURACY", "定位精度超过允许上限", false);
         }
         if (previousValid == null) {
-            return new FilterResult(0, "VALID", true);
+            int mockRisk = Boolean.TRUE.equals(request.mockLocation()) ? 5 : 0;
+            return new FilterResult(0, 0, "ACCEPTED", true, mockRisk,
+                    mockRisk > 0 ? "MOCK_LOCATION" : "", null, false, false, 0d);
         }
-        int distance = haversineMeters(
+
+        FilterResult roundTrip = detectRoundTripTeleport(previousRaw, previousValid, request);
+        if (roundTrip != null) {
+            return roundTrip;
+        }
+
+        long deltaSeconds = java.time.Duration.between(
+                previousValid.getRecordTime(), request.recordTime()).getSeconds();
+        if (deltaSeconds < trajectoryProperties.getMinSegmentSeconds()) {
+            return FilterResult.rejected("TOO_FREQUENT", 0, 0,
+                    "TOO_FREQUENT", "两点采集间隔小于2秒", false);
+        }
+        int rawDistance = haversineMeters(
                 previousValid.getLatitude(), previousValid.getLongitude(),
                 request.latitude(), request.longitude());
-        long millis = java.time.Duration.between(
-                previousValid.getRecordTime(), request.recordTime()).toMillis();
-        if (millis <= 0) {
-            return new FilterResult(0, "OUT_OF_ORDER", false);
+        if (deltaSeconds > trajectoryProperties.getGapSegmentMaxSeconds()) {
+            int risk = 1 + (Boolean.TRUE.equals(request.mockLocation()) ? 5 : 0);
+            return new FilterResult(0, rawDistance, "LOCATION_GAP", true, risk,
+                    joinFlags("LOCATION_GAP", Boolean.TRUE.equals(request.mockLocation()) ? "MOCK_LOCATION" : null),
+                    "定位中断超过60秒，当前点仅作为新轨迹段起点", false, true, 0d);
         }
-        if (millis > 30_000) {
-            // 定位中断后的首个可靠点只用于重新锚定，绝不能用缺口两端的直线
-            // 充当用户实际走过的里程，否则重新开启定位时会产生巨额跳变。
-            return new FilterResult(
-                    0, millis > 600_000 ? "LONG_GAP_REVIEW" : "REANCHOR", true);
-        }
-        double seconds = millis / 1000.0d;
-        double calculatedSpeed = distance / seconds;
-        double reportedSpeed = request.speed() == null
-                ? -1d : Math.max(0d, request.speed().doubleValue());
+
         int previousAccuracy = previousValid.getAccuracy() == null
                 ? 0 : Math.max(0, previousValid.getAccuracy().intValue());
-        int currentAccuracy = request.accuracy() == null
-                ? 0 : Math.max(0, request.accuracy().intValue());
-        int noiseRadius = Math.max(
-                8, (int) Math.ceil((previousAccuracy + currentAccuracy) / 2.0d));
+        int lowerBoundDistance = TrajectoryRuleEngine.lowerBoundDistance(
+                rawDistance, previousAccuracy, accuracy);
+        double calculatedSpeedKmh = TrajectoryRuleEngine.speedKmh(
+                lowerBoundDistance, deltaSeconds);
 
-        // 位移没有超出两次定位的综合误差范围时认为仍在原地。该点仍作为
-        // 下一次计算的可靠锚点，避免静止很久后所有后续点都被当成轨迹缺口。
-        if (distance <= noiseRadius
-                && (reportedSpeed < 0 || reportedSpeed < 2.0d)) {
-            return new FilterResult(0, "STATIONARY", true);
+        if (calculatedSpeedKmh >= trajectoryProperties.getFatalSpeedKmh()) {
+            FilterResult recovery = recoverSegmentStart(previousRaw, request);
+            if (recovery != null) return recovery;
+            return FilterResult.rejected("FATAL_REJECTED", rawDistance,
+                    trajectoryProperties.getHighRiskScore(),
+                    "FATAL_IMPOSSIBLE_SPEED",
+                    "服务端计算速度达到致命异常阈值，不更新可信位置、抵达状态或里程",
+                    true, calculatedSpeedKmh);
+        }
+        boolean teleport = TrajectoryRuleEngine.isTeleport(
+                deltaSeconds, lowerBoundDistance,
+                trajectoryProperties.getTeleportFiveSecondsMeters(),
+                trajectoryProperties.getTeleportTenSecondsMeters());
+        if (teleport) {
+            FilterResult recovery = recoverSegmentStart(previousRaw, request);
+            if (recovery != null) return recovery;
+            return FilterResult.rejected("TELEPORT", rawDistance, 3,
+                    "TELEPORT", "短时间内出现明显瞬移", false, calculatedSpeedKmh);
+        }
+        if (calculatedSpeedKmh > trajectoryProperties.getWarningSpeedMaxKmh()) {
+            FilterResult recovery = recoverSegmentStart(previousRaw, request);
+            if (recovery != null) return recovery;
+            return FilterResult.rejected("IMPOSSIBLE_SPEED", rawDistance, 3,
+                    "IMPOSSIBLE_SPEED", "服务端计算速度超过200km/h", false, calculatedSpeedKmh);
         }
 
-        // 静止/低速状态下突然漂移几十米是常见 GPS 跳点，不累计为里程。
-        if (reportedSpeed >= 0 && reportedSpeed < 1.5d
-                && distance <= Math.max(50, noiseRadius * 3)) {
-            return new FilterResult(0, "GPS_DRIFT", false);
+        int riskScore = 0;
+        java.util.List<String> flags = new java.util.ArrayList<>();
+        String status = "ACCEPTED";
+        if (calculatedSpeedKmh > trajectoryProperties.getNormalSpeedMaxKmh()) {
+            riskScore += 1;
+            flags.add("SPEED_WARNING");
+            status = "SPEED_WARNING";
+        }
+        if (Boolean.TRUE.equals(request.mockLocation())) {
+            riskScore += 5;
+            flags.add("MOCK_LOCATION");
+        }
+        if (accuracy > trajectoryProperties.getNormalAccuracyMeters()) {
+            flags.add("LOW_CONFIDENCE");
+            status = "LOW_CONFIDENCE";
+        }
+        if (deltaSeconds > trajectoryProperties.getNormalSegmentMaxSeconds()) {
+            boolean bearingConflict = previousValid.getDirection() != null
+                    && request.direction() != null
+                    && TrajectoryRuleEngine.angularDifferenceDegrees(
+                    previousValid.getDirection().doubleValue(), request.direction().doubleValue())
+                    > trajectoryProperties.getLowConfidenceMaxBearingChangeDegrees();
+            if (accuracy > trajectoryProperties.getLowConfidenceAccuracyMeters()
+                    || previousAccuracy > trajectoryProperties.getLowConfidenceAccuracyMeters()
+                    || calculatedSpeedKmh > trajectoryProperties.getNormalSpeedMaxKmh()
+                    || bearingConflict) {
+                return FilterResult.rejected("LOW_CONFIDENCE_REJECTED", rawDistance, riskScore,
+                        joinFlags(flags.toArray(String[]::new)),
+                        "20至60秒低置信度路段不满足精度或速度要求", false, calculatedSpeedKmh);
+            }
+            flags.add("LONG_INTERVAL");
+            status = "LOW_CONFIDENCE";
         }
 
-        // 绝对速度上限和设备速度交叉校验同时防止跨城跳点。原始坐标仍会
-        // 永久留存供复核，但异常段不会进入实际里程。
-        if (calculatedSpeed > (200.0d / 3.6d)
-                || reportedSpeed >= 0
-                && calculatedSpeed > reportedSpeed * 3.0d + 8.0d
-                && distance > 50) {
-            return new FilterResult(0, "IMPOSSIBLE_SPEED", false);
+        if (previousValid.getCalculatedSpeedKmh() != null
+                && deltaSeconds <= trajectoryProperties.getAccelerationMaxSegmentSeconds()
+                && previousValid.getAccuracy() != null
+                && previousValid.getAccuracy().intValue() <= trajectoryProperties.getNormalAccuracyMeters()
+                && accuracy <= trajectoryProperties.getNormalAccuracyMeters()) {
+            double acceleration = Math.abs(calculatedSpeedKmh / 3.6d
+                    - previousValid.getCalculatedSpeedKmh().doubleValue() / 3.6d) / deltaSeconds;
+            if (acceleration > trajectoryProperties.getAbnormalAccelerationMps2()) {
+                riskScore += 3;
+                flags.add("ABNORMAL_ACCELERATION");
+            } else if (acceleration > trajectoryProperties.getSuspiciousAccelerationMps2()) {
+                riskScore += 1;
+                flags.add("SUSPICIOUS_ACCELERATION");
+            }
         }
-        return new FilterResult(distance, "VALID", true);
+
+        int acceptedDistance = TrajectoryRuleEngine.filterStationaryDrift(
+                rawDistance, calculatedSpeedKmh,
+                trajectoryProperties.getStationaryDriftMeters(),
+                trajectoryProperties.getStationaryDriftSpeedKmh());
+        if (acceptedDistance == 0 && rawDistance > 0) {
+            status = "STATIONARY";
+        }
+        return new FilterResult(acceptedDistance, rawDistance, status, true, riskScore,
+                String.join(",", flags), null, false, false, calculatedSpeedKmh);
+    }
+
+    private FilterResult detectRoundTripTeleport(
+            DriverTrackRecord previousRaw,
+            DriverTrackRecord previousValid,
+            DriverTrackPointRequest current) {
+        if (previousRaw == null || Integer.valueOf(1).equals(previousRaw.getValidPoint())
+                || previousRaw.getRecordTime() == null
+                || previousRaw.getAccuracy() == null
+                || !java.util.Set.of("TELEPORT", "IMPOSSIBLE_SPEED", "FATAL_REJECTED")
+                .contains(previousRaw.getPointStatus())) {
+            return null;
+        }
+        long returnSeconds = java.time.Duration.between(
+                previousRaw.getRecordTime(), current.recordTime()).getSeconds();
+        if (returnSeconds < 0 || returnSeconds > trajectoryProperties.getRoundTripWindowSeconds()) {
+            return null;
+        }
+        int farRawDistance = haversineMeters(
+                previousValid.getLatitude(), previousValid.getLongitude(),
+                previousRaw.getLatitude(), previousRaw.getLongitude());
+        int farLowerBound = TrajectoryRuleEngine.lowerBoundDistance(
+                farRawDistance,
+                previousValid.getAccuracy() == null ? 0 : previousValid.getAccuracy().intValue(),
+                previousRaw.getAccuracy().intValue());
+        int returnDistance = haversineMeters(
+                previousValid.getLatitude(), previousValid.getLongitude(),
+                current.latitude(), current.longitude());
+        if (farLowerBound < trajectoryProperties.getRoundTripFarDistanceMeters()
+                || returnDistance > trajectoryProperties.getRoundTripReturnRadiusMeters()) {
+            return null;
+        }
+        int mockRisk = Boolean.TRUE.equals(current.mockLocation()) ? 5 : 0;
+        return new FilterResult(0, returnDistance, "ROUND_TRIP_RECOVERY", true,
+                3 + mockRisk,
+                joinFlags("ROUND_TRIP_TELEPORT", mockRisk > 0 ? "MOCK_LOCATION" : null),
+                "短时间内出现A到远距离B再返回A的往返瞬移，当前点不补算里程",
+                false, false, 0d);
+    }
+
+    /**
+     * 异常点后若新点与上一原始点形成连续可信轨迹，则以当前点重新建立轨迹段。
+     * 该点不补算与上一有效点之间的里程，也不会靠异常点直接触发节点抵达。
+     */
+    private FilterResult recoverSegmentStart(
+            DriverTrackRecord previousRaw, DriverTrackPointRequest current) {
+        if (previousRaw == null || Integer.valueOf(1).equals(previousRaw.getValidPoint())
+                || previousRaw.getAccuracy() == null
+                || previousRaw.getAccuracy().intValue() > trajectoryProperties.getAcceptableAccuracyMeters()) {
+            return null;
+        }
+        long deltaSeconds = java.time.Duration.between(
+                previousRaw.getRecordTime(), current.recordTime()).getSeconds();
+        if (deltaSeconds < trajectoryProperties.getMinSegmentSeconds()
+                || deltaSeconds > trajectoryProperties.getGapSegmentMaxSeconds()) {
+            return null;
+        }
+        int rawDistance = haversineMeters(
+                previousRaw.getLatitude(), previousRaw.getLongitude(),
+                current.latitude(), current.longitude());
+        int lowerBound = TrajectoryRuleEngine.lowerBoundDistance(
+                rawDistance, previousRaw.getAccuracy().intValue(), current.accuracy().intValue());
+        double speedKmh = TrajectoryRuleEngine.speedKmh(lowerBound, deltaSeconds);
+        if (speedKmh > trajectoryProperties.getNormalSpeedMaxKmh()) {
+            return null;
+        }
+        int mockRisk = Boolean.TRUE.equals(current.mockLocation()) ? 5 : 0;
+        return new FilterResult(0, rawDistance, "RECOVERY_SEGMENT_START", true, mockRisk,
+                joinFlags("TRACK_RECOVERY", mockRisk > 0 ? "MOCK_LOCATION" : null),
+                "异常点后从连续可信位置重新建立轨迹段，不补算中间里程",
+                false, false, speedKmh);
+    }
+
+    private void saveRiskResult(Trip trip, Long driverId, DriverTrackRecord previousValid,
+                                DriverTrackRecord record, FilterResult filter, LocalDateTime now) {
+        boolean primaryTrack = driverId.equals(trip.getUserId());
+        if (primaryTrack) {
+            riskMapper.ensureSummary(SnowflakeIdGenerator.nextId(), trip.getId(), trip.getUserId(), now);
+            int minimumRisk = filter.fatal() ? trajectoryProperties.getHighRiskScore() : 0;
+            int warningCount = filter.riskScore() > 0 && !filter.hardAnomaly() ? 1 : 0;
+            int hardCount = filter.hardAnomaly() ? 1 : 0;
+            String reviewReason = filter.fatal() ? "出现致命轨迹异常，禁止自动结算"
+                    : filter.riskScore() >= trajectoryProperties.getMediumRiskScore()
+                    ? "轨迹风险分达到人工审核阈值" : null;
+            int riskScoreForSummary = filter.riskScore();
+            if (filter.gap() && riskMapper.currentGapCount(trip.getId()) >= 3) {
+                // 单趟定位中断风险分最多累计3分，模拟定位等其他风险仍照常累计。
+                riskScoreForSummary = Math.max(0, riskScoreForSummary - 1);
+            }
+            riskMapper.appendPoint(
+                    trip.getId(), filter.rawDistanceMeters(), filter.distanceMeters(),
+                    filter.valid() ? 1 : 0, filter.valid() ? 0 : 1,
+                    filter.gap() ? 1 : 0, warningCount, hardCount,
+                    riskScoreForSummary, minimumRisk, reviewReason, now);
+            riskMapper.refreshRiskLevel(
+                    trip.getId(), trajectoryProperties.getMediumRiskScore(),
+                    trajectoryProperties.getHighRiskScore(), now);
+        }
+        if (filter.riskScore() > 0 || !filter.valid() || filter.gap()) {
+            String detailJson = "{\"status\":\"" + filter.status() + "\",\"speedKmh\":"
+                    + String.format(java.util.Locale.ROOT, "%.2f", filter.calculatedSpeedKmh())
+                    + ",\"rawDistanceMeters\":" + filter.rawDistanceMeters()
+                    + ",\"primaryTrack\":" + primaryTrack
+                    + ",\"reason\":\"" + jsonEscape(filter.rejectReason()) + "\"}";
+            riskMapper.insertAnomaly(
+                    SnowflakeIdGenerator.nextId(), trip.getId(), driverId,
+                    previousValid == null ? null : previousValid.getId(), record.getId(),
+                    primaryRiskFlag(filter), filter.riskScore(), detailJson,
+                    record.getRecordTime(), now);
+        }
+        if (primaryTrack && trackMapper.countRecentHardAnomalies(
+                trip.getId(), driverId, record.getRecordTime().minusSeconds(60)) >= 3) {
+            riskMapper.markAtLeastMedium(
+                    trip.getId(), trajectoryProperties.getMediumRiskScore(),
+                    "60秒内连续出现3次明显轨迹异常", now);
+        }
+    }
+
+    private String primaryRiskFlag(FilterResult filter) {
+        if (filter.fatal()) return "FATAL_IMPOSSIBLE_SPEED";
+        if (StringUtils.hasText(filter.riskFlags())) return filter.riskFlags().split(",")[0];
+        return filter.status();
+    }
+
+    private String joinFlags(String... values) {
+        return java.util.Arrays.stream(values)
+                .filter(StringUtils::hasText)
+                .distinct()
+                .collect(java.util.stream.Collectors.joining(","));
+    }
+
+    private String jsonEscape(String value) {
+        if (value == null) return "";
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private String normalizeProvider(String provider) {
+        if (!StringUtils.hasText(provider)) return "fused";
+        String value = provider.trim().toLowerCase(java.util.Locale.ROOT);
+        return java.util.Set.of("gps", "fused", "network").contains(value) ? value : "fused";
+    }
+
+    private String normalizeAppState(String appState) {
+        if (!StringUtils.hasText(appState)) return "foreground";
+        return "background".equalsIgnoreCase(appState) ? "background" : "foreground";
     }
 
     /**
@@ -431,7 +700,7 @@ public class DriverTrackServiceImpl implements DriverTrackService {
             DriverDeviationRecord previous) {
         int rawDistance = calculateDeviationMeters(tripId, latitude, longitude);
         int accuracyMeters = accuracy == null ? 0 : Math.max(0, accuracy.intValue());
-        if (accuracyMeters > MAX_RELIABLE_ACCURACY_METERS) {
+        if (accuracyMeters > trajectoryProperties.getLowConfidenceAccuracyMeters()) {
             return previous == null
                     ? new DeviationReading(0, 0)
                     : new DeviationReading(previous.getDeviationDistance(), previous.getDeviationStatus());
@@ -508,10 +777,11 @@ public class DriverTrackServiceImpl implements DriverTrackService {
 
     /**
      * 只判断“下一个尚未完成的节点”，禁止越过当前节点直接结算后续节点。
-     * 节点在 100 米范围内保持至少 30 秒并形成至少 3 个有效点后记录到达事实。
+     * 节点在 100 米范围内保持至少 10 秒并形成至少 2 个有效点后记录到达事实。
      */
     private WaypointArrival settleReachedWaypoint(Long tripId, Long driverId,
                                                   BigDecimal latitude, BigDecimal longitude,
+                                                  LocalDateTime currentRecordTime,
                                                   int totalDistance) {
         for (TripWaypoint waypoint : tripWaypointMapper.findByTripId(tripId)) {
             String settleKey = tripId + ":" + driverId + ":TRIP_WAYPOINT:" + waypoint.getId();
@@ -523,21 +793,25 @@ public class DriverTrackServiceImpl implements DriverTrackService {
                 return null;
             }
             int distance = haversineMeters(latitude, longitude, waypoint.getLat(), waypoint.getLng());
-            if (distance > WAYPOINT_ARRIVAL_METERS) {
+            if (distance > trajectoryProperties.getWaypointRadiusMeters()) {
                 return null;
             }
             List<DriverTrackRecord> arrivalEvidence = trackMapper.findRecent(
-                    tripId, driverId, LocalDateTime.now().minusSeconds(45)).stream()
+                    tripId, driverId, currentRecordTime.minusSeconds(trajectoryProperties.getWaypointEvidenceWindowSeconds())).stream()
+                    .filter(point -> Integer.valueOf(1).equals(point.getValidPoint()))
+                    .filter(point -> !"LOCATION_GAP".equals(point.getPointStatus()))
                     .filter(point -> point.getAccuracy() == null
-                            || point.getAccuracy().intValue() <= MAX_RELIABLE_ACCURACY_METERS)
+                            || point.getAccuracy().intValue()
+                            <= trajectoryProperties.getLowConfidenceAccuracyMeters())
                     .filter(point -> haversineMeters(
                             point.getLatitude(), point.getLongitude(),
-                            waypoint.getLat(), waypoint.getLng()) <= WAYPOINT_ARRIVAL_METERS)
+                            waypoint.getLat(), waypoint.getLng())
+                            <= trajectoryProperties.getWaypointRadiusMeters())
                     .toList();
-            if (arrivalEvidence.size() < 3
+            if (arrivalEvidence.size() < trajectoryProperties.getWaypointMinPoints()
                     || arrivalEvidence.get(0).getRecordTime()
                     .isAfter(arrivalEvidence.get(arrivalEvidence.size() - 1)
-                            .getRecordTime().minusSeconds(30))) {
+                            .getRecordTime().minusSeconds(trajectoryProperties.getWaypointMinDurationSeconds()))) {
                 return null;
             }
             MileageSettlementResponse result = mileageSettlementService.settleWaypoint(
@@ -580,7 +854,36 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     private record DeviationReading(int distanceMeters, int status) {
     }
 
-    private record FilterResult(int distanceMeters, String status, boolean valid) {
+    private record FilterResult(
+            int distanceMeters,
+            int rawDistanceMeters,
+            String status,
+            boolean valid,
+            int riskScore,
+            String riskFlags,
+            String rejectReason,
+            boolean fatal,
+            boolean gap,
+            double calculatedSpeedKmh
+    ) {
+        static FilterResult rejected(String status, int rawDistance, int riskScore,
+                                     String riskFlags, String reason, boolean fatal) {
+            return rejected(status, rawDistance, riskScore, riskFlags, reason, fatal, 0d);
+        }
+
+        static FilterResult rejected(String status, int rawDistance, int riskScore,
+                                     String riskFlags, String reason, boolean fatal,
+                                     double calculatedSpeedKmh) {
+            return new FilterResult(0, rawDistance, status, false, riskScore,
+                    riskFlags, reason, fatal, false, calculatedSpeedKmh);
+        }
+
+        boolean hardAnomaly() {
+            return fatal || java.util.Set.of(
+                    "IMPOSSIBLE_SPEED", "TELEPORT", "ROUND_TRIP_TELEPORT",
+                    "ABNORMAL_ACCELERATION", "FATAL_REJECTED")
+                    .stream().anyMatch(flag -> riskFlags != null && riskFlags.contains(flag));
+        }
     }
 
     private record WaypointArrival(

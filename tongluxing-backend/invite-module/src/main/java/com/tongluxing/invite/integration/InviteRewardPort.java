@@ -3,12 +3,10 @@ package com.tongluxing.invite.integration;
 /**
  * 邀请奖励发放端口。
  *
- * <p>invite-module 只负责识别奖励资格和记录发放状态，具体发放成长值、优惠券等动作由实现该端口的外部模块完成。</p>
+ * <p>invite-module 负责从 invite_reward_rule 读取规则并固化奖励快照，
+ * 外部成长模块只按已确认的分值执行幂等发放。</p>
  */
 public interface InviteRewardPort {
-
-    /** 读取当前生效规则分值，用于在奖励记录中固化快照。 */
-    int rewardPoints(String ruleCode);
 
     /**
      * 发放邀请奖励。
@@ -16,6 +14,7 @@ public interface InviteRewardPort {
      * @param beneficiaryUserId 奖励受益人用户 ID
      * @param rewardBizNo 奖励业务幂等号
      * @param ruleCode 奖励规则编码
+     * @param points 本次规则快照确定的同路值
      */
-    void grantInviteReward(Long beneficiaryUserId, String rewardBizNo, String ruleCode);
+    void grantInviteReward(Long beneficiaryUserId, String rewardBizNo, String ruleCode, int points);
 }

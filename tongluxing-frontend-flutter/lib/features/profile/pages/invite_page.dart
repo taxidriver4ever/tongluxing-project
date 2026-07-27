@@ -123,7 +123,7 @@ class _InvitePageState extends State<InvitePage> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  '好友完成注册后，你将获得成长值',
+                  '好友完成邀请绑定后，你将获得 50 同路值',
                   style: TextStyle(color: Colors.white70),
                 ),
                 const SizedBox(height: 22),
@@ -243,7 +243,7 @@ class _InvitePageState extends State<InvitePage> {
                 _InviteStep(
                   number: '4',
                   title: '系统自动绑定并发放奖励',
-                  detail: '好友识别二维码后完成注册，系统会自动绑定邀请关系，无需人工上传截图审核。',
+                  detail: '好友在注册后 7 天内完成绑定，你获得 50 同路值；好友首次完成有效组队后再获得 100 同路值。',
                   last: true,
                 ),
               ],

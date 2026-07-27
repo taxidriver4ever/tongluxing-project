@@ -8,6 +8,8 @@ import '../../../app/routes.dart';
 import '../../../app/theme.dart';
 import '../../../data/services/app_services.dart';
 import '../../shop/pages/shop_home_page.dart';
+import '../../invite/pages/invite_bind_page.dart';
+import '../../invite/services/invite_service.dart';
 import 'customer_support_page.dart';
 import 'driving_license_page.dart';
 import 'invite_page.dart';
@@ -28,6 +30,7 @@ class ProfilePage extends StatefulWidget {
 class ProfilePageState extends State<ProfilePage> {
   Map<String, dynamic> profile = const {};
   Map<String, dynamic>? merchantApplication;
+  String inviteBindSubtitle = '注册 7 天内可填写';
   String avatarUrl = '';
   bool loading = false;
 
@@ -49,6 +52,13 @@ class ProfilePageState extends State<ProfilePage> {
         MerchantOnboardingService(api).latest(),
       ]);
       final nextProfile = Map<String, dynamic>.from(values[0] as Map);
+      var nextInviteBindSubtitle = inviteBindSubtitle;
+      try {
+        final status = await InviteBindingService(api).bindStatus();
+        nextInviteBindSubtitle = status.profileSubtitle;
+      } catch (_) {
+        // 邀请状态加载失败不影响个人中心其他功能。
+      }
       final avatarKey = nextProfile['avatarImageKey']?.toString() ?? '';
       var nextAvatarUrl = '';
       if (avatarKey.isNotEmpty) {
@@ -64,6 +74,7 @@ class ProfilePageState extends State<ProfilePage> {
         setState(() {
           profile = nextProfile;
           merchantApplication = values[1] as Map<String, dynamic>?;
+          inviteBindSubtitle = nextInviteBindSubtitle;
           avatarUrl = nextAvatarUrl;
         });
       }
@@ -265,6 +276,12 @@ class ProfilePageState extends State<ProfilePage> {
                     () => _open(const BadgePage()),
                   ),
                   _Menu(
+                    LucideIcons.scanQrCode,
+                    '输入邀请码',
+                    () => _open(const InviteBindPage(), refreshAfter: true),
+                    subtitle: inviteBindSubtitle,
+                  ),
+                  _Menu(
                     LucideIcons.userPlus,
                     '邀请好友',
                     () => _open(const InvitePage()),
@@ -380,11 +397,18 @@ class _ShopAppBar extends StatelessWidget implements PreferredSizeWidget {
 }
 
 class _Menu {
-  const _Menu(this.icon, this.label, this.onTap, {this.danger = false});
+  const _Menu(
+    this.icon,
+    this.label,
+    this.onTap, {
+    this.danger = false,
+    this.subtitle,
+  });
   final IconData icon;
   final String label;
   final VoidCallback onTap;
   final bool danger;
+  final String? subtitle;
 }
 
 class _MenuGroup extends StatelessWidget {
@@ -421,7 +445,7 @@ class _MenuRow extends StatelessWidget {
   Widget build(BuildContext context) => InkWell(
     onTap: item.onTap,
     child: SizedBox(
-      height: 52,
+      height: item.subtitle == null ? 52 : 62,
       child: Row(
         children: [
           const SizedBox(width: 18),
@@ -432,13 +456,29 @@ class _MenuRow extends StatelessWidget {
           ),
           const SizedBox(width: 18),
           Expanded(
-            child: Text(
-              item.label,
-              style: TextStyle(
-                fontSize: 15,
-                color: item.danger ? AppColors.danger : AppColors.text,
-                fontWeight: FontWeight.w600,
-              ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.label,
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: item.danger ? AppColors.danger : AppColors.text,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (item.subtitle?.isNotEmpty == true) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    item.subtitle!,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           Icon(

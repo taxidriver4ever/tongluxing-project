@@ -1,9 +1,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- The INTERNET permission is required for development. Specifically,
-         the Flutter tool needs it to communicate with the running application
-         to allow setting breakpoints, to provide hot reload, etc.
+    <!-- Flutter 调试服务与本地后端需要网络权限。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      仅 Debug 包：
+      1. 允许访问本地 Spring Boot HTTP 服务；
+      2. 使用调试专用网络安全配置，额外信任设备“用户证书”存储。
+
+      这样可兼容 Charles/Fiddler、校园网认证、HTTPS 过滤器等调试环境，
+      Release 包不会合并此文件，也不会放宽正式包的证书校验。
     -->
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <!-- 本地 Spring Boot 使用 HTTP；仅 debug 包允许明文流量。 -->
-    <application android:usesCleartextTraffic="true" />
+    <application
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config" />
 </manifest>

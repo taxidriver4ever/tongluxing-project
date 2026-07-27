@@ -1,6 +1,6 @@
 package com.tongluxing.drivertrack.vo;
 
-/** GPS 点上传、偏航提醒和分段结算响应。 */
+/** GPS 点上传、轨迹风控和分段状态响应。 */
 public record DriverTrackUploadResponse(
         String trackId,
         Integer distanceFromPrev,
@@ -10,6 +10,12 @@ public record DriverTrackUploadResponse(
         Integer settledStages,
         Integer grantedPoints,
         String reachedWaypointId,
-        String reachedWaypointName
+        String reachedWaypointName,
+        String pointStatus,
+        Integer riskScore,
+        String riskLevel,
+        Boolean settlementReviewRequired,
+        String message,
+        Boolean accepted
 ) {
 }

@@ -355,30 +355,44 @@ class TripService {
     required double longitude,
     required double latitude,
     required DateTime recordTime,
+    required double accuracy,
+    required int sequenceNo,
+    double? altitude,
     double? speed,
     double? direction,
-    double? accuracy,
+    DateTime? clientSendTime,
     String? deviceId,
-    int? sequenceNo,
     bool mockLocation = false,
-  }) async => Map<String, dynamic>.from(
-    await api.post(
-          '/v1/driver-tracks/points',
-          body: {
-            'tripId': tripId,
-            'longitude': longitude,
-            'latitude': latitude,
-            'speed': speed,
-            'direction': direction,
-            'accuracy': accuracy,
-            'recordTime': recordTime.toIso8601String(),
-            'deviceId': deviceId,
-            'sequenceNo': sequenceNo,
-            'mockLocation': mockLocation,
-          },
-        )
-        as Map,
-  );
+    String provider = 'fused',
+    double? batteryLevel,
+    String appState = 'foreground',
+  }) => uploadTrackPayload({
+    'tripId': tripId,
+    'longitude': longitude,
+    'latitude': latitude,
+    'altitude': altitude,
+    'speed': speed,
+    'direction': direction,
+    'accuracy': accuracy,
+    'recordTime': recordTime.toIso8601String(),
+    'clientSendTime': (clientSendTime ?? DateTime.now()).toIso8601String(),
+    'deviceId': deviceId,
+    'sequenceNo': sequenceNo,
+    'mockLocation': mockLocation,
+    'provider': provider,
+    'batteryLevel': batteryLevel,
+    'appState': appState,
+  });
+
+  Future<Map<String, dynamic>> uploadTrackPayload(
+    Map<String, dynamic> point,
+  ) async {
+    final body = Map<String, dynamic>.from(point)
+      ..['clientSendTime'] = DateTime.now().toIso8601String();
+    return Map<String, dynamic>.from(
+      await api.post('/v1/driver-tracks/points', body: body) as Map,
+    );
+  }
 
   Future<Map<String, dynamic>> mockDeviation(
     String tripId, {

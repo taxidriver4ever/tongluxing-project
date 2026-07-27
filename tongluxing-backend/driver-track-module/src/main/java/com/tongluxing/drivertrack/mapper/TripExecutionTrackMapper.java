@@ -45,14 +45,18 @@ public interface TripExecutionTrackMapper {
 
     @Insert("""
             insert ignore into trip_track_point
-              (id,execution_id,trip_id,user_id,device_id,sequence_no,longitude,latitude,
-               accuracy,speed,bearing,located_at,mock_location,point_status,valid_point,
-               raw_distance_from_previous_m,distance_from_previous_m,created_at,deleted)
+              (id,execution_id,trip_id,user_id,device_id,sequence_no,longitude,latitude,altitude,
+               accuracy,speed,bearing,provider,app_state,battery_level,located_at,client_send_time,
+               server_receive_time,mock_location,point_status,valid_point,risk_score,risk_flags,
+               reject_reason,calculated_speed_kmh,raw_distance_from_previous_m,
+               distance_from_previous_m,created_at,deleted)
             values
               (#{point.id},#{executionId},#{point.tripId},#{point.driverId},
-               #{point.deviceId},#{point.sequenceNo},#{point.longitude},#{point.latitude},
-               #{point.accuracy},#{point.speed},#{point.direction},#{point.recordTime},
-               #{point.mockLocation},#{point.pointStatus},#{point.validPoint},
+               #{point.deviceId},#{point.sequenceNo},#{point.longitude},#{point.latitude},#{point.altitude},
+               #{point.accuracy},#{point.speed},#{point.direction},#{point.provider},#{point.appState},
+               #{point.batteryLevel},#{point.recordTime},#{point.clientSendTime},#{point.serverReceiveTime},
+               #{point.mockLocation},#{point.pointStatus},#{point.validPoint},#{point.riskScore},
+               #{point.riskFlags},#{point.rejectReason},#{point.calculatedSpeedKmh},
                #{rawDistance},#{point.distanceFromPrev},#{point.createdAt},0)
             """)
     int insertPoint(@Param("executionId") Long executionId,

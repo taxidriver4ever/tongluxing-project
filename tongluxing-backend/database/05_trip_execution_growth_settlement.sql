@@ -1,6 +1,6 @@
 -- 行程执行、实际轨迹结算和队友距离告警（修订版方案）
 -- 规划路线只用于导航展示；以下结算字段只能由实际 GPS 轨迹产生。
--- 成长值：单次行程 floor(settlement_distance_m / 5000) * 10，不跨行程结转。
+-- 成长值：单次行程 floor(settlement_distance_m / 5000) * 1，不跨行程结转。
 
 SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='device_id')=0,
   'ALTER TABLE driver_track_record ADD COLUMN device_id VARCHAR(128) NULL', 'SELECT 1');
@@ -100,13 +100,23 @@ CREATE TABLE IF NOT EXISTS trip_track_point (
   sequence_no BIGINT NULL,
   longitude DECIMAL(10,6) NOT NULL,
   latitude DECIMAL(10,6) NOT NULL,
+  altitude DECIMAL(10,2) NULL,
   accuracy DECIMAL(10,2) NULL,
   speed DECIMAL(10,2) NULL,
   bearing DECIMAL(10,2) NULL,
+  provider VARCHAR(16) NOT NULL DEFAULT 'fused',
+  app_state VARCHAR(16) NOT NULL DEFAULT 'foreground',
+  battery_level INT NULL,
   located_at DATETIME NOT NULL,
+  client_send_time DATETIME NULL,
+  server_receive_time DATETIME NULL,
   mock_location TINYINT NOT NULL DEFAULT 0,
   point_status VARCHAR(32) NOT NULL,
   valid_point TINYINT NOT NULL DEFAULT 1,
+  risk_score INT NOT NULL DEFAULT 0,
+  risk_flags VARCHAR(255) NULL,
+  reject_reason VARCHAR(255) NULL,
+  calculated_speed_kmh DECIMAL(10,2) NOT NULL DEFAULT 0,
   raw_distance_from_previous_m INT NOT NULL DEFAULT 0,
   distance_from_previous_m INT NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL,
@@ -156,4 +166,46 @@ CREATE TABLE IF NOT EXISTS trip_track_source_switch (
   created_at DATETIME NOT NULL,
   deleted TINYINT NOT NULL DEFAULT 0,
   KEY idx_track_source_execution (execution_id, switched_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+CREATE TABLE IF NOT EXISTS trip_track_summary (
+  id BIGINT PRIMARY KEY,
+  trip_id BIGINT NOT NULL,
+  primary_user_id BIGINT NOT NULL,
+  raw_distance_meters INT NOT NULL DEFAULT 0,
+  filtered_distance_meters INT NOT NULL DEFAULT 0,
+  approved_distance_meters INT NOT NULL DEFAULT 0,
+  total_point_count INT NOT NULL DEFAULT 0,
+  valid_point_count INT NOT NULL DEFAULT 0,
+  invalid_point_count INT NOT NULL DEFAULT 0,
+  location_gap_count INT NOT NULL DEFAULT 0,
+  warning_count INT NOT NULL DEFAULT 0,
+  hard_anomaly_count INT NOT NULL DEFAULT 0,
+  risk_score INT NOT NULL DEFAULT 0,
+  risk_level VARCHAR(16) NOT NULL DEFAULT 'LOW',
+  settlement_status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  review_reason VARCHAR(255) NULL,
+  reviewer_id BIGINT NULL,
+  reviewed_at DATETIME NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  UNIQUE KEY uk_trip_track_summary_trip (trip_id, deleted),
+  KEY idx_trip_track_summary_risk (risk_level, settlement_status, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS trip_track_anomaly (
+  id BIGINT PRIMARY KEY,
+  trip_id BIGINT NOT NULL,
+  user_id BIGINT NOT NULL,
+  previous_point_id BIGINT NULL,
+  current_point_id BIGINT NULL,
+  anomaly_type VARCHAR(64) NOT NULL,
+  risk_score INT NOT NULL DEFAULT 0,
+  detail_json JSON NULL,
+  occurred_at DATETIME NOT NULL,
+  created_at DATETIME NOT NULL,
+  KEY idx_trip_track_anomaly_trip_time (trip_id, occurred_at),
+  KEY idx_trip_track_anomaly_user_time (user_id, occurred_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

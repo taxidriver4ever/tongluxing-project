@@ -2,13 +2,11 @@ package com.tongluxing.drivertrack.service.impl;
 
 import java.time.LocalDateTime;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.drivertrack.entity.DriverTrackDistanceRecord;
-import com.tongluxing.drivertrack.integration.DriverTrackGrowthPort;
 import com.tongluxing.drivertrack.mapper.DriverTrackDistanceRecordMapper;
 import com.tongluxing.drivertrack.service.MileageSettlementService;
 import com.tongluxing.drivertrack.vo.MileageSettlementResponse;
@@ -22,25 +20,16 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class MileageSettlementServiceImpl implements MileageSettlementService {
 
-    private static final String BIZ_TYPE_TRIP_MILEAGE = "TRIP_MILEAGE";
-    private static final String SETTLE_TYPE_MILESTONE = "MILEAGE_STAGE";
     private static final String SETTLE_TYPE_WAYPOINT = "WAYPOINT";
 
     private final DriverTrackDistanceRecordMapper distanceMapper;
-    private final DriverTrackGrowthPort growthPort;
-
-    @Value("${mileage.settlement.stage-meters:5000}")
-    private Integer stageMeters;
-
-    @Value("${mileage.growth.points-per-km:1}")
-    private Integer pointsPerKm;
 
     @Override
     @Transactional
     public MileageSettlementResponse settleMileage(Long tripId, Long userId, Integer distanceMeters) {
         int effectiveDistance = distanceMeters == null ? 0 : Math.max(0, distanceMeters);
         // 修订版规则：上传途中只记录，不实时发成长值。最终由行程结算一次性按
-        // floor(settlementDistance / 5000) * 10 发给所有有效成员，且不足 5km 不跨行程累计。
+        // floor(settlementDistance / 5000) * 1 发给所有有效成员，且不足 5km 不跨行程累计。
         return new MileageSettlementResponse(
                 String.valueOf(tripId),
                 String.valueOf(userId),
@@ -61,7 +50,7 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
             return new MileageSettlementResponse(String.valueOf(tripId), String.valueOf(userId),
                     effectiveDistance, 0, 0, true);
         }
-        // 途经点只记录到达事实，不发成长值；成长值在最终结算按每 5 公里 10 点统一发放。
+        // 途经点只记录到达事实，不发成长值；成长值在最终结算按每 5 公里 1 点统一发放。
         insertSettlement(tripId, userId, effectiveDistance, effectiveDistance,
                 SETTLE_TYPE_WAYPOINT, settleKey);
         return new MileageSettlementResponse(String.valueOf(tripId), String.valueOf(userId),
@@ -87,16 +76,4 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
         distanceMapper.insert(record);
     }
 
-    private int calculatePoints(int settledDistanceMeters) {
-        int normalizedPointsPerKm = pointsPerKm == null || pointsPerKm <= 0 ? 1 : pointsPerKm;
-        return Math.max(1, (settledDistanceMeters / 1000) * normalizedPointsPerKm);
-    }
-
-    private String settleKey(Long userId, int stageDistance) {
-        return userId + ":" + BIZ_TYPE_TRIP_MILEAGE + ":" + stageDistance;
-    }
-
-    private String remark(int stageDistance) {
-        return "累计完成" + (stageDistance / 1000) + "公里驾驶";
-    }
 }

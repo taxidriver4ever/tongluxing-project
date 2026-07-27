@@ -43,6 +43,7 @@ spring:
         - classpath:db/customer-service-schema.sql
         - classpath:db/notify-schema.sql
         - classpath:db/admin-schema.sql
+        - classpath:db/mvp-v3-migration.sql
   data:
     redis:
       host: ${REDIS_HOST}
@@ -134,3 +135,40 @@ management:
 logging:
   level:
     com.tongluxing: debug
+
+# MVP 轨迹风控阈值：后台首轮内测只读，统一配置，禁止业务代码散落硬编码。
+trajectory:
+  moving-sample-seconds: ${TRAJECTORY_MOVING_SAMPLE_SECONDS:5}
+  stationary-sample-seconds: ${TRAJECTORY_STATIONARY_SAMPLE_SECONDS:10}
+  min-segment-seconds: ${TRAJECTORY_MIN_SEGMENT_SECONDS:2}
+  normal-segment-max-seconds: ${TRAJECTORY_NORMAL_SEGMENT_MAX_SECONDS:20}
+  gap-segment-max-seconds: ${TRAJECTORY_GAP_SEGMENT_MAX_SECONDS:60}
+  normal-accuracy-meters: ${TRAJECTORY_NORMAL_ACCURACY_METERS:30}
+  acceptable-accuracy-meters: ${TRAJECTORY_ACCEPTABLE_ACCURACY_METERS:80}
+  low-confidence-accuracy-meters: ${TRAJECTORY_LOW_CONFIDENCE_ACCURACY_METERS:50}
+  stationary-drift-meters: ${TRAJECTORY_STATIONARY_DRIFT_METERS:8}
+  stationary-drift-speed-kmh: ${TRAJECTORY_STATIONARY_DRIFT_SPEED_KMH:3}
+  waypoint-radius-meters: ${TRAJECTORY_WAYPOINT_RADIUS_METERS:100}
+  waypoint-min-points: ${TRAJECTORY_WAYPOINT_MIN_POINTS:2}
+  waypoint-min-duration-seconds: ${TRAJECTORY_WAYPOINT_MIN_DURATION_SECONDS:10}
+  waypoint-evidence-window-seconds: ${TRAJECTORY_WAYPOINT_EVIDENCE_WINDOW_SECONDS:30}
+  acceleration-max-segment-seconds: ${TRAJECTORY_ACCELERATION_MAX_SEGMENT_SECONDS:10}
+  destination-radius-meters: ${TRAJECTORY_DESTINATION_RADIUS_METERS:100}
+  destination-min-points: ${TRAJECTORY_DESTINATION_MIN_POINTS:3}
+  destination-min-duration-seconds: ${TRAJECTORY_DESTINATION_MIN_DURATION_SECONDS:15}
+  valid-point-ratio-percent: ${TRAJECTORY_VALID_POINT_RATIO_PERCENT:70}
+  critical-valid-point-ratio-percent: ${TRAJECTORY_CRITICAL_VALID_POINT_RATIO_PERCENT:50}
+  normal-speed-max-kmh: ${TRAJECTORY_NORMAL_SPEED_MAX_KMH:160}
+  warning-speed-max-kmh: ${TRAJECTORY_WARNING_SPEED_MAX_KMH:200}
+  fatal-speed-kmh: ${TRAJECTORY_FATAL_SPEED_KMH:1000}
+  suspicious-acceleration-mps2: ${TRAJECTORY_SUSPICIOUS_ACCELERATION_MPS2:8}
+  abnormal-acceleration-mps2: ${TRAJECTORY_ABNORMAL_ACCELERATION_MPS2:12}
+  teleport-five-seconds-meters: ${TRAJECTORY_TELEPORT_5S_METERS:300}
+  teleport-ten-seconds-meters: ${TRAJECTORY_TELEPORT_10S_METERS:600}
+  medium-risk-score: ${TRAJECTORY_MEDIUM_RISK_SCORE:5}
+  high-risk-score: ${TRAJECTORY_HIGH_RISK_SCORE:10}
+  max-future-location-seconds: ${TRAJECTORY_MAX_FUTURE_LOCATION_SECONDS:300}
+  low-confidence-max-bearing-change-degrees: ${TRAJECTORY_LOW_CONFIDENCE_MAX_BEARING_CHANGE_DEGREES:150}
+  round-trip-window-seconds: ${TRAJECTORY_ROUND_TRIP_WINDOW_SECONDS:60}
+  round-trip-far-distance-meters: ${TRAJECTORY_ROUND_TRIP_FAR_DISTANCE_METERS:300}
+  round-trip-return-radius-meters: ${TRAJECTORY_ROUND_TRIP_RETURN_RADIUS_METERS:100}

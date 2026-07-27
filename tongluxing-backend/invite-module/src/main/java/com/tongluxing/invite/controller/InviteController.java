@@ -1,64 +1,60 @@
 package com.tongluxing.invite.controller;
 
-import com.tongluxing.invite.dto.InviteRewardResult;
 import org.springframework.web.bind.annotation.*;
+
 import com.tongluxing.common.result.Result;
 import com.tongluxing.invite.dto.CompleteRequest;
 import com.tongluxing.invite.dto.InviteBindRequest;
+import com.tongluxing.invite.dto.InvitePreviewRequest;
+import com.tongluxing.invite.dto.InviteRewardResult;
 import com.tongluxing.invite.model.InviteModels.*;
 import com.tongluxing.invite.service.InviteService;
-import lombok.RequiredArgsConstructor;
-import jakarta.validation.Valid;
 
-/**
- * 邀请模块接口控制器。
- *
- * <p>对外提供邀请码查询、邀请记录和奖励进度查询；邀请绑定由 UserRegisteredEvent 驱动。</p>
- */
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+
+/** 邀请模块接口控制器。 */
 @RestController
 @RequiredArgsConstructor
 public class InviteController {
 
-    /** 邀请业务服务。 */
     private final InviteService service;
 
-    /** 获取当前登录用户的邀请码。 */
-    @GetMapping("/v1/invites/me/code")
+    @GetMapping({"/v1/invites/me/code", "/v1/invites/code"})
     public Result<InviteCodeVO> code() {
         return Result.success(service.currentCode());
     }
 
-    /** 联调兼容路径：获取当前用户邀请码，不存在时自动生成。 */
-    @GetMapping("/v1/invites/code")
-    public Result<InviteCodeVO> simpleCode() {
-        return Result.success(service.currentCode());
-    }
-
-    /** 获取当前登录用户七天轮换的邀请二维码。 */
     @GetMapping("/v1/invites/me/qr")
     public Result<InviteQrVO> qr() {
         return Result.success(service.currentQr());
     }
 
-    /** 匿名校验扫码令牌是否真实、启用且未过期。 */
     @GetMapping("/v1/invites/qr/validate")
     public Result<InviteQrValidationVO> validateQr(@RequestParam String token) {
         return Result.success(service.validateQr(token));
     }
 
-    /** 当前登录用户绑定邀请码；注册时已绑定则幂等返回原关系。 */
-    @PostMapping("/v1/invites/bind")
-    public Result<InviteBindVO> bind(@Valid @RequestBody InviteBindRequest request) {
-        return Result.success(service.bindCurrent(request.inviteCode()));
+    @GetMapping("/v1/invites/bind-status")
+    public Result<InviteBindStatusVO> bindStatus() {
+        return Result.success(service.currentBindStatus());
     }
 
-    /** 查询当前登录用户的邀请奖励进度摘要。 */
-    @GetMapping("/v1/invites/me/summary")
+    @PostMapping("/v1/invites/preview")
+    public Result<InvitePreviewVO> preview(@Valid @RequestBody InvitePreviewRequest request) {
+        return Result.success(service.previewCurrent(request.inviteCode()));
+    }
+
+    @PostMapping("/v1/invites/bind")
+    public Result<InviteBindVO> bind(@Valid @RequestBody InviteBindRequest request) {
+        return Result.success(service.bindCurrent(request));
+    }
+
+    @GetMapping({"/v1/invites/me/summary", "/v1/invites/me/rewards"})
     public Result<InviteRewardProgressVO> summary() {
         return Result.success(service.currentProgress());
     }
 
-    /** 分页查询当前登录用户邀请过的人。 */
     @GetMapping("/v1/invites/me/records")
     public Result<PageResult<InvitationVO>> records(@RequestParam(required = false) String status,
                                                     @RequestParam(defaultValue = "1") int page,
@@ -66,13 +62,6 @@ public class InviteController {
         return Result.success(service.currentRecords(status, page, size));
     }
 
-    /** 查询当前登录用户的邀请奖励进度；与 summary 保持同一份数据。 */
-    @GetMapping("/v1/invites/me/rewards")
-    public Result<InviteRewardProgressVO> rewards() {
-        return Result.success(service.currentProgress());
-    }
-
-    /** 内部接口：被邀请人首次完成组队后，触发邀请关系转有效并发放奖励。 */
     @PostMapping("/internal/v1/invites/first-team-completed")
     public Result<InviteRewardResult> completed(@RequestBody CompleteRequest request) {
         return Result.success(service.completeFirstTeam(request.userId(), request.teamId(), request.bizId()));

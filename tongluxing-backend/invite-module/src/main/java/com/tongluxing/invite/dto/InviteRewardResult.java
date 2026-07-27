@@ -8,7 +8,7 @@ public record InviteRewardResult(
         Long inviterUserId,
         /** 奖励业务幂等号。 */
         String rewardBizNo,
-        /** 处理状态：NO_RELATION、DUPLICATE、GRANTED、FAILED。 */
+        /** 处理状态：NO_RELATION、DUPLICATE、ISSUED、FAILED。 */
         String status
 ) {
 }

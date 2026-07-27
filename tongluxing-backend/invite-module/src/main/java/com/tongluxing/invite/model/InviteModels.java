@@ -3,72 +3,75 @@ package com.tongluxing.invite.model;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/**
- * 邀请模块对外返回模型集合。
- *
- * <p>这些 record 只描述 invite-module 自身的接口返回结构，避免邀请业务继续复用 user-module 的模型。</p>
- */
+/** 邀请模块对外返回模型集合。 */
 public final class InviteModels {
 
     private InviteModels() {
     }
 
-    /**
-     * 分页结果。
-     *
-     * @param records 当前页数据
-     * @param total 总记录数
-     * @param page 当前页码
-     * @param size 每页数量
-     * @param <T> 记录类型
-     */
     public record PageResult<T>(List<T> records, long total, int page, int size) {
     }
 
-    /**
-     * 当前用户邀请码信息。
-     *
-     * @param inviteCode 邀请码
-     * @param scene 分享场景参数
-     * @param enabled 邀请码是否启用
-     */
     public record InviteCodeVO(String inviteCode, String scene, Boolean enabled) {
     }
 
-    /** 七天轮换的邀请二维码。二维码令牌经过服务端签名，不保存敏感明文。 */
+    /** 七天轮换的邀请二维码。 */
     public record InviteQrVO(
             String inviteCode, String qrToken, String qrContent, String qrImageBase64,
             LocalDateTime generatedAt, LocalDateTime expiresAt, Long remainingSeconds
     ) {
     }
 
-    /** 邀请二维码验签与过期校验结果。 */
     public record InviteQrValidationVO(
             Boolean valid, String status, String inviteCode, LocalDateTime expiresAt
     ) {
     }
 
-    /**
-     * 邀请码绑定结果。
-     *
-     * @param inviterUserId 邀请人用户 ID
-     * @param inviteeUserId 被邀请人用户 ID
-     * @param status 绑定状态
-     * @param boundAt 绑定时间
-     */
-    public record InviteBindVO(Long inviterUserId, Long inviteeUserId, String status, LocalDateTime boundAt) {
+    /** 对外展示的邀请人最小资料，不包含手机号等敏感信息。 */
+    public record InviterBriefVO(String nickname, String avatarUrl) {
     }
 
-    /**
-     * 邀请记录。
-     *
-     * @param relationId 邀请关系 ID
-     * @param inviteeUserId 被邀请人用户 ID
-     * @param inviteCode 绑定时使用的邀请码
-     * @param status 邀请关系状态
-     * @param boundAt 绑定时间
-     * @param firstTeamCompletedAt 被邀请人首次完成组队时间
-     */
+    /** 当前用户邀请绑定资格。 */
+    public record InviteBindStatusVO(
+            Boolean bound,
+            Boolean eligible,
+            Boolean expired,
+            LocalDateTime registeredAt,
+            LocalDateTime expireAt,
+            Long remainingSeconds,
+            LocalDateTime boundAt,
+            InviterBriefVO inviter
+    ) {
+    }
+
+    /** 绑定前预览结果。 */
+    public record InvitePreviewVO(
+            Boolean valid,
+            String inviterNickname,
+            String inviterAvatarUrl
+    ) {
+    }
+
+    /** 绑定成功后仅用于结果展示的奖励快照。 */
+    public record InviteBindRewardVO(
+            Integer inviterGrowthValue,
+            Integer inviteeGrowthValue,
+            Boolean newUserCouponTriggered
+    ) {
+    }
+
+    /** 邀请码绑定结果。 */
+    public record InviteBindVO(
+            Boolean bound,
+            Long relationId,
+            Long inviterUserId,
+            Long inviteeUserId,
+            String status,
+            LocalDateTime boundAt,
+            InviteBindRewardVO reward
+    ) {
+    }
+
     public record InvitationVO(
             Long relationId,
             Long inviteeUserId,
@@ -79,13 +82,6 @@ public final class InviteModels {
     ) {
     }
 
-    /**
-     * 邀请奖励进度。
-     *
-     * @param validInviteCount 有效邀请数
-     * @param nextRewardNeed 距离下一档奖励还差多少有效邀请
-     * @param grantedRuleCodes 已发放奖励规则编码
-     */
     public record InviteRewardProgressVO(
             Integer validInviteCount,
             Integer nextRewardNeed,

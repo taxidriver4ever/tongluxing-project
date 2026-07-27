@@ -54,6 +54,14 @@ DROP TABLE IF EXISTS `merchant_reward_pool_config`;
 DROP TABLE IF EXISTS `merchant_coupon_pool`;
 DROP TABLE IF EXISTS `merchant_product`;
 DROP TABLE IF EXISTS `merchant_profile`;
+DROP TABLE IF EXISTS `trip_track_anomaly`;
+DROP TABLE IF EXISTS `trip_track_summary`;
+DROP TABLE IF EXISTS `trip_waypoint_arrival`;
+DROP TABLE IF EXISTS `trip_track_point`;
+DROP TABLE IF EXISTS `trip_execution_member`;
+DROP TABLE IF EXISTS `trip_execution`;
+DROP TABLE IF EXISTS `trip_member_distance_alert`;
+DROP TABLE IF EXISTS `trip_mileage_settlement`;
 DROP TABLE IF EXISTS `driver_track_deviation_record`;
 DROP TABLE IF EXISTS `driver_track_distance_record`;
 DROP TABLE IF EXISTS `driver_track_record`;
@@ -95,6 +103,7 @@ DROP TABLE IF EXISTS `vehicle_certification`;
 DROP TABLE IF EXISTS `vehicle_profile`;
 DROP TABLE IF EXISTS `coupon_user`;
 DROP TABLE IF EXISTS `coupon_template`;
+DROP TABLE IF EXISTS `invite_reward_rule`;
 DROP TABLE IF EXISTS `invite_reward_record`;
 DROP TABLE IF EXISTS `invite_relation`;
 DROP TABLE IF EXISTS `invite_code`;
@@ -398,28 +407,58 @@ CREATE TABLE IF NOT EXISTS invite_code (
 CREATE TABLE IF NOT EXISTS invite_relation (
                                                id BIGINT NOT NULL, inviter_user_id BIGINT NOT NULL, invitee_user_id BIGINT NOT NULL,
                                                invite_code VARCHAR(16) NULL, relation_status VARCHAR(16) NOT NULL DEFAULT 'REGISTERED',
-                                               bind_source VARCHAR(32) NOT NULL DEFAULT 'LINK',
+                                               bind_source VARCHAR(32) NOT NULL DEFAULT 'MANUAL_CODE',
                                                bind_source_value VARCHAR(64) NULL,
+                                               request_id VARCHAR(64) NULL,
                                                invitee_registered_at DATETIME NULL,
                                                bound_at DATETIME NOT NULL, first_team_completed_at DATETIME NULL,
                                                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                                                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                                                deleted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (id),
                                                UNIQUE KEY uk_invite_relation_invitee (invitee_user_id, deleted),
+                                               UNIQUE KEY uk_invite_relation_request (request_id, deleted),
                                                KEY idx_invite_relation_inviter (inviter_user_id, relation_status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE TABLE IF NOT EXISTS invite_reward_record (
-                                                    id BIGINT NOT NULL, relation_id BIGINT NOT NULL, beneficiary_user_id BIGINT NOT NULL,
-                                                    rule_code VARCHAR(32) NOT NULL, reward_biz_no VARCHAR(64) NOT NULL,
-                                                    reward_snapshot_json JSON NOT NULL, reward_status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
-                                                    failure_reason VARCHAR(255) NULL, granted_at DATETIME NULL,
-                                                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                                                    deleted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (id),
-                                                    UNIQUE KEY uk_invite_reward_biz (reward_biz_no, deleted),
-                                                    UNIQUE KEY uk_invite_reward_stage (beneficiary_user_id, rule_code, deleted),
-                                                    KEY idx_invite_reward_user (beneficiary_user_id, reward_status, created_at)
+  id BIGINT NOT NULL, relation_id BIGINT NOT NULL, beneficiary_user_id BIGINT NOT NULL,
+  inviter_user_id BIGINT NOT NULL, invitee_user_id BIGINT NOT NULL,
+  rule_code VARCHAR(64) NOT NULL, reward_rule_code VARCHAR(64) NOT NULL,
+  reward_type VARCHAR(32) NOT NULL DEFAULT 'GROWTH_VALUE', reward_value INT NOT NULL DEFAULT 0,
+  reward_biz_no VARCHAR(64) NOT NULL, idempotency_key VARCHAR(128) NOT NULL,
+  reward_snapshot_json JSON NOT NULL, reward_status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+  triggered_at DATETIME NOT NULL, failure_reason VARCHAR(255) NULL,
+  granted_at DATETIME NULL, issued_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (id),
+  UNIQUE KEY uk_invite_reward_biz (reward_biz_no, deleted),
+  UNIQUE KEY uk_invite_reward_idempotency (idempotency_key, deleted),
+  UNIQUE KEY uk_invite_reward_relation_rule (relation_id, rule_code, deleted),
+  KEY idx_invite_reward_user (beneficiary_user_id, reward_status, created_at),
+  KEY idx_invite_reward_invitee (invitee_user_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS invite_reward_rule (
+  id BIGINT NOT NULL PRIMARY KEY,
+  rule_code VARCHAR(64) NOT NULL,
+  reward_type VARCHAR(32) NOT NULL DEFAULT 'GROWTH_VALUE',
+  reward_value INT NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'ENABLED',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  UNIQUE KEY uk_invite_reward_rule_code (rule_code, deleted)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT IGNORE INTO invite_reward_rule
+(id, rule_code, reward_type, reward_value, status, created_at, updated_at, deleted)
+VALUES
+(202607270001, 'INVITE_REGISTER_SUCCESS', 'GROWTH_VALUE', 50, 'ENABLED', NOW(), NOW(), 0),
+(202607270002, 'INVITEE_FIRST_TEAM_COMPLETED', 'GROWTH_VALUE', 100, 'ENABLED', NOW(), NOW(), 0),
+(202607270003, 'INVITE_STAGE_3', 'GROWTH_VALUE', 200, 'ENABLED', NOW(), NOW(), 0),
+(202607270004, 'INVITE_STAGE_10', 'GROWTH_VALUE', 500, 'ENABLED', NOW(), NOW(), 0),
+(202607270005, 'INVITE_STAGE_30', 'GROWTH_VALUE', 2000, 'ENABLED', NOW(), NOW(), 0),
+(202607270006, 'INVITE_STAGE_50', 'GROWTH_VALUE', 5000, 'ENABLED', NOW(), NOW(), 0);
 
 -- ============================================================================
 -- coupon-module
@@ -1214,53 +1253,236 @@ CREATE TABLE IF NOT EXISTS file_storage (
 -- driver-track-module
 -- source: driver-track-module/src/main/resources/db/driver-track-schema.sql
 -- ============================================================================
-create table if not exists driver_track_record (
-                                                   id bigint primary key,
-                                                   trip_id bigint not null,
-                                                   driver_id bigint not null,
-                                                   longitude decimal(10,6) not null,
-                                                   latitude decimal(10,6) not null,
-                                                   speed decimal(10,2) null,
-                                                   direction decimal(10,2) null,
-                                                   accuracy decimal(10,2) null,
-                                                   distance_from_prev int not null default 0,
-                                                   record_time datetime not null,
-                                                   created_at datetime not null,
-                                                   deleted tinyint not null default 0,
-                                                   key idx_driver_track_trip_time (trip_id, record_time),
-                                                   key idx_driver_track_driver_time (driver_id, record_time)
-);
+CREATE TABLE IF NOT EXISTS driver_track_record (
+    id BIGINT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    driver_id BIGINT NOT NULL,
+    longitude DECIMAL(10,6) NOT NULL,
+    latitude DECIMAL(10,6) NOT NULL,
+    altitude DECIMAL(10,2) NULL,
+    speed DECIMAL(10,2) NULL,
+    direction DECIMAL(10,2) NULL,
+    accuracy DECIMAL(10,2) NOT NULL,
+    raw_distance_from_prev INT NOT NULL DEFAULT 0,
+    distance_from_prev INT NOT NULL DEFAULT 0,
+    calculated_speed_kmh DECIMAL(10,2) NOT NULL DEFAULT 0,
+    provider VARCHAR(16) NOT NULL DEFAULT 'fused',
+    app_state VARCHAR(16) NOT NULL DEFAULT 'foreground',
+    battery_level INT NULL,
+    device_id VARCHAR(128) NULL,
+    sequence_no BIGINT NOT NULL,
+    mock_location TINYINT NOT NULL DEFAULT 0,
+    point_status VARCHAR(32) NOT NULL DEFAULT 'ACCEPTED',
+    valid_point TINYINT NOT NULL DEFAULT 1,
+    risk_score INT NOT NULL DEFAULT 0,
+    risk_flags VARCHAR(255) NULL,
+    reject_reason VARCHAR(255) NULL,
+    record_time DATETIME NOT NULL,
+    client_send_time DATETIME NULL,
+    server_receive_time DATETIME NOT NULL,
+    created_at DATETIME NOT NULL,
+    deleted TINYINT NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_driver_track_sequence (trip_id, driver_id, sequence_no, deleted),
+    KEY idx_driver_track_trip_time (trip_id, record_time),
+    KEY idx_driver_track_driver_time (driver_id, record_time),
+    KEY idx_driver_track_status (trip_id, point_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-create table if not exists driver_track_distance_record (
-                                                            id bigint primary key,
-                                                            trip_id bigint not null,
-                                                            driver_id bigint not null,
-                                                            total_distance int not null default 0,
-                                                            last_settle_distance int not null default 0,
-                                                            settle_type varchar(32) not null,
-                                                            settle_key varchar(128) not null,
-                                                            settle_time datetime not null,
-                                                            event_published tinyint not null default 0,
-                                                            created_at datetime not null,
-                                                            updated_at datetime not null,
-                                                            deleted tinyint not null default 0,
-                                                            unique key uk_driver_track_distance_settle_key (settle_key, deleted),
-                                                            key idx_driver_track_distance_trip_driver (trip_id, driver_id, updated_at)
-);
+CREATE TABLE IF NOT EXISTS driver_track_distance_record (
+    id BIGINT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    driver_id BIGINT NOT NULL,
+    total_distance INT NOT NULL DEFAULT 0,
+    last_settle_distance INT NOT NULL DEFAULT 0,
+    settle_type VARCHAR(32) NOT NULL,
+    settle_key VARCHAR(128) NOT NULL,
+    settle_time DATETIME NOT NULL,
+    event_published TINYINT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    deleted TINYINT NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_driver_track_distance_settle_key (settle_key, deleted),
+    KEY idx_driver_track_distance_trip_driver (trip_id, driver_id, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-create table if not exists driver_track_deviation_record (
-                                                             id bigint primary key,
-                                                             trip_id bigint not null,
-                                                             driver_id bigint not null,
-                                                             longitude decimal(10,6) not null,
-                                                             latitude decimal(10,6) not null,
-                                                             deviation_distance int not null default 0,
-                                                             deviation_status tinyint not null default 0,
-                                                             record_time datetime not null,
-                                                             created_at datetime not null,
-                                                             deleted tinyint not null default 0,
-                                                             key idx_driver_track_deviation_trip_driver_time (trip_id, driver_id, record_time)
-);
+CREATE TABLE IF NOT EXISTS driver_track_deviation_record (
+    id BIGINT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    driver_id BIGINT NOT NULL,
+    longitude DECIMAL(10,6) NOT NULL,
+    latitude DECIMAL(10,6) NOT NULL,
+    deviation_distance INT NOT NULL DEFAULT 0,
+    deviation_status TINYINT NOT NULL DEFAULT 0,
+    record_time DATETIME NOT NULL,
+    created_at DATETIME NOT NULL,
+    deleted TINYINT NOT NULL DEFAULT 0,
+    KEY idx_driver_track_deviation_trip_driver_time (trip_id, driver_id, record_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS trip_track_summary (
+    id BIGINT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    primary_user_id BIGINT NOT NULL,
+    raw_distance_meters INT NOT NULL DEFAULT 0,
+    filtered_distance_meters INT NOT NULL DEFAULT 0,
+    approved_distance_meters INT NOT NULL DEFAULT 0,
+    total_point_count INT NOT NULL DEFAULT 0,
+    valid_point_count INT NOT NULL DEFAULT 0,
+    invalid_point_count INT NOT NULL DEFAULT 0,
+    location_gap_count INT NOT NULL DEFAULT 0,
+    warning_count INT NOT NULL DEFAULT 0,
+    hard_anomaly_count INT NOT NULL DEFAULT 0,
+    risk_score INT NOT NULL DEFAULT 0,
+    risk_level VARCHAR(16) NOT NULL DEFAULT 'LOW',
+    settlement_status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+    review_reason VARCHAR(255) NULL,
+    reviewer_id BIGINT NULL,
+    reviewed_at DATETIME NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    deleted TINYINT NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_trip_track_summary_trip (trip_id, deleted),
+    KEY idx_trip_track_summary_risk (risk_level, settlement_status, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS trip_track_anomaly (
+    id BIGINT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    previous_point_id BIGINT NULL,
+    current_point_id BIGINT NULL,
+    anomaly_type VARCHAR(64) NOT NULL,
+    risk_score INT NOT NULL DEFAULT 0,
+    detail_json JSON NULL,
+    occurred_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL,
+    KEY idx_trip_track_anomaly_trip_time (trip_id, occurred_at),
+    KEY idx_trip_track_anomaly_user_time (user_id, occurred_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS trip_member_distance_alert (
+    id BIGINT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    captain_user_id BIGINT NOT NULL,
+    member_user_id BIGINT NOT NULL,
+    alert_level VARCHAR(24) NOT NULL,
+    distance_m INT NOT NULL,
+    started_at DATETIME NOT NULL,
+    notified_at DATETIME NULL,
+    recovered_at DATETIME NULL,
+    acknowledged_at DATETIME NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    deleted TINYINT NOT NULL DEFAULT 0,
+    KEY idx_trip_member_alert_active (trip_id, member_user_id, recovered_at, deleted)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS trip_execution (
+    id BIGINT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    captain_user_id BIGINT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    planned_distance_m INT NOT NULL DEFAULT 0,
+    raw_gps_distance_m INT NOT NULL DEFAULT 0,
+    matched_road_distance_m INT NOT NULL DEFAULT 0,
+    estimated_gap_distance_m INT NOT NULL DEFAULT 0,
+    settlement_distance_m INT NOT NULL DEFAULT 0,
+    started_at DATETIME NULL,
+    ended_at DATETIME NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    deleted TINYINT NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_trip_execution_trip (trip_id, deleted)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS trip_execution_member (
+    id BIGINT PRIMARY KEY,
+    execution_id BIGINT NOT NULL,
+    trip_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    member_role VARCHAR(24) NOT NULL,
+    member_status VARCHAR(32) NOT NULL,
+    ready_at DATETIME NULL,
+    joined_execution_at DATETIME NULL,
+    left_at DATETIME NULL,
+    eligible_flag TINYINT NOT NULL DEFAULT 0,
+    ineligible_reason VARCHAR(128) NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    deleted TINYINT NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_execution_member (execution_id, user_id, deleted)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS trip_track_point (
+    id BIGINT PRIMARY KEY,
+    execution_id BIGINT NOT NULL,
+    trip_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    device_id VARCHAR(128) NULL,
+    sequence_no BIGINT NULL,
+    longitude DECIMAL(10,6) NOT NULL,
+    latitude DECIMAL(10,6) NOT NULL,
+    altitude DECIMAL(10,2) NULL,
+    accuracy DECIMAL(10,2) NULL,
+    speed DECIMAL(10,2) NULL,
+    bearing DECIMAL(10,2) NULL,
+    provider VARCHAR(16) NOT NULL DEFAULT 'fused',
+    app_state VARCHAR(16) NOT NULL DEFAULT 'foreground',
+    battery_level INT NULL,
+    located_at DATETIME NOT NULL,
+    client_send_time DATETIME NULL,
+    server_receive_time DATETIME NULL,
+    mock_location TINYINT NOT NULL DEFAULT 0,
+    point_status VARCHAR(32) NOT NULL,
+    valid_point TINYINT NOT NULL DEFAULT 1,
+    risk_score INT NOT NULL DEFAULT 0,
+    risk_flags VARCHAR(255) NULL,
+    reject_reason VARCHAR(255) NULL,
+    calculated_speed_kmh DECIMAL(10,2) NOT NULL DEFAULT 0,
+    raw_distance_from_previous_m INT NOT NULL DEFAULT 0,
+    distance_from_previous_m INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL,
+    deleted TINYINT NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_track_device_sequence (execution_id, user_id, device_id, sequence_no),
+    KEY idx_track_execution_time (execution_id, located_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS trip_waypoint_arrival (
+    id BIGINT PRIMARY KEY,
+    execution_id BIGINT NOT NULL,
+    trip_id BIGINT NOT NULL,
+    waypoint_id BIGINT NULL,
+    arrival_type VARCHAR(24) NOT NULL DEFAULT 'WAYPOINT',
+    user_id BIGINT NOT NULL,
+    first_inside_at DATETIME NOT NULL,
+    confirmed_at DATETIME NOT NULL,
+    evidence_point_count INT NOT NULL,
+    distance_m INT NOT NULL,
+    created_at DATETIME NOT NULL,
+    deleted TINYINT NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_execution_waypoint_arrival (execution_id, waypoint_id, arrival_type, deleted)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS trip_mileage_settlement (
+    id BIGINT PRIMARY KEY,
+    trip_id BIGINT NOT NULL,
+    raw_gps_distance_m INT NOT NULL DEFAULT 0,
+    matched_road_distance_m INT NOT NULL DEFAULT 0,
+    estimated_gap_distance_m INT NOT NULL DEFAULT 0,
+    settlement_distance_m INT NOT NULL DEFAULT 0,
+    track_coverage_rate INT NOT NULL DEFAULT 0,
+    estimated_ratio INT NOT NULL DEFAULT 0,
+    quality_status VARCHAR(32) NOT NULL,
+    settlement_status VARCHAR(32) NOT NULL,
+    growth_value INT NOT NULL DEFAULT 0,
+    reason VARCHAR(255) NULL,
+    settled_at DATETIME NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    deleted TINYINT NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_trip_mileage_settlement (trip_id, deleted)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 
 -- ============================================================================
 -- merchant-module

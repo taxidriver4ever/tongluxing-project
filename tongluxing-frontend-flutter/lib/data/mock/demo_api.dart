@@ -106,6 +106,54 @@ class DemoApi {
     if (path == '/v1/invites/me/summary') {
       return {'inviteCount': 12, 'rewardAmount': 260, 'pendingCount': 2};
     }
+    if (path == '/v1/invites/bind-status') {
+      return {
+        'bound': false,
+        'eligible': true,
+        'expired': false,
+        'registeredAt': '2026-07-27T10:00:00',
+        'expireAt': '2026-08-03T10:00:00',
+        'remainingSeconds': 604800,
+        'inviter': null,
+      };
+    }
+    if (path == '/v1/invites/preview') {
+      return {
+        'valid': true,
+        'inviterNickname': '同路好友',
+        'inviterAvatarUrl': null,
+      };
+    }
+    if (path == '/v1/invites/bind') {
+      return {
+        'bound': true,
+        'relationId': 'demo-relation',
+        'boundAt': DateTime.now().toIso8601String(),
+        'reward': {
+          'inviterGrowthValue': 50,
+          'inviteeGrowthValue': 0,
+          'newUserCouponTriggered': false,
+        },
+      };
+    }
+    if (path == '/v1/invites/qr/validate') {
+      return {'valid': true, 'inviteCode': 'TLX2026'};
+    }
+    if (path == '/v1/driver-tracks/points' && method == 'POST') {
+      return {
+        'trackId': 'demo-track',
+        'distanceFromPrev': 0,
+        'totalDistance': 0,
+        'settledStages': 0,
+        'grantedPoints': 0,
+        'pointStatus': 'ACCEPTED',
+        'riskScore': 0,
+        'riskLevel': 'LOW',
+        'reviewRequired': false,
+        'message': '',
+        'accepted': true,
+      };
+    }
     return null;
   }
 

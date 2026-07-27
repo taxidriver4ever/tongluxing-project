@@ -498,124 +498,127 @@ class _SearchSheet extends StatelessWidget {
       ],
     ),
     clipBehavior: Clip.antiAlias,
-    child: Column(
-      children: [
-        // 头部固定，避免抽屉滚动后搜索框被带出可视区域。
-        InkWell(
-          onTap: onHandleTap,
-          child: const Padding(
-            padding: EdgeInsets.symmetric(vertical: 5),
-            child: SizedBox(
-              width: 32,
-              height: 4,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Color(0xFFD0D5DD),
-                  borderRadius: BorderRadius.all(Radius.circular(99)),
-                ),
-              ),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-          child: Container(
-            height: 44,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF4F6F8),
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: const Color(0xFFE4E7EC)),
-            ),
-            child: TextField(
-              controller: searchController,
-              focusNode: focusNode,
-              onChanged: onChanged,
-              onSubmitted: onSubmitted,
-              textInputAction: TextInputAction.search,
-              style: const TextStyle(color: Color(0xFF1D2939), fontSize: 15),
-              cursorColor: AppColors.primary,
-              decoration: InputDecoration(
-                hintText: '搜索地点或地址',
-                hintStyle: const TextStyle(color: Color(0xFF98A2B3)),
-                prefixIcon: const Icon(
-                  LucideIcons.search,
-                  size: 20,
-                  color: Color(0xFF344054),
-                ),
-                prefixIconConstraints: const BoxConstraints(
-                  minWidth: 40,
-                  minHeight: 40,
-                ),
-                suffixIcon: hasKeyword
-                    ? IconButton(
-                        tooltip: '清空',
-                        onPressed: onClear,
-                        icon: const Icon(
-                          LucideIcons.x,
-                          size: 19,
-                          color: Color(0xFF667085),
-                        ),
-                      )
-                    : null,
-                suffixIconConstraints: const BoxConstraints(
-                  minWidth: 42,
-                  minHeight: 42,
-                ),
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                filled: false,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-            ),
-          ),
-        ),
-        Expanded(
-          child: CustomScrollView(
-            controller: controller,
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            slivers: [
-              if (selectedLocation != null)
-                SliverToBoxAdapter(
-                  child: _SelectedPlaceCard(
-                    location: selectedLocation!,
-                    onSetStart: onSetStart!,
-                    onSetWaypoint: onSetWaypoint!,
-                    onSetEnd: onSetEnd!,
+    child: Material(
+      color: Colors.transparent,
+      child: Column(
+        children: [
+          // 头部固定，避免抽屉滚动后搜索框被带出可视区域。
+          InkWell(
+            onTap: onHandleTap,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 5),
+              child: SizedBox(
+                width: 32,
+                height: 4,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Color(0xFFD0D5DD),
+                    borderRadius: BorderRadius.all(Radius.circular(99)),
                   ),
                 ),
-              if (loading)
-                const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (error != null)
-                SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Text(
-                        error!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Color(0xFF667085)),
-                      ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+            child: Container(
+              height: 44,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF4F6F8),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: const Color(0xFFE4E7EC)),
+              ),
+              child: TextField(
+                controller: searchController,
+                focusNode: focusNode,
+                onChanged: onChanged,
+                onSubmitted: onSubmitted,
+                textInputAction: TextInputAction.search,
+                style: const TextStyle(color: Color(0xFF1D2939), fontSize: 15),
+                cursorColor: AppColors.primary,
+                decoration: InputDecoration(
+                  hintText: '搜索地点或地址',
+                  hintStyle: const TextStyle(color: Color(0xFF98A2B3)),
+                  prefixIcon: const Icon(
+                    LucideIcons.search,
+                    size: 20,
+                    color: Color(0xFF344054),
+                  ),
+                  prefixIconConstraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
+                  suffixIcon: hasKeyword
+                      ? IconButton(
+                          tooltip: '清空',
+                          onPressed: onClear,
+                          icon: const Icon(
+                            LucideIcons.x,
+                            size: 19,
+                            color: Color(0xFF667085),
+                          ),
+                        )
+                      : null,
+                  suffixIconConstraints: const BoxConstraints(
+                    minWidth: 42,
+                    minHeight: 42,
+                  ),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  filled: false,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: CustomScrollView(
+              controller: controller,
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              slivers: [
+                if (selectedLocation != null)
+                  SliverToBoxAdapter(
+                    child: _SelectedPlaceCard(
+                      location: selectedLocation!,
+                      onSetStart: onSetStart!,
+                      onSetWaypoint: onSetWaypoint!,
+                      onSetEnd: onSetEnd!,
                     ),
                   ),
-                )
-              else
-                _PlaceListSliver(
-                  title: hasKeyword ? '搜索结果' : '最近搜索',
-                  rows: hasKeyword ? results : history,
-                  emptyText: hasKeyword ? '没有找到相关地点' : '暂无最近搜索',
-                  onSelect: onSelect,
-                ),
-              const SliverToBoxAdapter(child: SizedBox(height: 20)),
-            ],
+                if (loading)
+                  const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (error != null)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Text(
+                          error!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Color(0xFF667085)),
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  _PlaceListSliver(
+                    title: hasKeyword ? '搜索结果' : '最近搜索',
+                    rows: hasKeyword ? results : history,
+                    emptyText: hasKeyword ? '没有找到相关地点' : '暂无最近搜索',
+                    onSelect: onSelect,
+                  ),
+                const SliverToBoxAdapter(child: SizedBox(height: 20)),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     ),
   );
 }
@@ -781,7 +784,6 @@ class _PlaceListSliver extends StatelessWidget {
                 dense: true,
                 visualDensity: const VisualDensity(vertical: -2),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                tileColor: Colors.white,
                 onTap: () => onSelect(row),
                 leading: Container(
                   width: 36,

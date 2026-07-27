@@ -1,13 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:amap_map/amap_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:x_amap_base/x_amap_base.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/routes.dart';
@@ -34,6 +32,7 @@ class _TripNavigationPageState extends State<TripNavigationPage>
   bool ending = false;
   bool voiceEnabled = true;
   bool uploadingTrack = false;
+  bool requestingLocation = false;
   bool confirmingArrival = false;
   int trackedDistanceMeters = 0;
   int completedWaypointCount = 0;
@@ -50,6 +49,10 @@ class _TripNavigationPageState extends State<TripNavigationPage>
   String appLifecycleState = 'foreground';
   bool backgroundInterruptionShown = false;
   bool accuracyWarningShown = false;
+  int invalidAccuracyCount = 0;
+  String? lastTrackErrorMessage;
+  DateTime? lastTrackErrorShownAt;
+  bool settlementReviewWarningShown = false;
   Timer? trackTimer;
   final TrackUploadQueue trackQueue = TrackUploadQueue();
 
@@ -112,6 +115,12 @@ class _TripNavigationPageState extends State<TripNavigationPage>
       }
       return;
     }
+    final session = context.read<AppSession>();
+    final userId = session.userId ?? 'anonymous';
+    lastTrackCapturedAt = await trackQueue.lastCapturedAt(
+      widget.trip.id,
+      userId,
+    );
     await _flushTrackQueue(showError: false);
     await _uploadCurrentPoint(force: true);
     _scheduleTrackTimer();
@@ -126,11 +135,13 @@ class _TripNavigationPageState extends State<TripNavigationPage>
   }
 
   Future<void> _uploadCurrentPoint({bool force = false}) async {
-    if (uploadingTrack || !mounted) return;
+    if (requestingLocation || uploadingTrack || !mounted) return;
+    requestingLocation = true;
     final lastUpload = lastTrackUploadAt;
     if (!force &&
         lastUpload != null &&
         DateTime.now().difference(lastUpload) < const Duration(seconds: 3)) {
+      requestingLocation = false;
       return;
     }
     try {
@@ -138,6 +149,10 @@ class _TripNavigationPageState extends State<TripNavigationPage>
         'getCurrentLocation',
       );
       if (raw == null || !mounted) return;
+      final locationTimeMillis = (raw['locationTimeMillis'] as num?)?.toInt();
+      final nativeCapturedAt = locationTimeMillis == null
+          ? DateTime.now()
+          : DateTime.fromMillisecondsSinceEpoch(locationTimeMillis);
       await _uploadTrackValues(
         longitude: (raw['longitude'] as num).toDouble(),
         latitude: (raw['latitude'] as num).toDouble(),
@@ -148,9 +163,12 @@ class _TripNavigationPageState extends State<TripNavigationPage>
         mockLocation: raw['isMock'] == true,
         provider: raw['provider']?.toString() ?? 'fused',
         force: force,
+        capturedAt: nativeCapturedAt,
       );
     } on PlatformException {
       // 定位暂不可用时保留导航界面，下一周期自动重试。
+    } finally {
+      requestingLocation = false;
     }
   }
 
@@ -170,23 +188,6 @@ class _TripNavigationPageState extends State<TripNavigationPage>
     }
   }
 
-  Future<void> _handleAmapLocation(AMapLocation value) async {
-    if (!isLocationValid(value)) return;
-    final lastUpload = lastTrackUploadAt;
-    if (lastUpload != null &&
-        DateTime.now().difference(lastUpload) < const Duration(seconds: 3)) {
-      return;
-    }
-    await _uploadTrackValues(
-      longitude: value.latLng.longitude,
-      latitude: value.latLng.latitude,
-      speed: value.speed,
-      direction: value.bearing,
-      accuracy: value.accuracy,
-      provider: 'gps',
-    );
-  }
-
   Future<void> _uploadTrackValues({
     required double longitude,
     required double latitude,
@@ -197,28 +198,36 @@ class _TripNavigationPageState extends State<TripNavigationPage>
     bool mockLocation = false,
     String provider = 'fused',
     bool force = false,
+    DateTime? capturedAt,
   }) async {
     if (uploadingTrack || !mounted) return;
-    if (accuracy == null || accuracy <= 0) {
-      if (!accuracyWarningShown && mounted) {
+    if (accuracy == null || !accuracy.isFinite || accuracy <= 0) {
+      invalidAccuracyCount += 1;
+      if (invalidAccuracyCount >= 3 && !accuracyWarningShown && mounted) {
         accuracyWarningShown = true;
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(
-            const SnackBar(content: Text('当前定位精度不可用，本次定位点未记录')),
+            const SnackBar(content: Text('定位信号较弱，暂未记录无效定位点')),
           );
       }
       return;
     }
+    invalidAccuracyCount = 0;
     final normalizedAccuracy = accuracy;
-    final capturedAt = DateTime.now();
+    final pointCapturedAt = capturedAt ?? DateTime.now();
     final moving = (speed ?? 0) >= 0.8;
     final minimumInterval = moving
         ? const Duration(seconds: 5)
         : const Duration(seconds: 10);
+    final previousCapturedAt = lastTrackCapturedAt;
+    if (previousCapturedAt != null &&
+        !pointCapturedAt.isAfter(previousCapturedAt)) {
+      return;
+    }
     if (!force &&
-        lastTrackCapturedAt != null &&
-        capturedAt.difference(lastTrackCapturedAt!) < minimumInterval) {
+        previousCapturedAt != null &&
+        pointCapturedAt.difference(previousCapturedAt) < minimumInterval) {
       return;
     }
 
@@ -233,8 +242,8 @@ class _TripNavigationPageState extends State<TripNavigationPage>
       'speed': speed,
       'direction': direction,
       'accuracy': normalizedAccuracy,
-      'recordTime': capturedAt.toIso8601String(),
-      'clientSendTime': capturedAt.toIso8601String(),
+      'recordTime': pointCapturedAt.toIso8601String(),
+      'clientSendTime': DateTime.now().toIso8601String(),
       'deviceId': 'app-$userId',
       'sequenceNo': sequenceNo,
       'mockLocation': mockLocation,
@@ -242,7 +251,8 @@ class _TripNavigationPageState extends State<TripNavigationPage>
       'appState': appLifecycleState,
     };
     await trackQueue.enqueue(widget.trip.id, userId, point);
-    lastTrackCapturedAt = capturedAt;
+    await trackQueue.markCapturedAt(widget.trip.id, userId, pointCapturedAt);
+    lastTrackCapturedAt = pointCapturedAt;
     backgroundInterruptionShown = false;
     accuracyWarningShown = false;
     await _flushTrackQueue(showError: true);
@@ -260,18 +270,68 @@ class _TripNavigationPageState extends State<TripNavigationPage>
         late Map<String, dynamic> response;
         try {
           response = await service.uploadTrackPayload(point);
-        } on ApiException catch (error) {
-          final duplicate = error.statusCode == 409 ||
+        } on ApiException catch (error, stackTrace) {
+          final duplicateMessage =
               error.message.contains('已上传') ||
-              error.message.contains('重复');
-          if (!duplicate) rethrow;
-          await trackQueue.remove(
-            widget.trip.id,
-            userId,
-            (point['sequenceNo'] as num).toInt(),
+              error.message.contains('重复提交');
+          final duplicateCode = error.code == 409 || error.statusCode == 409;
+          if (duplicateCode && duplicateMessage) {
+            await trackQueue.remove(
+              widget.trip.id,
+              userId,
+              (point['sequenceNo'] as num).toInt(),
+            );
+            debugPrint(
+              '轨迹幂等重复，已删除本地缓存：'
+              'tripId=${widget.trip.id}, '
+              'sequenceNo=${point['sequenceNo']}',
+            );
+            continue;
+          }
+
+          debugPrint(
+            '轨迹接口返回异常：'
+            'code=${error.code}, '
+            'statusCode=${error.statusCode}, '
+            'networkError=${error.networkError}, '
+            'message=${error.message}, '
+            'sequenceNo=${point['sequenceNo']}',
           );
-          continue;
+          debugPrintStack(stackTrace: stackTrace);
+
+          if (showError && mounted) {
+            final pendingCount = await trackQueue.count(
+              widget.trip.id,
+              userId,
+            );
+            if (!mounted) return;
+            final message = error.networkError
+                ? '轨迹已本地保存，网络恢复后自动补传（待传 $pendingCount 点）'
+                : '轨迹上传失败：${error.message}（待传 $pendingCount 点）';
+            _showTrackUploadMessage(message);
+          }
+          // 保留当前点及后续点，避免越过失败点乱序补传。
+          break;
+        } catch (error, stackTrace) {
+          debugPrint(
+            '轨迹上传客户端处理异常：$error，'
+            'sequenceNo=${point['sequenceNo']}',
+          );
+          debugPrintStack(stackTrace: stackTrace);
+          if (showError && mounted) {
+            final pendingCount = await trackQueue.count(
+              widget.trip.id,
+              userId,
+            );
+            if (!mounted) return;
+            _showTrackUploadMessage(
+              '轨迹处理异常，数据已保存在本地（待传 $pendingCount 点）',
+            );
+          }
+          break;
         }
+
+        // 服务端已经成功接收后再删除本地记录。
         await trackQueue.remove(
           widget.trip.id,
           userId,
@@ -279,40 +339,90 @@ class _TripNavigationPageState extends State<TripNavigationPage>
         );
         lastTrackUploadAt = DateTime.now();
         if (!mounted) return;
-        setState(() {
-          trackedDistanceMeters =
-              (response['totalDistance'] as num?)?.toInt() ??
-              trackedDistanceMeters;
-        });
-        _notifySettlement(response);
-        final message = response['message']?.toString().trim() ?? '';
-        if (message.isNotEmpty) {
-          ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(SnackBar(content: Text(message)));
-        }
-        if (response['accepted'] == true) {
-          await _shareAndLoadTeamLocations(
-            latitude: (point['latitude'] as num).toDouble(),
-            longitude: (point['longitude'] as num).toDouble(),
-            speed: (point['speed'] as num?)?.toDouble(),
+
+        // 页面状态更新失败不能再误报成“没有网络”，轨迹已经上传成功。
+        try {
+          setState(() {
+            trackedDistanceMeters =
+                (response['totalDistance'] as num?)?.toInt() ??
+                trackedDistanceMeters;
+          });
+          _notifySettlement(response);
+          final message = response['message']?.toString().trim() ?? '';
+          final pointStatus =
+              response['pointStatus']?.toString().trim().toUpperCase() ?? '';
+          final accepted = response['accepted'] == true;
+          final currentPointAbnormal =
+              !accepted ||
+              const {
+                'IMPOSSIBLE_SPEED',
+                'TELEPORT',
+                'FATAL_REJECTED',
+                'ROUND_TRIP_RECOVERY',
+                'TIME_ANOMALY',
+                'TIME_REVERSED',
+                'DUPLICATE_POINT',
+                'LOW_ACCURACY',
+                'LOW_CONFIDENCE_REJECTED',
+                'LOCATION_GAP',
+              }.contains(pointStatus);
+
+          debugPrint(
+            '轨迹响应：sequenceNo=${point['sequenceNo']}, '
+            'pointStatus=$pointStatus, accepted=$accepted, '
+            'reviewRequired=${response['settlementReviewRequired']}, '
+            'message=$message',
           );
+
+          // 历史风险状态不能在每次正常定位上传后反复弹窗。
+          // 只有当前点本身异常时才提示，并且同一导航页最多提示一次。
+          if (message.isNotEmpty &&
+              currentPointAbnormal &&
+              !settlementReviewWarningShown) {
+            settlementReviewWarningShown = true;
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(SnackBar(content: Text(message)));
+          }
+          if (response['accepted'] == true) {
+            await _shareAndLoadTeamLocations(
+              latitude: (point['latitude'] as num).toDouble(),
+              longitude: (point['longitude'] as num).toDouble(),
+              speed: (point['speed'] as num?)?.toDouble(),
+            );
+          }
+        } catch (error, stackTrace) {
+          debugPrint('轨迹已上传，但页面响应处理失败：$error');
+          debugPrintStack(stackTrace: stackTrace);
         }
       }
       await _refreshTeammateDistance();
-    } catch (error) {
+    } catch (error, stackTrace) {
+      // 这里只处理本地队列读取、删除等异常，不能统一描述成网络故障。
+      debugPrint('轨迹本地队列处理失败：$error');
+      debugPrintStack(stackTrace: stackTrace);
       if (showError && mounted) {
-        final pendingCount = await trackQueue.count(widget.trip.id, userId);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(content: Text('轨迹已本地保存，网络恢复后自动补传（待传 $pendingCount 点）')),
-          );
+        _showTrackUploadMessage('轨迹本地缓存处理异常，请稍后重试');
       }
     } finally {
       uploadingTrack = false;
     }
+  }
+
+  void _showTrackUploadMessage(String message) {
+    if (!mounted) return;
+    final now = DateTime.now();
+    final shownAt = lastTrackErrorShownAt;
+    if (message == lastTrackErrorMessage &&
+        shownAt != null &&
+        now.difference(shownAt) < const Duration(seconds: 15)) {
+      return;
+    }
+    lastTrackErrorMessage = message;
+    lastTrackErrorShownAt = now;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _ensureConversation() async {
@@ -716,7 +826,6 @@ class _TripNavigationPageState extends State<TripNavigationPage>
               interactive: true,
               trafficEnabled: true,
               drawPolyline: !showTeamPanel,
-              onLocationChanged: _handleAmapLocation,
               onMapInteraction: _collapseControls,
             ),
           ),

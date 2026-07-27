@@ -7,10 +7,16 @@ import '../../common/constants/api_config.dart';
 import '../mock/demo_api.dart';
 
 class ApiException implements Exception {
-  const ApiException(this.message, {this.statusCode, this.code});
+  const ApiException(
+    this.message, {
+    this.statusCode,
+    this.code,
+    this.networkError = false,
+  });
   final String message;
   final int? statusCode;
   final int? code;
+  final bool networkError;
   @override
   String toString() => message;
 }
@@ -78,24 +84,37 @@ class ApiClient {
       headers['Authorization'] = 'Bearer $requestToken';
     }
 
+    String? encodedBody;
+    if (method == 'POST' || method == 'PUT') {
+      try {
+        encodedBody = jsonEncode(body);
+      } catch (_) {
+        // 请求体序列化失败属于客户端数据问题，不能误报成没有网络。
+        throw const ApiException('请求数据格式异常，请检查定位数据');
+      }
+    }
+
     late http.Response response;
     try {
       response = switch (method) {
         'POST' => await _client.post(
           uri,
           headers: headers,
-          body: jsonEncode(body),
+          body: encodedBody,
         ),
         'PUT' => await _client.put(
           uri,
           headers: headers,
-          body: jsonEncode(body),
+          body: encodedBody,
         ),
         'DELETE' => await _client.delete(uri, headers: headers),
         _ => await _client.get(uri, headers: headers),
       };
     } catch (_) {
-      throw const ApiException('无法连接服务器，请确认后端已启动');
+      throw const ApiException(
+        '无法连接服务器，请确认后端已启动',
+        networkError: true,
+      );
     }
 
     dynamic payload;

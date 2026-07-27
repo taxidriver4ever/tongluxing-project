@@ -39,7 +39,8 @@ public interface DriverTrackRecordMapper {
     int insert(DriverTrackRecord record);
 
     @Select("""
-            select """ + COLUMNS + """
+            select
+            """ + COLUMNS + """
             from driver_track_record
             where trip_id = #{tripId} and driver_id = #{driverId} and deleted = 0
             order by record_time desc
@@ -48,7 +49,8 @@ public interface DriverTrackRecordMapper {
     DriverTrackRecord findLast(@Param("tripId") Long tripId, @Param("driverId") Long driverId);
 
     @Select("""
-            select """ + COLUMNS + """
+            select
+            """ + COLUMNS + """
             from driver_track_record
             where trip_id = #{tripId} and driver_id = #{driverId} and deleted = 0
               and valid_point = 1
@@ -59,7 +61,8 @@ public interface DriverTrackRecordMapper {
                                     @Param("driverId") Long driverId);
 
     @Select("""
-            select """ + COLUMNS + """
+            select
+            """ + COLUMNS + """
             from driver_track_record
             where trip_id = #{tripId} and driver_id = #{driverId} and deleted = 0
               and record_time >= #{since}
@@ -71,7 +74,8 @@ public interface DriverTrackRecordMapper {
             @Param("since") LocalDateTime since);
 
     @Select("""
-            select """ + COLUMNS + """
+            select
+            """ + COLUMNS + """
             from driver_track_record
             where trip_id = #{tripId} and deleted = 0 and valid_point = 1
             order by record_time asc

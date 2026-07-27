@@ -160,9 +160,31 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         String riskLevel = summary == null ? "LOW" : String.valueOf(summary.get("riskLevel"));
         boolean reviewRequired = summary != null
                 && !"LOW".equalsIgnoreCase(riskLevel);
+
+        // riskLevel 是整趟行程累计状态。一旦历史点把它提升到 MEDIUM/HIGH，
+        // 后续正常的 ACCEPTED/STATIONARY 点也会一直保持 reviewRequired=true。
+        // 不能因此在每次正常定位上传后重复返回警告文案。
+        boolean currentPointNeedsAttention = filter.fatal()
+                || filter.riskScore() > 0
+                || !filter.valid()
+                || java.util.Set.of(
+                        "IMPOSSIBLE_SPEED",
+                        "TELEPORT",
+                        "FATAL_REJECTED",
+                        "ROUND_TRIP_RECOVERY",
+                        "TIME_ANOMALY",
+                        "TIME_REVERSED",
+                        "DUPLICATE_POINT",
+                        "LOW_ACCURACY",
+                        "LOW_CONFIDENCE_REJECTED",
+                        "LOCATION_GAP")
+                .contains(filter.status());
+
         String message = filter.fatal()
                 ? "部分轨迹数据异常，结算需要审核"
-                : reviewRequired ? "部分轨迹数据异常，结算可能需要审核" : "";
+                : currentPointNeedsAttention && reviewRequired
+                ? "部分轨迹数据异常，结算可能需要审核"
+                : "";
 
         return new DriverTrackUploadResponse(
                 String.valueOf(record.getId()),
@@ -436,9 +458,15 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         }
 
         int acceptedDistance = TrajectoryRuleEngine.filterStationaryDrift(
-                rawDistance, calculatedSpeedKmh,
+                rawDistance,
+                lowerBoundDistance,
+                calculatedSpeedKmh,
+                request.speed() == null ? Double.NaN : request.speed().doubleValue(),
+                previousAccuracy,
+                accuracy,
                 trajectoryProperties.getStationaryDriftMeters(),
-                trajectoryProperties.getStationaryDriftSpeedKmh());
+                trajectoryProperties.getStationaryDriftSpeedKmh(),
+                trajectoryProperties.getStationaryMaxJumpMeters());
         if (acceptedDistance == 0 && rawDistance > 0) {
             status = "STATIONARY";
         }

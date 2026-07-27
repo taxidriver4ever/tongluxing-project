@@ -15,8 +15,9 @@ public class TrajectoryProperties {
     private int normalAccuracyMeters = 30;
     private int acceptableAccuracyMeters = 80;
     private int lowConfidenceAccuracyMeters = 50;
-    private int stationaryDriftMeters = 8;
+    private int stationaryDriftMeters = 15;
     private int stationaryDriftSpeedKmh = 3;
+    private int stationaryMaxJumpMeters = 250;
     private int waypointRadiusMeters = 100;
     private int waypointMinPoints = 2;
     private int waypointMinDurationSeconds = 10;
@@ -62,6 +63,8 @@ public class TrajectoryProperties {
     public void setStationaryDriftMeters(int value) { this.stationaryDriftMeters = value; }
     public int getStationaryDriftSpeedKmh() { return stationaryDriftSpeedKmh; }
     public void setStationaryDriftSpeedKmh(int value) { this.stationaryDriftSpeedKmh = value; }
+    public int getStationaryMaxJumpMeters() { return stationaryMaxJumpMeters; }
+    public void setStationaryMaxJumpMeters(int value) { this.stationaryMaxJumpMeters = value; }
     public int getWaypointRadiusMeters() { return waypointRadiusMeters; }
     public void setWaypointRadiusMeters(int value) { this.waypointRadiusMeters = value; }
     public int getWaypointMinPoints() { return waypointMinPoints; }

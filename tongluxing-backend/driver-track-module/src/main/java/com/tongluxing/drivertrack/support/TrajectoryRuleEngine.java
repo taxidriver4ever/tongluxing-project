@@ -31,6 +31,32 @@ public final class TrajectoryRuleEngine {
         return normalized > 180d ? 360d - normalized : normalized;
     }
 
+    public static int filterStationaryDrift(int rawDistanceMeters,
+                                            int lowerBoundDistanceMeters,
+                                            double calculatedSpeedKmh,
+                                            double reportedSpeedMps,
+                                            int previousAccuracyMeters,
+                                            int currentAccuracyMeters,
+                                            int driftMeters,
+                                            int driftSpeedKmh,
+                                            int stationaryMaxJumpMeters) {
+        int rawDistance = Math.max(0, rawDistanceMeters);
+        int lowerBoundDistance = Math.max(0, lowerBoundDistanceMeters);
+        int accuracyEnvelope = Math.max(0, previousAccuracyMeters)
+                + Math.max(0, currentAccuracyMeters)
+                + Math.max(0, driftMeters);
+        boolean reportedStationary = !Double.isFinite(reportedSpeedMps)
+                || reportedSpeedMps <= 0.8d;
+        boolean noReliableMovement = lowerBoundDistance <= Math.max(0, driftMeters)
+                || calculatedSpeedKmh < Math.max(0, driftSpeedKmh);
+        boolean insideAccuracyEnvelope = rawDistance <= accuracyEnvelope;
+        boolean stationaryJump = reportedStationary
+                && rawDistance <= Math.max(0, stationaryMaxJumpMeters);
+        return reportedStationary && (noReliableMovement && insideAccuracyEnvelope
+                || stationaryJump) ? 0 : rawDistance;
+    }
+
+    /** 保留旧签名，供已有调用和测试兼容。 */
     public static int filterStationaryDrift(int rawDistanceMeters, double speedKmh,
                                             int driftMeters, int driftSpeedKmh) {
         return rawDistanceMeters < driftMeters && speedKmh < driftSpeedKmh

@@ -3,6 +3,7 @@ package com.tongluxing.tongluxing_frontend_flutter
 import android.Manifest
 import android.content.pm.PackageManager
 import android.content.Context
+import android.location.Location
 import android.location.LocationManager
 import android.os.Build
 import android.content.ContentValues
@@ -195,29 +196,119 @@ class MainActivity : FlutterActivity() {
         }
         try {
             val manager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            val latest = manager.getProviders(true)
-                .mapNotNull { provider -> manager.getLastKnownLocation(provider) }
-                .maxByOrNull { location -> location.time }
-            if (latest == null) {
-                result.error("LOCATION_UNAVAILABLE", "暂未获取到定位，请稍后重试", null)
+            val fallback = findBestRecentLocation(manager)
+            val provider = fallback?.provider ?: manager.getProviders(true).firstOrNull()
+            if (provider == null) {
+                result.error("LOCATION_UNAVAILABLE", "当前没有可用的定位服务", null)
                 return
             }
-            result.success(
-                mapOf(
-                    "longitude" to latest.longitude,
-                    "latitude" to latest.latitude,
-                    "speed" to latest.speed.toDouble(),
-                    "direction" to latest.bearing.toDouble(),
-                    "accuracy" to latest.accuracy.toDouble(),
-                    "isMock" to (
-                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2 &&
-                            latest.isFromMockProvider
-                        ),
-                ),
-            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                manager.getCurrentLocation(provider, null, mainExecutor) { current ->
+                    val location = current ?: findBestRecentLocation(manager)
+                    if (location == null) {
+                        result.error("LOCATION_UNAVAILABLE", "暂未获取到有效定位，请稍后重试", null)
+                    } else {
+                        sendLocationResult(location, result)
+                    }
+                }
+                return
+            }
+            if (fallback == null) {
+                result.error("LOCATION_UNAVAILABLE", "暂未获取到有效定位，请稍后重试", null)
+                return
+            }
+            sendLocationResult(fallback, result)
         } catch (exception: SecurityException) {
             result.error("LOCATION_PERMISSION_REQUIRED", "定位权限不足", null)
+        } catch (exception: Exception) {
+            result.error("LOCATION_UNAVAILABLE", exception.message ?: "定位暂不可用", null)
         }
+    }
+
+    private fun findBestRecentLocation(manager: LocationManager): Location? {
+        val now = System.currentTimeMillis()
+        return manager.getProviders(true)
+            .mapNotNull { provider -> manager.getLastKnownLocation(provider) }
+            .filter { location ->
+                location.accuracy.isFinite() && location.accuracy > 0f &&
+                    now - location.time <= 120_000L
+            }
+            .minByOrNull { location ->
+                val ageSeconds = ((now - location.time).coerceAtLeast(0L) / 1000.0)
+                ageSeconds + location.accuracy.toDouble()
+            }
+    }
+
+    private fun sendLocationResult(location: Location, result: MethodChannel.Result) {
+        if (!location.accuracy.isFinite() || location.accuracy <= 0f) {
+            result.error("LOCATION_ACCURACY_INVALID", "当前定位精度不可用", null)
+            return
+        }
+        val converted = wgs84ToGcj02(location.latitude, location.longitude)
+        result.success(
+            mapOf(
+                "longitude" to converted.second,
+                "latitude" to converted.first,
+                "altitude" to if (location.hasAltitude()) location.altitude else null,
+                "speed" to location.speed.toDouble(),
+                "direction" to location.bearing.toDouble(),
+                "accuracy" to location.accuracy.toDouble(),
+                "provider" to location.provider,
+                "locationTimeMillis" to location.time,
+                "coordinateSystem" to "GCJ02",
+                "isMock" to (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2 &&
+                        location.isFromMockProvider
+                    ),
+            ),
+        )
+    }
+
+    private fun wgs84ToGcj02(latitude: Double, longitude: Double): Pair<Double, Double> {
+        if (isOutsideChina(latitude, longitude)) {
+            return Pair(latitude, longitude)
+        }
+        val earthRadius = 6_378_245.0
+        val eccentricity = 0.00669342162296594323
+        var latitudeOffset = transformLatitude(longitude - 105.0, latitude - 35.0)
+        var longitudeOffset = transformLongitude(longitude - 105.0, latitude - 35.0)
+        val radianLatitude = latitude / 180.0 * Math.PI
+        var magic = Math.sin(radianLatitude)
+        magic = 1 - eccentricity * magic * magic
+        val sqrtMagic = Math.sqrt(magic)
+        latitudeOffset = latitudeOffset * 180.0 /
+            ((earthRadius * (1 - eccentricity)) / (magic * sqrtMagic) * Math.PI)
+        longitudeOffset = longitudeOffset * 180.0 /
+            (earthRadius / sqrtMagic * Math.cos(radianLatitude) * Math.PI)
+        return Pair(latitude + latitudeOffset, longitude + longitudeOffset)
+    }
+
+    private fun isOutsideChina(latitude: Double, longitude: Double): Boolean =
+        longitude < 72.004 || longitude > 137.8347 ||
+            latitude < 0.8293 || latitude > 55.8271
+
+    private fun transformLatitude(x: Double, y: Double): Double {
+        var result = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y +
+            0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x))
+        result += (20.0 * Math.sin(6.0 * x * Math.PI) +
+            20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0
+        result += (20.0 * Math.sin(y * Math.PI) +
+            40.0 * Math.sin(y / 3.0 * Math.PI)) * 2.0 / 3.0
+        result += (160.0 * Math.sin(y / 12.0 * Math.PI) +
+            320.0 * Math.sin(y * Math.PI / 30.0)) * 2.0 / 3.0
+        return result
+    }
+
+    private fun transformLongitude(x: Double, y: Double): Double {
+        var result = 300.0 + x + 2.0 * y + 0.1 * x * x +
+            0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x))
+        result += (20.0 * Math.sin(6.0 * x * Math.PI) +
+            20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0
+        result += (20.0 * Math.sin(x * Math.PI) +
+            40.0 * Math.sin(x / 3.0 * Math.PI)) * 2.0 / 3.0
+        result += (150.0 * Math.sin(x / 12.0 * Math.PI) +
+            300.0 * Math.sin(x / 30.0 * Math.PI)) * 2.0 / 3.0
+        return result
     }
 
     override fun onRequestPermissionsResult(

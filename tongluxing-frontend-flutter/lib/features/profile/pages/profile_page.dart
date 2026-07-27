@@ -7,7 +7,6 @@ import '../../../app/app_session.dart';
 import '../../../app/routes.dart';
 import '../../../app/theme.dart';
 import '../../../data/services/app_services.dart';
-import '../../shop/pages/shop_home_page.dart';
 import '../../invite/pages/invite_bind_page.dart';
 import '../../invite/services/invite_service.dart';
 import 'customer_support_page.dart';
@@ -292,16 +291,6 @@ class ProfilePageState extends State<ProfilePage> {
               _MenuGroup(
                 items: [
                   _Menu(
-                    LucideIcons.store,
-                    '沿途商城',
-                    () => _open(
-                      const Scaffold(
-                        appBar: _ShopAppBar(),
-                        body: ShopHomePage(),
-                      ),
-                    ),
-                  ),
-                  _Menu(
                     LucideIcons.ticket,
                     '我的券包',
                     () => _open(const CouponWalletPage()),
@@ -384,16 +373,6 @@ class _HeaderButton extends StatelessWidget {
       ),
     ),
   );
-}
-
-class _ShopAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const _ShopAppBar();
-
-  @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
-
-  @override
-  Widget build(BuildContext context) => AppBar(title: const Text('沿途商城'));
 }
 
 class _Menu {

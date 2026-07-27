@@ -36,4 +36,23 @@ class TrajectoryRuleEngineTest {
         assertEquals(0, TrajectoryRuleEngine.filterStationaryDrift(7, 2.9, 8, 3));
         assertEquals(8, TrajectoryRuleEngine.filterStationaryDrift(8, 2.9, 8, 3));
     }
+
+    @Test
+    void shouldIgnoreStationaryJitterInsideAccuracyEnvelope() {
+        assertEquals(0, TrajectoryRuleEngine.filterStationaryDrift(
+                42, 12, 4.32, 0.0, 15, 15, 15, 3, 250));
+    }
+
+    @Test
+    void shouldKeepDistanceWhenDeviceReportsRealMovement() {
+        assertEquals(42, TrajectoryRuleEngine.filterStationaryDrift(
+                42, 12, 4.32, 4.2, 15, 15, 15, 3, 250));
+    }
+
+    @Test
+    void shouldIgnoreLargeStationaryNetworkJump() {
+        assertEquals(0, TrajectoryRuleEngine.filterStationaryDrift(
+                200, 170, 61.2, 0.0, 15, 15, 15, 3, 250));
+    }
+
 }

@@ -387,8 +387,7 @@ class TripService {
   Future<Map<String, dynamic>> uploadTrackPayload(
     Map<String, dynamic> point,
   ) async {
-    final body = Map<String, dynamic>.from(point)
-      ..['clientSendTime'] = DateTime.now().toIso8601String();
+    final body = Map<String, dynamic>.from(point);
     return Map<String, dynamic>.from(
       await api.post('/v1/driver-tracks/points', body: body) as Map,
     );

@@ -146,8 +146,9 @@ trajectory:
   normal-accuracy-meters: ${TRAJECTORY_NORMAL_ACCURACY_METERS:30}
   acceptable-accuracy-meters: ${TRAJECTORY_ACCEPTABLE_ACCURACY_METERS:80}
   low-confidence-accuracy-meters: ${TRAJECTORY_LOW_CONFIDENCE_ACCURACY_METERS:50}
-  stationary-drift-meters: ${TRAJECTORY_STATIONARY_DRIFT_METERS:8}
+  stationary-drift-meters: ${TRAJECTORY_STATIONARY_DRIFT_METERS:15}
   stationary-drift-speed-kmh: ${TRAJECTORY_STATIONARY_DRIFT_SPEED_KMH:3}
+  stationary-max-jump-meters: ${TRAJECTORY_STATIONARY_MAX_JUMP_METERS:250}
   waypoint-radius-meters: ${TRAJECTORY_WAYPOINT_RADIUS_METERS:100}
   waypoint-min-points: ${TRAJECTORY_WAYPOINT_MIN_POINTS:2}
   waypoint-min-duration-seconds: ${TRAJECTORY_WAYPOINT_MIN_DURATION_SECONDS:10}

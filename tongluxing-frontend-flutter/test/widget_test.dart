@@ -7,7 +7,6 @@ import 'package:tongluxing_frontend_flutter/app/app_session.dart';
 import 'package:tongluxing_frontend_flutter/data/services/api_client.dart';
 import 'package:tongluxing_frontend_flutter/features/home/pages/map_home_page.dart';
 import 'package:tongluxing_frontend_flutter/features/profile/pages/profile_page.dart';
-import 'package:tongluxing_frontend_flutter/features/shop/pages/shop_home_page.dart';
 
 void main() {
   testWidgets('登录页展示核心原型内容', (tester) async {
@@ -69,19 +68,6 @@ void main() {
       find.byType(Scrollable).first,
     );
     await tester.drag(find.byType(ListView), const Offset(0, -500));
-    await tester.pump();
-    expect(scrollable.position.pixels, greaterThan(0));
-  });
-
-  testWidgets('商城长内容可以纵向滚动', (tester) async {
-    await tester.pumpWidget(
-      const MaterialApp(home: Scaffold(body: ShopHomePage())),
-    );
-
-    final scrollable = tester.state<ScrollableState>(
-      find.byType(Scrollable).first,
-    );
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, -500));
     await tester.pump();
     expect(scrollable.position.pixels, greaterThan(0));
   });

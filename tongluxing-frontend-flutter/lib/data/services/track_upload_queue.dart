@@ -13,6 +13,27 @@ class TrackUploadQueue {
   String _sequenceKey(String tripId, String userId) =>
       'track_upload_sequence:$tripId:$userId';
 
+  String _capturedAtKey(String tripId, String userId) =>
+      'track_upload_last_captured_at:$tripId:$userId';
+
+  Future<DateTime?> lastCapturedAt(String tripId, String userId) async {
+    final storage = await SharedPreferences.getInstance();
+    final raw = storage.getString(_capturedAtKey(tripId, userId));
+    return raw == null ? null : DateTime.tryParse(raw);
+  }
+
+  Future<void> markCapturedAt(
+    String tripId,
+    String userId,
+    DateTime capturedAt,
+  ) async {
+    final storage = await SharedPreferences.getInstance();
+    await storage.setString(
+      _capturedAtKey(tripId, userId),
+      capturedAt.toIso8601String(),
+    );
+  }
+
   Future<int> nextSequence(String tripId, String userId) async {
     final storage = await SharedPreferences.getInstance();
     final queue = await pending(tripId, userId);

@@ -84,7 +84,7 @@ public interface TripMemberSnapshotMapper {
             update trip_member_snapshot
             set join_status = #{exitStatus}, updated_at = #{now}
             where trip_id = #{tripId} and user_id = #{userId}
-              and join_status in ('APPROVED', 'PENDING')
+              and join_status in ('OWNER', 'APPROVED', 'PENDING')
             """)
     int markExited(@Param("tripId") Long tripId,
                    @Param("userId") Long userId,

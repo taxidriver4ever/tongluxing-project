@@ -326,6 +326,27 @@ public class TeamServiceImpl implements TeamService {
         return exitTeam(team, currentUserContext.requireUserId());
     }
 
+    @Override
+    @Transactional
+    public void dissolveTrip(Long tripId) {
+        Team team = teamMapper.findAnyActiveByTripId(tripId);
+        if (team == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "行程车队不存在");
+        }
+        Long ownerUserId = currentUserContext.requireUserId();
+        if (!team.getOwnerUserId().equals(ownerUserId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "只有队长可以解散车队");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        List<TeamMember> activeMembers = memberMapper.findActiveByTeamId(team.getId());
+        for (TeamMember member : activeMembers) {
+            tripPort.markMemberExited(tripId, member.getUserId(), "EXITED", now);
+        }
+        memberMapper.exitAll(team.getId(), now);
+        teamMapper.dissolve(team.getId(), now);
+        audit(team.getId(), ownerUserId, "DISSOLVE_TEAM", "群主解散群聊并取消关联行程");
+    }
+
     private TeamResponse exitTeam(Team team, Long userId) {
         if (team.getOwnerUserId().equals(userId)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "队长不可直接退出车队");

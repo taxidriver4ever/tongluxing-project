@@ -128,7 +128,11 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => TripDetailPage(tripId: trip.id, initial: trip),
+        builder: (_) => TripDetailPage(
+          tripId: trip.id,
+          initial: trip,
+          exitedView: filter == 'EXITED',
+        ),
       ),
     );
     if (mounted) await load();

@@ -260,13 +260,18 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
                   ),
                 );
               } else {
-                await Navigator.push(
+                final leftGroup = await Navigator.push<bool>(
                   context,
                   MaterialPageRoute(
                     builder: (_) =>
                         ChatGroupDetailsPage(conversation: widget.conversation),
                   ),
                 );
+                if (!context.mounted) return;
+                if (leftGroup == true) {
+                  Navigator.pop(context, true);
+                  return;
+                }
               }
               await load();
             },

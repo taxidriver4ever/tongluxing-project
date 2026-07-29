@@ -5,6 +5,8 @@
 -- 统一登录密码：12345678
 -- 登录手机号：13910000001 ~ 13910000010
 
+USE tongluxing;
+
 SET NAMES utf8mb4;
 START TRANSACTION;
 

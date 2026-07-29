@@ -45,6 +45,14 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // 高德地图的 native GL 引擎通过 JNI 按完整类名查找 Java 类。
+            // Release 的 R8 若改写这些类名，会在地图 surface 创建时触发
+            // "JNI DETECTED ERROR: java_class == null" 并直接终止进程。
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

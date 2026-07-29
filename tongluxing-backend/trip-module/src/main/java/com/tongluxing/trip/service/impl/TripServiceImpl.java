@@ -1051,7 +1051,11 @@ public class TripServiceImpl implements TripService {
         double value = Math.sin(latitudeDelta / 2D) * Math.sin(latitudeDelta / 2D)
                 + Math.cos(startLatitude) * Math.cos(endLatitude)
                 * Math.sin(longitudeDelta / 2D) * Math.sin(longitudeDelta / 2D);
-        return 6_371_000D * 2D * Math.atan2(Math.sqrt(value), Math.sqrt(1D - value));
+        // 浮点运算在边界位置可能得到略小于 0 或略大于 1 的值，直接开方会产生 NaN。
+        // 将其限制到 Haversine 公式的合法定义域，避免 5 公里校验变成未处理异常。
+        double safeValue = Math.max(0D, Math.min(1D, value));
+        return 6_371_000D * 2D
+                * Math.atan2(Math.sqrt(safeValue), Math.sqrt(1D - safeValue));
     }
 
     /**

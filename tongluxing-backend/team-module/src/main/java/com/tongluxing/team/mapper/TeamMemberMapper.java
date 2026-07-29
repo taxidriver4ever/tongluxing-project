@@ -91,6 +91,14 @@ public interface TeamMemberMapper {
             """)
     int exit(@Param("teamId") Long teamId, @Param("userId") Long userId, @Param("now") LocalDateTime now);
 
+    /** 解散车队时将包括队长在内的全部有效成员标记为退出。 */
+    @Update("""
+            update team_member
+            set member_status = 'EXITED', exited_at = #{now}, updated_at = #{now}
+            where team_id = #{teamId} and member_status = 'ACTIVE' and deleted = 0
+            """)
+    int exitAll(@Param("teamId") Long teamId, @Param("now") LocalDateTime now);
+
     /**
      * 将历史成员记录重新激活，用于用户重新加入同一车队。
      */

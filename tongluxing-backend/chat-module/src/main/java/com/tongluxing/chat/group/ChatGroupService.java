@@ -12,16 +12,21 @@ import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.user.support.CurrentUserContext;
 import com.tongluxing.trip.service.TripService;
+import com.tongluxing.team.service.TeamService;
+import com.tongluxing.chat.service.TencentImService;
+import com.tongluxing.chat.entity.ChatConversation;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 /**
  * 群聊协作业务服务，对上层提供稳定的领域操作入口。
  * 调用方无需了解底层表结构、状态校验和事务实现细节。
  */
-@Service @RequiredArgsConstructor
+@Service @RequiredArgsConstructor @Slf4j
 public class ChatGroupService {
  private final ChatGroupMapper mapper; private final ChatConversationMemberMapper members;
  private final ChatConversationMapper conversations; private final CurrentUserContext current; private final ObjectMapper json;
  private final TripService trips;
+ private final TeamService teams; private final TencentImService tencentIm;
  /** 加载群聊工作区及其关联的行程、成员和协作事项。 */
  public Map<String,Object> workspace(Long cid){ChatConversationMember me=requireMember(cid);Map<String,Object>w=requireWorkspace(cid);
   w.put("selfRole",me.getMemberRole());w.put("items",mapper.items(cid));w.put("locations",mapper.locations(cid));
@@ -112,12 +117,17 @@ public class ChatGroupService {
   trips.startTrip(tripId,confirmedUserIds);mapper.closeConfirmation(id,LocalDateTime.now());persistCard(cid,null,"SYSTEM","行程正式开始",null,Map.of("tripId",String.valueOf(tripId),"confirmed",details.get("confirmed")));return workspace(cid);}
  /** 关闭当前资源，并阻止后续需要活跃状态的操作。 */
  @Transactional public void close(Long cid){ChatConversationMember me=requireMember(cid);requireOwner(me);
-  Map<String,Object> workspace=requireWorkspace(cid);Long tripId=longValue(workspace.get("tripId"));String tripStatus=String.valueOf(workspace.get("tripStatus"));
-  if(tripId!=null){
-   if(List.of("RUNNING","ONGOING").contains(tripStatus))trips.endTrip(tripId);
-   else if(List.of("PUBLISHED","READY","CONFIRMING").contains(tripStatus))trips.cancelTrip(tripId);
-  }
-  LocalDateTime now=LocalDateTime.now();conversations.archive(cid,now);members.exitAll(cid,now);}
+  Map<String,Object> workspace=requireWorkspace(cid);Long tripId=longValue(workspace.get("tripId"));
+  if(tripId==null)throw new BusinessException(ResultCode.BAD_REQUEST,"当前群未绑定行程");
+  ChatConversation conversation=conversations.findById(cid);
+  trips.cancelTrip(tripId);teams.dissolveTrip(tripId);
+  persistCard(cid,current.requireUserId(),"SYSTEM","群主已解散群聊","关联行程已取消，所有成员已退出",Map.of("tripId",String.valueOf(tripId)));
+  LocalDateTime now=LocalDateTime.now();conversations.archive(cid,now);members.exitAll(cid,now);
+  if(conversation!=null&&"TENCENT_IM".equals(conversation.getProviderType())&&tencentIm.isConfigured()
+    &&conversation.getProviderConversationKey()!=null&&!conversation.getProviderConversationKey().isBlank()){
+   try{tencentIm.destroyGroup(conversation.getProviderConversationKey());}
+   catch(RuntimeException ex){log.warn("销毁腾讯 IM 群失败，conversationId={}",cid,ex);}
+  }}
  /** 查询待处理或已处理的聊天举报记录。 */
  public List<Map<String,Object>> reports(String status,Integer limit){return mapper.reports(norm(status),safe(limit));}
  /** 查询消息风控命中记录。 */

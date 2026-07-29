@@ -125,4 +125,12 @@ public interface TeamMapper {
             where id = #{teamId} and team_status = 'ACTIVE' and deleted = 0
             """)
     void decrementMemberCount(@Param("teamId") Long teamId, @Param("now") LocalDateTime now);
+
+    /** 群主解散群聊时同步解散车队并清空有效名额。 */
+    @Update("""
+            update team
+            set team_status = 'DISSOLVED', current_member_count = 0, updated_at = #{now}
+            where id = #{teamId} and team_status = 'ACTIVE' and deleted = 0
+            """)
+    int dissolve(@Param("teamId") Long teamId, @Param("now") LocalDateTime now);
 }

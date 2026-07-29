@@ -233,7 +233,23 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                     ),
                   ],
                 ),
-                if (!isOwner) ...[
+                if (isOwner) ...[
+                  const SizedBox(height: 12),
+                  _ChatInfoSection(
+                    children: [
+                      _ChatInfoRow(
+                        title: '解散群聊',
+                        titleColor: AppColors.danger,
+                        trailing: const Icon(
+                          LucideIcons.trash2,
+                          color: AppColors.danger,
+                          size: 21,
+                        ),
+                        onTap: _dissolveGroup,
+                      ),
+                    ],
+                  ),
+                ] else ...[
                   const SizedBox(height: 12),
                   _ChatInfoSection(
                     children: [
@@ -314,6 +330,36 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
     await ChatService(
       context.read<AppSession>().api,
     ).exitGroup(widget.conversation.id);
+    if (mounted) Navigator.pop(context, true);
+  }
+
+  Future<void> _dissolveGroup() async {
+    if (!isOwner) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('解散群聊并取消行程？'),
+        content: const Text(
+          '解散后该行程将被取消，所有成员会被移出群聊并释放全部名额。'
+          '所有成员都可以在“历史与结算”的“已退出”中查看这段行程。此操作不可撤销。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('暂不解散'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('确认解散'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await ChatService(
+      context.read<AppSession>().api,
+    ).closeGroup(widget.conversation.id);
     if (mounted) Navigator.pop(context, true);
   }
 

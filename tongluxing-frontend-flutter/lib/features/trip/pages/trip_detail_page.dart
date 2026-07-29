@@ -18,9 +18,15 @@ import '../widgets/trip_route_preview.dart';
 import '../../chat/pages/chat_session_page.dart';
 
 class TripDetailPage extends StatefulWidget {
-  const TripDetailPage({required this.tripId, super.key, this.initial});
+  const TripDetailPage({
+    required this.tripId,
+    super.key,
+    this.initial,
+    this.exitedView = false,
+  });
   final String tripId;
   final TripModel? initial;
+  final bool exitedView;
   @override
   State<TripDetailPage> createState() => _TripDetailPageState();
 }
@@ -132,17 +138,29 @@ class _TripDetailPageState extends State<TripDetailPage> {
       final granted =
           await _location.invokeMethod<bool>('requestLocation') ?? false;
       if (!granted) {
-        throw const ApiException('需要定位权限才能核验起点并开启行程');
+        _showStartMessage('需要定位权限才能核验起点并开启行程');
+        return;
       }
       final raw = await _location.invokeMapMethod<String, dynamic>(
         'getCurrentLocation',
       );
-      if (raw == null) throw const ApiException('暂时无法获取当前位置，请稍后重试');
+      if (raw == null) {
+        _showStartMessage('暂时无法获取当前位置，请稍后重试');
+        return;
+      }
       final latitude = (raw['latitude'] as num?)?.toDouble();
       final longitude = (raw['longitude'] as num?)?.toDouble();
       final accuracy = (raw['accuracy'] as num?)?.toDouble();
-      if (latitude == null || longitude == null) {
-        throw const ApiException('当前位置数据不完整，请稍后重试');
+      if (latitude == null ||
+          longitude == null ||
+          !latitude.isFinite ||
+          !longitude.isFinite ||
+          latitude < -90 ||
+          latitude > 90 ||
+          longitude < -180 ||
+          longitude > 180) {
+        _showStartMessage('当前位置数据不完整，请稍后重试');
+        return;
       }
       final startLocation = trip?.startLocation;
       if (startLocation != null) {
@@ -153,9 +171,10 @@ class _TripDetailPageState extends State<TripDetailPage> {
           startLocation.longitude,
         );
         if (distance > _startRadiusMeters) {
-          throw ApiException(
+          _showStartMessage(
             '你距离行程起点约 ${(distance / 1000).toStringAsFixed(1)} 公里，需进入 5 公里范围内才能开启行程',
           );
+          return;
         }
       }
       trip = await service.start(
@@ -169,13 +188,24 @@ class _TripDetailPageState extends State<TripDetailPage> {
         context,
         MaterialPageRoute(builder: (_) => TripNavigationPage(trip: trip!)),
       );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.toString())));
-      }
+    } on PlatformException catch (e) {
+      _showStartMessage(
+        e.message?.trim().isNotEmpty == true
+            ? e.message!.trim()
+            : '定位服务暂不可用，请确认已开启系统定位后重试',
+      );
+    } on ApiException catch (e) {
+      _showStartMessage(e.message);
+    } catch (_) {
+      _showStartMessage('开启行程失败，请稍后重试');
     }
+  }
+
+  void _showStartMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   double _distanceMeters(
@@ -195,7 +225,10 @@ class _TripDetailPageState extends State<TripDetailPage> {
             math.cos(endLatitude) *
             math.sin(longitudeDelta / 2) *
             math.sin(longitudeDelta / 2);
-    return radius * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value));
+    final safeValue = value.clamp(0.0, 1.0);
+    return radius *
+        2 *
+        math.atan2(math.sqrt(safeValue), math.sqrt(1 - safeValue));
   }
 
   Future<void> settle() async {
@@ -320,6 +353,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
                     child: _TripDetailBody(
                       trip: trip!,
                       isOwner: isOwner,
+                      exitedView: widget.exitedView,
                       settling: settling,
                       onOpenChat: openChat,
                       onStart: start,
@@ -446,6 +480,7 @@ class _TripDetailBody extends StatelessWidget {
   const _TripDetailBody({
     required this.trip,
     required this.isOwner,
+    required this.exitedView,
     required this.settling,
     required this.onOpenChat,
     required this.onStart,
@@ -455,6 +490,7 @@ class _TripDetailBody extends StatelessWidget {
 
   final TripModel trip;
   final bool isOwner;
+  final bool exitedView;
   final bool settling;
   final VoidCallback onOpenChat;
   final VoidCallback onStart;
@@ -492,7 +528,7 @@ class _TripDetailBody extends StatelessWidget {
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Text(
-                  tripStatusLabel(trip.status),
+                  exitedView ? '已退出' : tripStatusLabel(trip.status),
                   style: const TextStyle(
                     color: AppColors.primaryDark,
                     fontSize: 11,
@@ -507,6 +543,30 @@ class _TripDetailBody extends StatelessWidget {
             trip.departureTime ?? '出发时间待确定',
             style: const TextStyle(fontSize: 13, color: AppColors.muted),
           ),
+          if (exitedView) ...[
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF4E8),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Row(
+                children: [
+                  Icon(LucideIcons.logOut, size: 19, color: Color(0xFFB85C00)),
+                  SizedBox(width: 10),
+                  Text(
+                    '行程已经退出',
+                    style: TextStyle(
+                      color: Color(0xFF9A4D00),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 22),
           _RouteAddresses(trip: trip),
           const SizedBox(height: 18),
@@ -527,12 +587,14 @@ class _TripDetailBody extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           const Divider(height: 1, color: Color(0xFFE8EBEF)),
-          _DetailAction(
-            icon: LucideIcons.messageCircle,
-            label: '进入车队群聊',
-            onTap: onOpenChat,
-          ),
-          const Divider(height: 1, color: Color(0xFFE8EBEF)),
+          if (!exitedView) ...[
+            _DetailAction(
+              icon: LucideIcons.messageCircle,
+              label: '进入车队群聊',
+              onTap: onOpenChat,
+            ),
+            const Divider(height: 1, color: Color(0xFFE8EBEF)),
+          ],
           _DetailAction(
             icon: LucideIcons.usersRound,
             label: '成员与车辆',
@@ -552,7 +614,7 @@ class _TripDetailBody extends StatelessWidget {
               value: trip.description!,
             ),
           ],
-          if (isOwner) ...[
+          if (isOwner && !exitedView) ...[
             const SizedBox(height: 18),
             const Divider(height: 1, color: Color(0xFFE8EBEF)),
             _LifecycleAction(

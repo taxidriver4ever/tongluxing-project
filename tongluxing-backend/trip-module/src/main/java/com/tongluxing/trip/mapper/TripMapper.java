@@ -156,10 +156,30 @@ public interface TripMapper {
                    t.vehicle_requirements, t.budget_description, t.travel_depth, t.public_flag,
                    t.status, t.remark, t.actual_start_time, t.actual_end_time,
                    t.created_at, t.updated_at, t.deleted
-            from trip_member_snapshot member
-            join trip t on t.id = member.trip_id and t.deleted = 0
-            where member.user_id = #{userId}
-              and member.join_status in ('EXITED', 'EXITED_DURING_TRIP', 'EXITED_AFTER_TRIP')
+            from trip t
+            where t.deleted = 0
+              and (
+                exists (
+                  select 1
+                  from trip_member_snapshot member
+                  where member.trip_id = t.id
+                    and member.user_id = #{userId}
+                    and member.join_status in ('EXITED', 'EXITED_DURING_TRIP', 'EXITED_AFTER_TRIP')
+                )
+                or exists (
+                  select 1
+                  from chat_conversation conversation
+                  join chat_conversation_member chat_member
+                    on chat_member.conversation_id = conversation.id
+                   and chat_member.user_id = #{userId}
+                   and chat_member.member_status = 'EXITED'
+                   and chat_member.deleted = 0
+                  where conversation.biz_type = 'TRIP'
+                    and conversation.biz_id = t.id
+                    and conversation.conversation_status = 'ARCHIVED'
+                    and conversation.deleted = 0
+                )
+              )
             order by t.departure_time desc
             limit #{limit}
             """)

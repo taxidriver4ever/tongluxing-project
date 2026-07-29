@@ -68,4 +68,7 @@ public interface TeamService {
 
     /** 当前成员按行程 ID 退出对应车队，供行程群聊退群流程调用。 */
     TeamResponse exitTrip(Long tripId);
+
+    /** 队长解散行程群时解散关联车队，并将全部成员记录为已退出。 */
+    void dissolveTrip(Long tripId);
 }

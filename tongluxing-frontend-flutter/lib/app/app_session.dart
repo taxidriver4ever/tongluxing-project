@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/services/api_client.dart';
 import '../data/services/app_services.dart';
+import '../data/services/tencent_im_client.dart';
 
 class AppSession extends ChangeNotifier {
   static const _accessTokenKey = 'tlx_access_token';
@@ -15,9 +16,11 @@ class AppSession extends ChangeNotifier {
 
   AppSession(this.api) {
     api.onSessionInvalidated = _handleSessionInvalidated;
+    tencentIm = TencentImClient(api);
   }
 
   final ApiClient api;
+  late final TencentImClient tencentIm;
   Timer? _sessionHeartbeat;
   String? userId;
   String? forcedLogoutMessage;
@@ -29,6 +32,7 @@ class AppSession extends ChangeNotifier {
     if (hasForcedLogout) return;
     // 先停止后续请求继续携带已失效 token；持久化 token 在用户确认弹窗后删除。
     _stopSessionHeartbeat();
+    unawaited(tencentIm.disconnect());
     api.token = null;
     forcedLogoutMessage = event.message;
     notifyListeners();
@@ -49,7 +53,10 @@ class AppSession extends ChangeNotifier {
       );
       if (!restored && !hasForcedLogout) await _clearStoredSession(storage);
     }
-    if (signedIn) _startSessionHeartbeat();
+    if (signedIn) {
+      _startSessionHeartbeat();
+      _connectTencentIm();
+    }
     initialized = true;
     notifyListeners();
   }
@@ -131,6 +138,7 @@ class AppSession extends ChangeNotifier {
       await storage.setString(_userIdKey, session.userId!);
     }
     _startSessionHeartbeat();
+    _connectTencentIm();
     notifyListeners();
   }
 
@@ -162,6 +170,7 @@ class AppSession extends ChangeNotifier {
 
   Future<void> logout() async {
     _stopSessionHeartbeat();
+    await tencentIm.disconnect();
     try {
       await AuthService(api).logout();
     } catch (_) {}
@@ -174,8 +183,18 @@ class AppSession extends ChangeNotifier {
   @override
   void dispose() {
     _stopSessionHeartbeat();
+    unawaited(tencentIm.dispose());
     api.onSessionInvalidated = null;
     super.dispose();
+  }
+
+  void _connectTencentIm() {
+    if (api.useDemo || !signedIn) return;
+    unawaited(
+      tencentIm.connect().catchError((Object error, StackTrace stackTrace) {
+        debugPrint('Tencent IM unavailable: $error');
+      }),
+    );
   }
 
   Future<void> _clearStoredSession(SharedPreferences storage) async {

@@ -9,6 +9,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
@@ -30,9 +31,13 @@ import com.tongluxing.team.vo.TeamApplicationResponse;
 import com.tongluxing.team.vo.TeamMemberListResponse;
 import com.tongluxing.team.vo.TeamMemberResponse;
 import com.tongluxing.team.vo.TeamResponse;
+import com.tongluxing.notify.dto.CreateNotificationEventRequest;
+import com.tongluxing.notify.service.NotificationService;
+import com.tongluxing.user.service.UserService;
 import com.tongluxing.user.support.CurrentUserContext;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tongluxing.vehicle.service.VehicleService;
+import com.tongluxing.vehicle.vo.PublicVehicleCardResponse;
+import com.tongluxing.vehicle.vo.VehicleResponse;
 
 import lombok.RequiredArgsConstructor;
 
@@ -52,6 +57,9 @@ public class TeamServiceImpl implements TeamService {
     private final TeamTripPort tripPort;
     private final CurrentUserContext currentUserContext;
     private final ApplicationEventPublisher eventPublisher;
+    private final UserService userService;
+    private final VehicleService vehicleService;
+    private final NotificationService notificationService;
     private final ObjectMapper objectMapper;
 
     /**
@@ -170,8 +178,7 @@ public class TeamServiceImpl implements TeamService {
                 || !Integer.valueOf(1).equals(team.getPublicFlag())) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "行程当前不接受申请");
         }
-        int requestedMembers = requestedMemberCount(request.joinQuestionJson());
-        if (team.getCurrentMemberCount() + requestedMembers > team.getMaxMemberCount()) {
+        if (team.getCurrentMemberCount() + 1 > team.getMaxMemberCount()) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "剩余名额不足");
         }
         TeamMember existedMember = memberMapper.findByTeamAndUser(teamId, userId);
@@ -188,7 +195,11 @@ public class TeamServiceImpl implements TeamService {
         application.setTeamId(teamId);
         application.setTripId(team.getTripId());
         application.setApplicantUserId(userId);
-        application.setApplicantVehicleId(request.applicantVehicleId());
+        boolean wantsToDrive = wantsToDrive(request.joinQuestionJson());
+        Long applicantVehicleId = wantsToDrive
+                ? requireEligiblePrimaryVehicle(request.applicantVehicleId()).vehicleId()
+                : null;
+        application.setApplicantVehicleId(applicantVehicleId);
         application.setApplicationStatus("PENDING");
         application.setApplyMessage(request.applyMessage());
         application.setJoinQuestionJson(request.joinQuestionJson());
@@ -196,6 +207,19 @@ public class TeamServiceImpl implements TeamService {
         application.setUpdatedAt(now);
         applicationMapper.insert(application);
         audit(teamId, userId, "APPLY_TEAM", "申请入队");
+        var applicant = userService.getChatMemberProfile(userId);
+        notificationService.createEvent(new CreateNotificationEventRequest(
+                "TEAM_JOIN_APPLICATION",
+                "USER",
+                team.getOwnerUserId(),
+                "INTERACTION",
+                "TEAM_APPLICATION",
+                String.valueOf(application.getId()),
+                "新的入队申请",
+                displayName(applicant.nickname()) + "申请加入“" + team.getTeamName() + "”"
+                        + (wantsToDrive ? "，并表示要开车" : ""),
+                "team-join-application:" + application.getId()
+        ));
         return toApplicationResponse(application);
     }
 
@@ -233,12 +257,16 @@ public class TeamServiceImpl implements TeamService {
             }
             // 仅当目标行程已经进行中时，校验申请人是否正在其他行程中。
             ensureNoOtherRunningTrip(application.getApplicantUserId(), team.getTripId());
-            int requestedMembers = requestedMemberCount(application.getJoinQuestionJson());
-            int incremented = teamMapper.incrementMemberCount(team.getId(), requestedMembers, now);
+            int incremented = teamMapper.incrementMemberCount(team.getId(), 1, now);
             if (incremented == 0) {
                 throw new BusinessException(ResultCode.BUSINESS_ERROR, "车队已满或不可加入");
             }
-            addMember(team.getId(), application.getApplicantUserId(), application.getApplicantVehicleId(), "MEMBER");
+            TeamMember approvedMember = addMember(
+                    team.getId(), application.getApplicantUserId(),
+                    application.getApplicantVehicleId(), "MEMBER");
+            tripPort.addApprovedMember(
+                    team.getTripId(), approvedMember.getUserId(), approvedMember.getVehicleId(),
+                    approvedMember.getNicknameSnapshot(), approvedMember.getVehicleSnapshot(), now);
         }
         audit(team.getId(), reviewerId, "REVIEW_TEAM_APPLICATION", status);
         eventPublisher.publishEvent(new TeamApplicationReviewedEvent(team.getId(), team.getTripId(),
@@ -267,24 +295,56 @@ public class TeamServiceImpl implements TeamService {
                 .toList();
     }
 
+    @Override
+    public List<TeamApplicationResponse> getReceivedApplications(String status) {
+        String normalized = StringUtils.hasText(status) ? status.trim().toUpperCase() : null;
+        if (normalized != null && !List.of("PENDING", "APPROVED", "REJECTED").contains(normalized)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "申请状态不正确");
+        }
+        return applicationMapper.findReceivedByOwner(currentUserContext.requireUserId(), normalized).stream()
+                .map(this::toApplicationResponse)
+                .toList();
+    }
+
     /**
      * 普通成员退出车队，并同步扣减车队人数。
      */
     @Override
     @Transactional
     public TeamResponse exit(Long teamId) {
-        Long userId = currentUserContext.requireUserId();
         Team team = requireTeam(teamId);
+        return exitTeam(team, currentUserContext.requireUserId());
+    }
+
+    @Override
+    @Transactional
+    public TeamResponse exitTrip(Long tripId) {
+        Team team = teamMapper.findAnyActiveByTripId(tripId);
+        if (team == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "行程车队不存在");
+        }
+        return exitTeam(team, currentUserContext.requireUserId());
+    }
+
+    private TeamResponse exitTeam(Team team, Long userId) {
         if (team.getOwnerUserId().equals(userId)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "队长不可直接退出车队");
         }
-        int changed = memberMapper.exit(teamId, userId, LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        int changed = memberMapper.exit(team.getId(), userId, now);
         if (changed == 0) {
             throw new BusinessException(ResultCode.FORBIDDEN, "不是活跃成员");
         }
-        teamMapper.decrementMemberCount(teamId, LocalDateTime.now());
-        audit(teamId, userId, "EXIT_TEAM", "退出车队");
-        return toTeamResponse(teamMapper.findById(teamId));
+        teamMapper.decrementMemberCount(team.getId(), now);
+        TeamTripDTO trip = tripPort.getTrip(team.getTripId());
+        String exitStatus = trip != null && trip.running()
+                ? "EXITED_DURING_TRIP"
+                : trip != null && List.of("FINISHED", "ENDED", "SETTLED", "ARCHIVED").contains(trip.status())
+                ? "EXITED_AFTER_TRIP"
+                : "EXITED";
+        tripPort.markMemberExited(team.getTripId(), userId, exitStatus, now);
+        audit(team.getId(), userId, "EXIT_TEAM", "退出车队并退出关联行程");
+        return toTeamResponse(teamMapper.findById(team.getId()));
     }
 
 
@@ -315,11 +375,18 @@ public class TeamServiceImpl implements TeamService {
     /**
      * 新增或重新激活车队成员。
      */
-    private void addMember(Long teamId, Long userId, Long vehicleId, String role) {
+    private TeamMember addMember(Long teamId, Long userId, Long vehicleId, String role) {
         TeamMember existed = memberMapper.findByTeamAndUser(teamId, userId);
         if (existed != null) {
-            memberMapper.reactivate(teamId, userId, vehicleId, role, LocalDateTime.now());
-            return;
+            LocalDateTime now = LocalDateTime.now();
+            memberMapper.reactivate(teamId, userId, vehicleId, role, now);
+            existed.setVehicleId(vehicleId);
+            existed.setMemberRole(role);
+            existed.setMemberStatus("ACTIVE");
+            existed.setJoinedAt(now);
+            existed.setExitedAt(null);
+            existed.setUpdatedAt(now);
+            return existed;
         }
         TeamMember member = new TeamMember();
         LocalDateTime now = LocalDateTime.now();
@@ -335,24 +402,36 @@ public class TeamServiceImpl implements TeamService {
         member.setCreatedAt(now);
         member.setUpdatedAt(now);
         memberMapper.insert(member);
+        return member;
     }
 
-    /**
-     * 申请中的同行人数计入车队容量；旧申请或非法值按一人处理。
-     */
-    private int requestedMemberCount(String joinQuestionJson) {
+    /** 解析申请人是否选择“我会开车”；非法历史 JSON 按不驾车处理。 */
+    private boolean wantsToDrive(String joinQuestionJson) {
         if (!StringUtils.hasText(joinQuestionJson)) {
-            return 1;
+            return false;
         }
         try {
-            JsonNode count = objectMapper.readTree(joinQuestionJson).get("companionCount");
-            if (count == null || !count.canConvertToInt()) {
-                return 1;
-            }
-            return Math.max(1, Math.min(count.asInt(), 8));
+            return objectMapper.readTree(joinQuestionJson).path("selfDrive").asBoolean(false);
         } catch (Exception ignored) {
-            return 1;
+            return false;
         }
+    }
+
+    /** “我会开车”必须同时满足驾驶证、主要车辆和该车辆行驶证认证均通过。 */
+    private VehicleResponse requireEligiblePrimaryVehicle(Long requestedVehicleId) {
+        if (!"APPROVED".equals(userService.getLatestCertification().status())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "驾驶证认证通过后才能选择“我会开车”");
+        }
+        VehicleResponse primary = vehicleService.getMyVehicles().vehicles().stream()
+                .filter(vehicle -> Boolean.TRUE.equals(vehicle.isDefault()))
+                .filter(vehicle -> "APPROVED".equals(vehicle.certificationStatus()))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(ResultCode.BAD_REQUEST,
+                        "需要一辆已通过行驶证认证的主要车辆才能选择“我会开车”"));
+        if (requestedVehicleId != null && !requestedVehicleId.equals(primary.vehicleId())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "申请车辆必须是当前已认证的主要车辆");
+        }
+        return primary;
     }
 
     /**
@@ -419,18 +498,41 @@ public class TeamServiceImpl implements TeamService {
      * 将入队申请实体转换为接口响应对象。
      */
     private TeamApplicationResponse toApplicationResponse(TeamJoinApplication application) {
+        var applicant = userService.getChatMemberProfile(application.getApplicantUserId());
+        var relation = userService.getFollowStatus(application.getApplicantUserId());
+        Team team = teamMapper.findById(application.getTeamId());
+        boolean wantsToDrive = wantsToDrive(application.getJoinQuestionJson());
+        PublicVehicleCardResponse vehicle = wantsToDrive && application.getApplicantVehicleId() != null
+                ? vehicleService.getPublicCard(application.getApplicantVehicleId()) : null;
+        String vehicleSummary = vehicle == null ? "" : List.of(
+                        vehicle.brand() == null ? "" : vehicle.brand(),
+                        vehicle.model() == null ? "" : vehicle.model(),
+                        vehicle.plateNoMask() == null ? "" : vehicle.plateNoMask())
+                .stream().filter(StringUtils::hasText).reduce((left, right) -> left + " · " + right).orElse("");
         return new TeamApplicationResponse(
                 String.valueOf(application.getId()),
                 String.valueOf(application.getTeamId()),
                 application.getTripId() == null ? null : String.valueOf(application.getTripId()),
                 String.valueOf(application.getApplicantUserId()),
+                displayName(applicant.nickname()),
+                applicant.avatarImageKey(),
                 application.getApplicantVehicleId() == null ? null : String.valueOf(application.getApplicantVehicleId()),
+                wantsToDrive,
+                vehicleSummary,
+                team == null ? "行程车队" : team.getTeamName(),
                 application.getApplicationStatus(),
                 application.getApplyMessage(),
                 application.getReviewMessage(),
                 format(application.getReviewedAt()),
-                format(application.getCreatedAt())
+                format(application.getCreatedAt()),
+                relation.following(),
+                relation.followedByTarget(),
+                relation.mutual()
         );
+    }
+
+    private String displayName(String nickname) {
+        return StringUtils.hasText(nickname) ? nickname.trim() : "同路行用户";
     }
 
     /**

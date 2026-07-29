@@ -100,7 +100,7 @@ public class MerchantServiceImpl implements MerchantService {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
 
-    @Value("${tongluxing.merchant.data-encryption-key:change-this-merchant-data-key}")
+    @Value("${tongluxing.merchant.data-encryption-key}")
     private String encryptionKey;
 
     /** 提交商家入驻申请。 */

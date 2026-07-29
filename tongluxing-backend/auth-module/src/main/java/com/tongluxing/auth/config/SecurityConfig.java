@@ -1,5 +1,8 @@
 package com.tongluxing.auth.config;
 
+import java.util.Arrays;
+
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -13,6 +16,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.tongluxing.auth.security.AuthSecurityExceptionHandler;
 import com.tongluxing.auth.security.TokenAuthenticationFilter;
@@ -23,6 +29,10 @@ import lombok.RequiredArgsConstructor;
  * Spring Security 配置。
  *
  * <p>项目采用前后端分离的无状态认证：接口不创建 Session，登录态由 Bearer Token + Redis 维护。</p>
+ *
+ * <p>规则声明顺序具有语义：具体公开入口和角色路径必须放在 {@code anyRequest}
+ * 之前；同一路径命中首条规则后不再继续匹配。普通用户、商家和 Admin 最终都由
+ * {@link TokenAuthenticationFilter} 建立 Authentication，但角色来源不同。</p>
  */
 @Configuration
 @EnableWebSecurity
@@ -33,6 +43,9 @@ public class SecurityConfig {
     private final TokenAuthenticationFilter tokenAuthenticationFilter;
     /** Security 认证/授权失败统一 JSON 输出处理器。 */
     private final AuthSecurityExceptionHandler authSecurityExceptionHandler;
+    /** 仅允许部署环境显式声明的管理端开发来源跨域访问。 */
+    @Value("${app.cors.allowed-origins:}")
+    private String allowedOrigins;
 
     /**
      * 配置接口鉴权规则和安全过滤链。
@@ -41,9 +54,12 @@ public class SecurityConfig {
      */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        // 通过一条显式过滤链集中声明认证方式、路径权限和异常响应，避免使用框架默认行为。
         return http
                 // 前后端分离接口不依赖 Cookie，因此关闭 CSRF。
                 .csrf(AbstractHttpConfigurer::disable)
+                // 同源生产部署无需 CORS；本地开发来源由环境变量白名单控制。
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 // 关闭 Spring Security 默认表单登录页。
                 .formLogin(AbstractHttpConfigurer::disable)
                 // 关闭 HTTP Basic，统一使用 Bearer Token。
@@ -59,9 +75,9 @@ public class SecurityConfig {
                                 "/v1/auth/password-login",
                                 "/v1/auth/wx-phone-login",
                                 "/v1/auth/app/login",
-                                "/v1/auth/app/bind-by-mini-ticket",
                                 "/v1/auth/refresh-token",
                                 "/v1/invites/qr/validate",
+                                "/health",
                                 "/actuator/health"
                         ).permitAll()
                         // Web Admin 与普通用户登录态隔离，后台接口仅允许 ROLE_ADMIN。
@@ -98,20 +114,48 @@ public class SecurityConfig {
     }
 
     /**
+     * 配置不携带 Cookie 的受控跨域访问，禁止“任意来源 + 凭证”组合。
+     */
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toList());
+        configuration.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(java.util.List.of("Authorization", "Content-Type", "X-Request-Id"));
+        configuration.setExposedHeaders(java.util.List.of("X-Request-Id"));
+        configuration.setAllowCredentials(false);
+        configuration.setMaxAge(3600L);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
+
+    /**
      * 禁用 Spring Security 默认表单用户名密码登录。
      *
      * <p>业务密码登录由 `/v1/auth/password-login` 接口自行校验并签发 JWT。</p>
      */
     @Bean
     public UserDetailsService userDetailsService() {
+        // 故意提供始终失败的实现，防止 Spring 自动配置生成临时用户或启用表单密码认证。
         return username -> {
+            // 业务密码登录必须走 AuthController，由其执行限流、日志、设备绑定和 Token 签发。
             throw new UsernameNotFoundException("Password login is disabled");
         };
     }
 
-    /** 密码哈希器，当前仅用于首次注册设置密码。 */
+    /**
+     * 提供 BCrypt 密码哈希器。
+     *
+     * <p>BCrypt 自动生成随机盐并把成本参数写入哈希文本；验证时必须调用
+     * {@code matches}，不能对两次 encode 结果直接比较。</p>
+     */
     @Bean
     public PasswordEncoder passwordEncoder() {
+        // BCrypt 每次 encode 都生成随机盐；验证密码应调用 matches 而不是比较哈希文本。
         return new BCryptPasswordEncoder();
     }
 }

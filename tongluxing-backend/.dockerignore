@@ -1,0 +1,10 @@
+**/target/
+.git/
+.idea/
+
+*.log
+logs/
+**/logs/
+
+.env
+.env.*

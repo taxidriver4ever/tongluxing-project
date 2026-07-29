@@ -97,9 +97,10 @@ public class MatchTeamAdapter implements MatchTeamPort {
      * @return 匹配模块车队 DTO
      */
     private MatchTeamDTO toDTO(Team team) {
+        int activeMemberCount = teamMemberMapper.countActiveByTeamId(team.getId());
         return new MatchTeamDTO(team.getId(), team.getTripId(), team.getOwnerUserId(), team.getTeamName(),
                 team.getTeamDesc(), team.getNotice(),
-                team.getStartName(), team.getEndName(), team.getDepartureTime(), team.getCurrentMemberCount(),
+                team.getStartName(), team.getEndName(), team.getDepartureTime(), activeMemberCount,
                 team.getMaxMemberCount());
     }
 }

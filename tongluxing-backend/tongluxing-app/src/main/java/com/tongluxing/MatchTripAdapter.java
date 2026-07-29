@@ -43,6 +43,12 @@ public class MatchTripAdapter implements MatchTripPort {
         return trip == null ? null : toDTO(trip);
     }
 
+    @Override
+    public MatchTripDTO getTripByNumber(String tripNumber) {
+        Trip trip = tripMapper.findByTripNumber(tripNumber);
+        return trip == null ? null : toDTO(trip);
+    }
+
     /**
      * 查询公开行程列表，作为匹配推荐候选池。
      *
@@ -72,7 +78,7 @@ public class MatchTripAdapter implements MatchTripPort {
         var growth = growthService.getSummary(trip.getUserId());
         var badges = growthService.getBadgeWall(trip.getUserId());
         AuthAccount account = authAccountMapper.findByUserId(trip.getUserId());
-        return new MatchTripDTO(trip.getId(), trip.getUserId(), trip.getVehicleId(),
+        return new MatchTripDTO(trip.getId(), trip.getTripNumber(), trip.getUserId(), trip.getVehicleId(),
                 profile == null || profile.getNickname() == null || profile.getNickname().isBlank()
                         ? "同路行车友" : profile.getNickname(),
                 profile == null ? null : profile.getAvatarImageKey(),

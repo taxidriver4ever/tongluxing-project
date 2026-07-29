@@ -1,12 +1,17 @@
--- 同路行开发数据库：全量删除并重建全部业务表
+-- 同路行数据库：创建数据库并全量重建全部业务表
 -- 适用：MySQL 8.0+
 --
 -- 警告：
---   1. 本脚本会永久删除当前数据库中的全部同路行业务表及其数据。
---   2. 执行前务必确认 SELECT DATABASE() 返回的是开发/测试库，并先完成备份。
---   3. 本脚本只操作当前已连接的数据库，不会创建或切换数据库。
+--   1. 本脚本会创建并切换到 tongluxing 数据库。
+--   2. 本脚本会永久删除 tongluxing 中下方列出的全部业务表及其数据。
+--   3. 执行前务必确认已完成备份，并使用具有 CREATE、DROP、ALTER、INDEX 权限的 MySQL 账号。
 --   4. 建表完成后，再执行 02_create_test_users.sql 创建联调账号。
 
+CREATE DATABASE IF NOT EXISTS `tongluxing`
+    DEFAULT CHARACTER SET utf8mb4
+    DEFAULT COLLATE utf8mb4_unicode_ci;
+
+USE `tongluxing`;
 SELECT DATABASE() AS current_database;
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -56,7 +61,9 @@ DROP TABLE IF EXISTS `merchant_product`;
 DROP TABLE IF EXISTS `merchant_profile`;
 DROP TABLE IF EXISTS `trip_track_anomaly`;
 DROP TABLE IF EXISTS `trip_track_summary`;
+DROP TABLE IF EXISTS `trip_track_source_switch`;
 DROP TABLE IF EXISTS `trip_waypoint_arrival`;
+DROP TABLE IF EXISTS `trip_route_plan_version`;
 DROP TABLE IF EXISTS `trip_track_point`;
 DROP TABLE IF EXISTS `trip_execution_member`;
 DROP TABLE IF EXISTS `trip_execution`;
@@ -160,7 +167,7 @@ create table if not exists auth_login_log (
                                               id bigint primary key,
                                               user_id bigint null,
                                               phone varchar(20) null,
-                                              action_type varchar(32) not null comment 'login/password_login/wx_phone_login/app_login/app_bind_login/logout/refresh',
+                                              action_type varchar(32) not null comment 'login/password_login/wx_phone_login/app_login/logout/refresh',
                                               device_id varchar(128) null,
                                               ip varchar(64) null,
                                               success tinyint not null comment '1 success, 0 failed',
@@ -269,12 +276,6 @@ create table if not exists user_privacy_setting (
                                                     profile_visibility varchar(16) not null default 'PUBLIC',
                                                     vehicle_visibility varchar(16) not null default 'TEAM_ONLY',
                                                     invite_enabled_flag tinyint not null default 1,
-                                                    city_visible_flag tinyint not null default 1,
-                                                    bio_visible_flag tinyint not null default 1,
-                                                    trip_stats_visible_flag tinyint not null default 1,
-                                                    level_visible_flag tinyint not null default 1,
-                                                    location_enabled_flag tinyint not null default 1,
-                                                    notification_enabled_flag tinyint not null default 1,
                                                     city_visible_flag tinyint not null default 1,
                                                     bio_visible_flag tinyint not null default 1,
                                                     trip_stats_visible_flag tinyint not null default 1,
@@ -577,6 +578,7 @@ create table if not exists vehicle_audit_log (
 -- ============================================================================
 create table if not exists trip (
                                     id bigint primary key,
+                                    trip_number varchar(20) not null,
                                     user_id bigint not null,
                                     vehicle_id bigint not null,
                                     title varchar(128) not null default '',
@@ -617,6 +619,7 @@ create table if not exists trip (
                                     created_at datetime not null,
                                     updated_at datetime not null,
                                     deleted tinyint(1) not null default 0,
+                                    unique key uk_trip_number (trip_number),
                                     key idx_trip_user_status_time (user_id, status, departure_time),
                                     key idx_trip_public_status_time (public_flag, status, departure_time),
                                     key idx_trip_vehicle (vehicle_id)
@@ -634,7 +637,7 @@ create table if not exists trip_route (
                                           polyline mediumtext null,
                                           plan_distance int null,
                                           plan_duration int null,
-                                          provider_type varchar(32) not null default 'MOCK',
+                                          provider_type varchar(32) not null,
                                           route_status varchar(16) not null default 'VALID',
                                           created_at datetime not null,
                                           updated_at datetime not null,
@@ -721,7 +724,7 @@ CREATE TABLE IF NOT EXISTS map_route_plan (
                                               route_hash VARCHAR(64) NOT NULL,
                                               route_points_json JSON NOT NULL,
                                               route_result_json JSON NULL,
-                                              provider_type VARCHAR(32) NOT NULL DEFAULT 'MOCK',
+                                              provider_type VARCHAR(32) NOT NULL,
                                               plan_status VARCHAR(20) NOT NULL DEFAULT 'SUCCESS',
                                               error_message VARCHAR(255) NULL,
                                               created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -741,7 +744,7 @@ CREATE TABLE IF NOT EXISTS map_location_search_log (
                                                        selected_latitude DECIMAL(10,6) NULL,
                                                        selected_longitude DECIMAL(10,6) NULL,
                                                        scene VARCHAR(32) NOT NULL,
-                                                       provider_type VARCHAR(32) NOT NULL DEFAULT 'MOCK',
+                                                       provider_type VARCHAR(32) NOT NULL,
                                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                                                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                                                        deleted TINYINT(1) NOT NULL DEFAULT 0,
@@ -751,88 +754,6 @@ CREATE TABLE IF NOT EXISTS map_location_search_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
-CREATE TABLE IF NOT EXISTS map_location_catalog (
-                                                    id BIGINT NOT NULL,
-                                                    name VARCHAR(128) NOT NULL,
-                                                    address VARCHAR(255) NOT NULL,
-                                                    city VARCHAR(64) NULL,
-                                                    keywords VARCHAR(255) NULL,
-                                                    latitude DECIMAL(10,6) NOT NULL,
-                                                    longitude DECIMAL(10,6) NOT NULL,
-                                                    sort_no INT NOT NULL DEFAULT 0,
-                                                    enabled TINYINT(1) NOT NULL DEFAULT 1,
-                                                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                                                    deleted TINYINT(1) NOT NULL DEFAULT 0,
-                                                    PRIMARY KEY (id),
-                                                    KEY idx_map_catalog_name (name),
-                                                    KEY idx_map_catalog_city_sort (city, sort_no)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-INSERT IGNORE INTO map_location_catalog
-(id, name, address, city, keywords, latitude, longitude, sort_no)
-VALUES
-    (910000000000000001, '广州市天河体育中心', '广东省广州市天河区天河路299号', '广州', '天河 体育中心 广州', 23.134700, 113.361200, 100),
-    (910000000000000002, '广州白云山', '广东省广州市白云区广园中路801号', '广州', '白云山 景区 广州', 23.184100, 113.298800, 90),
-    (910000000000000003, '深圳南山科技园', '广东省深圳市南山区粤海街道', '深圳', '南山 科技园 深圳', 22.540500, 113.934500, 80),
-    (910000000000000004, '成都东站', '四川省成都市成华区郛都路', '成都', '成都东站 高铁 火车站', 30.628000, 104.147000, 70),
-    (910000000000000005, '桂林中心广场', '广西壮族自治区桂林市秀峰区依仁路', '桂林', '桂林 中心广场 旅游', 25.274200, 110.290100, 60),
-    (910000000000000006, '康定情歌广场', '四川省甘孜藏族自治州康定市沿河西路', '康定', '康定 川西 情歌广场', 30.050700, 101.960000, 50),
-    (910000000000000007, '理塘县城', '四川省甘孜藏族自治州理塘县高城镇', '理塘', '理塘 318 川藏线', 29.996000, 100.269800, 40),
-    (910000000000000008, '布达拉宫', '西藏自治区拉萨市城关区北京中路35号', '拉萨', '拉萨 布达拉宫 西藏', 29.657000, 91.117000, 30),
-    (910000000000000009, '北京天安门广场', '北京市东城区东长安街', '北京', '北京 天安门 广场 故宫', 39.904200, 116.397500, 99),
-    (910000000000000010, '北京首都国际机场', '北京市顺义区机场西路', '北京', '北京 首都机场 机场 PEK', 40.079900, 116.603100, 95),
-    (910000000000000011, '北京南站', '北京市丰台区永外大街车站路12号', '北京', '北京南站 高铁 火车站', 39.865200, 116.378900, 94),
-    (910000000000000012, '上海外滩', '上海市黄浦区中山东一路', '上海', '上海 外滩 南京路 黄浦江', 31.240000, 121.490000, 98),
-    (910000000000000013, '上海虹桥国际机场', '上海市长宁区虹桥路2550号', '上海', '上海 虹桥机场 机场 SHA', 31.197900, 121.336300, 95),
-    (910000000000000014, '上海虹桥站', '上海市闵行区申贵路1500号', '上海', '上海虹桥站 高铁 火车站', 31.196900, 121.327000, 94),
-    (910000000000000015, '天津之眼', '天津市红桥区三岔河口永乐桥', '天津', '天津之眼 摩天轮 海河', 39.153600, 117.190300, 82),
-    (910000000000000016, '重庆解放碑', '重庆市渝中区民族路177号', '重庆', '重庆 解放碑 洪崖洞', 29.557100, 106.577000, 92),
-    (910000000000000017, '重庆江北国际机场', '重庆市渝北区机场路', '重庆', '重庆 江北机场 机场 CKG', 29.719200, 106.641700, 90),
-    (910000000000000018, '杭州西湖风景区', '浙江省杭州市西湖区龙井路1号', '杭州', '杭州 西湖 景区 断桥', 30.247100, 120.145300, 96),
-    (910000000000000019, '杭州东站', '浙江省杭州市上城区全福桥路2号', '杭州', '杭州东站 高铁 火车站', 30.292000, 120.212000, 90),
-    (910000000000000020, '杭州萧山国际机场', '浙江省杭州市萧山区空港大道', '杭州', '杭州 萧山机场 机场 HGH', 30.229500, 120.434400, 88),
-    (910000000000000021, '南京夫子庙', '江苏省南京市秦淮区贡院西街53号', '南京', '南京 夫子庙 秦淮河', 32.020600, 118.788100, 86),
-    (910000000000000022, '南京南站', '江苏省南京市雨花台区玉兰路98号', '南京', '南京南站 高铁 火车站', 31.968900, 118.797600, 84),
-    (910000000000000023, '苏州园林拙政园', '江苏省苏州市姑苏区东北街178号', '苏州', '苏州 拙政园 园林 景区', 31.324300, 120.629000, 84),
-    (910000000000000024, '无锡鼋头渚', '江苏省无锡市滨湖区鼋渚路1号', '无锡', '无锡 鼋头渚 太湖 景区', 31.515000, 120.215000, 76),
-    (910000000000000025, '武汉黄鹤楼', '湖北省武汉市武昌区蛇山西山坡特1号', '武汉', '武汉 黄鹤楼 长江 景区', 30.544900, 114.304600, 91),
-    (910000000000000026, '武汉站', '湖北省武汉市洪山区白云路', '武汉', '武汉站 高铁 火车站', 30.610000, 114.424000, 86),
-    (910000000000000027, '长沙橘子洲景区', '湖南省长沙市岳麓区橘子洲头2号', '长沙', '长沙 橘子洲 湘江 景区', 28.192700, 112.962000, 89),
-    (910000000000000028, '长沙南站', '湖南省长沙市雨花区花候路', '长沙', '长沙南站 高铁 火车站', 28.147000, 113.065000, 84),
-    (910000000000000029, '西安大雁塔', '陕西省西安市雁塔区慈恩路1号', '西安', '西安 大雁塔 大唐不夜城', 34.218900, 108.964200, 93),
-    (910000000000000030, '西安北站', '陕西省西安市未央区元朔路', '西安', '西安北站 高铁 火车站', 34.376000, 108.939000, 86),
-    (910000000000000031, '郑州东站', '河南省郑州市金水区心怡路199号', '郑州', '郑州东站 高铁 火车站', 34.759000, 113.752000, 84),
-    (910000000000000032, '洛阳龙门石窟', '河南省洛阳市洛龙区龙门中街13号', '洛阳', '洛阳 龙门石窟 世界遗产 景区', 34.555500, 112.469000, 88),
-    (910000000000000033, '济南大明湖', '山东省济南市历下区大明湖路271号', '济南', '济南 大明湖 趵突泉 景区', 36.674800, 117.025000, 82),
-    (910000000000000034, '青岛五四广场', '山东省青岛市市南区东海西路', '青岛', '青岛 五四广场 奥帆中心', 36.062700, 120.384000, 86),
-    (910000000000000035, '厦门鼓浪屿', '福建省厦门市思明区鼓浪屿街道', '厦门', '厦门 鼓浪屿 景区 轮渡', 24.447100, 118.066000, 92),
-    (910000000000000036, '厦门北站', '福建省厦门市集美区后溪镇岩内村', '厦门', '厦门北站 高铁 火车站', 24.637000, 118.074000, 82),
-    (910000000000000037, '福州三坊七巷', '福建省福州市鼓楼区南后街', '福州', '福州 三坊七巷 景区', 26.086000, 119.296000, 82),
-    (910000000000000038, '南昌滕王阁', '江西省南昌市东湖区仿古街58号', '南昌', '南昌 滕王阁 赣江 景区', 28.682900, 115.881000, 84),
-    (910000000000000039, '合肥南站', '安徽省合肥市包河区龙川路', '合肥', '合肥南站 高铁 火车站', 31.798000, 117.291000, 80),
-    (910000000000000040, '黄山风景区南大门', '安徽省黄山市黄山区汤口镇', '黄山', '黄山 景区 南大门 迎客松', 30.078000, 118.178000, 91),
-    (910000000000000041, '成都天府广场', '四川省成都市青羊区人民南路一段', '成都', '成都 天府广场 春熙路', 30.657000, 104.066000, 90),
-    (910000000000000042, '成都双流国际机场', '四川省成都市双流区机场东三路', '成都', '成都 双流机场 机场 CTU', 30.578500, 103.947100, 86),
-    (910000000000000043, '九寨沟风景名胜区', '四川省阿坝藏族羌族自治州九寨沟县漳扎镇', '九寨沟', '四川 九寨沟 景区 自驾', 33.260000, 103.918000, 93),
-    (910000000000000044, '贵阳北站', '贵州省贵阳市观山湖区西二环', '贵阳', '贵阳北站 高铁 火车站', 26.653000, 106.674000, 80),
-    (910000000000000045, '黄果树瀑布', '贵州省安顺市镇宁布依族苗族自治县', '安顺', '贵州 黄果树 瀑布 景区', 25.990000, 105.667000, 89),
-    (910000000000000046, '昆明南站', '云南省昆明市呈贡区祥园街', '昆明', '昆明南站 高铁 火车站', 24.873000, 102.861000, 82),
-    (910000000000000047, '丽江古城', '云南省丽江市古城区大研街道', '丽江', '云南 丽江古城 景区 自驾', 26.872100, 100.234000, 92),
-    (910000000000000048, '大理古城', '云南省大理白族自治州大理市一塔路', '大理', '云南 大理古城 洱海 自驾', 25.696000, 100.165000, 90),
-    (910000000000000049, '南宁东站', '广西壮族自治区南宁市青秀区长虹路66号', '南宁', '南宁东站 高铁 火车站', 22.848000, 108.413000, 80),
-    (910000000000000050, '桂林两江国际机场', '广西壮族自治区桂林市临桂区两江镇', '桂林', '桂林 两江机场 机场 KWL', 25.218100, 110.039000, 80),
-    (910000000000000051, '海口美兰国际机场', '海南省海口市美兰区航安一街', '海口', '海口 美兰机场 机场 HAK', 19.934900, 110.459000, 84),
-    (910000000000000052, '三亚亚龙湾', '海南省三亚市吉阳区亚龙湾路', '三亚', '三亚 亚龙湾 海滩 景区', 18.230000, 109.640000, 90),
-    (910000000000000053, '沈阳故宫', '辽宁省沈阳市沈河区沈阳路171号', '沈阳', '沈阳 故宫 景区', 41.796000, 123.449000, 82),
-    (910000000000000054, '大连星海广场', '辽宁省大连市沙河口区中山路572号', '大连', '大连 星海广场 海滨', 38.881700, 121.588000, 84),
-    (910000000000000055, '长春站', '吉林省长春市宽城区长白路5号', '长春', '长春站 火车站 高铁', 43.909000, 125.324000, 76),
-    (910000000000000056, '哈尔滨中央大街', '黑龙江省哈尔滨市道里区中央大街', '哈尔滨', '哈尔滨 中央大街 索菲亚教堂', 45.773000, 126.616000, 86),
-    (910000000000000057, '呼和浩特东站', '内蒙古自治区呼和浩特市新城区万通路', '呼和浩特', '呼和浩特东站 高铁 火车站', 40.849000, 111.766000, 76),
-    (910000000000000058, '银川站', '宁夏回族自治区银川市金凤区上海西路710号', '银川', '银川站 火车站 高铁', 38.487000, 106.180000, 74),
-    (910000000000000059, '西宁站', '青海省西宁市城东区互助路128号', '西宁', '西宁站 火车站 青藏线', 36.620000, 101.814000, 78),
-    (910000000000000060, '乌鲁木齐站', '新疆维吾尔自治区乌鲁木齐市沙依巴克区高铁北六路', '乌鲁木齐', '乌鲁木齐站 高铁 火车站 新疆', 43.826000, 87.527000, 80),
-    (910000000000000061, '广州塔', '广东省广州市海珠区阅江西路222号', '广州', '广州塔 小蛮腰 海珠 景点 地标', 23.106500, 113.324500, 100);
 
 CREATE TABLE IF NOT EXISTS map_geocode_cache (
                                                  id BIGINT NOT NULL,
@@ -841,7 +762,7 @@ CREATE TABLE IF NOT EXISTS map_geocode_cache (
                                                  latitude DECIMAL(10,6) NULL,
                                                  longitude DECIMAL(10,6) NULL,
                                                  geocode_result_json JSON NULL,
-                                                 provider_type VARCHAR(32) NOT NULL DEFAULT 'MOCK',
+                                                 provider_type VARCHAR(32) NOT NULL,
                                                  expire_at DATETIME NULL,
                                                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                                                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1447,6 +1368,21 @@ CREATE TABLE IF NOT EXISTS trip_track_point (
     KEY idx_track_execution_time (execution_id, located_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS trip_route_plan_version (
+    id BIGINT NOT NULL PRIMARY KEY,
+    execution_id BIGINT NOT NULL,
+    trip_id BIGINT NOT NULL,
+    version_no INT NOT NULL,
+    route_polyline LONGTEXT NOT NULL,
+    planned_distance_m INT NOT NULL DEFAULT 0,
+    required_waypoints_json JSON NULL,
+    effective_at DATETIME NOT NULL,
+    created_by BIGINT NOT NULL,
+    created_at DATETIME NOT NULL,
+    deleted TINYINT NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_execution_route_version (execution_id, version_no, deleted)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS trip_waypoint_arrival (
     id BIGINT PRIMARY KEY,
     execution_id BIGINT NOT NULL,
@@ -1461,6 +1397,18 @@ CREATE TABLE IF NOT EXISTS trip_waypoint_arrival (
     created_at DATETIME NOT NULL,
     deleted TINYINT NOT NULL DEFAULT 0,
     UNIQUE KEY uk_execution_waypoint_arrival (execution_id, waypoint_id, arrival_type, deleted)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS trip_track_source_switch (
+    id BIGINT NOT NULL PRIMARY KEY,
+    execution_id BIGINT NOT NULL,
+    from_user_id BIGINT NULL,
+    to_user_id BIGINT NOT NULL,
+    switch_reason VARCHAR(64) NOT NULL,
+    switched_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL,
+    deleted TINYINT NOT NULL DEFAULT 0,
+    KEY idx_track_source_execution (execution_id, switched_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS trip_mileage_settlement (

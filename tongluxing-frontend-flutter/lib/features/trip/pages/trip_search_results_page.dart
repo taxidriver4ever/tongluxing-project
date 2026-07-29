@@ -33,7 +33,7 @@ class TripSearchResultsPage extends StatefulWidget {
 }
 
 class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
-  static const tabs = ['目的地', '起点', '路线', '发起人'];
+  static const tabs = ['目的地', '起点', '路线', '同路人', '行程号'];
 
   final search = TextEditingController();
   final scroll = ScrollController();
@@ -59,13 +59,15 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
     0 => '搜索目的地 / 城市 / 景点',
     1 => '搜索出发地 / 集合点',
     2 => '搜索路线 / 经停点 / 行程标题',
-    _ => '搜索昵称 / 同路行号',
+    3 => '搜索昵称 / 手机号 / 同路行号',
+    _ => '请输入完整行程号',
   };
 
   String? get searchType => switch (tabIndex) {
     0 => 'DESTINATION',
     1 => 'ORIGIN',
     2 => 'ROUTE',
+    4 => 'TRIP_NUMBER',
     _ => null,
   };
 
@@ -297,7 +299,7 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
       return _SearchPrompt(
         icon: LucideIcons.search,
         title: '输入关键词后点击搜索',
-        subtitle: '可分别查找目的地、起点、路线和发起人',
+        subtitle: '可分别查找目的地、起点、路线、同路人和行程号',
       );
     }
     if (loading && trips.isEmpty && users.isEmpty) {
@@ -316,8 +318,8 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
       if (users.isEmpty) {
         return _SearchPrompt(
           icon: LucideIcons.userSearch,
-          title: '没有找到相关发起人',
-          subtitle: '换一个昵称或用户 ID 试试',
+          title: '没有找到相关同路人',
+          subtitle: '换一个昵称、手机号或同路行号试试',
         );
       }
       return RefreshIndicator(
@@ -759,7 +761,7 @@ class _SearchTripCard extends StatelessWidget {
                 const SizedBox(width: 7),
                 Expanded(
                   child: Text(
-                    '${trip.owner.nickname} · 发起人',
+                    '${trip.owner.nickname} · 同路人',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(

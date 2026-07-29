@@ -63,13 +63,23 @@ public class UserServiceImpl implements UserService {
     /** 用户公开资料缓存 Key。 */
     private static final String PUBLIC_CACHE = "user:cache:public-card:v2:%d";
 
+    /** 统一解析 Spring Security 中的当前登录用户，避免各方法自行猜测 principal 类型。 */
     private final CurrentUserContext currentUserContext;
+
+    /** 用户资料、隐私和驾驶证认证数据访问入口。 */
     private final UserDomainMapper mapper;
+
+    /** 关注关系及关注通知数据访问入口。 */
     private final UserFollowMapper followMapper;
+
+    /** 存取个人资料和公开名片缓存；缓存不可用时业务仍可回源数据库。 */
     private final StringRedisTemplate redis;
+
+    /** 把不可变 VO 序列化为 JSON 存入 Redis，并在命中时恢复为对应类型。 */
     private final ObjectMapper objectMapper;
 
-    @Value("${tongluxing.user.data-encryption-key:change-this-user-data-key}")
+    /** 从配置读取的敏感数据主密钥原文，运行时经 SHA-256 派生为 AES-256 密钥。 */
+    @Value("${tongluxing.user.data-encryption-key}")
     private String encryptionKey;
 
     /**
@@ -79,12 +89,20 @@ public class UserServiceImpl implements UserService {
      */
     @Override
     public UserProfileVO getCurrentProfile() {
+        // 任何“我的资料”请求都先确定可靠的登录用户 ID，绝不接受客户端传入 userId。
         long userId = currentUserContext.requireUserId();
+
+        // 完整资料变化不频繁，优先读 30 分钟缓存以减少资料、统计、认证状态的聚合查询。
         UserProfileVO cached = cacheGet(PROFILE_CACHE.formatted(userId), UserProfileVO.class);
         if (cached != null) {
+            // 缓存对象已经是对外 VO，不会把查询 DTO 中的密文或内部字段带出。
             return cached;
         }
+
+        // 缓存未命中或 Redis 异常时回源数据库；profile() 还会补齐历史用户的默认数据。
         UserProfileVO result = profile(userId);
+
+        // 回填失败会被 cachePut 吞掉，数据库读取成功的结果仍正常返回。
         cachePut(PROFILE_CACHE.formatted(userId), result, Duration.ofMinutes(30));
         return result;
     }
@@ -98,35 +116,61 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public UserProfileVO updateCurrentProfile(UpdateUserProfileRequest request) {
+        // 更新目标只能是当前登录用户，避免水平越权修改他人资料。
         long userId = currentUserContext.requireUserId();
+
+        // 先读取完整旧值，因为该接口采用 PATCH 式语义：null 表示“不修改”。
         UserProfileVO old = profile(userId);
+
+        // 把每个请求字段与旧值合并后一次性更新，防止未传字段被 SQL 写成 null。
         mapper.updateProfile(userId, value(request.nickname(), old.nickname()), value(request.avatarImageKey(), old.avatarImageKey()),
                 request.gender() == null ? old.gender() : request.gender(), request.birthday() == null ? old.birthday() : request.birthday(),
                 value(request.cityCode(), old.cityCode()), value(request.cityName(), old.cityName()),
                 value(request.bio(), old.bio()), LocalDateTime.now());
+
+        // 昵称、头像、城市和简介同时存在于私有资料与公开名片中，所以两个缓存都必须失效。
         redis.delete(java.util.List.of(PROFILE_CACHE.formatted(userId), PUBLIC_CACHE.formatted(userId)));
+
+        // 重新查询而不是直接拼装返回值，以数据库最终落库内容作为响应依据。
         return profile(userId);
     }
 
-    /** 提交驾驶证认证申请。 */
+    /**
+     * 提交驾驶证认证申请。
+     *
+     * <p>该流程先检查重复申请，再验证日期、加密敏感字段并创建 PENDING 记录。
+     * 认证状态会出现在个人资料和公开名片，因此写入成功后必须同时清除两类缓存。</p>
+     */
     @Override
     @Transactional
     public CertificationVO submitCertification(CertificationRequest request) {
+        // 认证归属于当前登录用户，客户端不能替其他账号提交证件。
         long userId = currentUserContext.requireUserId();
+
+        // 历史账号可能尚无 user_profile；认证前补齐资料与隐私默认行。
         ensureProfile(userId);
         UserQueryDTO latest = mapper.findLatestCertification(userId);
         if (latest != null && java.util.List.of("PENDING", "APPROVED").contains(latest.getCertificationStatus())) {
+            // 待审核时禁止重复排队；已通过时禁止创建第二份有效认证。
             throw new BusinessException(409, "认证正在审核或已通过");
         }
+
+        // 整次写入使用同一个时间戳，保证 submitted_at/created_at/updated_at 一致。
         LocalDateTime now = LocalDateTime.now();
         validateDates(request);
+
+        // 姓名和完整证件号入库前加密；列表只使用脱敏号，减少非必要解密。
         mapper.insertCertification(SnowflakeIdGenerator.nextId(), userId,
                 encrypt(request.holderName().trim()), encrypt(request.licenseNo().trim()),
                 maskLicenseNo(request.licenseNo()), request.vehicleClass().trim(), request.firstIssueDate(),
                 request.validFrom(), request.validTo(), trimToEmpty(request.issuingAuthority()),
                 request.licenseFrontImageKey().trim(), trimToEmpty(request.licenseBackImageKey()),
                 request.recognitionSource().trim(), now);
+
+        // 最新认证状态已经由 UNSUBMITTED/REJECTED 变为 PENDING，旧资料缓存不可继续使用。
         redis.delete(java.util.List.of(PROFILE_CACHE.formatted(userId), PUBLIC_CACHE.formatted(userId)));
+
+        // 回查刚提交的最新记录，统一通过 certification() 计算 canResubmit。
         return certification(mapper.findLatestCertification(userId));
     }
 
@@ -136,8 +180,10 @@ public class UserServiceImpl implements UserService {
         long userId = currentUserContext.requireUserId();
         UserQueryDTO latest = mapper.findLatestCertification(userId);
         if (latest == null) {
+            // 用显式 UNSUBMITTED 对象代替 null，前端无需区分“无记录”和“接口无数据”。
             return new CertificationVO(null, userId, "UNSUBMITTED", null, null, null, true);
         }
+        // 有记录时由统一转换函数根据状态推导是否允许重新提交。
         return certification(latest);
     }
 
@@ -145,10 +191,17 @@ public class UserServiceImpl implements UserService {
     @Override
     public PageResult<DrivingLicenseAuditSummaryVO> pageDrivingLicenseCertifications(
             String status, String keyword, int page, int size) {
+        // 后台调用方即使传入 0 或负页码，也统一从第 1 页查询。
         int normalizedPage = Math.max(page, 1);
+
+        // 每页限制在 1~100，避免一次读取并解密过多敏感认证数据。
         int normalizedSize = Math.min(Math.max(size, 1), 100);
+
+        // 状态需要先转大写并校验白名单，不能把任意字符串带入业务查询。
         String normalizedStatus = normalizeStatusFilter(status);
         String normalizedKeyword = trimToEmpty(keyword);
+
+        // Mapper 返回姓名密文；只有授权后台列表在这里解密，证件号仍只展示脱敏值。
         List<DrivingLicenseAuditSummaryVO> records = mapper.pageCertifications(
                         normalizedStatus, normalizedKeyword, (normalizedPage - 1) * normalizedSize, normalizedSize)
                 .stream()
@@ -156,6 +209,8 @@ public class UserServiceImpl implements UserService {
                         row.getId(), row.getUserId(), decrypt(row.getHolderNameCipher()), row.getLicenseNoMask(),
                         row.getVehicleClass(), row.getValidTo(), row.getCertificationStatus(), row.getSubmittedAt()))
                 .toList();
+
+        // count 使用相同过滤条件，确保 total 与当前页记录属于同一个结果集合。
         long total = mapper.countCertifications(normalizedStatus, normalizedKeyword);
         return new PageResult<>(records, total, normalizedPage, normalizedSize);
     }
@@ -163,10 +218,13 @@ public class UserServiceImpl implements UserService {
     /** 后台查询驾驶证认证详情。 */
     @Override
     public DrivingLicenseAuditDetailVO getDrivingLicenseCertificationForAudit(Long certificationId) {
+        // 详情查询按认证申请主键定位，而不是按 userId 猜测“最新一条”。
         UserQueryDTO row = mapper.findCertificationById(certificationId);
         if (row == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "驾驶证认证申请不存在");
         }
+
+        // 仅在后台审核专用转换函数内解密姓名和完整驾驶证号。
         return auditDetail(row);
     }
 
@@ -175,21 +233,32 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public DrivingLicenseAuditDetailVO applyDrivingLicenseAuditResult(
             Long certificationId, String auditResult, String rejectReason, Long operatorId) {
+        // 先归一化状态和原因，使数据库中只出现约定枚举及合法长度的驳回理由。
         String normalizedResult = normalizeAuditResult(auditResult);
         String normalizedReason = normalizeRejectReason(normalizedResult, rejectReason);
+
+        // 读取审核前快照既用于存在性/状态检查，也用于稍后定位要失效的用户缓存。
         UserQueryDTO before = mapper.findCertificationById(certificationId);
         if (before == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "驾驶证认证申请不存在");
         }
         if (!"PENDING".equals(before.getCertificationStatus())) {
+            // APPROVED/REJECTED 都是终态，不允许通过重复调用覆盖首次审核结论。
             throw new BusinessException(409, "驾驶证认证申请已审核");
         }
+
+        // SQL 再次要求 status=PENDING，防止检查后到更新前被另一审核员抢先处理。
         int changed = mapper.updateCertificationAudit(
                 certificationId, normalizedResult, normalizedReason, operatorId, LocalDateTime.now());
         if (changed != 1) {
+            // 影响行数不是 1 说明发生并发状态变化，要求调用方刷新而不是静默覆盖。
             throw new BusinessException(409, "驾驶证认证状态已发生变化，请刷新后重试");
         }
+
+        // 审核结果会改变用户资料/名片上的认证徽标，必须清理该被审核用户的两个缓存。
         redis.delete(List.of(PROFILE_CACHE.formatted(before.getUserId()), PUBLIC_CACHE.formatted(before.getUserId())));
+
+        // 回查并返回数据库中的最终审核详情，包含审核时间和规范化后的原因。
         return auditDetail(mapper.findCertificationById(certificationId));
     }
 
@@ -204,6 +273,8 @@ public class UserServiceImpl implements UserService {
         // 历史账号可能只有认证账号和行程数据，没有初始化 user_profile/user_privacy。
         // 公开主页首次访问时补齐默认资料，避免合法用户被错误返回为“主页不存在”。
         ensureProfile(userId);
+
+        // 公开名片已经完成隐私裁剪，可以安全缓存；TTL 比私有资料短以更快响应隐私变化。
         PublicProfileVO cached = cacheGet(PUBLIC_CACHE.formatted(userId), PublicProfileVO.class);
         if (cached != null) {
             return cached;
@@ -214,12 +285,17 @@ public class UserServiceImpl implements UserService {
         }
         UserQueryDTO privacy = ensurePrivacy(userId);
         if ("PRIVATE".equals(privacy.getProfileVisibility())) {
+            // 使用 NOT_FOUND 而不是“已隐藏”，避免向无权限调用方确认账号存在。
             throw new BusinessException(ResultCode.NOT_FOUND, "用户主页不存在");
         }
+
+        // 总开关允许展示主页后，城市、简介和统计仍分别受细粒度开关控制。
         UserProfileVO profile = profile(row);
         boolean showCity = Boolean.TRUE.equals(privacy.getCityVisibleFlag());
         boolean showBio = Boolean.TRUE.equals(privacy.getBioVisibleFlag());
         boolean showStats = Boolean.TRUE.equals(privacy.getTripStatsVisibleFlag());
+
+        // 被隐藏的字符串返回空串、数值返回 0，保持响应结构稳定且不泄露原值。
         PublicProfileVO result = new PublicProfileVO(profile.userId(), profile.tongluxingId(),
                 profile.nickname(), profile.avatarImageKey(),
                 showCity ? profile.cityName() : "", showBio ? profile.bio() : "",
@@ -231,21 +307,33 @@ public class UserServiceImpl implements UserService {
         return result;
     }
 
+    /** 读取当前登录用户的全部隐私开关；首次访问会创建默认设置。 */
     @Override
     public PrivacySettingsVO getCurrentPrivacySettings() {
+        // userId 来自认证上下文，防止客户端读取他人的非公开开关组合。
         return privacy(ensurePrivacy(currentUserContext.requireUserId()));
     }
 
+    /**
+     * 读取指定用户隐私设置，供已经完成自身权限校验的内部聚合模块使用。
+     *
+     * <p>该内部能力不等同于公开 HTTP 接口，调用方不得把完整开关直接暴露给普通用户。</p>
+     */
     @Override
     public PrivacySettingsVO getPrivacySettings(Long userId) {
         return privacy(ensurePrivacy(userId));
     }
 
+    /** 合并并保存当前登录用户的隐私设置增量修改。 */
     @Override
     @Transactional
     public PrivacySettingsVO updateCurrentPrivacySettings(UpdatePrivacySettingsRequest request) {
         long userId = currentUserContext.requireUserId();
+
+        // 先取得完整旧设置；请求中的 null 表示保持原值，而不是关闭该能力。
         UserQueryDTO row = ensurePrivacy(userId);
+
+        // 每个非空字段独立覆盖，让客户端可以只修改某一个开关。
         if (request.profileVisibility() != null) row.setProfileVisibility(request.profileVisibility());
         if (request.vehicleVisibility() != null) row.setVehicleVisibility(request.vehicleVisibility());
         if (request.inviteEnabled() != null) row.setInviteEnabledFlag(request.inviteEnabled());
@@ -255,12 +343,24 @@ public class UserServiceImpl implements UserService {
         if (request.levelVisible() != null) row.setLevelVisibleFlag(request.levelVisible());
         if (request.locationEnabled() != null) row.setLocationEnabledFlag(request.locationEnabled());
         if (request.notificationEnabled() != null) row.setNotificationEnabledFlag(request.notificationEnabled());
+
+        // 使用服务端时间记录修改时刻，避免客户端伪造审计时间。
         row.setUpdatedAt(LocalDateTime.now());
         mapper.updatePrivacy(row);
+
+        // 主页总开关及城市/简介/统计开关都会改变公开名片内容，立即让缓存失效。
         redis.delete(PUBLIC_CACHE.formatted(userId));
+
+        // 回查数据库并返回规范的 Boolean VO，确保响应是实际持久化结果。
         return privacy(mapper.findPrivacy(userId));
     }
 
+    /**
+     * 把数据库隐私 DTO 转换为稳定的接口模型。
+     *
+     * <p>{@code Boolean.TRUE.equals} 会把数据库映射异常产生的 null 安全解释为关闭，
+     * 避免自动拆箱空指针，也遵循隐私字段“默认不额外暴露”的原则。</p>
+     */
     private PrivacySettingsVO privacy(UserQueryDTO row) {
         return new PrivacySettingsVO(row.getProfileVisibility(), row.getVehicleVisibility(),
                 Boolean.TRUE.equals(row.getInviteEnabledFlag()), Boolean.TRUE.equals(row.getCityVisibleFlag()),
@@ -275,12 +375,17 @@ public class UserServiceImpl implements UserService {
      */
     @Override
     public PublicProfileVO getChatMemberProfile(Long userId) {
+        // 聊天中的历史/迁移用户也必须有可显示的默认昵称和资料行。
         ensureProfile(userId);
+
+        // 不走 PUBLIC_CACHE：它已按公开主页隐私裁剪，可能缺少会话成员需要的字段。
         UserQueryDTO row = mapper.findProfile(userId);
         if (row == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "用户资料不存在");
         }
         UserProfileVO profile = profile(row);
+
+        // 调用方必须先证明请求者是会话成员；这里返回会话展示所需的完整基础资料。
         return new PublicProfileVO(profile.userId(), profile.tongluxingId(),
                 profile.nickname(), profile.avatarImageKey(),
                 profile.cityName(), profile.bio(), profile.drivingLicenseCertificationStatus(),
@@ -291,51 +396,71 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public FollowStatusVO follow(Long userId) {
+        // 关注者只能是当前登录账号，被关注者由路径参数指定。
         Long currentUserId = currentUserContext.requireUserId();
         if (currentUserId.equals(userId)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "不能关注自己");
         }
         // 确保关注发起人的公开资料行存在，避免粉丝列表 INNER JOIN 时丢失该关系。
         ensureProfile(currentUserId);
+
+        // 查询公开主页同时验证目标存在且允许公开；隐藏主页不能被公开关注入口探测。
         getPublicProfile(userId);
         if (followMapper.exists(currentUserId, userId) == 0) {
             try {
+                // 关系与通知共用同一业务时间，并在事务内一起成功或回滚。
                 LocalDateTime now = LocalDateTime.now();
                 Long relationId = SnowflakeIdGenerator.nextId();
                 followMapper.insert(relationId, currentUserId, userId, now);
+
+                // requestId 关联本次关注关系，使通知可以追踪到唯一业务事件。
                 followMapper.insertFollowNotification(
                         SnowflakeIdGenerator.nextId(), currentUserId, userId,
                         "USER_FOLLOW:" + relationId, now);
             } catch (DuplicateKeyException ignored) {
-                // 并发重复关注按幂等成功处理。
+                // 两个并发请求都通过 exists 检查时，唯一索引保留一条关系；重复请求按成功处理。
             }
         }
+
+        // 返回重新读取的双向关系和计数，便于前端一次刷新所有关注按钮与数字。
         return followStatus(currentUserId, userId);
     }
 
+    /**
+     * 取消关注目标用户。
+     *
+     * <p>删除不存在的关系影响 0 行，仍视为成功，从而支持客户端重试。</p>
+     */
     @Override
     @Transactional
     public FollowStatusVO unfollow(Long userId) {
         Long currentUserId = currentUserContext.requireUserId();
         if (!currentUserId.equals(userId)) {
+            // 自己与自己本就不存在合法关注关系，无需执行无意义删除。
             followMapper.delete(currentUserId, userId);
         }
+
+        // 无论此前是否存在关系，都返回操作后的真实状态。
         return followStatus(currentUserId, userId);
     }
 
+    /** 查询当前登录用户与目标用户之间的双向关注状态和目标计数。 */
     @Override
     public FollowStatusVO getFollowStatus(Long userId) {
         return followStatus(currentUserContext.requireUserId(), userId);
     }
 
+    /** 查询当前登录用户的粉丝列表，避免客户端自行传递并信任“我的 userId”。 */
     @Override
     public List<FollowUserVO> getMyFollowers(int page, int size) {
         Long currentUserId = currentUserContext.requireUserId();
         return getFollowers(currentUserId, page, size);
     }
 
+    /** 统计当前登录用户尚未阅读的“新关注”通知数量。 */
     @Override
     public long countMyUnreadFollowerNotifications() {
+        // 只把认证上下文中的用户 ID 交给 Mapper，避免读取他人的通知状态。
         return followMapper.countUnreadFollowerNotifications(
                 currentUserContext.requireUserId());
     }
@@ -343,6 +468,7 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public void markMyFollowerNotificationsRead() {
+        // 单一服务端时间用于本次批量更新的 read_at 与 updated_at。
         followMapper.markFollowerNotificationsRead(
                 currentUserContext.requireUserId(), LocalDateTime.now());
     }
@@ -356,9 +482,13 @@ public class UserServiceImpl implements UserService {
     @Override
     public List<FollowUserVO> getMyMutualFollows(int page, int size) {
         Long currentUserId = currentUserContext.requireUserId();
+
+        // 确保当前账号用户域资料存在；如果用户状态异常，profile() 会统一处理。
         profile(currentUserId);
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, Math.min(size, 50));
+
+        // Mapper 已用自连接筛出互关关系，Java 层只补充相对当前用户的关系字段。
         return followMapper.mutualFollows(
                         currentUserId, (safePage - 1) * safeSize, safeSize)
                 .stream()
@@ -370,12 +500,15 @@ public class UserServiceImpl implements UserService {
     public List<FollowUserVO> getFollowers(Long userId, int page, int size) {
         Long currentUserId = currentUserContext.requireUserId();
         if (!currentUserId.equals(userId)) {
+            // 他人账号必须通过公开主页可见性校验。
             getPublicProfile(userId);
         } else {
+            // 自己的列表不受 profileVisibility=PRIVATE 限制。
             profile(userId);
         }
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, Math.min(size, 50));
+        // offset 使用经过归一化的页码与页大小，避免负数进入 SQL LIMIT。
         return followMapper.followers(userId, (safePage - 1) * safeSize, safeSize).stream()
                 .map(row -> followUser(row, currentUserId)).toList();
     }
@@ -395,10 +528,15 @@ public class UserServiceImpl implements UserService {
     }
 
     private FollowStatusVO followStatus(Long currentUserId, Long targetUserId) {
+        // 自己对自己固定为非关注，避免执行两次没有意义的关系查询。
         boolean following = !currentUserId.equals(targetUserId)
                 && followMapper.exists(currentUserId, targetUserId) > 0;
+
+        // 反向检查用于判断“对方是否关注我”；两个方向都存在时才是互关。
         boolean followedByTarget = !currentUserId.equals(targetUserId)
                 && followMapper.exists(targetUserId, currentUserId) > 0;
+
+        // 计数始终属于目标用户，用于公开主页或列表按钮旁的数字展示。
         return new FollowStatusVO(targetUserId, following, followedByTarget,
                 following && followedByTarget, followMapper.countFollowers(targetUserId),
                 followMapper.countFollowing(targetUserId));
@@ -410,9 +548,19 @@ public class UserServiceImpl implements UserService {
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, Math.min(size, 50));
         String normalizedKeyword = keyword == null ? "" : keyword.trim();
-        return mapper.searchPublicProfiles(normalizedKeyword, currentUserId,
+        boolean exactPhoneSearch = normalizedKeyword.matches("^1[3-9]\\d{9}$");
+        boolean incompletePhoneSearch = normalizedKeyword.matches("^1\\d{0,10}$") && !exactPhoneSearch;
+        boolean tongluxingIdSearch = normalizedKeyword.matches("(?i)^TLX[0-9A-Z]*$");
+        if (incompletePhoneSearch) {
+            // 手机号搜索只接受完整的 11 位大陆手机号，禁止使用号段或手机号片段枚举用户。
+            return List.of();
+        }
+
+        // 对每个公开资料查询关系状态，构造前端可直接渲染的完整搜索项。
+        return mapper.searchPublicProfiles(normalizedKeyword, exactPhoneSearch, tongluxingIdSearch, currentUserId,
                         (safePage - 1) * safeSize, safeSize).stream()
                 .map(row -> {
+                    // 关系是相对于当前用户的动态信息，不能缓存进所有人共用的公开资料。
                     FollowStatusVO relation = followStatus(currentUserId, row.getUserId());
                     return new UserSearchVO(row.getUserId(), row.getTongluxingId(),
                             row.getNickname(), row.getAvatarImageKey(),
@@ -424,6 +572,7 @@ public class UserServiceImpl implements UserService {
     }
 
     private FollowUserVO followUser(UserFollowQueryDTO row, Long currentUserId) {
+        // Mapper DTO 只含列表公共字段；这里补齐当前用户视角下的关注方向。
         FollowStatusVO relation = followStatus(currentUserId, row.getUserId());
         return new FollowUserVO(row.getUserId(), row.getNickname(), row.getAvatarImageKey(),
                 row.getCertificationStatus(), row.getTotalTripCount(), row.getTotalDistanceMeters(),
@@ -434,7 +583,10 @@ public class UserServiceImpl implements UserService {
      * 查询用户完整资料，必要时先初始化默认资料和隐私设置。
      */
     private UserProfileVO profile(long userId) {
+        // 懒初始化让注册链路无需与用户域强耦合，同时兼容上线前已存在的历史账号。
         ensureProfile(userId);
+
+        // 初始化后再次查询可得到同路行号、统计和最新认证状态的完整聚合结果。
         return profile(mapper.findProfile(userId));
     }
 
@@ -442,6 +594,7 @@ public class UserServiceImpl implements UserService {
      * 将数据库查询对象转换为接口返回的用户资料 VO。
      */
     private UserProfileVO profile(UserQueryDTO row) {
+        // 显式逐字段映射，确保密文、隐私开关和审核人等内部字段不会意外进入响应。
         return new UserProfileVO(row.getUserId(), row.getTongluxingId(),
                 row.getNickname(), row.getAvatarImageKey(), row.getGender(),
                 row.getBirthday(), row.getCityCode(), row.getCityName(), row.getBio(),
@@ -455,17 +608,24 @@ public class UserServiceImpl implements UserService {
      * 因为说明其他请求已经完成初始化。</p>
      */
     private void ensureProfile(long userId) {
+        // 先查询再创建，绝大多数已初始化用户只产生一次读取，不执行写操作。
         UserQueryDTO profile = mapper.findProfile(userId);
+
+        // 同一路径无论首次创建还是历史补齐都使用同一个确定性号码。
         String tongluxingId = generateTongluxingId(userId);
         if (profile == null) {
             try {
+                // 雪花 ID 用作表主键；稳定同路行号由平台 userId 确定性生成。
                 mapper.insertProfile(SnowflakeIdGenerator.nextId(), userId, tongluxingId, LocalDateTime.now());
             } catch (DuplicateKeyException ignored) {
                 // 其他并发请求已创建默认资料，后续查询可以直接使用。
             }
         } else if (profile.getTongluxingId() == null || profile.getTongluxingId().isBlank()) {
+            // 只修复迁移前的空号码；Mapper WHERE 条件确保已有号码不会被覆盖。
             mapper.updateTongluxingId(userId, tongluxingId, LocalDateTime.now());
         }
+
+        // 资料与隐私是一组基础数据，任何 ensureProfile 调用后两者都应可查询。
         ensurePrivacy(userId);
     }
 
@@ -474,6 +634,7 @@ public class UserServiceImpl implements UserService {
      * 使用 36 进制缩短展示长度，TLX 前缀用于和手机号、数据库主键区分。
      */
     private String generateTongluxingId(long userId) {
+        // Locale.ROOT 避免服务器区域设置影响字母大写规则，保证跨环境结果一致。
         return "TLX" + Long.toString(userId, 36).toUpperCase(Locale.ROOT);
     }
 
@@ -481,15 +642,18 @@ public class UserServiceImpl implements UserService {
      * 确保用户隐私设置存在，不存在时创建默认公开配置。
      */
     private UserQueryDTO ensurePrivacy(long userId) {
+        // 已有设置直接返回，避免每次访问公开主页都触发写操作。
         UserQueryDTO row = mapper.findPrivacy(userId);
         if (row != null) {
             return row;
         }
         try {
+            // 默认值集中定义在 INSERT SQL 中，使所有懒初始化入口得到一致配置。
             mapper.insertPrivacy(SnowflakeIdGenerator.nextId(), userId, LocalDateTime.now());
         } catch (DuplicateKeyException ignored) {
             // 其他并发请求已创建隐私设置，重新查询即可。
         }
+        // 无论本请求创建还是并发请求创建，都重新查询数据库获得最终设置。
         return mapper.findPrivacy(userId);
     }
 
@@ -498,13 +662,20 @@ public class UserServiceImpl implements UserService {
      */
     private CertificationVO certification(UserQueryDTO row) {
         String status = row.getCertificationStatus();
+
+        // 只有未提交或被驳回时可以再次申请；待审核和已通过都必须禁止重复提交。
         return new CertificationVO(row.getId(), row.getUserId(), status,
                 row.getRejectReason(), row.getSubmittedAt(), row.getReviewedAt(),
                 "UNSUBMITTED".equals(status) || "REJECTED".equals(status));
     }
 
-    /** 转换后台审核详情并解密授权字段。 */
+    /**
+     * 转换后台审核详情并解密授权字段。
+     *
+     * <p>解密范围严格限制在审核专用 VO；普通资料、公开主页和列表不会调用本方法。</p>
+     */
     private DrivingLicenseAuditDetailVO auditDetail(UserQueryDTO row) {
+        // 姓名与证件号只在内存中生成明文，不回写数据库，也不记录日志。
         return new DrivingLicenseAuditDetailVO(
                 row.getId(), row.getUserId(), decrypt(row.getHolderNameCipher()), decrypt(row.getLicenseNoCipher()),
                 row.getVehicleClass(), row.getFirstIssueDate(), row.getValidFrom(), row.getValidTo(),
@@ -513,6 +684,11 @@ public class UserServiceImpl implements UserService {
                 row.getSubmittedAt(), row.getReviewedAt());
     }
 
+    /**
+     * 校验驾驶证有效期日期的先后关系。
+     *
+     * <p>日期字段允许 OCR 未识别时为空；只有起止日期都存在时才比较。</p>
+     */
     private void validateDates(CertificationRequest request) {
         if (request.validFrom() != null && request.validTo() != null
                 && request.validTo().isBefore(request.validFrom())) {
@@ -520,17 +696,25 @@ public class UserServiceImpl implements UserService {
         }
     }
 
+    /**
+     * 归一化后台列表的可选认证状态过滤条件。
+     *
+     * @return 空字符串表示不过滤，否则返回大写后的合法状态
+     */
     private String normalizeStatusFilter(String status) {
         String value = trimToEmpty(status).toUpperCase();
         if (value.isEmpty()) {
+            // MyBatis 动态 SQL 把空字符串解释为“不添加状态条件”。
             return "";
         }
         if (!List.of("PENDING", "APPROVED", "REJECTED").contains(value)) {
+            // 白名单既统一接口语义，也避免数据库出现无法识别的状态查询。
             throw new BusinessException(ResultCode.BAD_REQUEST, "认证状态不合法");
         }
         return value;
     }
 
+    /** 将人工审核结果归一为 APPROVED 或 REJECTED 两种终态。 */
     private String normalizeAuditResult(String auditResult) {
         String value = trimToEmpty(auditResult).toUpperCase();
         if (!List.of("APPROVED", "REJECTED").contains(value)) {
@@ -539,6 +723,12 @@ public class UserServiceImpl implements UserService {
         return value;
     }
 
+    /**
+     * 根据审核结果规范化驳回原因。
+     *
+     * <p>驳回必须说明原因；通过时无论调用方是否传值都强制保存 null，避免“已通过但
+     * 带驳回原因”的矛盾数据。</p>
+     */
     private String normalizeRejectReason(String auditResult, String rejectReason) {
         String value = trimToEmpty(rejectReason);
         if ("REJECTED".equals(auditResult) && (value.length() < 2 || value.length() > 255)) {
@@ -547,9 +737,16 @@ public class UserServiceImpl implements UserService {
         return "APPROVED".equals(auditResult) ? null : value;
     }
 
+    /**
+     * 生成用于后台列表的驾驶证号脱敏值。
+     *
+     * <p>较长号码保留前三位和后三位；极短号码只保留首尾字符。完整号码始终以密文
+     * 形式保存，脱敏值不能用于恢复原证件号。</p>
+     */
     private String maskLicenseNo(String licenseNo) {
         String value = licenseNo.trim();
         if (value.length() <= 6) {
+            // 输入校验当前要求至少 6 位，此分支也兼容未来规则调整或历史短号码。
             return value.substring(0, 1) + "****" + value.substring(value.length() - 1);
         }
         return value.substring(0, 3) + "********" + value.substring(value.length() - 3);
@@ -563,35 +760,54 @@ public class UserServiceImpl implements UserService {
      */
     private String encrypt(String value) {
         try {
+            // 对可变长度配置口令做 SHA-256，得到 AES-256 所需的固定 32 字节密钥。
             byte[] key = MessageDigest.getInstance("SHA-256").digest(encryptionKey.getBytes(StandardCharsets.UTF_8));
+
+            // GCM 推荐使用 12 字节随机 IV；每次随机化使相同明文也产生不同密文。
             byte[] iv = new byte[12];
             RANDOM.nextBytes(iv);
+
+            // 128 位认证标签不仅保密，还能在解密时发现密文被篡改或密钥不匹配。
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(128, iv));
             byte[] encrypted = cipher.doFinal(value.getBytes(StandardCharsets.UTF_8));
+
+            // IV 无需保密，但解密必须使用；将其放在密文前形成自包含载荷。
             byte[] result = new byte[iv.length + encrypted.length];
             System.arraycopy(iv, 0, result, 0, iv.length);
             System.arraycopy(encrypted, 0, result, iv.length, encrypted.length);
+            // Base64 把二进制载荷转换为可安全存入 varchar 字段的文本。
             return Base64.getEncoder().encodeToString(result);
         } catch (Exception e) {
+            // 不把底层算法、密钥或明文写入异常信息，避免敏感细节泄露。
             throw new BusinessException(ResultCode.INTERNAL_SERVER_ERROR, "敏感数据加密失败");
         }
     }
 
-    /** 解密仅供后台授权审核详情使用的敏感字段。 */
+    /**
+     * 解密仅供后台授权审核详情使用的敏感字段。
+     *
+     * <p>按 encrypt() 的“12 字节 IV + GCM 密文/认证标签”格式执行逆过程。</p>
+     */
     private String decrypt(String value) {
         if (value == null || value.isBlank()) {
+            // 兼容历史空字段，避免为无内容的可选值触发解码异常。
             return "";
         }
         try {
+            // 使用与加密完全相同的派生规则恢复 AES 密钥。
             byte[] key = MessageDigest.getInstance("SHA-256").digest(encryptionKey.getBytes(StandardCharsets.UTF_8));
             byte[] payload = Base64.getDecoder().decode(value);
+
+            // 前 12 字节是 IV，其余部分包含密文和 GCM 认证标签。
             byte[] iv = java.util.Arrays.copyOfRange(payload, 0, 12);
             byte[] encrypted = java.util.Arrays.copyOfRange(payload, 12, payload.length);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(128, iv));
+            // doFinal 会同时验证认证标签；数据被篡改时不会返回不可信明文。
             return new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
         } catch (Exception exception) {
+            // 对外统一为业务错误，不泄露究竟是格式损坏、密钥错误还是认证失败。
             throw new BusinessException(ResultCode.INTERNAL_SERVER_ERROR, "敏感数据解密失败");
         }
     }
@@ -603,9 +819,11 @@ public class UserServiceImpl implements UserService {
      */
     private <T> T cacheGet(String key, Class<T> type) {
         try {
+            // Redis 保存 JSON 字符串；不存在时不做反序列化并以 null 表示未命中。
             String value = redis.opsForValue().get(key);
             return value == null ? null : objectMapper.readValue(value, type);
         } catch (Exception ignored) {
+            // Redis 超时、连接失败或旧 JSON 不兼容都降级为缓存未命中，随后回源数据库。
             return null;
         }
     }
@@ -617,6 +835,7 @@ public class UserServiceImpl implements UserService {
      */
     private void cachePut(String key, Object value, Duration ttl) {
         try {
+            // 使用带 TTL 的原子 SET，避免成功写入后因未设置过期时间形成永久脏缓存。
             redis.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl);
         } catch (Exception ignored) {
             // 缓存失败不影响主链路。
@@ -627,10 +846,32 @@ public class UserServiceImpl implements UserService {
      * 合并可选字符串字段：未传入则保留旧值，传入则去除首尾空白。
      */
     private String value(String candidate, String old) {
+        // 显式传入空字符串表示“清空字段”，因此只有 null 才代表保留旧值。
         return candidate == null ? old : candidate.trim();
     }
 
+    /** 把可选字符串统一为去除首尾空白的非 null 值，便于动态 SQL 判断。 */
     private String trimToEmpty(String value) {
         return value == null ? "" : value.trim();
     }
 }
+    /** 在用户实际打开粉丝页后，把当前账号的全部新关注通知标记为已读。 */
+    /** 查询当前登录用户主动关注的人。 */
+    /**
+     * 查询当前用户与对方互相关注的用户列表。
+     *
+     * <p>页码至少为 1、每页限制为 1~50，防止异常参数制造超大数据库查询。</p>
+     */
+    /**
+     * 查询指定用户的粉丝。
+     *
+     * <p>查看别人列表前复用公开主页检查其存在性和可见性；查看自己时读取私有资料，
+     * 不会因为自己关闭公开主页而阻止管理自己的粉丝。</p>
+     */
+    /** 查询指定用户主动关注的人，权限和分页规则与粉丝列表一致。 */
+    /**
+     * 搜索可公开展示的用户，并补充其与当前用户的关注关系。
+     *
+     * <p>空关键词表示浏览，页大小最多 50；Mapper 负责公开性过滤，Service 负责加入
+     * 当前登录用户相关的双向关系和关注计数。</p>
+     */

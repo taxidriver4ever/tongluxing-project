@@ -99,6 +99,19 @@ public interface ChatConversationMapper {
                            @Param("preview") String preview,
                            @Param("messageAt") LocalDateTime messageAt);
 
+    /** 更新聊天供应商，用于将历史 MOCK/LOCAL 会话惰性迁移到腾讯 IM。 */
+    @Update("""
+            update chat_conversation
+            set provider_type = #{providerType},
+                provider_conversation_key = #{providerKey},
+                updated_at = #{now}
+            where id = #{conversationId} and deleted = 0
+            """)
+    void updateProvider(@Param("conversationId") Long conversationId,
+                        @Param("providerType") String providerType,
+                        @Param("providerKey") String providerKey,
+                        @Param("now") LocalDateTime now);
+
     /** 归档会话，历史消息仍保留用于安全审计。 */
     @Update("""
             update chat_conversation

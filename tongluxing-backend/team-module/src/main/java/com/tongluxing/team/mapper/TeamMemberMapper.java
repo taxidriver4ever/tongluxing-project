@@ -30,6 +30,19 @@ public interface TeamMemberMapper {
     List<TeamMember> findActiveByTeamId(@Param("teamId") Long teamId);
 
     /**
+     * 统计指定车队的有效成员数。
+     *
+     * <p>发现行程的人数和剩余名额必须以成员事实表为准，避免缓存计数未及时同步时
+     * 已退出成员仍然占用名额。</p>
+     */
+    @Select("""
+            select count(*)
+            from team_member
+            where team_id = #{teamId} and member_status = 'ACTIVE' and deleted = 0
+            """)
+    int countActiveByTeamId(@Param("teamId") Long teamId);
+
+    /**
      * 查询指定用户当前所在的全部活跃车队成员记录。
      * 用户可以参加多个未来行程，因此这里不能只返回一条。
      */

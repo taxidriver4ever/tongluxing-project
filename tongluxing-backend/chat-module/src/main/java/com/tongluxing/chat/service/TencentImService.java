@@ -9,6 +9,9 @@ import com.tongluxing.chat.vo.ImUserSigResponse;
  */
 public interface TencentImService {
 
+    /** 当前选择的聊天通道：MOCK 或 TENCENT_IM。 */
+    String providerType();
+
     /** 腾讯云 IM 必要配置是否完整。 */
     boolean isConfigured();
 
@@ -32,4 +35,7 @@ public interface TencentImService {
 
     /** 以群成员身份向腾讯 IM 群发送文本消息。 */
     String sendGroupText(String groupId, String senderUserId, String content);
+
+    /** 以业务用户身份发送腾讯 IM 单聊文本消息。 */
+    String sendC2CText(String receiverUserId, String senderUserId, String content);
 }

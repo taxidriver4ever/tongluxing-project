@@ -146,7 +146,7 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
         widget.tripId,
         message: request.message,
         selfDrive: request.selfDrive,
-        companionCount: request.companionCount,
+        vehicleId: request.vehicleId,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -419,7 +419,6 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
       : value.ownerTrip
       ? LucideIcons.settings
       : LucideIcons.send;
-
 }
 
 class _DiscoveryHero extends StatelessWidget {
@@ -494,11 +493,7 @@ class _DiscoveryHero extends StatelessWidget {
                 icon: LucideIcons.clock3,
                 text: '预计${trip.estimatedDays}天',
               ),
-              _HeroMeta(
-                icon: LucideIcons.users,
-                text:
-                    '${trip.memberCount}人',
-              ),
+              _HeroMeta(icon: LucideIcons.users, text: '${trip.memberCount}人'),
             ],
           ),
           if (detail != null && routePoints.length >= 2) ...[
@@ -972,10 +967,6 @@ class _TripInformationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visibleMembers = detail.members.take(5).toList();
-    final more = (detail.members.length - visibleMembers.length)
-        .clamp(0, 999)
-        .toInt();
     return _WhiteCard(
       padding: const EdgeInsets.fromLTRB(15, 14, 15, 15),
       child: Column(
@@ -1028,19 +1019,32 @@ class _TripInformationCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 11),
-          if (visibleMembers.isEmpty)
+          if (detail.members.isEmpty)
             const Text(
               '暂无可展示的公开成员资料',
               style: TextStyle(color: TripDiscoveryColors.muted),
             )
           else
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ...visibleMembers.map((member) => _MemberTile(member: member)),
-                if (more > 0) _MemberMore(count: more),
-              ],
+            LayoutBuilder(
+              builder: (context, constraints) {
+                const columns = 5;
+                const spacing = 8.0;
+                final tileWidth =
+                    (constraints.maxWidth - spacing * (columns - 1)) / columns;
+                return Wrap(
+                  alignment: WrapAlignment.start,
+                  spacing: spacing,
+                  runSpacing: 10,
+                  children: detail.members
+                      .map(
+                        (member) => SizedBox(
+                          width: tileWidth,
+                          child: _MemberTile(member: member),
+                        ),
+                      )
+                      .toList(),
+                );
+              },
             ),
         ],
       ),
@@ -1092,7 +1096,7 @@ class _MemberTile extends StatelessWidget {
     ),
     borderRadius: BorderRadius.circular(12),
     child: SizedBox(
-      width: 42,
+      height: 76,
       child: Column(
         children: [
           UserAvatar(
@@ -1105,59 +1109,27 @@ class _MemberTile extends StatelessWidget {
             member.nickname,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
             style: const TextStyle(
               color: TripDiscoveryColors.text,
               fontSize: 9.5,
             ),
           ),
-          if (member.role == 'OWNER')
-            const Text(
-              '队长',
-              style: TextStyle(
-                color: TripDiscoveryColors.primary,
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+          SizedBox(
+            height: 14,
+            child: member.role == 'OWNER'
+                ? const Text(
+                    '队长',
+                    style: TextStyle(
+                      color: TripDiscoveryColors.primary,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  )
+                : null,
+          ),
         ],
       ),
-    ),
-  );
-}
-
-class _MemberMore extends StatelessWidget {
-  const _MemberMore({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 42,
-    child: Column(
-      children: [
-        Container(
-          width: 42,
-          height: 42,
-          alignment: Alignment.center,
-          decoration: const BoxDecoration(
-            color: Color(0xFFF0F3F7),
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(
-            LucideIcons.ellipsis,
-            color: TripDiscoveryColors.secondaryText,
-          ),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          '更多$count人',
-          maxLines: 1,
-          style: const TextStyle(
-            color: TripDiscoveryColors.secondaryText,
-            fontSize: 9,
-          ),
-        ),
-      ],
     ),
   );
 }
@@ -1303,10 +1275,10 @@ class _BottomAction extends StatelessWidget {
 }
 
 class _ApplyRequest {
-  const _ApplyRequest(this.message, this.selfDrive, this.companionCount);
+  const _ApplyRequest(this.message, this.selfDrive, this.vehicleId);
   final String message;
   final bool selfDrive;
-  final int companionCount;
+  final String? vehicleId;
 }
 
 class _ApplySheet extends StatefulWidget {
@@ -1319,7 +1291,62 @@ class _ApplySheet extends StatefulWidget {
 class _ApplySheetState extends State<_ApplySheet> {
   final message = TextEditingController(text: '路线很合适，希望能一起出发');
   bool selfDrive = false;
-  int count = 1;
+  bool eligibilityLoading = true;
+  bool drivingLicenseApproved = false;
+  VehicleModel? primaryVehicle;
+
+  bool get canDrive =>
+      drivingLicenseApproved &&
+      primaryVehicle != null &&
+      primaryVehicle!.status == 'APPROVED';
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_loadDrivingEligibility);
+  }
+
+  Future<void> _loadDrivingEligibility() async {
+    try {
+      final api = context.read<AppSession>().api;
+      final values = await Future.wait<dynamic>([
+        UserProfileService(api).me(),
+        VehicleService(api).mine(),
+      ]);
+      final profile = Map<String, dynamic>.from(values[0] as Map);
+      final vehicles = values[1] as List<VehicleModel>;
+      VehicleModel? selected;
+      for (final vehicle in vehicles) {
+        if (vehicle.isDefault && vehicle.status == 'APPROVED') {
+          selected = vehicle;
+          break;
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        drivingLicenseApproved =
+            profile['drivingLicenseCertificationStatus'] == 'APPROVED';
+        primaryVehicle = selected;
+        eligibilityLoading = false;
+        if (!canDrive) selfDrive = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          eligibilityLoading = false;
+          selfDrive = false;
+        });
+      }
+    }
+  }
+
+  String get drivingEligibilityText {
+    if (eligibilityLoading) return '正在检查驾驶证、行驶证和主要车辆';
+    if (!drivingLicenseApproved) return '驾驶证认证通过后可选择';
+    if (primaryVehicle == null) return '请先设置一辆已通过行驶证认证的主要车辆';
+    return '主要车辆：${primaryVehicle!.brand} ${primaryVehicle!.model} · ${primaryVehicle!.plate}';
+  }
+
   @override
   void dispose() {
     message.dispose();
@@ -1368,29 +1395,12 @@ class _ApplySheetState extends State<_ApplySheet> {
               const SizedBox(height: 12),
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('我会自驾'),
-                subtitle: const Text('审核通过后再完善本次出行车辆'),
+                title: const Text('我会开车'),
+                subtitle: Text(drivingEligibilityText),
                 value: selfDrive,
-                onChanged: (value) => setState(() => selfDrive = value),
-              ),
-              Row(
-                children: [
-                  const Expanded(child: Text('同行人数（含本人）')),
-                  IconButton(
-                    onPressed: count > 1 ? () => setState(() => count--) : null,
-                    icon: const Icon(LucideIcons.minus),
-                  ),
-                  Text(
-                    '$count',
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  IconButton(
-                    onPressed: count < widget.trip.remainingSeats
-                        ? () => setState(() => count++)
-                        : null,
-                    icon: const Icon(LucideIcons.plus),
-                  ),
-                ],
+                onChanged: canDrive
+                    ? (value) => setState(() => selfDrive = value)
+                    : null,
               ),
               const SizedBox(height: 16),
               SizedBox(
@@ -1400,7 +1410,11 @@ class _ApplySheetState extends State<_ApplySheet> {
                       ? null
                       : () => Navigator.pop(
                           context,
-                          _ApplyRequest(message.text.trim(), selfDrive, count),
+                          _ApplyRequest(
+                            message.text.trim(),
+                            selfDrive,
+                            selfDrive ? primaryVehicle?.id : null,
+                          ),
                         ),
                   child: const Text('提交申请'),
                 ),

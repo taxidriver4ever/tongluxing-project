@@ -54,14 +54,20 @@ class _TongLuXingAppState extends State<TongLuXingApp> {
     const showAmapProbe = bool.fromEnvironment('AMAP_PROBE');
     final session = context.watch<AppSession>();
     _scheduleForcedLogoutDialog(session);
+    final initialRoute = showAmapProbe
+        ? AppRoutes.amapProbe
+        : (session.signedIn ? AppRoutes.home : AppRoutes.login);
     return MaterialApp(
       navigatorKey: navigatorKey,
       title: '同路行',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      initialRoute: showAmapProbe
-          ? AppRoutes.amapProbe
-          : (session.signedIn ? AppRoutes.home : AppRoutes.login),
+      initialRoute: initialRoute,
+      // Flutter 默认会在 /home 前先压入 /；本项目的 / 会落到登录页，
+      // 导致首页按返回键时错误返回登录页。初始路由只保留当前目标页。
+      onGenerateInitialRoutes: (routeName) => <Route<dynamic>>[
+        AppRoutes.onGenerateRoute(RouteSettings(name: routeName)),
+      ],
       onGenerateRoute: AppRoutes.onGenerateRoute,
       builder: (context, child) => GestureDetector(
         behavior: HitTestBehavior.translucent,

@@ -652,6 +652,7 @@ class TripDiscoveryService {
     int? minimumRemainingSeats,
     int page = 1,
     int size = 10,
+    int? refreshSeed,
   }) async => Map<String, dynamic>.from(
     await api.get(
           '/v1/trips/discover',
@@ -682,6 +683,7 @@ class TripDiscoveryService {
               'minimumRemainingSeats': minimumRemainingSeats.toString(),
             'page': page.toString(),
             'size': size.toString(),
+            if (refreshSeed != null) 'refreshSeed': refreshSeed.toString(),
           },
         )
         as Map,
@@ -783,7 +785,6 @@ class TripDiscoveryService {
     required String message,
     required bool selfDrive,
     String? vehicleId,
-    int companionCount = 1,
   }) async {
     final data = Map<String, dynamic>.from(
       await api.post(
@@ -792,7 +793,6 @@ class TripDiscoveryService {
               'message': message,
               'selfDrive': selfDrive,
               'applicantVehicleId': int.tryParse(vehicleId ?? ''),
-              'companionCount': companionCount,
             },
           )
           as Map,
@@ -959,6 +959,29 @@ class ChatService {
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
   }
+
+  Future<List<Map<String, dynamic>>> receivedTeamApplications({
+    String status = 'PENDING',
+  }) async {
+    final data = await api.get(
+      '/v1/teams/applications/received',
+      query: {'status': status},
+    );
+    return (data as List? ?? const [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> reviewTeamApplication(
+    String applicationId,
+    String decision,
+  ) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/teams/applications/$applicationId/review',
+          body: {'reviewAction': decision, 'reviewMessage': ''},
+        )
+        as Map,
+  );
 
   Future<Map<String, dynamic>> reviewJoinApplication(
     String id,

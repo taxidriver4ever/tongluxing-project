@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 安卓内测阶段仅允许腾讯云测试服务器使用 HTTP；启用 HTTPS 后应删除此例外。 -->
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">43.138.233.211</domain>
+    </domain-config>
+</network-security-config>

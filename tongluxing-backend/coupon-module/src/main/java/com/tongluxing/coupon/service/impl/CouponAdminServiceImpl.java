@@ -16,6 +16,10 @@ import com.tongluxing.coupon.service.CouponAdminService;
 
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 实现优惠券管理端业务编排，集中处理权限、状态流转和事务边界。
+ * 通过 Mapper/外部端口完成持久化或集成，并把内部模型转换为对外视图。
+ */
 @Service
 @RequiredArgsConstructor
 public class CouponAdminServiceImpl implements CouponAdminService {
@@ -28,6 +32,7 @@ public class CouponAdminServiceImpl implements CouponAdminService {
     private final CouponMapper mapper;
     private final ObjectMapper objectMapper;
 
+    /** 校验请求并创建资源；重复请求由业务层按幂等规则处理。 */
     @Override public AdminCouponTemplateVO create(AdminCouponTemplateRequest request) {
         try { objectMapper.readTree(request.scopeJson()); } catch(Exception e) { throw new BusinessException("适用范围必须是合法 JSON"); }
         String couponType = request.couponType().trim().toUpperCase();
@@ -41,12 +46,14 @@ public class CouponAdminServiceImpl implements CouponAdminService {
         return mapper.findAdminTemplate(id);
     }
 
+    /** 按筛选条件查询列表，并限制返回数量以保护接口与数据库。 */
     @Override public List<AdminCouponTemplateVO> list(String status) {
         String normalized=status==null?"":status.trim().toUpperCase();
         if(!normalized.isEmpty()&&!List.of("ACTIVE","INACTIVE").contains(normalized))throw new BusinessException("券模板状态不合法");
         return mapper.findAdminTemplates(normalized);
     }
 
+    /** 执行 status 对应的领域操作，并返回统一的业务结果。 */
     @Override public AdminCouponTemplateVO status(Long id,String status) {
         String normalized=status==null?"":status.trim().toUpperCase();
         if(!List.of("ACTIVE","INACTIVE").contains(normalized))throw new BusinessException("券模板状态不合法");

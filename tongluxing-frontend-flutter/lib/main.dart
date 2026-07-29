@@ -10,6 +10,9 @@ Future<void> main() async {
   final session = AppSession(ApiClient());
   await session.initialize();
   runApp(
-    ChangeNotifierProvider.value(value: session, child: const TongLuXingApp()),
+    ChangeNotifierProvider.value(
+      value: session,
+      child: const TongLuXingApp(),
+    ),
   );
 }

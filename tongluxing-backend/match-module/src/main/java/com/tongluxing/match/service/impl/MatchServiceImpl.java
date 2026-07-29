@@ -253,17 +253,12 @@ public class MatchServiceImpl implements MatchService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "不能申请自己创建的行程");
         }
         MatchTeamDTO team = requireJoinableTeam(tripId);
-        int companions = request.companionCount() == null ? 1 : request.companionCount();
         int remaining = team.maxMemberCount() - team.currentMemberCount();
-        if (companions > remaining) {
+        if (remaining < 1) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "剩余名额不足");
-        }
-        if (Boolean.TRUE.equals(request.selfDrive()) && request.applicantVehicleId() == null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "选择自驾时必须选择车辆");
         }
         String questions = json(Map.of(
                 "selfDrive", Boolean.TRUE.equals(request.selfDrive()),
-                "companionCount", companions,
                 "source", "TRIP_SEARCH"));
         Long applicationId = teamPort.apply(team.teamId(),
                 StringUtils.hasText(request.message()) ? request.message().trim() : "通过行程搜索申请加入",
@@ -277,7 +272,7 @@ public class MatchServiceImpl implements MatchService {
     public TripDiscoverPageResponse discoverTrips(
             String keyword, String searchType, String sort, Double latitude, Double longitude, Long referenceTripId,
             String startCity, String destination, String departureDateFrom, String departureDateTo,
-            String vehicleType, Integer minimumRemainingSeats, Integer page, Integer size) {
+            String vehicleType, Integer minimumRemainingSeats, Integer page, Integer size, Long refreshSeed) {
         Long userId = currentUserContext.requireUserId();
         int safePage = page == null ? 1 : Math.max(1, page);
         int safeSize = size == null ? 12 : Math.max(1, Math.min(size, 30));
@@ -288,7 +283,14 @@ public class MatchServiceImpl implements MatchService {
         LocalDate to = parseDate(departureDateTo);
         MatchTripDTO reference = referenceTripId == null ? null : requireOwnedReference(referenceTripId, userId);
         List<TripDiscoverCardResponse> records = new ArrayList<>();
+        MatchTripDTO exactNumberTrip = "TRIP_NUMBER".equals(normalizedSearchType) && StringUtils.hasText(keyword)
+                ? tripPort.getTripByNumber(keyword.trim().toUpperCase(Locale.ROOT))
+                : null;
         for (MatchTripDTO trip : tripPort.listPublicTrips(1000)) {
+            if ("TRIP_NUMBER".equals(normalizedSearchType)
+                    && (exactNumberTrip == null || !exactNumberTrip.tripId().equals(trip.tripId()))) {
+                continue;
+            }
             if (!isRecruiting(trip.status()) || !Integer.valueOf(1).equals(trip.publicFlag())
                     || trip.departureTime() == null || !trip.departureTime().isAfter(LocalDateTime.now())) {
                 continue;
@@ -321,6 +323,11 @@ public class MatchServiceImpl implements MatchService {
         };
         records.sort(comparator.thenComparing(TripDiscoverCardResponse::departureTime)
                 .thenComparing(TripDiscoverCardResponse::tripId));
+        if (refreshSeed != null && records.size() > 1
+                && !List.of("NEARBY", "DEPARTURE_TIME").contains(normalizedSort)) {
+            int offset = Math.floorMod(refreshSeed, records.size());
+            java.util.Collections.rotate(records, -offset);
+        }
         int fromIndex = Math.min(records.size(), (safePage - 1) * safeSize);
         int toIndex = Math.min(records.size(), fromIndex + safeSize);
         return new TripDiscoverPageResponse(safePage, safeSize, (long) records.size(),
@@ -536,6 +543,8 @@ public class MatchServiceImpl implements MatchService {
     private boolean matchesKeyword(MatchTripDTO trip, List<String> waypoints,
                                    String keyword, String searchType) {
         return switch (searchType) {
+            case "TRIP_NUMBER" -> trip.tripNumber() != null
+                    && trip.tripNumber().equalsIgnoreCase(keyword);
             case "DESTINATION" -> normalizeLocation(trip.endName()).contains(keyword);
             case "ORIGIN" -> normalizeLocation(trip.startName()).contains(keyword);
             case "ROUTE" -> normalizeLocation(String.join(" ", valueOrEmpty(trip.title()),
@@ -548,7 +557,7 @@ public class MatchServiceImpl implements MatchService {
     private String normalizeSearchType(String value) {
         if (!StringUtils.hasText(value)) return "ALL";
         String normalized = value.trim().toUpperCase(Locale.ROOT);
-        return List.of("DESTINATION", "ORIGIN", "ROUTE").contains(normalized)
+        return List.of("DESTINATION", "ORIGIN", "ROUTE", "TRIP_NUMBER").contains(normalized)
                 ? normalized : "ALL";
     }
     private String discoverText(MatchTripDTO trip, List<String> waypoints) {

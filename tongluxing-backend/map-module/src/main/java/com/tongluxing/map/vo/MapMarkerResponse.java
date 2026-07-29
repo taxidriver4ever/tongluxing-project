@@ -8,7 +8,7 @@ import java.math.BigDecimal;
 public record MapMarkerResponse(
         /** 标记点 ID。 */
         String markerId,
-        /** 标记点类型，例如 CURRENT。 */
+        /** 标记点类型；高德周边 POI 返回 AMAP_POI。 */
         String markerType,
         /** 标题。 */
         String title,

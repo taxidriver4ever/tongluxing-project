@@ -55,7 +55,7 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
       try {
         applications = await ChatService(
           session.api,
-        ).joinApplications(status: 'PENDING');
+        ).receivedTeamApplications(status: 'PENDING');
       } catch (_) {
         // 互动角标加载失败不应导致整个聊天列表空白。
       }

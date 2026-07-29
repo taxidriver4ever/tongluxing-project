@@ -13,6 +13,13 @@ public interface TeamTripPort {
     /** 查询用户作为发布者拥有的进行中行程 ID。 */
     Long findRunningOwnedTripId(Long userId);
 
+    /** 将已退出车队的普通成员同步标记为退出该行程。 */
+    void markMemberExited(Long tripId, Long userId, String exitStatus, LocalDateTime exitedAt);
+
+    /** 入队审批通过后写入或恢复行程成员快照。 */
+    void addApprovedMember(Long tripId, Long userId, Long vehicleId,
+                           String nickname, String vehicle, LocalDateTime joinedAt);
+
     /** 车队模块依赖的行程最小字段集合。 */
     record TeamTripDTO(
             Long tripId,

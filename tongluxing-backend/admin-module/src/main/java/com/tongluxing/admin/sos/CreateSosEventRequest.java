@@ -1,6 +1,10 @@
 package com.tongluxing.admin.sos;
 import java.math.BigDecimal;
 import jakarta.validation.constraints.*;
+/**
+ * 封装SOS 紧急事件创建请求参数。
+ * 字段上的 Jakarta Validation 约束在进入业务层前完成格式和取值范围校验。
+ */
 public record CreateSosEventRequest(
         @NotBlank @Size(max=128) String requestId,
         @NotNull @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude,

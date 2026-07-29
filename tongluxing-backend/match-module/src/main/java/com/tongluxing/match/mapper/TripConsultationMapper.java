@@ -5,6 +5,10 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+/**
+ * 行程咨询 MyBatis 数据访问接口。
+ * 方法直接对应数据库读写语句；事务边界由调用它的服务层统一管理。
+ */
 @Mapper
 public interface TripConsultationMapper {
 

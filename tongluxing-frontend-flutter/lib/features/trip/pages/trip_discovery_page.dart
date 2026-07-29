@@ -38,6 +38,7 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
   bool hasMore = true;
   int page = 1;
   int requestSerial = 0;
+  int refreshSeed = DateTime.now().microsecondsSinceEpoch;
   String? error;
 
   @override
@@ -68,6 +69,7 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
 
   Future<void> _load({required bool reset}) async {
     if (reset) {
+      refreshSeed++;
       setState(() {
         loading = true;
         error = null;
@@ -93,6 +95,7 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
             minimumRemainingSeats: filter.minimumRemainingSeats,
             page: targetPage,
             size: 8,
+            refreshSeed: refreshSeed,
           );
       if (!mounted || serial != requestSerial) return;
       final values =
@@ -228,8 +231,11 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
     }
     return RefreshIndicator(
       onRefresh: () => _load(reset: true),
+      color: AppColors.primary,
+      backgroundColor: Colors.white,
       child: ListView.separated(
         controller: scroll,
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
         itemCount: trips.length + (hasMore || loadingMore ? 1 : 0),
         separatorBuilder: (_, _) => const SizedBox(height: 8),
@@ -319,7 +325,7 @@ class _DiscoverySearchEntry extends StatelessWidget {
                 textInputAction: TextInputAction.search,
                 style: const TextStyle(fontSize: 13.5),
                 decoration: const InputDecoration(
-                  hintText: '搜索目的地、起点、路线或发起人',
+                  hintText: '搜索目的地、起点、路线或同路人',
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
@@ -404,10 +410,16 @@ class _SearchSuggestionPanel extends StatelessWidget {
               icon: LucideIcons.route,
             ),
             (
-              label: '搜索发起人“$keyword”',
+              label: '搜索同路人“$keyword”',
               keyword: keyword,
               tab: 3,
               icon: LucideIcons.userSearch,
+            ),
+            (
+              label: '按完整行程号搜索“$keyword”',
+              keyword: keyword,
+              tab: 4,
+              icon: LucideIcons.hash,
             ),
           ];
     return Padding(

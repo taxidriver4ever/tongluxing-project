@@ -195,15 +195,11 @@ class _InvitePageState extends State<InvitePage> {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () async {
-                    await Clipboard.setData(
-                      ClipboardData(
-                        text: qr['qrContent']?.toString() ?? inviteCode,
-                      ),
-                    );
-                    if (mounted) _message('邀请链接已复制');
+                    await Clipboard.setData(ClipboardData(text: inviteCode));
+                    if (mounted) _message('邀请码已复制');
                   },
                   icon: const Icon(LucideIcons.copy),
-                  label: const Text('复制邀请链接'),
+                  label: const Text('复制邀请码'),
                 ),
               ),
             ],
@@ -289,7 +285,6 @@ class _Metric extends StatelessWidget {
   );
 }
 
-
 class _InviteStep extends StatelessWidget {
   const _InviteStep({
     required this.number,
@@ -326,11 +321,7 @@ class _InviteStep extends StatelessWidget {
             ),
           ),
           if (!last)
-            Container(
-              width: 2,
-              height: 44,
-              color: AppColors.primarySoft,
-            ),
+            Container(width: 2, height: 44, color: AppColors.primarySoft),
         ],
       ),
       const SizedBox(width: 12),

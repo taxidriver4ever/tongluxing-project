@@ -30,7 +30,7 @@ create table if not exists auth_login_log (
     id bigint primary key,
     user_id bigint null,
     phone varchar(20) null,
-    action_type varchar(32) not null comment 'login/password_login/wx_phone_login/app_login/app_bind_login/logout/refresh',
+    action_type varchar(32) not null comment 'login/password_login/wx_phone_login/app_login/logout/refresh',
     device_id varchar(128) null,
     ip varchar(64) null,
     success tinyint not null comment '1 success, 0 failed',

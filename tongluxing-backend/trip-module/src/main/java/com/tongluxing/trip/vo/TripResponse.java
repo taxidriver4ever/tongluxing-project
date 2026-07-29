@@ -8,6 +8,7 @@ import java.util.List;
  */
 public record TripResponse(
         String tripId,
+        String tripNumber,
         String userId,
         String vehicleId,
         String title,

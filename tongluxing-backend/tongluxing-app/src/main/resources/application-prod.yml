@@ -1,0 +1,82 @@
+spring:
+  config:
+    import:
+      - optional:file:.env.prod[.properties]
+      - optional:file:../.env.prod[.properties]
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:redis}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      username: ${SPRING_DATA_REDIS_USERNAME}
+      password: ${SPRING_DATA_REDIS_PASSWORD}
+      database: ${SPRING_DATA_REDIS_DATABASE:0}
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT:3000ms}
+  security:
+    user:
+      name: ${SECURITY_DEV_USERNAME}
+      password: ${SECURITY_DEV_PASSWORD}
+
+wx:
+  miniapp:
+    app-id: ${WX_MINIAPP_APP_ID:}
+    app-secret: ${WX_MINIAPP_APP_SECRET:}
+
+amap:
+  web-service:
+    key: ${AMAP_WEB_SERVICE_KEY:}
+
+auth:
+  jwt:
+    secret: ${AUTH_JWT_SECRET}
+    issuer: ${AUTH_JWT_ISSUER}
+    access-expire-seconds: ${AUTH_JWT_ACCESS_EXPIRE_SECONDS}
+    refresh-expire-seconds: ${AUTH_JWT_REFRESH_EXPIRE_SECONDS}
+
+vehicle:
+  security:
+    data-encryption-key: ${VEHICLE_DATA_ENCRYPTION_KEY}
+
+tongluxing:
+  user:
+    data-encryption-key: ${USER_DATA_ENCRYPTION_KEY}
+  merchant:
+    data-encryption-key: ${MERCHANT_DATA_ENCRYPTION_KEY}
+
+admin:
+  auth:
+    username: ${ADMIN_AUTH_USERNAME:admin}
+    password: ${ADMIN_AUTH_PASSWORD}
+    operator-id: ${ADMIN_AUTH_OPERATOR_ID:10001}
+    display-name: ${ADMIN_AUTH_DISPLAY_NAME:运营管理员}
+    session-expire-seconds: ${ADMIN_AUTH_SESSION_EXPIRE_SECONDS:7200}
+    max-failures: ${ADMIN_AUTH_MAX_FAILURES:5}
+    failure-window-seconds: ${ADMIN_AUTH_FAILURE_WINDOW_SECONDS:3600}
+
+tencent:
+  im:
+    provider-type: ${TENCENT_IM_PROVIDER_TYPE:TENCENT_IM}
+    sdk-app-id: ${TENCENT_IM_SDK_APP_ID}
+    secret-key: ${TENCENT_IM_SECRET_KEY}
+    admin-user-id: ${TENCENT_IM_ADMIN_USER_ID}
+    expire-seconds: ${TENCENT_IM_EXPIRE_SECONDS}
+
+storage:
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://minio:9000}
+    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://43.138.233.211:9000}
+    access-key: ${MINIO_ACCESS_KEY:${MINIO_ROOT_USER}}
+    secret-key: ${MINIO_SECRET_KEY:${MINIO_ROOT_PASSWORD}}
+
+app:
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://43.138.233.211}
+
+logging:
+  level:
+    com.tongluxing: info

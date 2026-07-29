@@ -13,6 +13,9 @@ public interface MatchTripPort {
      */
     MatchTripDTO getTrip(Long tripId);
 
+    /** 按公开行程号精确查询。 */
+    MatchTripDTO getTripByNumber(String tripNumber);
+
     /**
      * 查询公开行程列表，作为推荐候选池。
      */
@@ -23,6 +26,7 @@ public interface MatchTripPort {
      */
     record MatchTripDTO(
             Long tripId,
+            String tripNumber,
             Long userId,
             Long vehicleId,
             String ownerNickname,

@@ -6,6 +6,17 @@ import jakarta.validation.Valid;
 
 /**
  * 微信小程序手机号授权登录请求。
+ *
+ * <p>正式环境通过微信一次性 code 换取手机号；联调环境可传 {@code mockPhone}
+ * 跳过微信网络调用。两者最终进入同一手机号登录流程，因此账号创建、密码初始化、
+ * 注册来源、设备审计和单点登录规则完全一致。</p>
+ *
+ * @param code {@code wx.getPhoneNumber} 返回的一次性授权 code
+ * @param mockPhone 仅用于联调的模拟手机号；存在时优先使用且不调用微信接口
+ * @param deviceId 小程序设备标识，用于登录日志和 Token 设备声明
+ * @param password 首次注册时的初始密码；已有账号不会被覆盖
+ * @param registerSource 结构化注册来源，只在首次注册事件中生效
+ * @param inviteCode 兼容旧前端的邀请码快捷字段；仅在 registerSource 为空时转换为 INVITE 来源
  */
 public record WxPhoneLoginRequest(
         /** 微信小程序端获取到的一次性手机号授权 code。 */

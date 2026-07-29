@@ -5,6 +5,10 @@ import java.util.List;
 import org.apache.ibatis.annotations.*;
 import com.tongluxing.chat.entity.ChatJoinApplication;
 
+/**
+ * 聊天加入申请 MyBatis 数据访问接口。
+ * 方法直接对应数据库读写语句；事务边界由调用它的服务层统一管理。
+ */
 @Mapper
 public interface ChatJoinApplicationMapper {
     @Insert("""

@@ -21,7 +21,7 @@ public interface MapService {
     /** 解析地点并记录搜索/选择日志。 */
     LocationDto resolveLocation(LocationDto location);
 
-    /** 从 MySQL 地点目录搜索地点。 */
+    /** 通过高德 Web 服务搜索真实地点。 */
     List<LocationSearchResponse> searchLocations(
             String keyword, Integer limit, BigDecimal latitude, BigDecimal longitude);
 

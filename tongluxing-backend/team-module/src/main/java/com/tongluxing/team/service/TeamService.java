@@ -58,8 +58,14 @@ public interface TeamService {
     /** 队长查询自己指定行程收到的申请。 */
     List<TeamApplicationResponse> getTripApplications(Long tripId);
 
+    /** 队长查询自己收到的全部入队申请。 */
+    List<TeamApplicationResponse> getReceivedApplications(String status);
+
     /**
      * 成员退出车队。
      */
     TeamResponse exit(Long teamId);
+
+    /** 当前成员按行程 ID 退出对应车队，供行程群聊退群流程调用。 */
+    TeamResponse exitTrip(Long tripId);
 }

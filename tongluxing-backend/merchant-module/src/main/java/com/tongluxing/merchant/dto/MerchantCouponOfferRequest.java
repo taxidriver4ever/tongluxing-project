@@ -8,6 +8,10 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+/**
+ * 封装商家优惠券权益请求参数。
+ * 字段上的 Jakarta Validation 约束在进入业务层前完成格式和取值范围校验。
+ */
 public record MerchantCouponOfferRequest(
         @NotNull Long storeId,
         @NotBlank @Size(max=128) String couponName,

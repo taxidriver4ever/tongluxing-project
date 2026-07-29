@@ -32,8 +32,8 @@ class MapHomePage extends StatefulWidget {
 
 class _MapHomePageState extends State<MapHomePage> {
   static const _permissionChannel = MethodChannel('com.tongluxing/permissions');
-  // 初始状态保留约 2/3 地图、1/3 操作卡。
-  static const double _collapsedSheetSize = .33;
+  // 收起时只露出拖动提示和搜索框，把绝大部分屏幕还给地图。
+  static const double _collapsedSheetSize = .11;
   static const double _keyboardMinSheetSize = .36;
   static const double _halfSheetSize = .48;
   static const double _expandedSheetSize = .76;
@@ -226,6 +226,13 @@ class _MapHomePageState extends State<MapHomePage> {
       );
     }
     _animateSearchSheet(_collapsedSheetSize);
+    // 键盘关闭动画期间抽屉的最小高度仍可能是键盘模式的高度；动画结束后
+    // 再收起一次，确保点击地图时最终只保留底部搜索框。
+    Future<void>.delayed(const Duration(milliseconds: 320), () {
+      if (mounted && !searchFocus.hasFocus) {
+        _animateSearchSheet(_collapsedSheetSize);
+      }
+    });
   }
 
   void _toggleSearchSheet() {

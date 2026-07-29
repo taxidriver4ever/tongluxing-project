@@ -123,6 +123,7 @@ public class TripServiceImpl implements TripService {
         LocalDateTime now = LocalDateTime.now();
         Trip trip = new Trip();
         trip.setId(SnowflakeIdGenerator.nextId());
+        trip.setTripNumber(toTripNumber(trip.getId()));
         trip.setUserId(userId);
         trip.setJoinedVehicleCount(1);
         trip.setStatus(STATUS_PUBLISHED);
@@ -155,7 +156,14 @@ public class TripServiceImpl implements TripService {
     @Override
     public TripListResponse getMyTrips(String scope) {
         Long userId = currentUserContext.requireUserId();
-        String normalizedScope = "history".equalsIgnoreCase(scope) ? "history" : "active";
+        String normalizedScope = "history".equalsIgnoreCase(scope)
+                ? "history"
+                : "exited".equalsIgnoreCase(scope) ? "exited" : "active";
+        if ("exited".equals(normalizedScope)) {
+            return new TripListResponse(tripMapper.findExitedByUserId(userId, 50).stream()
+                    .map(this::toResponseWithoutChildren)
+                    .toList());
+        }
         String cacheKey = MINE_CACHE_KEY.formatted(userId, normalizedScope);
         TripListResponse cached = readJson(cacheKey, TripListResponse.class);
         if (cached != null) {
@@ -781,6 +789,7 @@ public class TripServiceImpl implements TripService {
     private TripResponse toResponse(Trip trip, List<WaypointLocationResponse> waypoints) {
         return new TripResponse(
                 String.valueOf(trip.getId()),
+                trip.getTripNumber(),
                 String.valueOf(trip.getUserId()),
                 String.valueOf(trip.getVehicleId()),
                 trip.getTitle(),
@@ -817,6 +826,11 @@ public class TripServiceImpl implements TripService {
                 formatTime(trip.getCreatedAt()),
                 formatTime(trip.getUpdatedAt())
         );
+    }
+
+    /** Snowflake ID 的 36 进制表示天然唯一，增加 TLX 前缀后作为可公开分享的行程号。 */
+    private String toTripNumber(Long tripId) {
+        return "TLX" + Long.toUnsignedString(tripId, 36).toUpperCase(java.util.Locale.ROOT);
     }
 
     private String vehicleRequirements(List<String> values) {
@@ -857,6 +871,7 @@ public class TripServiceImpl implements TripService {
     private Trip copyTrip(Trip source) {
         Trip trip = new Trip();
         trip.setId(source.getId());
+        trip.setTripNumber(source.getTripNumber());
         trip.setUserId(source.getUserId());
         trip.setVehicleId(source.getVehicleId());
         trip.setTitle(source.getTitle());

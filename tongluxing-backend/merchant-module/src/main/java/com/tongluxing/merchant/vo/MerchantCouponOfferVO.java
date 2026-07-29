@@ -3,6 +3,10 @@ package com.tongluxing.merchant.vo;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+/**
+ * 商家优惠券权益对外返回视图。
+ * 该模型只承载客户端需要的数据，避免直接暴露数据库实体及内部实现字段。
+ */
 public record MerchantCouponOfferVO(
         Long couponId, Long merchantId, String merchantName, Long storeId, String storeName,
         String storeAddress, BigDecimal longitude, BigDecimal latitude, String couponName,

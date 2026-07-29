@@ -8,6 +8,10 @@ import lombok.Data;
  * 认证账号实体，对应 auth_account 表。
  *
  * <p>这里只保存登录认证需要的信息，用户昵称、头像、成长值等资料归 user-module 管理。</p>
+ *
+ * <p>{@code id} 是认证表记录主键，{@code userId} 是跨模块稳定业务身份，两者刻意分离。
+ * 手机号负责登录定位；账号禁用、引导完成度和最近登录信息属于认证域状态。
+ * 密码和设备分别存放在独立表中，避免账号主表承担可选凭据及一对多终端数据。</p>
  */
 @Data
 public class AuthAccount {

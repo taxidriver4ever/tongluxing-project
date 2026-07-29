@@ -78,7 +78,7 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
     try {
       final rows = await ChatService(
         context.read<AppSession>().api,
-      ).joinApplications(status: 'PENDING');
+      ).receivedTeamApplications(status: 'PENDING');
       if (!mounted) return;
       setState(() => applications = rows);
     } catch (error) {
@@ -114,7 +114,7 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
 
   Future<void> review(Map<String, dynamic> row, bool approve) async {
     try {
-      await ChatService(context.read<AppSession>().api).reviewJoinApplication(
+      await ChatService(context.read<AppSession>().api).reviewTeamApplication(
         row['applicationId']?.toString() ?? '',
         approve ? 'APPROVED' : 'REJECTED',
       );
@@ -124,25 +124,6 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
         );
         await _loadApplications();
       }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
-      }
-    }
-  }
-
-  Future<void> toggleApplicationFollow(int index) async {
-    final row = applications[index];
-    final userId = row['applicantUserId']?.toString() ?? '';
-    if (userId.isEmpty) return;
-    try {
-      final service = FollowService(context.read<AppSession>().api);
-      final next = row['following'] == true
-          ? await service.unfollow(userId)
-          : await service.follow(userId);
-      if (mounted) setState(() => applications[index] = {...row, ...next});
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -237,10 +218,8 @@ class _InteractionMessagesPageState extends State<InteractionMessagesPage>
             child: _ApplicationList(
               rows: applications,
               onRefresh: _loadApplications,
-              onFollow: toggleApplicationFollow,
               onReview: review,
               onProfile: openProfile,
-              onChat: openChat,
             ),
           )
         : _tabBody(
@@ -296,17 +275,13 @@ class _ApplicationList extends StatelessWidget {
   const _ApplicationList({
     required this.rows,
     required this.onRefresh,
-    required this.onFollow,
     required this.onReview,
     required this.onProfile,
-    required this.onChat,
   });
   final List<Map<String, dynamic>> rows;
   final Future<void> Function() onRefresh;
-  final ValueChanged<int> onFollow;
   final void Function(Map<String, dynamic>, bool) onReview;
   final ValueChanged<String> onProfile;
-  final ValueChanged<String> onChat;
 
   @override
   Widget build(BuildContext context) {
@@ -359,13 +334,39 @@ class _ApplicationList extends StatelessWidget {
                               color: AppColors.muted,
                             ),
                           ),
-                          if (row['applicationMessage']
+                          if (row['wantsToDrive'] == true)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    LucideIcons.carFront,
+                                    size: 14,
+                                    color: AppColors.primary,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      '要开车${row['vehicleSummary']?.toString().trim().isNotEmpty == true ? ' · ${row['vehicleSummary']}' : ''}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.primary,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          if (row['applyMessage']
                                   ?.toString()
                                   .trim()
                                   .isNotEmpty ==
                               true)
                             Text(
-                              row['applicationMessage'].toString(),
+                              row['applyMessage'].toString(),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -385,40 +386,7 @@ class _ApplicationList extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 9),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 31,
-                        child: row['following'] == true
-                            ? OutlinedButton(
-                                onPressed: () => onFollow(index),
-                                child: Text(
-                                  row['mutual'] == true ? '互相关注' : '已关注',
-                                ),
-                              )
-                            : FilledButton(
-                                onPressed: () => onFollow(index),
-                                child: Text(
-                                  row['followedByTarget'] == true ? '回关' : '关注',
-                                ),
-                              ),
-                      ),
-                    ),
-                    const SizedBox(width: 7),
-                    Expanded(
-                      child: SizedBox(
-                        height: 31,
-                        child: OutlinedButton(
-                          onPressed: () => onChat(userId),
-                          child: const Text('发起私聊'),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 7),
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(

@@ -8,9 +8,14 @@ import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.user.support.CurrentUserContext;
 import lombok.RequiredArgsConstructor;
+/**
+ * SOS 紧急事件业务服务，对上层提供稳定的领域操作入口。
+ * 调用方无需了解底层表结构、状态校验和事务实现细节。
+ */
 @Service @RequiredArgsConstructor
 public class SosEventService {
     private final SosEventMapper mapper; private final CurrentUserContext currentUserContext;
+    /** 校验请求并创建资源；重复请求由业务层按幂等规则处理。 */
     @Transactional public SosEventResponse create(CreateSosEventRequest r) {
         Long uid=currentUserContext.requireUserId(); SosEvent old=mapper.findByRequest(uid,r.requestId());
         if(old!=null)return response(old); LocalDateTime now=LocalDateTime.now(); SosEvent e=new SosEvent();
@@ -20,14 +25,17 @@ public class SosEventService {
         e.setAlarmMode("MOCK");e.setEventStatus("PENDING");e.setOccurredAt(now);e.setCreatedAt(now);e.setUpdatedAt(now);
         mapper.insert(e);return response(e);
     }
+    /** 按筛选条件查询列表，并限制返回数量以保护接口与数据库。 */
     public List<SosEventResponse> list(String status,Integer limit){
         String s=status==null?"":status.trim().toUpperCase();
         if(!s.isEmpty()&&!List.of("PENDING","PROCESSING","RESOLVED").contains(s))
             throw new BusinessException(ResultCode.BAD_REQUEST,"SOS状态筛选值不正确");
         return mapper.list(s,limit==null?100:Math.max(1,Math.min(limit,200))).stream().map(this::response).toList();
     }
+    /** 受理待处理的 SOS 事件，并记录当前操作人与受理时间。 */
     @Transactional public SosEventResponse accept(Long id){Long op=currentUserContext.requireUserId();SosEvent e=require(id);
         if("PENDING".equals(e.getEventStatus()))mapper.accept(id,op,LocalDateTime.now());return response(require(id));}
+    /** 将 SOS 事件结案，并保存结案说明与操作信息。 */
     @Transactional public SosEventResponse resolve(Long id,ResolveSosEventRequest r){Long op=currentUserContext.requireUserId();SosEvent e=require(id);
         if("RESOLVED".equals(e.getEventStatus()))return response(e);
         if(mapper.resolve(id,op,r.resolutionNote().trim(),LocalDateTime.now())==0)

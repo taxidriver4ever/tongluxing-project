@@ -52,7 +52,7 @@ public class MapController {
         return Result.success(mapService.resolveLocation(location));
     }
 
-    /** 从数据库地点目录搜索，空关键词返回热门地点。 */
+    /** 通过高德 POI 搜索 2.0 批量搜索真实地点。 */
     @GetMapping("/locations/search")
     public Result<List<LocationSearchResponse>> searchLocations(
             @RequestParam(defaultValue = "") String keyword,

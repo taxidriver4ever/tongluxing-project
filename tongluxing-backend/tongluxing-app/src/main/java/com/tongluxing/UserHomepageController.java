@@ -12,6 +12,10 @@ import com.tongluxing.user.support.CurrentUserContext;
 import com.tongluxing.vehicle.service.VehicleService;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 负责用户主页相关 HTTP 接口的参数接收、校验和统一结果封装。
+ * 具体业务规则委托给服务层，控制器本身不直接操作数据库。
+ */
 @RestController
 @RequiredArgsConstructor
 public class UserHomepageController {
@@ -23,6 +27,7 @@ public class UserHomepageController {
     private final VehicleService vehicleService;
 
     @GetMapping("/v1/users/{userId}/homepage")
+    /** 执行 homepage 对应的领域操作，并返回统一的业务结果。 */
     public Result<UserHomepageVO> homepage(@PathVariable Long userId) {
         Long currentUserId = currentUserContext.requireUserId();
         var profile = currentUserId.equals(userId)
@@ -32,7 +37,7 @@ public class UserHomepageController {
         String province = ipProvinceResolver.resolve(
                 account == null ? null : account.getLastLoginIp(), profile.cityName());
         var privacy = userService.getPrivacySettings(userId);
-        var vehicle = "PUBLIC".equals(privacy.vehicleVisibility())
+        var vehicle = (currentUserId.equals(userId) || "PUBLIC".equals(privacy.vehicleVisibility()))
                 ? vehicleService.getPublicMainCard(userId) : null;
         PublicVehicleSummaryVO mainVehicle = vehicle == null ? null
                 : new PublicVehicleSummaryVO(vehicle.brand(), vehicle.model(), vehicle.vehicleType());

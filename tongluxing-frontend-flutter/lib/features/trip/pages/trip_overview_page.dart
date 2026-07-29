@@ -26,14 +26,14 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
   String? error;
   List<TripModel> active = [];
   List<TripModel> history = [];
+  List<TripModel> exited = [];
   late String filter;
 
   @override
   void initState() {
     super.initState();
     filter =
-        widget.initialFilter ??
-        (widget.historyMode ? 'FINISHED' : 'PUBLISHED');
+        widget.initialFilter ?? (widget.historyMode ? 'FINISHED' : 'PUBLISHED');
     WidgetsBinding.instance.addPostFrameCallback((_) => load());
   }
 
@@ -47,9 +47,11 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
       final values = await Future.wait([
         service.mine(),
         service.mine(scope: 'history'),
+        service.mine(scope: 'exited'),
       ]);
       active = values[0];
       history = values[1];
+      exited = values[2];
     } catch (e) {
       error = e.toString();
     }
@@ -57,11 +59,12 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
   }
 
   List<TripModel> get visible {
-    final source =
-        filter == 'CANCELLED' ||
-            filter == 'FINISHED' ||
-            filter == 'SETTLED' ||
-            widget.historyMode
+    final source = filter == 'EXITED'
+        ? exited
+        : filter == 'CANCELLED' ||
+              filter == 'FINISHED' ||
+              filter == 'SETTLED' ||
+              widget.historyMode
         ? history
         : active;
     return source.where((trip) {
@@ -73,10 +76,13 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
             trip.status == 'CONFIRMING' ||
             trip.status == 'WAITING';
       }
-      if (filter == 'RUNNING')
+      if (filter == 'RUNNING') {
         return trip.status == 'RUNNING' || trip.status == 'ONGOING';
-      if (filter == 'FINISHED')
+      }
+      if (filter == 'FINISHED') {
         return trip.status == 'FINISHED' || trip.status == 'ENDED';
+      }
+      if (filter == 'EXITED') return true;
       return trip.status == filter;
     }).toList();
   }
@@ -102,17 +108,19 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
     if (confirmed != true || !mounted) return;
     try {
       await TripService(context.read<AppSession>().api).cancel(trip.id);
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('行程已取消')));
+      }
       await load();
       if (mounted) setState(() => filter = 'CANCELLED');
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
   }
 
@@ -129,7 +137,7 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
   @override
   Widget build(BuildContext context) {
     final options = widget.historyMode
-        ? const {'FINISHED': '已完成', 'SETTLED': '已结算'}
+        ? const {'FINISHED': '已完成', 'SETTLED': '已结算', 'EXITED': '已退出'}
         : const {
             'PUBLISHED': '招募中',
             'READY': '待出发',
@@ -138,9 +146,7 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
           };
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FB),
-      appBar: AppBar(
-        title: Text(widget.historyMode ? '历史与结算' : '我的行程'),
-      ),
+      appBar: AppBar(title: Text(widget.historyMode ? '历史与结算' : '我的行程')),
       body: RefreshIndicator(
         onRefresh: load,
         child: ListView(
@@ -176,7 +182,7 @@ class _TripOverviewPageState extends State<TripOverviewPage> {
               ...visible.map(
                 (trip) => _TripOverviewCard(
                   trip: trip,
-                  statusLabel: _label(trip.status),
+                  statusLabel: filter == 'EXITED' ? '已退出' : _label(trip.status),
                   onTap: () => openDetail(trip),
                   onCancel: trip.status == 'PUBLISHED'
                       ? () => cancel(trip)

@@ -6,6 +6,10 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+/**
+ * 封装商家门店请求参数。
+ * 字段上的 Jakarta Validation 约束在进入业务层前完成格式和取值范围校验。
+ */
 public record MerchantStoreRequest(
         @NotBlank @Size(max=128) String storeName,
         @NotBlank @Size(max=255) String address,

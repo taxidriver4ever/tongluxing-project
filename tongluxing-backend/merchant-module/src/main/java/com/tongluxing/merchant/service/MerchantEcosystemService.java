@@ -5,6 +5,10 @@ import com.tongluxing.merchant.dto.MerchantCouponOfferRequest;
 import com.tongluxing.merchant.dto.MerchantStoreRequest;
 import com.tongluxing.merchant.vo.*;
 
+/**
+ * 商家生态业务服务契约，对上层提供稳定的领域操作入口。
+ * 调用方无需了解底层表结构、状态校验和事务实现细节。
+ */
 public interface MerchantEcosystemService {
     MerchantCenterOverviewVO overview();
     List<MerchantStoreVO> stores();

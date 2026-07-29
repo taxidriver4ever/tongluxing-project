@@ -10,6 +10,10 @@ import org.apache.ibatis.annotations.Update;
 
 import com.tongluxing.drivertrack.entity.DriverTrackRecord;
 
+/**
+ * 行程执行轨迹 MyBatis 数据访问接口。
+ * 方法直接对应数据库读写语句；事务边界由调用它的服务层统一管理。
+ */
 @Mapper
 public interface TripExecutionTrackMapper {
     @Insert("""

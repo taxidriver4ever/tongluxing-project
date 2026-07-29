@@ -2,6 +2,10 @@ package com.tongluxing.admin.sos;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import lombok.Data;
+/**
+ * 描述SOS 紧急事件持久化记录及其当前业务状态。
+ * 对象由 MyBatis 在数据库行与 Java 字段之间进行映射。
+ */
 @Data
 public class SosEvent {
     private Long id; private Long userId; private String requestId;

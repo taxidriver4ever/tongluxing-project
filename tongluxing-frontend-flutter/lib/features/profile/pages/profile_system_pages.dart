@@ -491,7 +491,7 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                                 const SizedBox(height: 5),
                                 _PublicProfileLine(
                                   icon: LucideIcons.carFront,
-                                  text: '主要车型：$vehicleText',
+                                  text: '主要车辆：$vehicleText',
                                 ),
                               ],
                               const SizedBox(height: 5),

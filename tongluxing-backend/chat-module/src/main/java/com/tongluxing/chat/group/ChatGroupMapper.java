@@ -3,11 +3,15 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 import org.apache.ibatis.annotations.*;
+/**
+ * 群聊协作 MyBatis 数据访问接口。
+ * 方法直接对应数据库读写语句；事务边界由调用它的服务层统一管理。
+ */
 @Mapper
 public interface ChatGroupMapper {
  @Select("""
  select c.id conversationId,c.conversation_name conversationName,c.biz_id tripId,c.conversation_status conversationStatus,
-   t.title tripName,t.start_name startName,t.end_name endName,t.departure_time departureTime,t.status tripStatus,
+   t.title tripName,t.trip_number tripNumber,t.start_name startName,t.end_name endName,t.departure_time departureTime,t.status tripStatus,
    t.joined_vehicle_count vehicleCount,(select count(*) from chat_conversation_member m where m.conversation_id=c.id and m.member_status='ACTIVE' and m.deleted=0) memberCount
    from chat_conversation c left join trip t on c.biz_type='TRIP' and t.id=c.biz_id and t.deleted=0 where c.id=#{id} and c.deleted=0""")
  Map<String,Object> workspace(@Param("id")Long id);

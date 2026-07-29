@@ -1,5 +1,6 @@
 create table if not exists trip (
     id bigint primary key,
+    trip_number varchar(20) not null,
     user_id bigint not null,
     vehicle_id bigint not null,
     title varchar(128) not null default '',
@@ -42,6 +43,7 @@ create table if not exists trip (
     created_at datetime not null,
     updated_at datetime not null,
     deleted tinyint(1) not null default 0,
+    unique key uk_trip_number (trip_number),
     key idx_trip_user_status_time (user_id, status, departure_time),
     key idx_trip_public_status_time (public_flag, status, departure_time),
     key idx_trip_vehicle (vehicle_id)
@@ -59,7 +61,7 @@ create table if not exists trip_route (
     polyline mediumtext null,
     plan_distance int null,
     plan_duration int null,
-    provider_type varchar(32) not null default 'MOCK',
+    provider_type varchar(32) not null,
     route_status varchar(16) not null default 'VALID',
     created_at datetime not null,
     updated_at datetime not null,
@@ -67,6 +69,7 @@ create table if not exists trip_route (
     unique key uk_trip_route_trip (trip_id, deleted),
     unique key uk_trip_route_draft (draft_id, deleted)
 );
+alter table trip_route modify column provider_type varchar(32) not null;
 
 create table if not exists trip_waypoint (
     id bigint primary key,

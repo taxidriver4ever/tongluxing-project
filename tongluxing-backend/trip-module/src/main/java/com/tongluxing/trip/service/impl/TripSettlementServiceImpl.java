@@ -326,8 +326,7 @@ public class TripSettlementServiceImpl implements TripSettlementService {
 
     private List<TripMemberSnapshot> effectiveMembers(Long tripId) {
         List<Long> eligibleUserIds = executionSettlementMapper.eligibleMemberIds(tripId);
-        return memberMapper.findByTripId(tripId).stream()
-                .filter(member -> List.of("OWNER", "APPROVED").contains(member.getJoinStatus()))
+        return memberMapper.findSettlementMembersByTripId(tripId).stream()
                 .filter(member -> eligibleUserIds.isEmpty()
                         || eligibleUserIds.contains(member.getUserId()))
                 .toList();

@@ -50,6 +50,17 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
     return value.isEmpty ? '未填写' : value;
   }
 
+  String get tripNumber => workspace['tripNumber']?.toString().trim() ?? '';
+
+  Future<void> _copyTripNumber() async {
+    if (tripNumber.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: tripNumber));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('行程号已复制，可以发送给其他人')));
+  }
+
   @override
   void initState() {
     super.initState();
@@ -158,6 +169,18 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                     ),
                     _ChatInfoRow(title: '群简介', value: groupIntroduction),
                     _ChatInfoRow(title: '群公告', value: groupAnnouncement),
+                    _ChatInfoRow(
+                      title: '行程号',
+                      value: tripNumber.isEmpty ? '暂未生成' : tripNumber,
+                      trailing: tripNumber.isEmpty
+                          ? null
+                          : const Icon(
+                              LucideIcons.copy,
+                              size: 18,
+                              color: AppColors.primary,
+                            ),
+                      onTap: tripNumber.isEmpty ? null : _copyTripNumber,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -271,7 +294,10 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('退出群聊？'),
-        content: const Text('退出后将不再接收该行程群消息。'),
+        content: const Text(
+          '退出后将同时退出该车队和关联行程，并立即释放成员名额。'
+          '如果行程正在进行，你将无法获得本次行程成长值。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -1532,14 +1558,16 @@ class _JoinApplicationsPageState extends State<JoinApplicationsPage> {
   }
 
   Future<void> load() async {
-    rows = await ChatService(context.read<AppSession>().api).joinApplications();
+    rows = await ChatService(
+      context.read<AppSession>().api,
+    ).receivedTeamApplications();
     if (mounted) setState(() => loading = false);
   }
 
   Future<void> review(Map<String, dynamic> row, String decision) async {
     await ChatService(
       context.read<AppSession>().api,
-    ).reviewJoinApplication(row['applicationId'].toString(), decision);
+    ).reviewTeamApplication(row['applicationId'].toString(), decision);
     await load();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1630,17 +1658,25 @@ class _JoinApplicationsPageState extends State<JoinApplicationsPage> {
                                   color: AppColors.muted,
                                 ),
                               ),
+                              if (r['wantsToDrive'] == true)
+                                Text(
+                                  '要开车${r['vehicleSummary']?.toString().trim().isNotEmpty == true ? ' · ${r['vehicleSummary']}' : ''}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
                             ],
                           ),
                         ),
                       ],
                     ),
-                    if (r['applicationMessage']?.toString().isNotEmpty ==
-                        true) ...[
+                    if (r['applyMessage']?.toString().isNotEmpty == true) ...[
                       const SizedBox(height: 12),
                       Align(
                         alignment: Alignment.centerLeft,
-                        child: Text(r['applicationMessage'].toString()),
+                        child: Text(r['applyMessage'].toString()),
                       ),
                     ],
                     const SizedBox(height: 14),

@@ -39,6 +39,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   bool loading = true, sending = false, announcementHidden = false;
   bool toolsExpanded = false;
   Timer? pollingTimer;
+  StreamSubscription<void>? imMessageSubscription;
 
   bool get isPrivate => widget.conversation.isPrivate;
   bool get privateUnlocked => privatePermission['unlocked'] == true;
@@ -55,6 +56,11 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   void initState() {
     super.initState();
     load();
+    imMessageSubscription = context
+        .read<AppSession>()
+        .tencentIm
+        .messageEvents
+        .listen((_) => load(silent: true));
     pollingTimer = Timer.periodic(
       const Duration(seconds: 2),
       (_) => load(silent: true),
@@ -73,6 +79,7 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     scroll.dispose();
     focus.dispose();
     pollingTimer?.cancel();
+    imMessageSubscription?.cancel();
     super.dispose();
   }
 

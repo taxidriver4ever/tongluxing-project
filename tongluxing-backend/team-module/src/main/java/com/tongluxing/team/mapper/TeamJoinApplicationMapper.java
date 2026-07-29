@@ -78,6 +78,25 @@ public interface TeamJoinApplicationMapper {
             """)
     List<TeamJoinApplication> findByTripId(@Param("tripId") Long tripId);
 
+    /** 查询当前队长收到的全部车队申请，供互动消息和队长申请列表使用。 */
+    @Select("""
+            <script>
+            select a.id, a.team_id, a.trip_id, a.applicant_user_id, a.applicant_vehicle_id,
+                   a.reviewer_user_id, a.application_status, a.apply_message, a.join_question_json,
+                   a.review_message, a.reviewed_at, a.created_at, a.updated_at, a.deleted
+            from team_join_application a
+            join team t on t.id = a.team_id and t.deleted = 0
+            where t.owner_user_id = #{ownerUserId} and a.deleted = 0
+            <if test='status != null and status != ""'>
+              and a.application_status = #{status}
+            </if>
+            order by case a.application_status when 'PENDING' then 0 else 1 end, a.created_at desc
+            limit 200
+            </script>
+            """)
+    List<TeamJoinApplication> findReceivedByOwner(@Param("ownerUserId") Long ownerUserId,
+                                                  @Param("status") String status);
+
     /**
      * 新增入队申请。
      */

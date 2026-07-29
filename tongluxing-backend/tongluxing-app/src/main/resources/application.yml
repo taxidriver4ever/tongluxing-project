@@ -1,7 +1,8 @@
 server:
-  port: ${SERVER_PORT}
+  port: ${SERVER_PORT:18080}
+  forward-headers-strategy: framework
   servlet:
-    context-path: ${SERVER_SERVLET_CONTEXT_PATH}
+    context-path: ${SERVER_SERVLET_CONTEXT_PATH:/api}
 
 spring:
   config:
@@ -11,12 +12,9 @@ spring:
   application:
     name: tongluxing-backend
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE}
+    active: ${SPRING_PROFILES_ACTIVE:local}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: ${MYSQL_URL}
-    username: ${MYSQL_USERNAME}
-    password: ${MYSQL_PASSWORD}
   sql:
     init:
       mode: always
@@ -44,18 +42,6 @@ spring:
         - classpath:db/notify-schema.sql
         - classpath:db/admin-schema.sql
         - classpath:db/mvp-v3-migration.sql
-  data:
-    redis:
-      host: ${REDIS_HOST}
-      port: ${REDIS_PORT}
-      username: ${REDIS_USERNAME}
-      password: ${REDIS_PASSWORD}
-      database: ${REDIS_DATABASE}
-      timeout: ${REDIS_TIMEOUT}
-  security:
-    user:
-      name: ${SECURITY_DEV_USERNAME}
-      password: ${SECURITY_DEV_PASSWORD}
   jackson:
     time-zone: Asia/Shanghai
     date-format: yyyy-MM-dd HH:mm:ss
@@ -73,52 +59,13 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
-wx:
-  miniapp:
-    app-id: ${WX_MINIAPP_APP_ID}
-    app-secret: ${WX_MINIAPP_APP_SECRET}
-
 amap:
   web-service:
-    key: ${AMAP_WEB_SERVICE_KEY:}
     base-url: ${AMAP_WEB_SERVICE_BASE_URL:https://restapi.amap.com}
     driving-strategy: ${AMAP_DRIVING_STRATEGY:32}
 
-auth:
-  jwt:
-    secret: ${AUTH_JWT_SECRET}
-    issuer: ${AUTH_JWT_ISSUER}
-    access-expire-seconds: ${AUTH_JWT_ACCESS_EXPIRE_SECONDS}
-    refresh-expire-seconds: ${AUTH_JWT_REFRESH_EXPIRE_SECONDS}
-
-vehicle:
-  security:
-    # 生产环境必须配置独立密钥；dev 未配置时复用已有高强度 JWT 密钥以兼容本地启动。
-    data-encryption-key: ${VEHICLE_DATA_ENCRYPTION_KEY:${AUTH_JWT_SECRET}}
-
-admin:
-  auth:
-    username: ${ADMIN_AUTH_USERNAME:admin}
-    password: ${ADMIN_AUTH_PASSWORD:Admin@123456}
-    operator-id: ${ADMIN_AUTH_OPERATOR_ID:10001}
-    display-name: ${ADMIN_AUTH_DISPLAY_NAME:运营管理员}
-    session-expire-seconds: ${ADMIN_AUTH_SESSION_EXPIRE_SECONDS:7200}
-    max-failures: ${ADMIN_AUTH_MAX_FAILURES:5}
-    failure-window-seconds: ${ADMIN_AUTH_FAILURE_WINDOW_SECONDS:3600}
-
-tencent:
-  im:
-    sdk-app-id: ${TENCENT_IM_SDK_APP_ID}
-    secret-key: ${TENCENT_IM_SECRET_KEY}
-    admin-user-id: ${TENCENT_IM_ADMIN_USER_ID}
-    expire-seconds: ${TENCENT_IM_EXPIRE_SECONDS}
-
 storage:
   minio:
-    endpoint: ${MINIO_ENDPOINT}
-    public-endpoint: ${MINIO_PUBLIC_ENDPOINT}
-    access-key: ${MINIO_ROOT_USER}
-    secret-key: ${MINIO_ROOT_PASSWORD}
     bucket: ${MINIO_BUCKET:tongluxing}
     upload-expire-seconds: ${MINIO_UPLOAD_EXPIRE_SECONDS:600}
     download-expire-seconds: ${MINIO_DOWNLOAD_EXPIRE_SECONDS:600}
@@ -131,10 +78,6 @@ management:
   endpoint:
     health:
       show-details: when_authorized
-
-logging:
-  level:
-    com.tongluxing: debug
 
 # MVP 轨迹风控阈值：后台首轮内测只读，统一配置，禁止业务代码散落硬编码。
 trajectory:

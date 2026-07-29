@@ -74,7 +74,7 @@ export async function apiRequest(path, options = {}) {
       },
     })
   } catch (error) {
-    throw new ApiError('无法连接后端，请确认 18080 服务和 Vite 代理已启动', { payload: error })
+    throw new ApiError('无法连接后端，请检查 API 网关或本地开发代理', { payload: error })
   }
 
   const text = await response.text()

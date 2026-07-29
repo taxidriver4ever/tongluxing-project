@@ -11,6 +11,7 @@ import lombok.Data;
  */
 public class Trip {
     private Long id;
+    private String tripNumber;
     private Long userId;
     private Long vehicleId;
     private String title;

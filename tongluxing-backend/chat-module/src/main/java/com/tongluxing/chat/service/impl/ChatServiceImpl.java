@@ -43,9 +43,11 @@ import com.tongluxing.user.service.UserService;
 import com.tongluxing.user.model.UserModels.PublicProfileVO;
 import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.vo.TripResponse;
+import com.tongluxing.team.service.TeamService;
 import com.tongluxing.storage.service.StorageService;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 聊天业务服务实现。
@@ -55,6 +57,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ChatServiceImpl implements ChatService {
 
     /** 前端展示时间格式。 */
@@ -80,6 +83,8 @@ public class ChatServiceImpl implements ChatService {
     private final UserService userService;
     /** 用于兼容升级前已发布行程：首次进入时惰性补建行程群。 */
     private final TripService tripService;
+    /** 退群时同步退出关联车队和行程，释放成员名额。 */
+    private final TeamService teamService;
     /** 为聊天头像生成短期有效的 MinIO 访问地址。 */
     private final StorageService storageService;
 
@@ -89,7 +94,7 @@ public class ChatServiceImpl implements ChatService {
     public ConversationResponse createTeamConversation(TeamConversationRequest request) {
         ChatConversation existed = conversationMapper.findByBiz("TEAM", request.teamId());
         if (existed != null) {
-            return toConversationResponse(existed);
+            return toConversationResponse(ensureConfiguredProvider(existed));
         }
         LocalDateTime now = LocalDateTime.now();
         ChatConversation conversation = new ChatConversation();
@@ -103,7 +108,7 @@ public class ChatServiceImpl implements ChatService {
         conversation.setBizId(request.teamId());
         conversation.setConversationName(request.conversationName());
         conversation.setConversationStatus("ACTIVE");
-        conversation.setProviderType(cloudEnabled ? "TENCENT_IM" : "LOCAL");
+        conversation.setProviderType(tencentImService.providerType());
         conversation.setProviderConversationKey(groupId);
         conversation.setCreatedAt(now);
         conversation.setUpdatedAt(now);
@@ -119,6 +124,7 @@ public class ChatServiceImpl implements ChatService {
         ChatConversation existed = conversationMapper.findByBiz("TRIP", tripId);
         if (existed != null) {
             syncTripMembers(existed, ownerUserId, memberUserIds);
+            existed = ensureConfiguredProvider(existed);
             persistSystemMessage(existed.getId(), "行程已开启，请注意行车安全");
             return toConversationResponse(conversationMapper.findById(existed.getId()));
         }
@@ -132,7 +138,7 @@ public class ChatServiceImpl implements ChatService {
         ChatConversation existed = conversationMapper.findByBiz("TRIP", tripId);
         if (existed != null) {
             syncTripMembers(existed, ownerUserId, memberUserIds);
-            return toConversationResponse(existed);
+            return toConversationResponse(ensureConfiguredProvider(existed));
         }
         return createTripConversation(tripId, tripName, ownerUserId, memberUserIds, "行程已发布，可在群内沟通并完成出发确认");
     }
@@ -152,7 +158,7 @@ public class ChatServiceImpl implements ChatService {
         conversation.setBizId(tripId);
         conversation.setConversationName(name);
         conversation.setConversationStatus("ACTIVE");
-        conversation.setProviderType(cloudEnabled ? "TENCENT_IM" : "LOCAL");
+        conversation.setProviderType(tencentImService.providerType());
         conversation.setProviderConversationKey(groupId);
         conversation.setCreatedAt(now);
         conversation.setUpdatedAt(now);
@@ -252,6 +258,7 @@ public class ChatServiceImpl implements ChatService {
         if (existing != null) {
             addMemberInternal(existing.getId(), currentUserId, existingPrivateRole(existing.getId(), currentUserId, "OWNER"));
             addMemberInternal(existing.getId(), targetUserId, existingPrivateRole(existing.getId(), targetUserId, "MEMBER"));
+            existing = ensureConfiguredProvider(existing);
             return toConversationResponse(existing,
                     memberMapper.findByConversationAndUser(existing.getId(), currentUserId));
         }
@@ -267,7 +274,7 @@ public class ChatServiceImpl implements ChatService {
         conversation.setBizId(conversation.getId());
         conversation.setConversationName("私聊");
         conversation.setConversationStatus("ACTIVE");
-        conversation.setProviderType("LOCAL");
+        conversation.setProviderType(tencentImService.providerType());
         conversation.setProviderConversationKey(pairKey);
         conversation.setCreatedAt(now);
         conversation.setUpdatedAt(now);
@@ -347,6 +354,7 @@ public class ChatServiceImpl implements ChatService {
         if (conversation == null || !List.of("ACTIVE", "HISTORY").contains(conversation.getConversationStatus())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "会话不存在或已归档");
         }
+        conversation = ensureConfiguredProvider(conversation);
         if ("PRIVATE".equals(conversation.getBizType())) {
             validatePrivateMessage(conversation, userId, request);
         }
@@ -383,11 +391,24 @@ public class ChatServiceImpl implements ChatService {
                 && "TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()) {
             // 腾讯 IM 当前封装的是文本通道；图片消息发送占位摘要，真实图片仍由 MinIO payload 展示。
             String providerContent = imageMessage ? "[图片]" : request.content();
-            message.setProviderMessageKey(tencentImService.sendGroupText(
-                    conversation.getProviderConversationKey(),
-                    TencentImServiceImpl.toImUserId(userId),
-                    providerContent
-            ));
+            String senderImUserId = TencentImServiceImpl.toImUserId(userId);
+            if ("PRIVATE".equals(conversation.getBizType())) {
+                ChatConversationMember peer = memberMapper.findOtherActive(conversationId, userId);
+                if (peer == null) {
+                    throw new BusinessException(ResultCode.NOT_FOUND, "私聊对象不存在");
+                }
+                message.setProviderMessageKey(tencentImService.sendC2CText(
+                        TencentImServiceImpl.toImUserId(peer.getUserId()),
+                        senderImUserId,
+                        providerContent
+                ));
+            } else {
+                message.setProviderMessageKey(tencentImService.sendGroupText(
+                        conversation.getProviderConversationKey(),
+                        senderImUserId,
+                        providerContent
+                ));
+            }
         }
         messageMapper.insert(message);
         if (risk != null) {
@@ -461,9 +482,33 @@ public class ChatServiceImpl implements ChatService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "队长不能直接退出群聊");
         }
         ChatConversation conversation = conversationMapper.findById(conversationId);
-        if (conversation != null && "TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()
+        if (conversation == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "会话不存在");
+        }
+        if ("TRIP".equals(conversation.getBizType())) {
+            teamService.exitTrip(conversation.getBizId());
+        } else if ("TEAM".equals(conversation.getBizType())) {
+            teamService.exit(conversation.getBizId());
+        }
+        String exitMessage = publicName(userId) + " 已退出群聊及关联行程";
+        persistSystemMessage(conversationId, exitMessage);
+        if ("TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()
                 && StringUtils.hasText(conversation.getProviderConversationKey())) {
-            tencentImService.removeGroupMember(conversation.getProviderConversationKey(), TencentImServiceImpl.toImUserId(userId));
+            String imUserId = TencentImServiceImpl.toImUserId(userId);
+            try {
+                // 先广播再移除成员，确保群内其余成员能够实时看到退出通知。
+                tencentImService.sendGroupText(conversation.getProviderConversationKey(), imUserId, exitMessage);
+            } catch (RuntimeException ex) {
+                // 本地消息仍是事实来源，腾讯云暂时不可用不能阻止退出和释放行程名额。
+                log.warn("广播退群通知到腾讯 IM 失败，conversationId={}, userId={}",
+                        conversationId, userId, ex);
+            }
+            try {
+                tencentImService.removeGroupMember(conversation.getProviderConversationKey(), imUserId);
+            } catch (RuntimeException ex) {
+                log.warn("从腾讯 IM 群移除成员失败，conversationId={}, userId={}",
+                        conversationId, userId, ex);
+            }
         }
         int changed = memberMapper.exit(conversationId, userId, LocalDateTime.now());
         if (changed == 0) {
@@ -731,6 +776,48 @@ public class ChatServiceImpl implements ChatService {
         return member;
     }
 
+    /**
+     * 生产切换腾讯 IM 后，幂等迁移历史 MOCK/LOCAL 会话。
+     *
+     * <p>私聊无需创建云端会话；群聊按稳定 GroupId 创建或复用，并同步全部有效成员。</p>
+     */
+    private ChatConversation ensureConfiguredProvider(ChatConversation conversation) {
+        if (!tencentImService.isConfigured() || "TENCENT_IM".equals(conversation.getProviderType())) {
+            return conversation;
+        }
+        String providerKey = conversation.getProviderConversationKey();
+        if ("PRIVATE".equals(conversation.getBizType())) {
+            conversationMapper.updateProvider(conversation.getId(), "TENCENT_IM", providerKey, LocalDateTime.now());
+            conversation.setProviderType("TENCENT_IM");
+            return conversation;
+        }
+        if (!StringUtils.hasText(providerKey)) {
+            providerKey = "TRIP".equals(conversation.getBizType())
+                    ? "trip_" + conversation.getBizId()
+                    : groupId(conversation.getBizId());
+        }
+        List<ChatConversationMember> members = memberMapper.findActiveByConversationId(conversation.getId());
+        ChatConversationMember owner = members.stream()
+                .filter(member -> "OWNER".equals(member.getMemberRole()))
+                .findFirst()
+                .orElseGet(() -> members.stream().findFirst().orElse(null));
+        if (owner == null) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "会话没有可迁移的有效成员");
+        }
+        String ownerImUserId = TencentImServiceImpl.toImUserId(owner.getUserId());
+        tencentImService.createGroup(providerKey, ownerImUserId, conversation.getConversationName());
+        for (ChatConversationMember member : members) {
+            if (!member.getUserId().equals(owner.getUserId())) {
+                tencentImService.addGroupMember(providerKey,
+                        TencentImServiceImpl.toImUserId(member.getUserId()));
+            }
+        }
+        conversationMapper.updateProvider(conversation.getId(), "TENCENT_IM", providerKey, LocalDateTime.now());
+        conversation.setProviderType("TENCENT_IM");
+        conversation.setProviderConversationKey(providerKey);
+        return conversation;
+    }
+
     /** 校验用户是会话有效成员，防止越权读取或发送消息。 */
     private ChatConversationMember requireActiveMember(Long conversationId, Long userId) {
         ChatConversationMember member = memberMapper.findByConversationAndUser(conversationId, userId);
@@ -770,13 +857,18 @@ public class ChatServiceImpl implements ChatService {
         boolean clearedLastMessage = member != null && member.getClearedBeforeMessageId() != null
                 && conversation.getLastMessageId() != null
                 && conversation.getLastMessageId() <= member.getClearedBeforeMessageId();
+        // local/MOCK 调试时不向客户端暴露历史数据行中的腾讯 provider，
+        // 避免 UI 误报已连接腾讯 IM；生产切回后仍保留原群组映射。
+        String effectiveProviderType = tencentImService.isConfigured()
+                ? conversation.getProviderType()
+                : "MOCK";
         return new ConversationResponse(
                 String.valueOf(conversation.getId()),
                 conversation.getBizType(),
                 String.valueOf(conversation.getBizId()),
                 name,
                 conversation.getConversationStatus(),
-                conversation.getProviderType(),
+                effectiveProviderType,
                 clearedLastMessage ? "" : conversation.getLastMessagePreview(),
                 clearedLastMessage ? null : format(conversation.getLastMessageAt()),
                 member != null && Boolean.TRUE.equals(member.getPinnedFlag()),

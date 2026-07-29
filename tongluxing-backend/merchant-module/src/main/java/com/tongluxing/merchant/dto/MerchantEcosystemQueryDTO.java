@@ -4,6 +4,10 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import lombok.Data;
 
+/**
+ * 封装商家生态查询请求参数。
+ * 字段上的 Jakarta Validation 约束在进入业务层前完成格式和取值范围校验。
+ */
 @Data
 public class MerchantEcosystemQueryDTO {
     private Long storeId; private Long merchantId; private String merchantName;

@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.tongluxing.common.result.Result;
@@ -71,6 +72,13 @@ public class TeamController {
     public Result<TeamApplicationResponse> review(@PathVariable Long applicationId,
                                                   @Valid @RequestBody ReviewTeamApplicationRequest request) {
         return Result.success(teamService.review(applicationId, request));
+    }
+
+    /** 队长在互动消息中查询自己收到的入队申请。 */
+    @GetMapping("/applications/received")
+    public Result<java.util.List<TeamApplicationResponse>> receivedApplications(
+            @RequestParam(defaultValue = "PENDING") String status) {
+        return Result.success(teamService.getReceivedApplications(status));
     }
 
     /**

@@ -8,10 +8,10 @@ import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -50,10 +50,13 @@ public class TencentImServiceImpl implements TencentImService {
     /** 判断云端必要配置是否完整；未配置时业务层使用本地同步模式。 */
     @Override
     public boolean isConfigured() {
-        return properties.getSdkAppId() != null && properties.getSdkAppId() > 0
-                && StringUtils.hasText(properties.getSecretKey())
-                && StringUtils.hasText(properties.getAdminUserId())
-                && properties.getExpireSeconds() != null && properties.getExpireSeconds() > 0;
+        return "TENCENT_IM".equals(providerType()) && properties.hasCredentials();
+    }
+
+    /** 返回经过标准化的显式聊天通道配置。 */
+    @Override
+    public String providerType() {
+        return properties.normalizedProviderType();
     }
 
     /** 为指定 IM 用户 ID 生成 UserSig。 */
@@ -69,6 +72,7 @@ public class TencentImServiceImpl implements TencentImService {
     public ImUserSigResponse generateCurrentUserSig() {
         Long userId = currentUserContext.requireUserId();
         String imUserId = toImUserId(userId);
+        importAccount(imUserId);
         String userSig = generateUserSig(imUserId);
         Long expireTime = Instant.now().getEpochSecond() + properties.getExpireSeconds();
         return new ImUserSigResponse(properties.getSdkAppId(), imUserId, userSig, expireTime);
@@ -84,7 +88,8 @@ public class TencentImServiceImpl implements TencentImService {
                 "Name", groupName,
                 "GroupId", groupId
         );
-        callRest("group_open_http_svc/create_group", payload);
+        // 10025 表示 GroupId 已存在；迁移重试时按幂等成功处理。
+        callRest("group_open_http_svc/create_group", payload, Set.of(10025));
     }
 
     /** 销毁腾讯云 IM 群组。 */
@@ -117,6 +122,7 @@ public class TencentImServiceImpl implements TencentImService {
     /** 通过腾讯 IM REST API 发送群文本，并返回本次请求随机号作为本地关联 key。 */
     @Override
     public String sendGroupText(String groupId, String senderUserId, String content) {
+        importAccount(senderUserId);
         int random = ThreadLocalRandom.current().nextInt(100000, Integer.MAX_VALUE);
         Map<String, Object> payload = Map.of(
                 "GroupId", groupId,
@@ -128,6 +134,27 @@ public class TencentImServiceImpl implements TencentImService {
                 ))
         );
         callRest("group_open_http_svc/send_group_msg", payload);
+        return "tencent-" + random;
+    }
+
+    /** 通过腾讯 IM REST API 发送单聊文本，并返回腾讯侧随机号作为本地关联 key。 */
+    @Override
+    public String sendC2CText(String receiverUserId, String senderUserId, String content) {
+        importAccount(senderUserId);
+        importAccount(receiverUserId);
+        int random = ThreadLocalRandom.current().nextInt(100000, Integer.MAX_VALUE);
+        Map<String, Object> payload = Map.of(
+                "SyncOtherMachine", 2,
+                "From_Account", senderUserId,
+                "To_Account", receiverUserId,
+                "MsgRandom", random,
+                "MsgTimeStamp", Instant.now().getEpochSecond(),
+                "MsgBody", List.of(Map.of(
+                        "MsgType", "TIMTextElem",
+                        "MsgContent", Map.of("Text", content)
+                ))
+        );
+        callRest("openim/sendmsg", payload);
         return "tencent-" + random;
     }
 
@@ -146,6 +173,11 @@ public class TencentImServiceImpl implements TencentImService {
 
     /** 调用腾讯云 IM REST API，并校验 HTTP 与业务响应状态。 */
     private void callRest(String command, Map<String, Object> payload) {
+        callRest(command, payload, Set.of());
+    }
+
+    /** 调用腾讯云 REST API，并允许部分业务错误码按幂等成功处理。 */
+    private void callRest(String command, Map<String, Object> payload, Set<Integer> acceptedErrorCodes) {
         validateConfig();
         String adminSig = generateUserSig(properties.getAdminUserId());
         String url = REST_BASE_URL + command
@@ -169,6 +201,10 @@ public class TencentImServiceImpl implements TencentImService {
             });
             Object actionStatus = body.get("ActionStatus");
             if (!"OK".equals(actionStatus)) {
+                Object errorCode = body.get("ErrorCode");
+                if (errorCode instanceof Number number && acceptedErrorCodes.contains(number.intValue())) {
+                    return;
+                }
                 Object errorInfo = body.get("ErrorInfo");
                 throw new BusinessException(ResultCode.BUSINESS_ERROR, "腾讯云 IM 操作失败：" + (errorInfo == null ? "unknown" : errorInfo));
             }

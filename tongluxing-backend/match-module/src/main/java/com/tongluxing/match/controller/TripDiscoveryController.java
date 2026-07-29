@@ -61,10 +61,11 @@ public class TripDiscoveryController {
             @RequestParam(required = false) String vehicleType,
             @RequestParam(required = false) Integer minimumRemainingSeats,
             @RequestParam(defaultValue = "1") Integer page,
-            @RequestParam(defaultValue = "12") Integer size) {
+            @RequestParam(defaultValue = "12") Integer size,
+            @RequestParam(required = false) Long refreshSeed) {
         return Result.success(matchService.discoverTrips(keyword, searchType, sort, latitude, longitude, referenceTripId,
                 startCity, destination, departureDateFrom, departureDateTo, vehicleType,
-                minimumRemainingSeats, page, size));
+                minimumRemainingSeats, page, size, refreshSeed));
     }
 
     /** 查询指定用户仍处于公开招募状态的行程，供公开资料页使用。 */

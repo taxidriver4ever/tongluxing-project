@@ -141,6 +141,7 @@ class _SosConfirmPageState extends State<SosConfirmPage> {
               labelText: '补充求助情况（选填）',
               hintText: '例如：车辆故障、人员受伤、需要道路救援',
               alignLabelWithHint: true,
+              contentPadding: EdgeInsets.fromLTRB(16, 18, 16, 14),
             ),
           ),
           const ListTile(

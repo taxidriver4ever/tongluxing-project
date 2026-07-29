@@ -103,6 +103,9 @@ public class AmapRouteClient {
         int distance = parsePositiveInt(path.path("distance").asText(), "路线距离");
         int duration = parsePositiveInt(path.path("cost").path("duration").asText(), "路线耗时");
         List<LocationDto> polyline = parsePolyline(path.path("steps"));
+        if (polyline.isEmpty()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "高德路线几何数据为空");
+        }
         ensureEndpoint(polyline, start, true);
         ensureEndpoint(polyline, end, false);
         if (polyline.size() < 2) {

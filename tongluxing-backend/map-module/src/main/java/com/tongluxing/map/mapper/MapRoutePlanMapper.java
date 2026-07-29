@@ -4,6 +4,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import com.tongluxing.map.entity.MapRoutePlan;
 
@@ -33,4 +34,15 @@ public interface MapRoutePlanMapper {
                  #{planStatus}, #{errorMessage}, #{createdAt}, #{updatedAt}, 0)
             """)
     void insert(MapRoutePlan plan);
+
+    /** 缓存损坏时用最新高德结果覆盖原记录。 */
+    @Update("""
+            update map_route_plan
+            set route_result_json = #{routeResultJson},
+                plan_status = #{planStatus},
+                error_message = #{errorMessage},
+                updated_at = #{updatedAt}
+            where id = #{id} and deleted = 0
+            """)
+    int updateSuccess(MapRoutePlan plan);
 }

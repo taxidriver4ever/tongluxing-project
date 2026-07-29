@@ -15,9 +15,9 @@ import lombok.Data;
 @ConfigurationProperties(prefix = "wx.miniapp")
 public class WxMiniProgramProperties {
 
-    /** 微信小程序 appId。 */
+    /** 微信小程序 appId，作为 client_credential 请求的公开应用标识。 */
     private String appId;
 
-    /** 微信小程序 appSecret，仅服务端使用，不能下发给前端。 */
+    /** 微信小程序 appSecret，仅服务端调用微信接口使用，不能记录日志或下发给前端。 */
     private String appSecret;
 }

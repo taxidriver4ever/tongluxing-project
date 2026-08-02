@@ -40,9 +40,9 @@ class _MainShellPageState extends State<MainShellPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    // “发现行程”的搜索框获得焦点时让键盘覆盖底部区域，保持页面头部
-    // 与搜索结果位置稳定；其他主 Tab 仍使用 Scaffold 的默认避让行为。
-    resizeToAvoidBottomInset: index != 1,
+    // 地图搜索键盘覆盖在地图和抽屉上方，不改变地图/抽屉的整体高度。
+    // 其他主 Tab 继续使用 Scaffold 默认的键盘避让行为。
+    resizeToAvoidBottomInset: index != 0,
     body: IndexedStack(
       sizing: StackFit.expand,
       index: index,

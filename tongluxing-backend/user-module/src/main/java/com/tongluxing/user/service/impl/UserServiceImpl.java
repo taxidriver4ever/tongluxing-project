@@ -18,6 +18,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tongluxing.common.exception.BusinessException;
@@ -27,19 +28,19 @@ import com.tongluxing.user.mapper.UserDomainMapper;
 import com.tongluxing.user.mapper.UserFollowMapper;
 import com.tongluxing.user.dto.UserQueryDTO;
 import com.tongluxing.user.dto.UserFollowQueryDTO;
-import com.tongluxing.user.model.UserModels.CertificationRequest;
-import com.tongluxing.user.model.UserModels.CertificationVO;
-import com.tongluxing.user.model.UserModels.DrivingLicenseAuditDetailVO;
-import com.tongluxing.user.model.UserModels.DrivingLicenseAuditSummaryVO;
-import com.tongluxing.user.model.UserModels.PageResult;
-import com.tongluxing.user.model.UserModels.PublicProfileVO;
-import com.tongluxing.user.model.UserModels.UpdateUserProfileRequest;
-import com.tongluxing.user.model.UserModels.UserProfileVO;
-import com.tongluxing.user.model.UserModels.FollowStatusVO;
-import com.tongluxing.user.model.UserModels.FollowUserVO;
-import com.tongluxing.user.model.UserModels.UserSearchVO;
-import com.tongluxing.user.model.UserModels.PrivacySettingsVO;
-import com.tongluxing.user.model.UserModels.UpdatePrivacySettingsRequest;
+import com.tongluxing.user.dto.request.CertificationRequest;
+import com.tongluxing.user.vo.CertificationVO;
+import com.tongluxing.user.vo.DrivingLicenseAuditDetailVO;
+import com.tongluxing.user.vo.DrivingLicenseAuditSummaryVO;
+import com.tongluxing.common.model.PageResult;
+import com.tongluxing.user.vo.PublicProfileVO;
+import com.tongluxing.user.dto.request.UpdateUserProfileRequest;
+import com.tongluxing.user.vo.UserProfileVO;
+import com.tongluxing.user.vo.FollowStatusVO;
+import com.tongluxing.user.vo.FollowUserVO;
+import com.tongluxing.user.vo.UserSearchVO;
+import com.tongluxing.user.vo.PrivacySettingsVO;
+import com.tongluxing.user.dto.request.UpdatePrivacySettingsRequest;
 import com.tongluxing.user.service.UserService;
 import com.tongluxing.user.support.CurrentUserContext;
 
@@ -127,6 +128,7 @@ public class UserServiceImpl implements UserService {
                 request.gender() == null ? old.gender() : request.gender(), request.birthday() == null ? old.birthday() : request.birthday(),
                 value(request.cityCode(), old.cityCode()), value(request.cityName(), old.cityName()),
                 value(request.bio(), old.bio()), LocalDateTime.now());
+
 
         // 昵称、头像、城市和简介同时存在于私有资料与公开名片中，所以两个缓存都必须失效。
         redis.delete(java.util.List.of(PROFILE_CACHE.formatted(userId), PUBLIC_CACHE.formatted(userId)));
@@ -297,7 +299,7 @@ public class UserServiceImpl implements UserService {
 
         // 被隐藏的字符串返回空串、数值返回 0，保持响应结构稳定且不泄露原值。
         PublicProfileVO result = new PublicProfileVO(profile.userId(), profile.tongluxingId(),
-                profile.nickname(), profile.avatarImageKey(),
+                displayNickname(profile.nickname(), profile.tongluxingId()), profile.avatarImageKey(),
                 showCity ? profile.cityName() : "", showBio ? profile.bio() : "",
                 profile.drivingLicenseCertificationStatus(),
                 showStats ? row.getTotalTripCount() : 0, showStats ? row.getTotalDistanceMeters() : 0L,
@@ -387,7 +389,7 @@ public class UserServiceImpl implements UserService {
 
         // 调用方必须先证明请求者是会话成员；这里返回会话展示所需的完整基础资料。
         return new PublicProfileVO(profile.userId(), profile.tongluxingId(),
-                profile.nickname(), profile.avatarImageKey(),
+                displayNickname(profile.nickname(), profile.tongluxingId()), profile.avatarImageKey(),
                 profile.cityName(), profile.bio(), profile.drivingLicenseCertificationStatus(),
                 row.getTotalTripCount(), row.getTotalDistanceMeters(), row.getTotalDurationMinutes(),
                 row.getCompletedWaypointCount());
@@ -563,7 +565,7 @@ public class UserServiceImpl implements UserService {
                     // 关系是相对于当前用户的动态信息，不能缓存进所有人共用的公开资料。
                     FollowStatusVO relation = followStatus(currentUserId, row.getUserId());
                     return new UserSearchVO(row.getUserId(), row.getTongluxingId(),
-                            row.getNickname(), row.getAvatarImageKey(),
+                            displayNickname(row.getNickname(), row.getTongluxingId()), row.getAvatarImageKey(),
                             row.getCityName(), row.getBio(), row.getCertificationStatus(),
                             row.getTotalTripCount(), row.getTotalDistanceMeters(),
                             relation.followerCount(), relation.followingCount(), relation.following(),
@@ -574,7 +576,7 @@ public class UserServiceImpl implements UserService {
     private FollowUserVO followUser(UserFollowQueryDTO row, Long currentUserId) {
         // Mapper DTO 只含列表公共字段；这里补齐当前用户视角下的关注方向。
         FollowStatusVO relation = followStatus(currentUserId, row.getUserId());
-        return new FollowUserVO(row.getUserId(), row.getNickname(), row.getAvatarImageKey(),
+        return new FollowUserVO(row.getUserId(), StringUtils.hasText(row.getNickname()) ? row.getNickname() : "同路行车友", row.getAvatarImageKey(),
                 row.getCertificationStatus(), row.getTotalTripCount(), row.getTotalDistanceMeters(),
                 row.getFollowedAt(), relation.following(), relation.followedByTarget(), relation.mutual());
     }
@@ -596,7 +598,7 @@ public class UserServiceImpl implements UserService {
     private UserProfileVO profile(UserQueryDTO row) {
         // 显式逐字段映射，确保密文、隐私开关和审核人等内部字段不会意外进入响应。
         return new UserProfileVO(row.getUserId(), row.getTongluxingId(),
-                row.getNickname(), row.getAvatarImageKey(), row.getGender(),
+                displayNickname(row.getNickname(), row.getTongluxingId()), row.getAvatarImageKey(), row.getGender(),
                 row.getBirthday(), row.getCityCode(), row.getCityName(), row.getBio(),
                 row.getProfileStatus(), row.getCertificationStatus());
     }
@@ -611,18 +613,27 @@ public class UserServiceImpl implements UserService {
         // 先查询再创建，绝大多数已初始化用户只产生一次读取，不执行写操作。
         UserQueryDTO profile = mapper.findProfile(userId);
 
-        // 同一路径无论首次创建还是历史补齐都使用同一个确定性号码。
-        String tongluxingId = generateTongluxingId(userId);
         if (profile == null) {
-            try {
-                // 雪花 ID 用作表主键；稳定同路行号由平台 userId 确定性生成。
-                mapper.insertProfile(SnowflakeIdGenerator.nextId(), userId, tongluxingId, LocalDateTime.now());
-            } catch (DuplicateKeyException ignored) {
-                // 其他并发请求已创建默认资料，后续查询可以直接使用。
+            for (int attempt = 0; attempt < 8; attempt++) {
+                String tongluxingId = generateTongluxingId();
+                try {
+                    mapper.insertProfile(SnowflakeIdGenerator.nextId(), userId, tongluxingId, LocalDateTime.now());
+                    break;
+                } catch (DuplicateKeyException collision) {
+                    // user_id 冲突表示并发请求已经创建；公开号冲突则生成新号码重试。
+                    if (mapper.findProfile(userId) != null) break;
+                    if (attempt == 7) throw collision;
+                }
             }
         } else if (profile.getTongluxingId() == null || profile.getTongluxingId().isBlank()) {
-            // 只修复迁移前的空号码；Mapper WHERE 条件确保已有号码不会被覆盖。
-            mapper.updateTongluxingId(userId, tongluxingId, LocalDateTime.now());
+            for (int attempt = 0; attempt < 8; attempt++) {
+                try {
+                    mapper.updateTongluxingId(userId, generateTongluxingId(), LocalDateTime.now());
+                    break;
+                } catch (DuplicateKeyException collision) {
+                    if (attempt == 7) throw collision;
+                }
+            }
         }
 
         // 资料与隐私是一组基础数据，任何 ensureProfile 调用后两者都应可查询。
@@ -630,12 +641,18 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
-     * 根据内部 userId 生成稳定、全局唯一且不可变的同路行号。
-     * 使用 36 进制缩短展示长度，TLX 前缀用于和手机号、数据库主键区分。
+     * 生成与内部 userId 无关的随机公开编号。该编号仅用于展示和公开搜索，
+     * 不参与登录、鉴权或数据库关联。
      */
-    private String generateTongluxingId(long userId) {
-        // Locale.ROOT 避免服务器区域设置影响字母大写规则，保证跨环境结果一致。
-        return "TLX" + Long.toString(userId, 36).toUpperCase(Locale.ROOT);
+    private String generateTongluxingId() {
+        final String alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+        StringBuilder value = new StringBuilder("TLX");
+        for (int i = 0; i < 10; i++) value.append(alphabet.charAt(RANDOM.nextInt(alphabet.length())));
+        return value.toString();
+    }
+
+    private String displayNickname(String nickname, String tongluxingId) {
+        return StringUtils.hasText(nickname) ? nickname.trim() : tongluxingId;
     }
 
     /**

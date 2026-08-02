@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -66,12 +67,14 @@ import com.tongluxing.trip.vo.WaypointLocationResponse;
 import com.tongluxing.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 行程模块业务服务实现，负责行程发布、查询、编辑、状态流转、成员快照和缓存维护。
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TripServiceImpl implements TripService {
 
     private static final int PUBLISH_LIMIT = 10;
@@ -86,6 +89,7 @@ public class TripServiceImpl implements TripService {
     private static final String DETAIL_CACHE_KEY = "trip:cache:detail:%d";
     private static final String MINE_CACHE_KEY = "trip:cache:mine:%d:%s";
     private static final String PUBLIC_CACHE_KEY = "trip:cache:public:list:%d";
+    private static final String PUBLIC_CACHE_KEYS = "trip:cache:public:keys";
     private static final String PUBLISH_RL_KEY = "trip:rl:publish:%d";
     private static final String START_LOCK_KEY = "trip:lock:start:user:%d";
     private static final DefaultRedisScript<Long> UNLOCK_SCRIPT = new DefaultRedisScript<>(
@@ -131,7 +135,11 @@ public class TripServiceImpl implements TripService {
         trip.setUpdatedAt(now);
         trip.setDeleted(0);
         fillTrip(trip, request);
-        TripRoute route = buildRouteSnapshot(trip.getId(), request.startLocation(), request.endLocation(), request.waypoints(), now);
+        TripRoute route = StringUtils.hasText(request.routePolyline())
+                && request.routeDistance() != null && request.routeDuration() != null
+                ? buildProvidedRouteSnapshot(trip.getId(), request.startLocation(), request.endLocation(),
+                        request.waypoints(), request.routePolyline(), request.routeDistance(), request.routeDuration(), now)
+                : buildRouteSnapshot(trip.getId(), request.startLocation(), request.endLocation(), request.waypoints(), now);
         applyRouteToTrip(trip, route);
         tripMapper.insert(trip);
         routeMapper.insert(route);
@@ -183,9 +191,11 @@ public class TripServiceImpl implements TripService {
      */
     @Override
     public MyTripDashboardResponse getMyTripDashboard() {
+        long started = System.nanoTime();
         Long userId = currentUserContext.requireUserId();
         List<Trip> active = tripMapper.findActiveByUserId(userId);
         List<Trip> history = tripMapper.findHistoryByUserId(userId, 12);
+        long databaseFinished = System.nanoTime();
         TripResponse current = getCurrentDrivingTrip();
         String currentId = current == null ? null : current.tripId();
         List<TripResponse> upcoming = active.stream()
@@ -197,7 +207,12 @@ public class TripServiceImpl implements TripService {
                 .limit(6)
                 .map(this::toResponseWithoutChildren)
                 .toList();
-        return new MyTripDashboardResponse(current, upcoming, recent, active.size(), history.size());
+        MyTripDashboardResponse response = new MyTripDashboardResponse(current, upcoming, recent, active.size(), history.size());
+        long finished = System.nanoTime();
+        log.info("my_trip_dashboard_timing userId={} databaseMs={} assembleMs={} totalMs={}", userId,
+                (databaseFinished - started) / 1_000_000L, (finished - databaseFinished) / 1_000_000L,
+                (finished - started) / 1_000_000L);
+        return response;
     }
 
     /** 查询当前用户拥有或参加的进行中行程状态。 */
@@ -269,11 +284,14 @@ public class TripServiceImpl implements TripService {
 
         Trip trip = copyTrip(before);
         fillTrip(trip, request);
-        TripRoute route = buildRouteSnapshot(trip.getId(), request.startLocation(), request.endLocation(), request.waypoints(), LocalDateTime.now());
-        applyRouteToTrip(trip, route);
+        boolean routeChanged = routeChanged(before, request);
+        TripRoute route = routeChanged
+                ? buildRouteSnapshot(trip.getId(), request.startLocation(), request.endLocation(), request.waypoints(), LocalDateTime.now())
+                : routeMapper.findByTripId(tripId);
+        if (route != null) applyRouteToTrip(trip, route);
         trip.setUpdatedAt(LocalDateTime.now());
         tripMapper.update(trip);
-        upsertRoute(route);
+        if (routeChanged && route != null) upsertRoute(route);
         insertAuditLog(tripId, userId, "UPDATE", before, trip, "编辑行程");
         clearTripCaches(userId, tripId);
         eventPublisher.publishEvent(new TripUpdatedEvent(tripId, userId));
@@ -388,7 +406,8 @@ public class TripServiceImpl implements TripService {
                     userId,
                     chatMemberIds
             ));
-            clearTripCaches(userId, tripId);
+            redisTemplate.delete(DETAIL_CACHE_KEY.formatted(tripId));
+            participantIds.forEach(this::clearListCaches);
             return toResponse(after);
         } finally {
             if (releaseInFinally) {
@@ -440,6 +459,7 @@ public class TripServiceImpl implements TripService {
         }
         TripListResponse response = new TripListResponse(tripMapper.findPublicTrips(size).stream().map(this::toResponseWithoutChildren).toList());
         writeJson(cacheKey, response, Duration.ofMinutes(3));
+        redisTemplate.opsForSet().add(PUBLIC_CACHE_KEYS, cacheKey);
         return response;
     }
 
@@ -583,6 +603,40 @@ public class TripServiceImpl implements TripService {
         route.setPlanDistance(plan.routeDistance());
         route.setPlanDuration(plan.routeDuration());
         route.setProviderType(plan.providerType());
+        route.setRouteStatus("VALID");
+        route.setCreatedAt(now);
+        route.setUpdatedAt(now);
+        route.setDeleted(0);
+        return route;
+    }
+
+    private boolean routeChanged(Trip before, UpdateTripRequest request) {
+        return !Objects.equals(before.getStartLat(), request.startLocation().latitude())
+                || !Objects.equals(before.getStartLng(), request.startLocation().longitude())
+                || !Objects.equals(before.getEndLat(), request.endLocation().latitude())
+                || !Objects.equals(before.getEndLng(), request.endLocation().longitude())
+                || !Objects.equals(before.getWaypointsJson(), toJson(sortWaypoints(request.waypoints())));
+    }
+
+    /**
+     * 将草稿阶段已经验证通过的真实道路路线提升为正式行程快照。
+     * 发布链路因此不必对完全相同的节点再次调用地图服务；导航和匹配仍使用该真实路线。
+     */
+    private TripRoute buildProvidedRouteSnapshot(Long tripId, LocationRequest startLocation,
+                                                   LocationRequest endLocation,
+                                                   List<WaypointLocationRequest> waypoints,
+                                                   String polyline, Integer distance, Integer duration,
+                                                   LocalDateTime now) {
+        TripRoute route = new TripRoute();
+        route.setId(SnowflakeIdGenerator.nextId());
+        route.setTripId(tripId);
+        route.setOrigin(toJson(startLocation));
+        route.setDestination(toJson(endLocation));
+        route.setWaypoints(toJson(sortWaypoints(waypoints)));
+        route.setPolyline(polyline);
+        route.setPlanDistance(distance);
+        route.setPlanDuration(duration);
+        route.setProviderType("AMAP_WEB_V5");
         route.setRouteStatus("VALID");
         route.setCreatedAt(now);
         route.setUpdatedAt(now);
@@ -743,8 +797,8 @@ public class TripServiceImpl implements TripService {
         if (!List.of("LIGHT", "MIDDLE", "DEEP").contains(normalize(travelDepth))) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "同行深度不正确");
         }
-        if (waypoints != null && waypoints.size() > 5) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "途经点最多 5 个");
+        if (waypoints != null && waypoints.size() > 20) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "途经点最多 20 个");
         }
         if (waypoints != null) {
             for (WaypointLocationRequest waypoint : waypoints) {
@@ -958,8 +1012,16 @@ public class TripServiceImpl implements TripService {
     private void clearListCaches(Long userId) {
         redisTemplate.delete(MINE_CACHE_KEY.formatted(userId, "active"));
         redisTemplate.delete(MINE_CACHE_KEY.formatted(userId, "history"));
-        redisTemplate.delete(PUBLIC_CACHE_KEY.formatted(20));
-        redisTemplate.delete(PUBLIC_CACHE_KEY.formatted(50));
+        Set<String> keysToDelete = new LinkedHashSet<>();
+        Set<String> publicKeys = redisTemplate.opsForSet().members(PUBLIC_CACHE_KEYS);
+        if (publicKeys != null) keysToDelete.addAll(publicKeys);
+        // 兼容升级前已写入但尚未登记到 registry 的 1~50 条公开列表缓存，
+        // 避免部署后的第一条新行程仍被旧缓存遮挡三分钟。
+        for (int size = 1; size <= 50; size++) {
+            keysToDelete.add(PUBLIC_CACHE_KEY.formatted(size));
+        }
+        redisTemplate.delete(keysToDelete);
+        redisTemplate.delete(PUBLIC_CACHE_KEYS);
     }
 
     /**

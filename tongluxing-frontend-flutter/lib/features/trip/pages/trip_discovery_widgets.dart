@@ -3,16 +3,25 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
+import '../../../common/utils/display_text.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
 import '../../profile/widgets/user_avatar.dart';
 import '../widgets/trip_discovery_theme.dart';
 
 class TripDiscoveryCard extends StatelessWidget {
-  const TripDiscoveryCard({required this.trip, required this.onTap, super.key});
+  const TripDiscoveryCard({
+    required this.trip,
+    required this.onTap,
+    this.showMatchScore = true,
+    this.showPublishLocation = false,
+    super.key,
+  });
 
   final TripDiscoverModel trip;
   final VoidCallback onTap;
+  final bool showMatchScore;
+  final bool showPublishLocation;
 
   String get route =>
       [trip.startName, ...trip.waypoints, trip.endName].join(' → ');
@@ -31,13 +40,14 @@ class TripDiscoveryCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                _Pill(
-                  '顺路度 ${trip.matchScore}%',
-                  TripDiscoveryColors.softBlue,
-                  TripDiscoveryColors.primary,
-                ),
+                if (showMatchScore && trip.matchScore != null)
+                  _Pill(
+                    '同路率 ${trip.matchScore}%',
+                    TripDiscoveryColors.softBlue,
+                    TripDiscoveryColors.primary,
+                  ),
                 const Spacer(),
-                if (trip.matchScore >= 90) ...[
+                if (showMatchScore && (trip.matchScore ?? 0) >= 90) ...[
                   const Icon(
                     LucideIcons.flame,
                     color: TripDiscoveryColors.hot,
@@ -46,7 +56,11 @@ class TripDiscoveryCard extends StatelessWidget {
                   const SizedBox(width: 4),
                 ],
                 Text(
-                  trip.matchScore >= 90 ? '热门招募中' : '招募中',
+                  const ['RUNNING', 'ONGOING'].contains(trip.status)
+                      ? '进行中'
+                      : showMatchScore && (trip.matchScore ?? 0) >= 90
+                      ? '热门招募中'
+                      : '招募中',
                   style: const TextStyle(
                     color: TripDiscoveryColors.primary,
                     fontSize: 11.5,
@@ -86,6 +100,31 @@ class TripDiscoveryCard extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
+                      if (showPublishLocation) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const Icon(
+                              LucideIcons.mapPin,
+                              size: 13,
+                              color: TripDiscoveryColors.primary,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                '发布地点：${trip.startName}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: TripDiscoveryColors.primary,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 9),
                       Row(
                         children: [
@@ -118,7 +157,7 @@ class TripDiscoveryCard extends StatelessWidget {
                   height: 80,
                   child: TripCoverImage(
                     imageKey: trip.coverImageKey,
-                    score: trip.matchScore,
+                    score: trip.matchScore ?? 0,
                   ),
                 ),
               ],
@@ -157,7 +196,7 @@ class TripDiscoveryCard extends StatelessWidget {
                         children: [
                           Flexible(
                             child: Text(
-                              trip.owner.nickname,
+                              compactDisplayName(trip.owner.nickname),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:x_amap_base/x_amap_base.dart';
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
+import '../../../common/utils/display_text.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
 import '../../profile/pages/profile_system_pages.dart';
@@ -32,6 +33,12 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
   String? error;
 
   bool get isOwner => workspace['selfRole'] == 'OWNER';
+
+  bool get canStartTrip {
+    final status = workspace['tripStatus']?.toString().toUpperCase() ?? '';
+    return isOwner &&
+        const {'PUBLISHED', 'READY', 'CONFIRMING'}.contains(status);
+  }
 
   String get groupName {
     final value = workspace['conversationName']?.toString().trim() ?? '';
@@ -191,6 +198,18 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                       showChevron: true,
                       onTap: _openTripInfo,
                     ),
+                    if (canStartTrip)
+                      _ChatInfoRow(
+                        title: '开始行程',
+                        value: '确认定位和参与名单后开始',
+                        titleColor: AppColors.primary,
+                        trailing: const Icon(
+                          LucideIcons.play,
+                          color: AppColors.primary,
+                          size: 21,
+                        ),
+                        onTap: _openTripInfo,
+                      ),
                     if (isOwner)
                       _ChatInfoRow(
                         title: '修改行程',
@@ -562,7 +581,7 @@ class _ChatGroupMembersPageState extends State<ChatGroupMembersPage> {
             const SizedBox(width: 14),
             Expanded(
               child: Text(
-                member['nickname']?.toString() ?? '同路行用户',
+                compactDisplayName(member['nickname']?.toString()),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -715,7 +734,7 @@ class _MembersPreviewCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            member['nickname']?.toString() ?? '同路行用户',
+                            compactDisplayName(member['nickname']?.toString()),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -1463,7 +1482,12 @@ class _ChatLocationSharePageState extends State<ChatLocationSharePage> {
                   ListTile(
                     dense: true,
                     leading: const Icon(LucideIcons.carFront),
-                    title: Text(l['nickname']?.toString() ?? '车队成员'),
+                    title: Text(
+                      compactDisplayName(
+                        l['nickname']?.toString(),
+                        fallback: '车队成员',
+                      ),
+                    ),
                     subtitle: Text(
                       '${l['latitude']}, ${l['longitude']} · ${l['recordedAt']}',
                     ),
@@ -1555,7 +1579,12 @@ class _ChatReportPageState extends State<ChatReportPage> {
                 .map(
                   (m) => DropdownMenuItem(
                     value: m['userId'].toString(),
-                    child: Text(m['nickname']?.toString() ?? '成员'),
+                    child: Text(
+                      compactDisplayName(
+                        m['nickname']?.toString(),
+                        fallback: '成员',
+                      ),
+                    ),
                   ),
                 )
                 .toList(),
@@ -1691,7 +1720,7 @@ class _JoinApplicationsPageState extends State<JoinApplicationsPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                r['nickname']?.toString() ?? '同路行用户',
+                                compactDisplayName(r['nickname']?.toString()),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w800,
                                 ),

@@ -20,7 +20,7 @@ import com.tongluxing.notify.dto.CreateNotificationEventRequest;
 import com.tongluxing.notify.service.NotificationService;
 import com.tongluxing.notify.service.NotificationEventTypes;
 import com.tongluxing.merchant.service.MerchantService;
-import com.tongluxing.user.model.UserModels.DrivingLicenseAuditDetailVO;
+import com.tongluxing.user.vo.DrivingLicenseAuditDetailVO;
 import com.tongluxing.user.service.UserService;
 import com.tongluxing.user.support.CurrentUserContext;
 import com.tongluxing.vehicle.service.VehicleService;

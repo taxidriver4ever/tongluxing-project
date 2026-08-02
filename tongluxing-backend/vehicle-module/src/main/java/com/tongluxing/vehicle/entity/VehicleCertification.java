@@ -30,19 +30,23 @@ public class VehicleCertification {
     private String vinCipher;
     /** VIN 脱敏值。 */
     private String vinMask;
-    /** 发动机号密文及脱敏值。 */
+    /** 发动机号密文，仅后台授权审核链路可解密。 */
     private String engineNoCipher;
+    /** 发动机号脱敏展示值。 */
     private String engineNoMask;
-    /** 行驶证日期和发证机关。 */
+    /** 车辆注册日期。 */
     private LocalDate registerDate;
+    /** 行驶证签发日期。 */
     private LocalDate issueDate;
+    /** 行驶证发证机关。 */
     private String issuingAuthority;
-    /** 行驶证正页/副页资源标识。 */
+    /** 行驶证正页对象存储资源标识。 */
     private String licenseFrontImageKey;
+    /** 行驶证副页对象存储资源标识。 */
     private String licenseBackImageKey;
-    /** 小程序识别来源。 */
+    /** 资料识别来源，例如 MANUAL_UPLOAD 或 MINIPROGRAM_OCR。 */
     private String recognitionSource;
-    /** 审核状态。 */
+    /** 审核状态：PENDING、APPROVED 或 REJECTED。 */
     private String status;
     /** 审核拒绝原因。 */
     private String rejectReason;

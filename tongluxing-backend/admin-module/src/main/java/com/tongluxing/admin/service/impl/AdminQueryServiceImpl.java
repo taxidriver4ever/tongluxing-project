@@ -15,8 +15,8 @@ import com.tongluxing.admin.vo.AdminVehicleCertificationDetailVO;
 import com.tongluxing.admin.vo.AdminVehicleCertificationImageVO;
 import com.tongluxing.admin.vo.PageResult;
 import com.tongluxing.storage.service.StorageService;
-import com.tongluxing.user.model.UserModels.DrivingLicenseAuditDetailVO;
-import com.tongluxing.user.model.UserModels.DrivingLicenseAuditSummaryVO;
+import com.tongluxing.user.vo.DrivingLicenseAuditDetailVO;
+import com.tongluxing.user.vo.DrivingLicenseAuditSummaryVO;
 import com.tongluxing.user.service.UserService;
 import com.tongluxing.vehicle.service.VehicleService;
 import com.tongluxing.vehicle.vo.VehicleCertificationAuditDetailVO;
@@ -65,7 +65,7 @@ public class AdminQueryServiceImpl implements AdminQueryService {
     @Override
     public PageResult<DrivingLicenseAuditSummaryVO> drivingLicenseCertifications(
             String status, String keyword, int page, int size) {
-        com.tongluxing.user.model.UserModels.PageResult<DrivingLicenseAuditSummaryVO> result =
+        com.tongluxing.common.model.PageResult<DrivingLicenseAuditSummaryVO> result =
                 userService.pageDrivingLicenseCertifications(status, keyword, page, size);
         return new PageResult<>(result.records(), result.total(), result.page(), result.size());
     }

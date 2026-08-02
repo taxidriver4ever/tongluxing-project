@@ -13,6 +13,7 @@ import com.tongluxing.vehicle.entity.VehicleCertificationImage;
 @Mapper
 public interface VehicleCertificationImageMapper {
 
+    /** 插入一张认证附件，图片二进制内容由对象存储管理。 */
     @Insert("""
             insert into vehicle_certification_image
                 (id,certification_id,vehicle_id,image_type,image_key,sort_no,created_at,deleted)
@@ -21,6 +22,7 @@ public interface VehicleCertificationImageMapper {
             """)
     int insert(VehicleCertificationImage image);
 
+    /** 按认证申请查询未删除附件，按业务排序号稳定返回。 */
     @Select("""
             select id,certification_id,vehicle_id,image_type,image_key,sort_no,created_at,deleted
             from vehicle_certification_image

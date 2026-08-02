@@ -2,7 +2,7 @@
 SET @growth_add_badge_description = IF(
   (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE()
     AND table_name='growth_badge' AND column_name='condition_description')=0,
-  'ALTER TABLE growth_badge ADD COLUMN condition_description VARCHAR(128) NULL AFTER badge_image_key',
+  'ALTER TABLE growth_badge ADD COLUMN condition_description VARCHAR(128) NULL COMMENT ''条件说明'' AFTER badge_image_key',
   'SELECT 1');
 PREPARE growth_stmt FROM @growth_add_badge_description;
 EXECUTE growth_stmt;
@@ -20,4 +20,4 @@ UPDATE growth_badge SET condition_description = '完成 G318 川藏线路线' WH
 UPDATE growth_badge SET condition_description = '春夏秋冬各完成一次组队' WHERE badge_code = 'FOUR_SEASONS' AND deleted = 0;
 
 ALTER TABLE growth_badge
-  MODIFY COLUMN condition_description VARCHAR(128) NOT NULL;
+  MODIFY COLUMN condition_description VARCHAR(128) NOT NULL COMMENT '徽章获得条件的中文说明';

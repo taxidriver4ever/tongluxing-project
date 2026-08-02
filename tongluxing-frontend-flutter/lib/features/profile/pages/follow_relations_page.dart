@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
+import '../../../common/utils/display_text.dart';
 import '../../../data/services/follow_service.dart';
 import '../../chat/private_chat_flow.dart';
 import '../../chat/pages/chat_session_page.dart';
@@ -55,11 +56,7 @@ class _FollowRelationsPageState extends State<FollowRelationsPage>
 
   Future<void> _loadAll() async {
     if (!mounted) return;
-    await Future.wait([
-      _loadFollowing(),
-      _loadFollowers(),
-      _loadMutual(),
-    ]);
+    await Future.wait([_loadFollowing(), _loadFollowers(), _loadMutual()]);
   }
 
   Future<void> _loadFollowing() async {
@@ -123,9 +120,9 @@ class _FollowRelationsPageState extends State<FollowRelationsPage>
       await _loadAll();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$error')));
     }
   }
 
@@ -311,7 +308,7 @@ class _FollowUserCard extends StatelessWidget {
                       children: [
                         Flexible(
                           child: Text(
-                            nickname,
+                            compactDisplayName(nickname),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../common/widgets/app_widgets.dart';
+import '../../../common/utils/display_text.dart';
 import '../../../data/services/app_services.dart';
 
 class BadgePage extends StatefulWidget {
@@ -279,10 +280,11 @@ class _CouponWalletPageState extends State<CouponWalletPage> {
       coupons = await service.mine(status);
       claimable = tab == 0 ? await service.claimable() : const [];
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
     if (mounted) setState(() => loading = false);
   }
@@ -290,16 +292,18 @@ class _CouponWalletPageState extends State<CouponWalletPage> {
   Future<void> claim(String id) async {
     try {
       await CouponWalletService(context.read<AppSession>().api).claim(id);
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('领取成功，已放入券包')));
+      }
       await load();
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
   }
 
@@ -360,10 +364,11 @@ class _CouponWalletPageState extends State<CouponWalletPage> {
         ),
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
   }
 
@@ -586,7 +591,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         contentPadding: EdgeInsets.zero,
                         title: Text('头像与昵称'),
                         subtitle: Text(
-                          '${profile['nickname'] ?? '同路行用户'} · ${profile['tongluxingId'] ?? ''}',
+                          '${compactDisplayName(profile['nickname']?.toString())} · ${profile['tongluxingId'] ?? ''}',
                         ),
                       ),
                       const Divider(),

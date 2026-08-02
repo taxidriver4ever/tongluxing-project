@@ -43,12 +43,14 @@ public class MapController {
     /** 根据起点、终点和途经点生成路线规划结果。 */
     @PostMapping("/routes/plan")
     public Result<RoutePlanResponse> planRoute(@Valid @RequestBody RoutePlanRequest request) {
+        // @Valid 校验起终点和途经点数量，Service 再校验每个坐标值范围。
         return Result.success(mapService.planRoute(request));
     }
 
     /** 解析并记录用户选择的地点。 */
     @PostMapping("/locations/resolve")
     public Result<LocationDto> resolveLocation(@Valid @RequestBody LocationDto location) {
+        // 只在用户确认选中地点时调用，搜索候选本身不会落入历史。
         return Result.success(mapService.resolveLocation(location));
     }
 
@@ -59,6 +61,7 @@ public class MapController {
             @RequestParam(defaultValue = "20") Integer limit,
             @RequestParam(required = false) BigDecimal latitude,
             @RequestParam(required = false) BigDecimal longitude) {
+        // 当前经纬度可选，成对提供时响应会附加球面直线距离。
         return Result.success(mapService.searchLocations(keyword, limit, latitude, longitude));
     }
 
@@ -68,18 +71,21 @@ public class MapController {
             @RequestParam(defaultValue = "10") Integer limit,
             @RequestParam(required = false) BigDecimal latitude,
             @RequestParam(required = false) BigDecimal longitude) {
+        // 历史仅返回当前登录用户曾经 resolve 成功的地点。
         return Result.success(mapService.getLocationHistory(limit, latitude, longitude));
     }
 
     /** 删除当前登录用户的一条地点搜索历史。 */
     @DeleteMapping("/locations/history/{historyId}")
     public Result<Integer> deleteLocationHistory(@PathVariable Long historyId) {
+        // 返回实际逻辑删除行数，不属于当前用户时业务层返回 404。
         return Result.success(mapService.deleteLocationHistory(historyId));
     }
 
     /** 清空当前登录用户的全部地点搜索历史。 */
     @DeleteMapping("/locations/history")
     public Result<Integer> clearLocationHistory() {
+        // 清空操作幂等，已无记录时正常返回 0。
         return Result.success(mapService.clearLocationHistory());
     }
 
@@ -88,6 +94,7 @@ public class MapController {
     public Result<NearbyMapResponse> getNearby(@RequestParam String latitude,
                                                @RequestParam String longitude,
                                                @RequestParam(defaultValue = "5000") Integer radiusMeters) {
+        // 坐标以字符串接收便于给出统一格式错误，Service 转为 BigDecimal 后再校验。
         return Result.success(mapService.getNearby(latitude, longitude, radiusMeters));
     }
 }

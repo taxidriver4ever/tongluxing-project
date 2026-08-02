@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
+import '../../../common/utils/display_text.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
@@ -367,7 +368,7 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
                                           children: [
                                             Flexible(
                                               child: Text(
-                                                nickname,
+                                                compactDisplayName(nickname),
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: const TextStyle(

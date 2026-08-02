@@ -1,6 +1,6 @@
 package com.tongluxing.coupon.integration;
 
-import com.tongluxing.user.model.UserModels.CouponCountVO;
+import com.tongluxing.user.vo.CouponCountVO;
 
 /**
  * 优惠券模块对其他模块开放的门面接口。

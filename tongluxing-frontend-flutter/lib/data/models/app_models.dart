@@ -548,7 +548,7 @@ class TripDiscoverModel {
     this.memberCount = 0,
     this.maxMemberCount = 0,
     this.remainingSeats = 0,
-    this.matchScore = 0,
+    this.matchScore,
     this.distanceMeters,
     this.tags = const [],
     this.coverImageKey = '',
@@ -569,7 +569,7 @@ class TripDiscoverModel {
   final int memberCount;
   final int maxMemberCount;
   final int remainingSeats;
-  final int matchScore;
+  final int? matchScore;
   final int? distanceMeters;
   final List<String> tags;
   final String coverImageKey;
@@ -594,7 +594,7 @@ class TripDiscoverModel {
         memberCount: _int(json['memberCount']) ?? 0,
         maxMemberCount: _int(json['maxMemberCount']) ?? 0,
         remainingSeats: _int(json['remainingSeats']) ?? 0,
-        matchScore: _int(json['matchScore']) ?? 0,
+        matchScore: _int(json['matchScore']),
         distanceMeters: _int(json['distanceMeters']),
         tags: (json['tags'] as List? ?? const [])
             .map((e) => e.toString())
@@ -644,6 +644,10 @@ class TripPublicDetailModel {
     required this.owner,
     required this.members,
     this.routePolyline = '',
+    this.startLatitude,
+    this.startLongitude,
+    this.endLatitude,
+    this.endLongitude,
     this.routeDistanceMeters = 0,
     this.routeDurationSeconds = 0,
     this.vehicleRequirements = const ['不限'],
@@ -661,6 +665,10 @@ class TripPublicDetailModel {
   final DiscoverOwnerModel owner;
   final List<TripPublicMemberModel> members;
   final String routePolyline;
+  final double? startLatitude;
+  final double? startLongitude;
+  final double? endLatitude;
+  final double? endLongitude;
   final int routeDistanceMeters;
   final int routeDurationSeconds;
   final List<String> vehicleRequirements;
@@ -676,6 +684,34 @@ class TripPublicDetailModel {
 
   List<LocationSelection> get routePoints => parseRoutePolyline(routePolyline);
 
+  /// 公开详情地图只使用起终点定位，不解析或展示真实道路折线。
+  List<LocationSelection> get mapPoints {
+    final startLat = startLatitude;
+    final startLng = startLongitude;
+    final endLat = endLatitude;
+    final endLng = endLongitude;
+    if (startLat == null ||
+        startLng == null ||
+        endLat == null ||
+        endLng == null) {
+      return const [];
+    }
+    return [
+      LocationSelection(
+        name: trip.startName,
+        address: '',
+        latitude: startLat,
+        longitude: startLng,
+      ),
+      LocationSelection(
+        name: trip.endName,
+        address: '',
+        latitude: endLat,
+        longitude: endLng,
+      ),
+    ];
+  }
+
   factory TripPublicDetailModel.fromJson(Map<String, dynamic> json) {
     final owner = DiscoverOwnerModel.fromJson(
       Map<String, dynamic>.from(json['owner'] as Map? ?? const {}),
@@ -690,7 +726,13 @@ class TripPublicDetailModel {
             ),
           )
           .toList(),
-      routePolyline: json['routePolyline']?.toString() ?? '',
+      // 公开详情从不消费真实道路折线。即使连接的是尚未升级的旧后端，也不把
+      // 大字符串继续保留和传入地图；导航与顺路率使用各自的专用接口数据。
+      routePolyline: '',
+      startLatitude: (json['startLatitude'] as num?)?.toDouble(),
+      startLongitude: (json['startLongitude'] as num?)?.toDouble(),
+      endLatitude: (json['endLatitude'] as num?)?.toDouble(),
+      endLongitude: (json['endLongitude'] as num?)?.toDouble(),
       routeDistanceMeters: _int(json['routeDistanceMeters']) ?? 0,
       routeDurationSeconds: _int(json['routeDurationSeconds']) ?? 0,
       vehicleRequirements:

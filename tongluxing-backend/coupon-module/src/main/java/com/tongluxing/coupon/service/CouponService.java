@@ -5,7 +5,13 @@ import java.util.List;
 
 import com.tongluxing.coupon.integration.CouponFacade;
 import com.tongluxing.coupon.dto.AdminCouponTemplateVO;
-import com.tongluxing.user.model.UserModels.*;
+import com.tongluxing.common.model.PageResult;
+import com.tongluxing.user.dto.request.CouponLockRequest;
+import com.tongluxing.user.dto.request.CouponOrderResultRequest;
+import com.tongluxing.user.vo.AvailableCouponVO;
+import com.tongluxing.user.vo.CouponDeductionVO;
+import com.tongluxing.user.vo.CouponSummaryVO;
+import com.tongluxing.user.vo.UserCouponDetailVO;
 
 /**
  * 优惠券模块业务服务。

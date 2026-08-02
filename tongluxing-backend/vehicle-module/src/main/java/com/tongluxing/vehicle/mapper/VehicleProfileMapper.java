@@ -20,6 +20,11 @@ import com.tongluxing.vehicle.entity.VehicleProfile;
 public interface VehicleProfileMapper {
 
     /** 查询用户全部未删除车辆，默认车辆优先，其次按创建时间倒序。 */
+    /**
+     * 查询用户用于公开展示的主要车辆。
+     *
+     * <p>排序优先级为：默认车辆、已认证车辆、最新创建车辆；最多返回一条。</p>
+     */
     @Select("""
             select id, user_id, plate_no_cipher, plate_no_mask, brand, model, vehicle_type, color,
                    seat_count, energy_type, vehicle_photo_image_key, certification_status, is_default as default_flag,

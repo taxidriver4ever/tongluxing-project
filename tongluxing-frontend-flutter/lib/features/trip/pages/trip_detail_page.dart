@@ -13,6 +13,7 @@ import '../../../data/models/app_models.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import 'trip_navigation_page.dart';
+import 'trip_quick_edit_page.dart';
 import 'trip_route_map_page.dart';
 import '../widgets/trip_route_preview.dart';
 import '../../chat/pages/chat_session_page.dart';
@@ -36,10 +37,10 @@ class _TripDetailPageState extends State<TripDetailPage> {
   static const double _startRadiusMeters = 5000;
 
   TripModel? trip;
-  TripDraftRouteModel? plannedRoadRoute;
   bool loading = false;
   String? error;
   bool settling = false;
+  bool starting = false;
   @override
   void initState() {
     super.initState();
@@ -52,16 +53,6 @@ class _TripDetailPageState extends State<TripDetailPage> {
     try {
       final service = TripService(context.read<AppSession>().api);
       trip = await service.detail(widget.tripId);
-      if (trip!.startLocation != null && trip!.endLocation != null) {
-        final stored = parseRoutePolyline(trip!.routePolyline ?? '');
-        if (stored.length < 2 || stored.length <= trip!.waypoints.length + 2) {
-          plannedRoadRoute = await service.planRoadRoute(
-            start: trip!.startLocation!,
-            end: trip!.endLocation!,
-            waypoints: trip!.waypoints,
-          );
-        }
-      }
       error = null;
     } catch (e) {
       if (trip == null) error = e.toString();
@@ -70,6 +61,8 @@ class _TripDetailPageState extends State<TripDetailPage> {
   }
 
   Future<void> start() async {
+    if (starting) return;
+    setState(() => starting = true);
     try {
       final service = TripService(context.read<AppSession>().api);
       final state = await service.activeState();
@@ -198,6 +191,8 @@ class _TripDetailPageState extends State<TripDetailPage> {
       _showStartMessage(e.message);
     } catch (_) {
       _showStartMessage('开启行程失败，请稍后重试');
+    } finally {
+      if (mounted) setState(() => starting = false);
     }
   }
 
@@ -303,6 +298,23 @@ class _TripDetailPageState extends State<TripDetailPage> {
         trip?.ownerUserId != null && trip!.ownerUserId == currentUserId;
     return Scaffold(
       backgroundColor: Colors.white,
+      bottomNavigationBar:
+          isOwner &&
+              !widget.exitedView &&
+              trip != null &&
+              const ['PUBLISHED', 'READY', 'CONFIRMING'].contains(trip!.status)
+          ? SafeArea(
+              minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: SizedBox(
+                height: 52,
+                child: FilledButton.icon(
+                  onPressed: starting ? null : start,
+                  icon: const Icon(LucideIcons.navigation),
+                  label: Text(starting ? '正在检查并开始…' : '开始行程'),
+                ),
+              ),
+            )
+          : null,
       body: AsyncPanel(
         loading: loading && trip == null,
         error: error,
@@ -317,6 +329,33 @@ class _TripDetailPageState extends State<TripDetailPage> {
                     foregroundColor: AppColors.text,
                     backgroundColor: Colors.white,
                     surfaceTintColor: Colors.white,
+                    actions:
+                        isOwner &&
+                            !const [
+                              'FINISHED',
+                              'SETTLED',
+                              'ENDED',
+                              'CANCELLED',
+                              'ARCHIVED',
+                            ].contains(trip!.status)
+                        ? [
+                            IconButton(
+                              tooltip: '修改行程',
+                              icon: const Icon(LucideIcons.squarePen),
+                              onPressed: () async {
+                                final changed = await Navigator.push<bool>(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => TripQuickEditPage(
+                                      tripId: widget.tripId,
+                                    ),
+                                  ),
+                                );
+                                if (changed == true && mounted) await load();
+                              },
+                            ),
+                          ]
+                        : null,
                     flexibleSpace: const FlexibleSpaceBar(
                       titlePadding: EdgeInsets.fromLTRB(18, 0, 18, 12),
                       title: Text(
@@ -332,11 +371,13 @@ class _TripDetailPageState extends State<TripDetailPage> {
                   SliverToBoxAdapter(
                     child: _RouteHeader(
                       trip: trip!,
-                      plannedRoadRoute: plannedRoadRoute,
                       onTap: () {
-                        final route =
-                            plannedRoadRoute?.polylinePoints ??
-                            trip!.routePoints;
+                        final nodes = [
+                          if (trip!.startLocation != null) trip!.startLocation!,
+                          ...trip!.waypoints,
+                          if (trip!.endLocation != null) trip!.endLocation!,
+                        ];
+                        final route = buildSmoothOverviewRoute(nodes);
                         Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -374,17 +415,12 @@ class _TripDetailPageState extends State<TripDetailPage> {
 }
 
 class _RouteHeader extends StatelessWidget {
-  const _RouteHeader({
-    required this.trip,
-    required this.onTap,
-    this.plannedRoadRoute,
-  });
+  const _RouteHeader({required this.trip, required this.onTap});
 
   static const double _aspectRatio = 2.48;
   static const double _maxWidth = 560;
 
   final TripModel trip;
-  final TripDraftRouteModel? plannedRoadRoute;
   final VoidCallback onTap;
 
   @override
@@ -409,20 +445,20 @@ class _RouteHeader extends StatelessWidget {
                     IgnorePointer(
                       child: TripRoutePreview(
                         mapOnly: true,
+                        simplifiedOverview: true,
                         mapHeight: mapHeight,
-                        route:
-                            plannedRoadRoute ??
-                            TripDraftRouteModel(
-                              status: 'SUCCESS',
-                              points: [
-                                trip.startLocation!,
-                                ...trip.waypoints,
-                                trip.endLocation!,
-                              ],
-                              routePolyline: trip.routePolyline ?? '',
-                              distanceMeters: trip.distanceMeters,
-                              providerType: 'AMAP_WEB_V5',
-                            ),
+                        performanceLabel: 'trip_detail:${trip.id}',
+                        route: TripDraftRouteModel(
+                          status: 'SUCCESS',
+                          points: [
+                            trip.startLocation!,
+                            ...trip.waypoints,
+                            trip.endLocation!,
+                          ],
+                          routePolyline: trip.routePolyline ?? '',
+                          distanceMeters: trip.distanceMeters,
+                          providerType: 'AMAP_WEB_V5',
+                        ),
                         points: [
                           trip.startLocation!,
                           ...trip.waypoints,
@@ -441,7 +477,7 @@ class _RouteHeader extends StatelessWidget {
                         borderRadius: BorderRadius.circular(99),
                       ),
                       child: const Text(
-                        '查看完整路线',
+                        '查看路线概览',
                         style: TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),

@@ -1,18 +1,18 @@
 package com.tongluxing.user.service;
 
-import com.tongluxing.user.model.UserModels.CertificationRequest;
-import com.tongluxing.user.model.UserModels.CertificationVO;
-import com.tongluxing.user.model.UserModels.DrivingLicenseAuditDetailVO;
-import com.tongluxing.user.model.UserModels.DrivingLicenseAuditSummaryVO;
-import com.tongluxing.user.model.UserModels.PageResult;
-import com.tongluxing.user.model.UserModels.PublicProfileVO;
-import com.tongluxing.user.model.UserModels.UpdateUserProfileRequest;
-import com.tongluxing.user.model.UserModels.UserProfileVO;
-import com.tongluxing.user.model.UserModels.FollowStatusVO;
-import com.tongluxing.user.model.UserModels.FollowUserVO;
-import com.tongluxing.user.model.UserModels.UserSearchVO;
-import com.tongluxing.user.model.UserModels.PrivacySettingsVO;
-import com.tongluxing.user.model.UserModels.UpdatePrivacySettingsRequest;
+import com.tongluxing.user.dto.request.CertificationRequest;
+import com.tongluxing.user.vo.CertificationVO;
+import com.tongluxing.user.vo.DrivingLicenseAuditDetailVO;
+import com.tongluxing.user.vo.DrivingLicenseAuditSummaryVO;
+import com.tongluxing.common.model.PageResult;
+import com.tongluxing.user.vo.PublicProfileVO;
+import com.tongluxing.user.dto.request.UpdateUserProfileRequest;
+import com.tongluxing.user.vo.UserProfileVO;
+import com.tongluxing.user.vo.FollowStatusVO;
+import com.tongluxing.user.vo.FollowUserVO;
+import com.tongluxing.user.vo.UserSearchVO;
+import com.tongluxing.user.vo.PrivacySettingsVO;
+import com.tongluxing.user.dto.request.UpdatePrivacySettingsRequest;
 import java.util.List;
 
 /**

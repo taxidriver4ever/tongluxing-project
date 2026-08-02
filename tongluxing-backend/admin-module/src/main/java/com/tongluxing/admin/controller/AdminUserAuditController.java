@@ -16,7 +16,7 @@ import com.tongluxing.admin.vo.AdminAuditResultVO;
 import com.tongluxing.admin.vo.AdminDrivingLicenseDetailVO;
 import com.tongluxing.admin.vo.PageResult;
 import com.tongluxing.common.result.Result;
-import com.tongluxing.user.model.UserModels.DrivingLicenseAuditSummaryVO;
+import com.tongluxing.user.vo.DrivingLicenseAuditSummaryVO;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

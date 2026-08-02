@@ -1,6 +1,8 @@
 package com.tongluxing;
 
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.springframework.stereotype.Component;
 
@@ -14,6 +16,8 @@ import com.tongluxing.vehicle.mapper.VehicleProfileMapper;
 import com.tongluxing.growth.service.GrowthService;
 import com.tongluxing.auth.entity.AuthAccount;
 import com.tongluxing.auth.mapper.AuthAccountMapper;
+import com.tongluxing.user.vo.BadgeWallVO;
+import com.tongluxing.user.vo.GrowthSummaryVO;
 
 import lombok.RequiredArgsConstructor;
 
@@ -40,13 +44,13 @@ public class MatchTripAdapter implements MatchTripPort {
     @Override
     public MatchTripDTO getTrip(Long tripId) {
         Trip trip = tripMapper.findById(tripId);
-        return trip == null ? null : toDTO(trip);
+        return trip == null ? null : toDTO(trip, new HashMap<>());
     }
 
     @Override
     public MatchTripDTO getTripByNumber(String tripNumber) {
         Trip trip = tripMapper.findByTripNumber(tripNumber);
-        return trip == null ? null : toDTO(trip);
+        return trip == null ? null : toDTO(trip, new HashMap<>());
     }
 
     /**
@@ -57,8 +61,9 @@ public class MatchTripAdapter implements MatchTripPort {
      */
     @Override
     public List<MatchTripDTO> listPublicTrips(int limit) {
+        Map<Long, OwnerSnapshot> owners = new HashMap<>();
         return tripMapper.findPublicTrips(limit).stream()
-                .map(this::toDTO)
+                .map(trip -> toDTO(trip, owners))
                 .toList();
     }
 
@@ -68,16 +73,19 @@ public class MatchTripAdapter implements MatchTripPort {
      * @param trip 行程实体
      * @return 匹配模块行程 DTO
      */
-    private MatchTripDTO toDTO(Trip trip) {
-        UserQueryDTO profile = userMapper.findProfile(trip.getUserId());
+    private MatchTripDTO toDTO(Trip trip, Map<Long, OwnerSnapshot> owners) {
+        OwnerSnapshot owner = owners.computeIfAbsent(trip.getUserId(), userId -> new OwnerSnapshot(
+                userMapper.findProfile(userId), growthService.getSummary(userId),
+                growthService.getBadgeWall(userId), authAccountMapper.findByUserId(userId)));
+        UserQueryDTO profile = owner.profile();
         VehicleProfile vehicle = trip.getVehicleId() == null
                 ? null : vehicleMapper.findByIdAndUserId(trip.getVehicleId(), trip.getUserId());
         String vehicleSummary = vehicle == null ? "未公开车辆"
                 : ((vehicle.getBrand() == null ? "" : vehicle.getBrand()) + " "
                         + (vehicle.getModel() == null ? "" : vehicle.getModel())).trim();
-        var growth = growthService.getSummary(trip.getUserId());
-        var badges = growthService.getBadgeWall(trip.getUserId());
-        AuthAccount account = authAccountMapper.findByUserId(trip.getUserId());
+        GrowthSummaryVO growth = owner.growth();
+        BadgeWallVO badges = owner.badges();
+        AuthAccount account = owner.account();
         return new MatchTripDTO(trip.getId(), trip.getTripNumber(), trip.getUserId(), trip.getVehicleId(),
                 profile == null || profile.getNickname() == null || profile.getNickname().isBlank()
                         ? "同路行车友" : profile.getNickname(),
@@ -102,4 +110,7 @@ public class MatchTripAdapter implements MatchTripPort {
     private Double decimal(java.math.BigDecimal value) {
         return value == null ? null : value.doubleValue();
     }
+
+    private record OwnerSnapshot(UserQueryDTO profile, GrowthSummaryVO growth,
+                                 BadgeWallVO badges, AuthAccount account) { }
 }

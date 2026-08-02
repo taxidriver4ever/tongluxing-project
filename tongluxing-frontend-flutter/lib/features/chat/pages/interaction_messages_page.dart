@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
+import '../../../common/utils/display_text.dart';
 import '../../../data/services/app_services.dart';
 import '../../../data/services/follow_service.dart';
 import '../../profile/pages/profile_system_pages.dart';
@@ -318,7 +319,7 @@ class _ApplicationList extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            nickname,
+                            compactDisplayName(nickname),
                             style: const TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w900,
@@ -485,7 +486,7 @@ class _FollowerList extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            nickname,
+                            compactDisplayName(nickname),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(

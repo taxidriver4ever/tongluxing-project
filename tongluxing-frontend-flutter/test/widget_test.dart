@@ -36,7 +36,7 @@ void main() {
     expect(session.userId, '10086');
   });
 
-  testWidgets('地图首页底部操作卡保持在屏幕下半区', (tester) async {
+  testWidgets('发现地图初始只显示把手，点击后展示搜索框', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
@@ -48,9 +48,58 @@ void main() {
       ),
     );
 
-    final screenHeight = tester.getSize(find.byType(Scaffold)).height;
-    final buttonCenter = tester.getCenter(find.text('创建行程'));
-    expect(buttonCenter.dy, greaterThan(screenHeight / 2));
+    expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+    expect(find.text('创建行程'), findsNothing);
+    expect(find.text('搜索地点或地址'), findsNothing);
+    final initialCollapsedHeight = tester
+        .getSize(find.byKey(const ValueKey('map-search-sheet-surface')))
+        .height;
+    await tester.tap(find.byKey(const ValueKey('map-search-sheet-handle')));
+    await tester.pumpAndSettle();
+    expect(find.text('搜索地点或地址'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+
+    // 连续输入和清空时，不应留下上一次搜索的 loading 状态。
+    await tester.enterText(
+      find.byKey(const ValueKey('map-place-search-field')),
+      '广州',
+    );
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('map-place-search-field')),
+      '',
+    );
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(find.byKey(const ValueKey('map-place-search-field')), findsOneWidget);
+    await tester.pumpAndSettle();
+
+    // 已展开时再点击把手，搜索区必须完全收起。
+    await tester.tap(find.byKey(const ValueKey('map-search-sheet-handle')));
+    await tester.pumpAndSettle();
+    expect(find.text('搜索地点或地址'), findsNothing);
+    final collapsedAfterSearchHeight = tester
+        .getSize(find.byKey(const ValueKey('map-search-sheet-surface')))
+        .height;
+    expect(collapsedAfterSearchHeight, closeTo(initialCollapsedHeight, .01));
+  });
+
+  testWidgets('发现地图把手支持上滑展开搜索', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: MapHomePage())),
+    );
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('map-search-sheet-handle'))),
+    );
+    await gesture.moveBy(const Offset(0, -120));
+    await tester.pump();
+    expect(find.text('搜索地点或地址'), findsOneWidget);
+    await gesture.moveBy(const Offset(0, -200));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(find.text('搜索地点或地址'), findsOneWidget);
   });
 
   testWidgets('个人中心长内容可以纵向滚动', (tester) async {
@@ -68,7 +117,8 @@ void main() {
       find.byType(Scrollable).first,
     );
     await tester.drag(find.byType(ListView), const Offset(0, -500));
-    await tester.pump();
+    // DemoApi 使用短延迟模拟网络，等待请求完成，避免测试结束时遗留计时器。
+    await tester.pump(const Duration(milliseconds: 250));
     expect(scrollable.position.pixels, greaterThan(0));
   });
 }

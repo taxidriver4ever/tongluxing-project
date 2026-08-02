@@ -5,13 +5,26 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 /**
- * 推荐曝光与行为日志 Mapper。
+ * 推荐曝光与行为漏斗日志 Mapper。
+ *
+ * <p>记录 IMPRESSION、CLICK、APPLY、ACCEPT、REJECT、START、FINISH 等事件，支持
+ * 推荐效果分析。日志只追加不更新，requestId 用来关联一次推荐或场景来源。</p>
  */
 @Mapper
 public interface MatchRecommendLogMapper {
 
     /**
      * 写入一次推荐场景下的用户行为日志。
+     *
+     * @param id 日志雪花主键
+     * @param userId 行为用户 ID
+     * @param tripId 用户的源行程；无源行程场景使用目标行程满足非空约束
+     * @param targetTripId 被推荐或操作的目标行程
+     * @param targetTeamId 关联车队，可为空
+     * @param scene 稳定推荐场景编码
+     * @param actionType 漏斗动作类型
+     * @param requestId 推荐结果 ID 或带场景前缀的追踪标识
+     * @param extraJson 可选扩展 JSON
      */
     @Insert("""
             insert into match_recommend_log

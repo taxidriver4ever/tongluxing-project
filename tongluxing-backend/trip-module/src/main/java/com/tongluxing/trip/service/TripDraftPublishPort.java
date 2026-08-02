@@ -2,8 +2,8 @@ package com.tongluxing.trip.service;
 
 import java.util.List;
 
-import com.tongluxing.user.model.UserModels.TeamMatchVO;
-import com.tongluxing.user.model.UserModels.TripDraftVO;
+import com.tongluxing.user.vo.TeamMatchVO;
+import com.tongluxing.user.vo.TripDraftVO;
 
 /**
  * 行程草稿发布端口。

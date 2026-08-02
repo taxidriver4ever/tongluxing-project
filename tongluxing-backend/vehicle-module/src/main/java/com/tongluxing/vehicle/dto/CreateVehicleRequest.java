@@ -7,10 +7,11 @@ import jakarta.validation.constraints.Size;
 /**
  * 创建车辆请求。
  *
- * <p>车牌号会在服务端做脱敏和简易加密存储，响应中只返回脱敏值。</p>
+ * <p>车牌号会在服务端规范化后使用版本化 AES-GCM 加密，
+ * 同时保存脱敏展示值；响应中不会返回密文或明文。</p>
  */
 public record CreateVehicleRequest(
-        /** 车牌号，可为空；保存时会生成密文和脱敏值。 */
+        /** 车牌号；保存时会生成稳定检索密文和脱敏值。 */
         @Size(max = 16, message = "车牌号长度不能超过16位")
         String plateNo,
         /** 车辆品牌，例如丰田、比亚迪。 */

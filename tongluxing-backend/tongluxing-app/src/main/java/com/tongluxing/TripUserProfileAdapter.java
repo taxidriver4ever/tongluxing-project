@@ -3,7 +3,7 @@ package com.tongluxing;
 import org.springframework.stereotype.Component;
 
 import com.tongluxing.trip.integration.TripUserProfilePort;
-import com.tongluxing.user.model.UserModels.UserProfileVO;
+import com.tongluxing.user.vo.UserProfileVO;
 import com.tongluxing.user.service.UserService;
 
 import lombok.RequiredArgsConstructor;

@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
+import '../../../common/utils/display_text.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
@@ -1348,7 +1349,9 @@ class _TripConfirmationCardPageState extends State<TripConfirmationCardPage> {
                       avatarImageKey: entry['avatarImageKey']?.toString() ?? '',
                       radius: 20,
                     ),
-                    title: Text(entry['nickname']?.toString() ?? '同路行用户'),
+                    title: Text(
+                      compactDisplayName(entry['nickname']?.toString()),
+                    ),
                     subtitle: Text(entry['memberRole']?.toString() ?? 'MEMBER'),
                     trailing: Text(_status(entry['status']?.toString())),
                   ),

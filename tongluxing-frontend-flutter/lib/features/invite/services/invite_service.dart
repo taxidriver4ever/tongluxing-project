@@ -7,17 +7,12 @@ class InviteBindingService {
   final ApiClient api;
 
   Future<InviteBindStatus> bindStatus() async => InviteBindStatus.fromJson(
-    Map<String, dynamic>.from(
-      await api.get('/v1/invites/bind-status') as Map,
-    ),
+    Map<String, dynamic>.from(await api.get('/v1/invites/bind-status') as Map),
   );
 
   Future<Map<String, dynamic>> preview(String inviteCode) async =>
       Map<String, dynamic>.from(
-        await api.post(
-              '/v1/invites/preview',
-              body: {'inviteCode': inviteCode},
-            )
+        await api.post('/v1/invites/preview', body: {'inviteCode': inviteCode})
             as Map,
       );
 
@@ -39,10 +34,7 @@ class InviteBindingService {
 
   Future<Map<String, dynamic>> validateQrToken(String token) async =>
       Map<String, dynamic>.from(
-        await api.get(
-              '/v1/invites/qr/validate',
-              query: {'token': token},
-            )
+        await api.get('/v1/invites/qr/validate', query: {'token': token})
             as Map,
       );
 }

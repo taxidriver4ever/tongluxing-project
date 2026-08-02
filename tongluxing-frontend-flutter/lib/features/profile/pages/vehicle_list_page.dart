@@ -7,6 +7,7 @@ import '../../../app/theme.dart';
 import '../../../common/widgets/app_widgets.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
+import 'driving_license_page.dart';
 import 'vehicle_add_page.dart';
 import 'vehicle_auth_status_page.dart';
 
@@ -24,6 +25,7 @@ class _VehicleListPageState extends State<VehicleListPage> {
   VehicleAuthStatusModel? authStatus;
   String filter = 'ALL';
   String? operatingVehicleId;
+  bool drivingLicenseApproved = false;
 
   List<VehicleModel> get filteredRows => filter == 'ALL'
       ? rows
@@ -39,9 +41,15 @@ class _VehicleListPageState extends State<VehicleListPage> {
     setState(() => loading = true);
     try {
       final service = VehicleService(context.read<AppSession>().api);
-      final values = await Future.wait([service.mine(), service.authStatus()]);
+      final values = await Future.wait<dynamic>([
+        service.mine(),
+        service.authStatus(),
+        UserProfileService(context.read<AppSession>().api).me(),
+      ]);
       rows = values[0] as List<VehicleModel>;
       authStatus = values[1] as VehicleAuthStatusModel;
+      drivingLicenseApproved =
+          (values[2] as Map)['drivingLicenseCertificationStatus'] == 'APPROVED';
       error = null;
     } catch (e) {
       error = e.toString();
@@ -52,9 +60,8 @@ class _VehicleListPageState extends State<VehicleListPage> {
   Future<void> setDefault(VehicleModel vehicle) async {
     await _runVehicleAction(
       vehicle,
-      () => VehicleService(
-        context.read<AppSession>().api,
-      ).setDefault(vehicle.id),
+      () =>
+          VehicleService(context.read<AppSession>().api).setDefault(vehicle.id),
       successMessage: '已设为主要车辆',
     );
   }
@@ -143,6 +150,35 @@ class _VehicleListPageState extends State<VehicleListPage> {
     }
   }
 
+  Future<bool> _ensureDrivingLicenseApproved() async {
+    if (drivingLicenseApproved) return true;
+    final goAuthenticate = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('请先完成驾驶证认证'),
+        content: const Text('驾驶证认证通过后，才能添加车辆并提交行驶证认证。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('去认证'),
+          ),
+        ],
+      ),
+    );
+    if (goAuthenticate == true && mounted) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const DrivingLicensePage()),
+      );
+      await load();
+    }
+    return false;
+  }
+
   Future<void> _showRejectDetail(VehicleModel vehicle) => showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
@@ -162,10 +198,7 @@ class _VehicleListPageState extends State<VehicleListPage> {
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 4),
-            Text(
-              vehicle.plate,
-              style: const TextStyle(color: AppColors.muted),
-            ),
+            Text(vehicle.plate, style: const TextStyle(color: AppColors.muted)),
             const SizedBox(height: 18),
             const Text(
               '驳回原因',
@@ -256,6 +289,10 @@ class _VehicleListPageState extends State<VehicleListPage> {
             const SizedBox(height: 4),
             FilledButton.icon(
               onPressed: () async {
+                if (!await _ensureDrivingLicenseApproved() ||
+                    !context.mounted) {
+                  return;
+                }
                 final changed = await Navigator.push<bool>(
                   context,
                   MaterialPageRoute(builder: (_) => const VehicleAddPage()),
@@ -324,7 +361,10 @@ class _VehicleListPageState extends State<VehicleListPage> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: statusColor.withValues(alpha: .10),
                     borderRadius: BorderRadius.circular(99),
@@ -347,7 +387,10 @@ class _VehicleListPageState extends State<VehicleListPage> {
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 11,
+                    vertical: 9,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFFF5F5),
                     borderRadius: BorderRadius.circular(12),
@@ -355,7 +398,11 @@ class _VehicleListPageState extends State<VehicleListPage> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(LucideIcons.info, size: 16, color: AppColors.danger),
+                      const Icon(
+                        LucideIcons.info,
+                        size: 16,
+                        color: AppColors.danger,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -364,10 +411,17 @@ class _VehicleListPageState extends State<VehicleListPage> {
                               : vehicle.rejectReason.trim(),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12, color: AppColors.danger),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.danger,
+                          ),
                         ),
                       ),
-                      const Icon(LucideIcons.chevronRight, size: 16, color: AppColors.danger),
+                      const Icon(
+                        LucideIcons.chevronRight,
+                        size: 16,
+                        color: AppColors.danger,
+                      ),
                     ],
                   ),
                 ),
@@ -477,9 +531,7 @@ class _VehicleListPageState extends State<VehicleListPage> {
       );
     }
     return Text(
-      vehicle.status == 'PENDING'
-          ? '材料正在审核中，审核期间不能删除车辆'
-          : '完成认证后可设为主要车辆',
+      vehicle.status == 'PENDING' ? '材料正在审核中，审核期间不能删除车辆' : '完成认证后可设为主要车辆',
       style: const TextStyle(color: AppColors.muted, fontSize: 12),
     );
   }
@@ -534,7 +586,7 @@ class _VehicleListPageState extends State<VehicleListPage> {
       ),
       _ => (
         '车辆尚未认证',
-        '提交证件及车辆照片开始认证',
+        drivingLicenseApproved ? '提交行驶证及车辆照片开始认证' : '请先完成驾驶证认证',
         LucideIcons.shieldQuestion,
         AppColors.primary,
       ),
@@ -542,6 +594,7 @@ class _VehicleListPageState extends State<VehicleListPage> {
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: () async {
+        if (!await _ensureDrivingLicenseApproved() || !context.mounted) return;
         await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const VehicleAuthStatusPage()),

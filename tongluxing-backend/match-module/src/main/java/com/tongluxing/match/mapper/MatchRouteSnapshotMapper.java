@@ -7,12 +7,18 @@ import com.tongluxing.match.entity.MatchRouteSnapshot;
 
 /**
  * 行程路线快照 Mapper。
+ *
+ * <p>按 trip_id + deleted 唯一，重复同步同一有效行程会更新路线和公开状态。</p>
  */
 @Mapper
 public interface MatchRouteSnapshotMapper {
 
     /**
      * 新增或更新行程路线快照，用于后续匹配计算。
+     *
+     * <p>发生冲突时不修改主键和 created_at，只同步业务字段与 updated_at。</p>
+     *
+     * @param snapshot 最新行程路线快照
      */
     @Insert("""
             insert into match_route_snapshot

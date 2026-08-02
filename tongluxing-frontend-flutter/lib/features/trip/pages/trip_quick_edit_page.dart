@@ -19,12 +19,16 @@ class TripQuickEditPage extends StatefulWidget {
 class _TripQuickEditPageState extends State<TripQuickEditPage> {
   final title = TextEditingController();
   final description = TextEditingController();
+  final notes = TextEditingController();
+  final requirements = TextEditingController();
   Map<String, dynamic>? raw;
   DateTime? departureTime;
+  DateTime? expectedEndDate;
   LocationSelection? startLocation;
   LocationSelection? endLocation;
   List<LocationSelection> waypoints = const [];
   int maxVehicleCount = 5;
+  int expectedPeople = 5;
   bool loading = true;
   bool saving = false;
   String? error;
@@ -39,6 +43,8 @@ class _TripQuickEditPageState extends State<TripQuickEditPage> {
   void dispose() {
     title.dispose();
     description.dispose();
+    notes.dispose();
+    requirements.dispose();
     super.dispose();
   }
 
@@ -53,6 +59,16 @@ class _TripQuickEditPageState extends State<TripQuickEditPage> {
       departureTime = DateTime.tryParse(
         value['departureTime']?.toString() ?? '',
       );
+      final estimatedDays = (value['estimatedDays'] as num?)?.toInt() ?? 1;
+      if (departureTime != null) {
+        expectedEndDate = departureTime!.add(Duration(days: estimatedDays - 1));
+      }
+      expectedPeople = (value['expectedPeople'] as num?)?.toInt() ?? 5;
+      notes.text = value['remark']?.toString() ?? '';
+      requirements.text =
+          (value['vehicleRequirements'] as List? ?? const ['不限'])
+              .map((item) => item.toString())
+              .join('、');
       maxVehicleCount = (value['maxVehicleCount'] as num?)?.toInt() ?? 5;
       final rawStart = value['startLocation'];
       final rawEnd = value['endLocation'];
@@ -102,6 +118,24 @@ class _TripQuickEditPageState extends State<TripQuickEditPage> {
     );
   }
 
+  Future<void> pickExpectedEndDate() async {
+    final start = departureTime;
+    if (start == null) {
+      message('请先选择预计出发时间');
+      return;
+    }
+    final value = await showDatePicker(
+      context: context,
+      helpText: '选择预计结束日期',
+      cancelText: '取消',
+      confirmText: '确定',
+      initialDate: expectedEndDate ?? start,
+      firstDate: DateTime(start.year, start.month, start.day),
+      lastDate: DateTime(start.year + 1, start.month, start.day),
+    );
+    if (value != null && mounted) setState(() => expectedEndDate = value);
+  }
+
   Future<LocationSelection?> pickLocation() =>
       showModalBottomSheet<LocationSelection>(
         context: context,
@@ -137,8 +171,8 @@ class _TripQuickEditPageState extends State<TripQuickEditPage> {
   }
 
   Future<void> addWaypoint() async {
-    if (waypoints.length >= 5) {
-      message('途经点最多 5 个');
+    if (waypoints.length >= 20) {
+      message('途经点最多 20 个');
       return;
     }
     final selected = await pickLocation();
@@ -199,6 +233,25 @@ class _TripQuickEditPageState extends State<TripQuickEditPage> {
         description: description.text.trim(),
         departureTime: departureTime!.toIso8601String(),
         maxVehicleCount: maxVehicleCount,
+        expectedPeople: expectedPeople,
+        estimatedDays: expectedEndDate == null
+            ? 1
+            : expectedEndDate!
+                      .difference(
+                        DateTime(
+                          departureTime!.year,
+                          departureTime!.month,
+                          departureTime!.day,
+                        ),
+                      )
+                      .inDays +
+                  1,
+        vehicleRequirements: requirements.text
+            .split(RegExp(r'[,，、]'))
+            .map((item) => item.trim())
+            .where((item) => item.isNotEmpty)
+            .toList(),
+        remark: notes.text.trim(),
         startLocation: startLocation!.toJson(),
         endLocation: endLocation!.toJson(),
         waypoints: waypoints
@@ -225,7 +278,7 @@ class _TripQuickEditPageState extends State<TripQuickEditPage> {
     final value = departureTime;
     if (value == null) return '请选择出发时间';
     String two(int v) => v.toString().padLeft(2, '0');
-    return '${value.year}-${two(value.month)}-${two(value.day)} ${two(value.hour)}:${two(value.minute)}';
+    return '${value.year}年${value.month}月${value.day}日 ${two(value.hour)}:${two(value.minute)}';
   }
 
   @override
@@ -285,7 +338,7 @@ class _TripQuickEditPageState extends State<TripQuickEditPage> {
                 ),
                 const SizedBox(height: 10),
               ],
-              if (waypoints.length < 5)
+              if (waypoints.length < 20)
                 OutlinedButton.icon(
                   onPressed: addWaypoint,
                   icon: const Icon(Icons.add_location_alt_outlined),
@@ -310,6 +363,36 @@ class _TripQuickEditPageState extends State<TripQuickEditPage> {
                 onTap: pickTime,
               ),
               const SizedBox(height: 14),
+              ListTile(
+                tileColor: const Color(0xFFF5F8FF),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                title: const Text('预计结束日期'),
+                subtitle: Text(
+                  expectedEndDate == null
+                      ? '请选择'
+                      : '${expectedEndDate!.year}年${expectedEndDate!.month}月${expectedEndDate!.day}日',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: pickExpectedEndDate,
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: requirements,
+                maxLength: 128,
+                decoration: const InputDecoration(
+                  labelText: '同行要求',
+                  hintText: '多个要求可用顿号分隔',
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: notes,
+                maxLength: 255,
+                decoration: const InputDecoration(labelText: '行程备注'),
+              ),
+              const SizedBox(height: 14),
               Row(
                 children: [
                   const Expanded(
@@ -329,8 +412,34 @@ class _TripQuickEditPageState extends State<TripQuickEditPage> {
                     style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                   IconButton(
-                    onPressed: maxVehicleCount < 20
+                    onPressed: maxVehicleCount < 50
                         ? () => setState(() => maxVehicleCount++)
+                        : null,
+                    icon: const Icon(Icons.add),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      '预计同行人数',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: expectedPeople > 1
+                        ? () => setState(() => expectedPeople--)
+                        : null,
+                    icon: const Icon(Icons.remove),
+                  ),
+                  Text(
+                    '$expectedPeople',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  IconButton(
+                    onPressed: expectedPeople < 50
+                        ? () => setState(() => expectedPeople++)
                         : null,
                     icon: const Icon(Icons.add),
                   ),

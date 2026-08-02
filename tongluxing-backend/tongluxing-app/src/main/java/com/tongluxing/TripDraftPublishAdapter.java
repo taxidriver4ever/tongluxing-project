@@ -17,9 +17,9 @@ import com.tongluxing.trip.dto.WaypointLocationRequest;
 import com.tongluxing.trip.service.TripDraftPublishPort;
 import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.vo.TripResponse;
-import com.tongluxing.user.model.UserModels.LocationVO;
-import com.tongluxing.user.model.UserModels.TeamMatchVO;
-import com.tongluxing.user.model.UserModels.TripDraftVO;
+import com.tongluxing.user.vo.LocationVO;
+import com.tongluxing.user.vo.TeamMatchVO;
+import com.tongluxing.user.vo.TripDraftVO;
 import com.tongluxing.vehicle.service.VehicleService;
 import com.tongluxing.vehicle.vo.VehicleResponse;
 

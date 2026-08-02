@@ -122,7 +122,7 @@ class _UserAvatarState extends State<UserAvatar> {
             height: size,
             fit: BoxFit.cover,
             gaplessPlayback: true,
-            errorBuilder: (_, __, ___) {
+            errorBuilder: (_, _, _) {
               if (!retriedAfterImageError) {
                 retriedAfterImageError = true;
                 WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -245,7 +245,7 @@ class _AvatarPreviewPageState extends State<AvatarPreviewPage> {
                     child: Image.network(
                       resolvedUrl,
                       fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => UserAvatar(
+                      errorBuilder: (_, _, _) => UserAvatar(
                         nickname: widget.nickname,
                         avatarImageKey: widget.avatarImageKey,
                         radius: 72,

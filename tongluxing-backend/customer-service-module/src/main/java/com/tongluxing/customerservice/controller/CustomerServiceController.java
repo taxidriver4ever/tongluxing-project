@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.tongluxing.common.result.Result;
-import com.tongluxing.user.model.UserModels.CustomerServiceEntryVO;
+import com.tongluxing.user.vo.CustomerServiceEntryVO;
 
 /**
  * 客服入口接口。

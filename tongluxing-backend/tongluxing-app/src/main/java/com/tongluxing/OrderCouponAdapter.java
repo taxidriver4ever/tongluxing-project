@@ -6,8 +6,8 @@ import org.springframework.stereotype.Component;
 
 import com.tongluxing.coupon.service.CouponService;
 import com.tongluxing.order.integration.OrderCouponPort;
-import com.tongluxing.user.model.UserModels.CouponLockRequest;
-import com.tongluxing.user.model.UserModels.CouponOrderResultRequest;
+import com.tongluxing.user.dto.request.CouponLockRequest;
+import com.tongluxing.user.dto.request.CouponOrderResultRequest;
 
 import lombok.RequiredArgsConstructor;
 

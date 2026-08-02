@@ -83,7 +83,10 @@ class _CustomerSupportPageState extends State<CustomerSupportPage> {
                   const SizedBox(height: 18),
                   Text(
                     complaint ? '提交投诉' : '联系客服',
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const SizedBox(height: 18),
                   TextField(

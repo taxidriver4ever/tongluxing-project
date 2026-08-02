@@ -1,7 +1,10 @@
 package com.tongluxing.growth.service;
 
 import com.tongluxing.growth.integration.GrowthFacade;
-import com.tongluxing.user.model.UserModels.*;
+import com.tongluxing.common.model.PageResult;
+import com.tongluxing.user.vo.BadgeWallVO;
+import com.tongluxing.user.vo.GrowthLogVO;
+import com.tongluxing.user.vo.GrowthSummaryVO;
 
 /**
  * 成长模块业务服务。

@@ -49,6 +49,8 @@ import org.springframework.util.StringUtils;
 @Service
 public class StorageServiceImpl implements StorageService {
     private static final long MAX_IMAGE_SIZE_BYTES = 10L * 1024 * 1024;
+    /** 聊天普通附件上限，避免非图片类型绕过大小限制造成大文件滥用。 */
+    private static final long MAX_CHAT_FILE_SIZE_BYTES = 20L * 1024 * 1024;
     private static final java.util.Set<String> IMAGE_BIZ_TYPES = java.util.Set.of(
             "USER_AVATAR", "USER_DRIVER_LICENSE_FRONT", "USER_DRIVER_LICENSE_BACK",
             "VEHICLE_LICENSE_FRONT", "VEHICLE_LICENSE_BACK", "VEHICLE_PHOTO_FRONT",
@@ -308,6 +310,12 @@ public class StorageServiceImpl implements StorageService {
     /** 图片业务仅允许常见安全图片格式，并限制单张图片大小。 */
     private void validateUploadRequest(PresignUploadRequest request) {
         String bizType = trim(request.bizType()).toUpperCase(Locale.ROOT);
+        if ("CHAT_FILE".equals(bizType)) {
+            if (request.fileSize() > MAX_CHAT_FILE_SIZE_BYTES) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "聊天附件不能超过 20MB");
+            }
+            return;
+        }
         if (!IMAGE_BIZ_TYPES.contains(bizType)) {
             return;
         }

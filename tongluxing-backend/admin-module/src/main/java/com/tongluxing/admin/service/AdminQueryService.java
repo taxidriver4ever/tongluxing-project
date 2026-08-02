@@ -7,7 +7,7 @@ import com.tongluxing.admin.vo.AdminAuditLogVO;
 import com.tongluxing.admin.vo.AdminDrivingLicenseDetailVO;
 import com.tongluxing.admin.vo.AdminVehicleCertificationDetailVO;
 import com.tongluxing.admin.vo.PageResult;
-import com.tongluxing.user.model.UserModels.DrivingLicenseAuditSummaryVO;
+import com.tongluxing.user.vo.DrivingLicenseAuditSummaryVO;
 import com.tongluxing.vehicle.vo.VehicleCertificationAuditSummaryVO;
 
 /**

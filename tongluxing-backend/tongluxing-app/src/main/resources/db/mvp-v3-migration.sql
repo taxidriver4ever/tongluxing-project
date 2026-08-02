@@ -1,190 +1,190 @@
 -- 同路行 MVP v3 自升级脚本：由 Spring SQL init 每次启动幂等执行。
 
 CREATE TABLE IF NOT EXISTS trip_execution (
-  id BIGINT PRIMARY KEY,
-  trip_id BIGINT NOT NULL,
-  captain_user_id BIGINT NOT NULL,
-  status VARCHAR(32) NOT NULL,
-  planned_distance_m INT NOT NULL DEFAULT 0,
-  raw_gps_distance_m INT NOT NULL DEFAULT 0,
-  matched_road_distance_m INT NOT NULL DEFAULT 0,
-  estimated_gap_distance_m INT NOT NULL DEFAULT 0,
-  settlement_distance_m INT NOT NULL DEFAULT 0,
-  started_at DATETIME NULL,
-  ended_at DATETIME NULL,
-  created_at DATETIME NOT NULL,
-  updated_at DATETIME NOT NULL,
-  deleted TINYINT NOT NULL DEFAULT 0,
+  id BIGINT PRIMARY KEY comment '记录主键',
+  trip_id BIGINT NOT NULL comment '行程ID',
+  captain_user_id BIGINT NOT NULL comment '行程队长用户ID',
+  status VARCHAR(32) NOT NULL comment '业务状态',
+  planned_distance_m INT NOT NULL DEFAULT 0 comment '计划行程距离，单位为米',
+  raw_gps_distance_m INT NOT NULL DEFAULT 0 comment '原始GPS距离，单位为米',
+  matched_road_distance_m INT NOT NULL DEFAULT 0 comment '命中道路距离，单位为米',
+  estimated_gap_distance_m INT NOT NULL DEFAULT 0 comment '估算差值距离，单位为米',
+  settlement_distance_m INT NOT NULL DEFAULT 0 comment '结算距离，单位为米',
+  started_at DATETIME NULL comment '行程执行开始时间',
+  ended_at DATETIME NULL comment '行程执行结束时间',
+  created_at DATETIME NOT NULL comment '记录创建时间',
+  updated_at DATETIME NOT NULL comment '记录最后更新时间',
+  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
   UNIQUE KEY uk_trip_execution_trip (trip_id, deleted)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程执行表';
 
 CREATE TABLE IF NOT EXISTS trip_execution_member (
-  id BIGINT PRIMARY KEY,
-  execution_id BIGINT NOT NULL,
-  trip_id BIGINT NOT NULL,
-  user_id BIGINT NOT NULL,
-  member_role VARCHAR(24) NOT NULL,
-  member_status VARCHAR(32) NOT NULL,
-  ready_at DATETIME NULL,
-  joined_execution_at DATETIME NULL,
-  left_at DATETIME NULL,
-  eligible_flag TINYINT NOT NULL DEFAULT 0,
-  ineligible_reason VARCHAR(128) NULL,
-  created_at DATETIME NOT NULL,
-  updated_at DATETIME NOT NULL,
-  deleted TINYINT NOT NULL DEFAULT 0,
+  id BIGINT PRIMARY KEY comment '记录主键',
+  execution_id BIGINT NOT NULL comment '行程执行记录ID',
+  trip_id BIGINT NOT NULL comment '行程ID',
+  user_id BIGINT NOT NULL comment '平台用户ID',
+  member_role VARCHAR(24) NOT NULL comment '成员角色',
+  member_status VARCHAR(32) NOT NULL comment '成员状态',
+  ready_at DATETIME NULL comment '准备时间',
+  joined_execution_at DATETIME NULL comment '加入行程执行时间',
+  left_at DATETIME NULL comment '离开时间',
+  eligible_flag TINYINT NOT NULL DEFAULT 0 comment '是否符合条件：0否、1是',
+  ineligible_reason VARCHAR(128) NULL comment '不符合条件原因',
+  created_at DATETIME NOT NULL comment '记录创建时间',
+  updated_at DATETIME NOT NULL comment '记录最后更新时间',
+  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
   UNIQUE KEY uk_execution_member (execution_id, user_id, deleted)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程执行成员表';
 
 CREATE TABLE IF NOT EXISTS trip_track_point (
-  id BIGINT PRIMARY KEY,
-  execution_id BIGINT NOT NULL,
-  trip_id BIGINT NOT NULL,
-  user_id BIGINT NOT NULL,
-  device_id VARCHAR(128) NULL,
-  sequence_no BIGINT NULL,
-  longitude DECIMAL(10,6) NOT NULL,
-  latitude DECIMAL(10,6) NOT NULL,
-  altitude DECIMAL(10,2) NULL,
-  accuracy DECIMAL(10,2) NULL,
-  speed DECIMAL(10,2) NULL,
-  bearing DECIMAL(10,2) NULL,
-  provider VARCHAR(16) NOT NULL DEFAULT 'fused',
-  app_state VARCHAR(16) NOT NULL DEFAULT 'foreground',
-  battery_level INT NULL,
-  located_at DATETIME NOT NULL,
-  client_send_time DATETIME NULL,
-  server_receive_time DATETIME NULL,
-  mock_location TINYINT NOT NULL DEFAULT 0,
-  point_status VARCHAR(32) NOT NULL,
-  valid_point TINYINT NOT NULL DEFAULT 1,
-  risk_score INT NOT NULL DEFAULT 0,
-  risk_flags VARCHAR(255) NULL,
-  reject_reason VARCHAR(255) NULL,
-  calculated_speed_kmh DECIMAL(10,2) NOT NULL DEFAULT 0,
-  raw_distance_from_previous_m INT NOT NULL DEFAULT 0,
-  distance_from_previous_m INT NOT NULL DEFAULT 0,
-  created_at DATETIME NOT NULL,
-  deleted TINYINT NOT NULL DEFAULT 0,
+  id BIGINT PRIMARY KEY comment '记录主键',
+  execution_id BIGINT NOT NULL comment '行程执行记录ID',
+  trip_id BIGINT NOT NULL comment '行程ID',
+  user_id BIGINT NOT NULL comment '平台用户ID',
+  device_id VARCHAR(128) NULL comment '设备ID',
+  sequence_no BIGINT NULL comment '序号编号',
+  longitude DECIMAL(10,6) NOT NULL comment '经度坐标',
+  latitude DECIMAL(10,6) NOT NULL comment '纬度坐标',
+  altitude DECIMAL(10,2) NULL comment '海拔',
+  accuracy DECIMAL(10,2) NULL comment '定位精度',
+  speed DECIMAL(10,2) NULL comment '速度',
+  bearing DECIMAL(10,2) NULL comment '方向角',
+  provider VARCHAR(16) NOT NULL DEFAULT 'fused' comment '数据或服务提供方',
+  app_state VARCHAR(16) NOT NULL DEFAULT 'foreground' comment '应用状态',
+  battery_level INT NULL comment '设备剩余电量百分比',
+  located_at DATETIME NOT NULL comment '定位时间',
+  client_send_time DATETIME NULL comment '客户端发送时间',
+  server_receive_time DATETIME NULL comment '服务端接收时间',
+  mock_location TINYINT NOT NULL DEFAULT 0 comment '是否疑似模拟定位：0否、1是',
+  point_status VARCHAR(32) NOT NULL comment '轨迹点状态',
+  valid_point TINYINT NOT NULL DEFAULT 1 comment '是否为有效轨迹点：0否、1是',
+  risk_score INT NOT NULL DEFAULT 0 comment '风险评分',
+  risk_flags VARCHAR(255) NULL comment '风险标记集合',
+  reject_reason VARCHAR(255) NULL comment '驳回原因',
+  calculated_speed_kmh DECIMAL(10,2) NOT NULL DEFAULT 0 comment '计算速度，单位为公里每小时',
+  raw_distance_from_previous_m INT NOT NULL DEFAULT 0 comment '原始与上一轨迹点的距离，单位为米',
+  distance_from_previous_m INT NOT NULL DEFAULT 0 comment '与上一轨迹点的距离，单位为米',
+  created_at DATETIME NOT NULL comment '记录创建时间',
+  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
   UNIQUE KEY uk_track_device_sequence (execution_id, user_id, device_id, sequence_no),
   KEY idx_track_execution_time (execution_id, located_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程轨迹轨迹点表';
 
 CREATE TABLE IF NOT EXISTS trip_waypoint_arrival (
-  id BIGINT PRIMARY KEY,
-  execution_id BIGINT NOT NULL,
-  trip_id BIGINT NOT NULL,
-  waypoint_id BIGINT NULL,
-  arrival_type VARCHAR(24) NOT NULL,
-  user_id BIGINT NOT NULL,
-  first_inside_at DATETIME NOT NULL,
-  confirmed_at DATETIME NOT NULL,
-  evidence_point_count INT NOT NULL,
-  distance_m INT NOT NULL,
-  created_at DATETIME NOT NULL,
-  deleted TINYINT NOT NULL DEFAULT 0,
+  id BIGINT PRIMARY KEY comment '记录主键',
+  execution_id BIGINT NOT NULL comment '行程执行记录ID',
+  trip_id BIGINT NOT NULL comment '行程ID',
+  waypoint_id BIGINT NULL comment '途经点ID',
+  arrival_type VARCHAR(24) NOT NULL comment '到达类型',
+  user_id BIGINT NOT NULL comment '平台用户ID',
+  first_inside_at DATETIME NOT NULL comment '首次进入途经点范围时间',
+  confirmed_at DATETIME NOT NULL comment '确认完成时间',
+  evidence_point_count INT NOT NULL comment '证据轨迹点数量',
+  distance_m INT NOT NULL comment '距离，单位为米',
+  created_at DATETIME NOT NULL comment '记录创建时间',
+  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
   UNIQUE KEY uk_execution_waypoint_arrival (execution_id, waypoint_id, arrival_type, deleted)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程途经点到达记录表';
 
 CREATE TABLE IF NOT EXISTS trip_mileage_settlement (
-  id BIGINT PRIMARY KEY,
-  trip_id BIGINT NOT NULL,
-  raw_gps_distance_m INT NOT NULL DEFAULT 0,
-  matched_road_distance_m INT NOT NULL DEFAULT 0,
-  estimated_gap_distance_m INT NOT NULL DEFAULT 0,
-  settlement_distance_m INT NOT NULL DEFAULT 0,
-  track_coverage_rate INT NOT NULL DEFAULT 0,
-  estimated_ratio INT NOT NULL DEFAULT 0,
-  quality_status VARCHAR(32) NOT NULL,
-  settlement_status VARCHAR(32) NOT NULL,
-  growth_value INT NOT NULL DEFAULT 0,
-  reason VARCHAR(255) NULL,
-  settled_at DATETIME NULL,
-  created_at DATETIME NOT NULL,
-  updated_at DATETIME NOT NULL,
-  deleted TINYINT NOT NULL DEFAULT 0,
+  id BIGINT PRIMARY KEY comment '记录主键',
+  trip_id BIGINT NOT NULL comment '行程ID',
+  raw_gps_distance_m INT NOT NULL DEFAULT 0 comment '原始GPS距离，单位为米',
+  matched_road_distance_m INT NOT NULL DEFAULT 0 comment '命中道路距离，单位为米',
+  estimated_gap_distance_m INT NOT NULL DEFAULT 0 comment '估算差值距离，单位为米',
+  settlement_distance_m INT NOT NULL DEFAULT 0 comment '结算距离，单位为米',
+  track_coverage_rate INT NOT NULL DEFAULT 0 comment '轨迹覆盖率比例',
+  estimated_ratio INT NOT NULL DEFAULT 0 comment '估算比例',
+  quality_status VARCHAR(32) NOT NULL comment '质量状态',
+  settlement_status VARCHAR(32) NOT NULL comment '结算状态',
+  growth_value INT NOT NULL DEFAULT 0 comment '成长值值',
+  reason VARCHAR(255) NULL comment '原因说明',
+  settled_at DATETIME NULL comment '结算完成时间',
+  created_at DATETIME NOT NULL comment '记录创建时间',
+  updated_at DATETIME NOT NULL comment '记录最后更新时间',
+  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
   UNIQUE KEY uk_trip_mileage_settlement (trip_id, deleted)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程里程结算表';
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_relation' AND column_name='request_id')=0, 'ALTER TABLE invite_relation ADD COLUMN request_id VARCHAR(64) NULL AFTER bind_source_value', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_relation' AND column_name='request_id')=0, 'ALTER TABLE invite_relation ADD COLUMN request_id VARCHAR(64) NULL COMMENT ''请求唯一标识，用于链路追踪或幂等控制'' AFTER bind_source_value', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='altitude')=0, 'ALTER TABLE driver_track_record ADD COLUMN altitude DECIMAL(10,2) NULL AFTER latitude', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='altitude')=0, 'ALTER TABLE driver_track_record ADD COLUMN altitude DECIMAL(10,2) NULL COMMENT ''海拔'' AFTER latitude', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='raw_distance_from_prev')=0, 'ALTER TABLE driver_track_record ADD COLUMN raw_distance_from_prev INT NOT NULL DEFAULT 0 AFTER accuracy', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='raw_distance_from_prev')=0, 'ALTER TABLE driver_track_record ADD COLUMN raw_distance_from_prev INT NOT NULL DEFAULT 0 COMMENT ''原始与上一轨迹点的距离'' AFTER accuracy', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='calculated_speed_kmh')=0, 'ALTER TABLE driver_track_record ADD COLUMN calculated_speed_kmh DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER distance_from_prev', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='calculated_speed_kmh')=0, 'ALTER TABLE driver_track_record ADD COLUMN calculated_speed_kmh DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT ''计算速度，单位为公里每小时'' AFTER distance_from_prev', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='provider')=0, 'ALTER TABLE driver_track_record ADD COLUMN provider VARCHAR(16) NOT NULL DEFAULT ''fused'' AFTER calculated_speed_kmh', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='provider')=0, 'ALTER TABLE driver_track_record ADD COLUMN provider VARCHAR(16) NOT NULL DEFAULT ''fused'' COMMENT ''数据或服务提供方'' AFTER calculated_speed_kmh', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='app_state')=0, 'ALTER TABLE driver_track_record ADD COLUMN app_state VARCHAR(16) NOT NULL DEFAULT ''foreground'' AFTER provider', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='app_state')=0, 'ALTER TABLE driver_track_record ADD COLUMN app_state VARCHAR(16) NOT NULL DEFAULT ''foreground'' COMMENT ''应用状态'' AFTER provider', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='battery_level')=0, 'ALTER TABLE driver_track_record ADD COLUMN battery_level INT NULL AFTER app_state', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='battery_level')=0, 'ALTER TABLE driver_track_record ADD COLUMN battery_level INT NULL COMMENT ''设备剩余电量百分比'' AFTER app_state', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='device_id')=0, 'ALTER TABLE driver_track_record ADD COLUMN device_id VARCHAR(128) NULL AFTER battery_level', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='device_id')=0, 'ALTER TABLE driver_track_record ADD COLUMN device_id VARCHAR(128) NULL COMMENT ''设备ID'' AFTER battery_level', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='sequence_no')=0, 'ALTER TABLE driver_track_record ADD COLUMN sequence_no BIGINT NULL AFTER device_id', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='sequence_no')=0, 'ALTER TABLE driver_track_record ADD COLUMN sequence_no BIGINT NULL COMMENT ''序号编号'' AFTER device_id', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='mock_location')=0, 'ALTER TABLE driver_track_record ADD COLUMN mock_location TINYINT NOT NULL DEFAULT 0 AFTER sequence_no', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='mock_location')=0, 'ALTER TABLE driver_track_record ADD COLUMN mock_location TINYINT NOT NULL DEFAULT 0 COMMENT ''是否疑似模拟定位：0否、1是'' AFTER sequence_no', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='point_status')=0, 'ALTER TABLE driver_track_record ADD COLUMN point_status VARCHAR(32) NOT NULL DEFAULT ''ACCEPTED'' AFTER mock_location', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='point_status')=0, 'ALTER TABLE driver_track_record ADD COLUMN point_status VARCHAR(32) NOT NULL DEFAULT ''ACCEPTED'' COMMENT ''轨迹点状态'' AFTER mock_location', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='valid_point')=0, 'ALTER TABLE driver_track_record ADD COLUMN valid_point TINYINT NOT NULL DEFAULT 1 AFTER point_status', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='valid_point')=0, 'ALTER TABLE driver_track_record ADD COLUMN valid_point TINYINT NOT NULL DEFAULT 1 COMMENT ''是否为有效轨迹点：0否、1是'' AFTER point_status', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='risk_score')=0, 'ALTER TABLE driver_track_record ADD COLUMN risk_score INT NOT NULL DEFAULT 0 AFTER valid_point', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='risk_score')=0, 'ALTER TABLE driver_track_record ADD COLUMN risk_score INT NOT NULL DEFAULT 0 COMMENT ''风险评分'' AFTER valid_point', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='risk_flags')=0, 'ALTER TABLE driver_track_record ADD COLUMN risk_flags VARCHAR(255) NULL AFTER risk_score', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='risk_flags')=0, 'ALTER TABLE driver_track_record ADD COLUMN risk_flags VARCHAR(255) NULL COMMENT ''风险标记集合'' AFTER risk_score', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='reject_reason')=0, 'ALTER TABLE driver_track_record ADD COLUMN reject_reason VARCHAR(255) NULL AFTER risk_flags', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='reject_reason')=0, 'ALTER TABLE driver_track_record ADD COLUMN reject_reason VARCHAR(255) NULL COMMENT ''驳回原因'' AFTER risk_flags', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='client_send_time')=0, 'ALTER TABLE driver_track_record ADD COLUMN client_send_time DATETIME NULL AFTER record_time', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='client_send_time')=0, 'ALTER TABLE driver_track_record ADD COLUMN client_send_time DATETIME NULL COMMENT ''客户端发送时间'' AFTER record_time', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='server_receive_time')=0, 'ALTER TABLE driver_track_record ADD COLUMN server_receive_time DATETIME NULL AFTER client_send_time', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='driver_track_record' AND column_name='server_receive_time')=0, 'ALTER TABLE driver_track_record ADD COLUMN server_receive_time DATETIME NULL COMMENT ''服务端接收时间'' AFTER client_send_time', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='altitude')=0, 'ALTER TABLE trip_track_point ADD COLUMN altitude DECIMAL(10,2) NULL AFTER latitude', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='altitude')=0, 'ALTER TABLE trip_track_point ADD COLUMN altitude DECIMAL(10,2) NULL COMMENT ''海拔'' AFTER latitude', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='provider')=0, 'ALTER TABLE trip_track_point ADD COLUMN provider VARCHAR(16) NOT NULL DEFAULT ''fused'' AFTER bearing', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='provider')=0, 'ALTER TABLE trip_track_point ADD COLUMN provider VARCHAR(16) NOT NULL DEFAULT ''fused'' COMMENT ''数据或服务提供方'' AFTER bearing', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='app_state')=0, 'ALTER TABLE trip_track_point ADD COLUMN app_state VARCHAR(16) NOT NULL DEFAULT ''foreground'' AFTER provider', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='app_state')=0, 'ALTER TABLE trip_track_point ADD COLUMN app_state VARCHAR(16) NOT NULL DEFAULT ''foreground'' COMMENT ''应用状态'' AFTER provider', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='battery_level')=0, 'ALTER TABLE trip_track_point ADD COLUMN battery_level INT NULL AFTER app_state', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='battery_level')=0, 'ALTER TABLE trip_track_point ADD COLUMN battery_level INT NULL COMMENT ''设备剩余电量百分比'' AFTER app_state', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='client_send_time')=0, 'ALTER TABLE trip_track_point ADD COLUMN client_send_time DATETIME NULL AFTER located_at', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='client_send_time')=0, 'ALTER TABLE trip_track_point ADD COLUMN client_send_time DATETIME NULL COMMENT ''客户端发送时间'' AFTER located_at', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='server_receive_time')=0, 'ALTER TABLE trip_track_point ADD COLUMN server_receive_time DATETIME NULL AFTER client_send_time', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='server_receive_time')=0, 'ALTER TABLE trip_track_point ADD COLUMN server_receive_time DATETIME NULL COMMENT ''服务端接收时间'' AFTER client_send_time', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='risk_score')=0, 'ALTER TABLE trip_track_point ADD COLUMN risk_score INT NOT NULL DEFAULT 0 AFTER valid_point', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='risk_score')=0, 'ALTER TABLE trip_track_point ADD COLUMN risk_score INT NOT NULL DEFAULT 0 COMMENT ''风险评分'' AFTER valid_point', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='risk_flags')=0, 'ALTER TABLE trip_track_point ADD COLUMN risk_flags VARCHAR(255) NULL AFTER risk_score', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='risk_flags')=0, 'ALTER TABLE trip_track_point ADD COLUMN risk_flags VARCHAR(255) NULL COMMENT ''风险标记集合'' AFTER risk_score', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='reject_reason')=0, 'ALTER TABLE trip_track_point ADD COLUMN reject_reason VARCHAR(255) NULL AFTER risk_flags', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='reject_reason')=0, 'ALTER TABLE trip_track_point ADD COLUMN reject_reason VARCHAR(255) NULL COMMENT ''驳回原因'' AFTER risk_flags', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='calculated_speed_kmh')=0, 'ALTER TABLE trip_track_point ADD COLUMN calculated_speed_kmh DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER reject_reason', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip_track_point' AND column_name='calculated_speed_kmh')=0, 'ALTER TABLE trip_track_point ADD COLUMN calculated_speed_kmh DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT ''计算速度，单位为公里每小时'' AFTER reject_reason', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 
@@ -238,57 +238,57 @@ SET server_receive_time=COALESCE(server_receive_time, created_at),
 WHERE server_receive_time IS NULL OR point_status='VALID' OR raw_distance_from_prev=0;
 
 CREATE TABLE IF NOT EXISTS trip_track_summary (
-    id BIGINT PRIMARY KEY,
-    trip_id BIGINT NOT NULL,
-    primary_user_id BIGINT NOT NULL,
-    raw_distance_meters INT NOT NULL DEFAULT 0,
-    filtered_distance_meters INT NOT NULL DEFAULT 0,
-    approved_distance_meters INT NOT NULL DEFAULT 0,
-    total_point_count INT NOT NULL DEFAULT 0,
-    valid_point_count INT NOT NULL DEFAULT 0,
-    invalid_point_count INT NOT NULL DEFAULT 0,
-    location_gap_count INT NOT NULL DEFAULT 0,
-    warning_count INT NOT NULL DEFAULT 0,
-    hard_anomaly_count INT NOT NULL DEFAULT 0,
-    risk_score INT NOT NULL DEFAULT 0,
-    risk_level VARCHAR(16) NOT NULL DEFAULT 'LOW',
-    settlement_status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
-    review_reason VARCHAR(255) NULL,
-    reviewer_id BIGINT NULL,
-    reviewed_at DATETIME NULL,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    deleted TINYINT NOT NULL DEFAULT 0,
+    id BIGINT PRIMARY KEY comment '记录主键',
+    trip_id BIGINT NOT NULL comment '行程ID',
+    primary_user_id BIGINT NOT NULL comment '主要用户ID',
+    raw_distance_meters INT NOT NULL DEFAULT 0 comment '原始距离，单位为米',
+    filtered_distance_meters INT NOT NULL DEFAULT 0 comment '过滤后距离，单位为米',
+    approved_distance_meters INT NOT NULL DEFAULT 0 comment '审核认可距离，单位为米',
+    total_point_count INT NOT NULL DEFAULT 0 comment '总计轨迹点数量',
+    valid_point_count INT NOT NULL DEFAULT 0 comment '有效轨迹点数量',
+    invalid_point_count INT NOT NULL DEFAULT 0 comment '无效轨迹点数量',
+    location_gap_count INT NOT NULL DEFAULT 0 comment '位置差值数量',
+    warning_count INT NOT NULL DEFAULT 0 comment '警告数量',
+    hard_anomaly_count INT NOT NULL DEFAULT 0 comment '严重异常数量',
+    risk_score INT NOT NULL DEFAULT 0 comment '风险评分',
+    risk_level VARCHAR(16) NOT NULL DEFAULT 'LOW' comment '风险等级',
+    settlement_status VARCHAR(32) NOT NULL DEFAULT 'PENDING' comment '结算状态',
+    review_reason VARCHAR(255) NULL comment '审核原因',
+    reviewer_id BIGINT NULL comment '审核人ID',
+    reviewed_at DATETIME NULL comment '审核时间',
+    created_at DATETIME NOT NULL comment '记录创建时间',
+    updated_at DATETIME NOT NULL comment '记录最后更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
     UNIQUE KEY uk_trip_track_summary_trip (trip_id, deleted),
     KEY idx_trip_track_summary_risk (risk_level, settlement_status, updated_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程轨迹汇总表';
 
 CREATE TABLE IF NOT EXISTS trip_track_anomaly (
-    id BIGINT PRIMARY KEY,
-    trip_id BIGINT NOT NULL,
-    user_id BIGINT NOT NULL,
-    previous_point_id BIGINT NULL,
-    current_point_id BIGINT NULL,
-    anomaly_type VARCHAR(64) NOT NULL,
-    risk_score INT NOT NULL DEFAULT 0,
-    detail_json JSON NULL,
-    occurred_at DATETIME NOT NULL,
-    created_at DATETIME NOT NULL,
+    id BIGINT PRIMARY KEY comment '记录主键',
+    trip_id BIGINT NOT NULL comment '行程ID',
+    user_id BIGINT NOT NULL comment '平台用户ID',
+    previous_point_id BIGINT NULL comment '上一点轨迹点ID',
+    current_point_id BIGINT NULL comment '当前轨迹点ID',
+    anomaly_type VARCHAR(64) NOT NULL comment '异常类型',
+    risk_score INT NOT NULL DEFAULT 0 comment '风险评分',
+    detail_json JSON NULL comment '业务详情JSON数据',
+    occurred_at DATETIME NOT NULL comment '发生时间',
+    created_at DATETIME NOT NULL comment '记录创建时间',
     KEY idx_trip_track_anomaly_trip_time (trip_id, occurred_at),
     KEY idx_trip_track_anomaly_user_time (user_id, occurred_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程轨迹异常表';
 
 CREATE TABLE IF NOT EXISTS invite_reward_rule (
-    id BIGINT PRIMARY KEY,
-    rule_code VARCHAR(64) NOT NULL,
-    reward_type VARCHAR(32) NOT NULL DEFAULT 'GROWTH_VALUE',
-    reward_value INT NOT NULL,
-    status VARCHAR(16) NOT NULL DEFAULT 'ENABLED',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted TINYINT NOT NULL DEFAULT 0,
+    id BIGINT PRIMARY KEY comment '记录主键',
+    rule_code VARCHAR(64) NOT NULL comment '规则编码',
+    reward_type VARCHAR(32) NOT NULL DEFAULT 'GROWTH_VALUE' comment '奖励类型',
+    reward_value INT NOT NULL comment '奖励值',
+    status VARCHAR(16) NOT NULL DEFAULT 'ENABLED' comment '业务状态',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP comment '记录创建时间',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '记录最后更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
     UNIQUE KEY uk_invite_reward_rule_code (rule_code, deleted)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='邀请奖励规则表';
 
 INSERT IGNORE INTO invite_reward_rule
 (id, rule_code, reward_type, reward_value, status, created_at, updated_at, deleted)
@@ -304,28 +304,28 @@ UPDATE invite_reward_record SET reward_status='ISSUED' WHERE reward_status='GRAN
 
 
 -- 补齐邀请码奖励审计与幂等字段。
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='inviter_user_id')=0, 'ALTER TABLE invite_reward_record ADD COLUMN inviter_user_id BIGINT NULL AFTER beneficiary_user_id', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='inviter_user_id')=0, 'ALTER TABLE invite_reward_record ADD COLUMN inviter_user_id BIGINT NULL COMMENT ''邀请人用户ID'' AFTER beneficiary_user_id', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='invitee_user_id')=0, 'ALTER TABLE invite_reward_record ADD COLUMN invitee_user_id BIGINT NULL AFTER inviter_user_id', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='invitee_user_id')=0, 'ALTER TABLE invite_reward_record ADD COLUMN invitee_user_id BIGINT NULL COMMENT ''被邀请人用户ID'' AFTER inviter_user_id', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='reward_rule_code')=0, 'ALTER TABLE invite_reward_record ADD COLUMN reward_rule_code VARCHAR(64) NULL AFTER rule_code', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='reward_rule_code')=0, 'ALTER TABLE invite_reward_record ADD COLUMN reward_rule_code VARCHAR(64) NULL COMMENT ''奖励规则编码'' AFTER rule_code', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='reward_type')=0, 'ALTER TABLE invite_reward_record ADD COLUMN reward_type VARCHAR(32) NOT NULL DEFAULT ''GROWTH_VALUE'' AFTER reward_rule_code', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='reward_type')=0, 'ALTER TABLE invite_reward_record ADD COLUMN reward_type VARCHAR(32) NOT NULL DEFAULT ''GROWTH_VALUE'' COMMENT ''奖励类型'' AFTER reward_rule_code', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='reward_value')=0, 'ALTER TABLE invite_reward_record ADD COLUMN reward_value INT NOT NULL DEFAULT 0 AFTER reward_type', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='reward_value')=0, 'ALTER TABLE invite_reward_record ADD COLUMN reward_value INT NOT NULL DEFAULT 0 COMMENT ''奖励值'' AFTER reward_type', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='idempotency_key')=0, 'ALTER TABLE invite_reward_record ADD COLUMN idempotency_key VARCHAR(128) NULL AFTER reward_biz_no', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='idempotency_key')=0, 'ALTER TABLE invite_reward_record ADD COLUMN idempotency_key VARCHAR(128) NULL COMMENT ''业务幂等键，用于防止重复处理'' AFTER reward_biz_no', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='triggered_at')=0, 'ALTER TABLE invite_reward_record ADD COLUMN triggered_at DATETIME NULL AFTER reward_status', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='triggered_at')=0, 'ALTER TABLE invite_reward_record ADD COLUMN triggered_at DATETIME NULL COMMENT ''奖励触发时间'' AFTER reward_status', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='issued_at')=0, 'ALTER TABLE invite_reward_record ADD COLUMN issued_at DATETIME NULL AFTER granted_at', 'SELECT 1');
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND column_name='issued_at')=0, 'ALTER TABLE invite_reward_record ADD COLUMN issued_at DATETIME NULL COMMENT ''发放时间'' AFTER granted_at', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 UPDATE invite_reward_record r

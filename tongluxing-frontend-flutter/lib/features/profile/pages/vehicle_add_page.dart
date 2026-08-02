@@ -10,6 +10,7 @@ import '../../../app/theme.dart';
 import '../../../common/widgets/app_widgets.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
+import 'driving_license_page.dart';
 
 class VehicleAddPage extends StatefulWidget {
   const VehicleAddPage({super.key});
@@ -36,11 +37,7 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
     '车辆后方照': 'VEHICLE_PHOTO_REAR',
   };
 
-  static const requiredMaterials = <String>{
-    '行驶证主页',
-    '行驶证副页',
-    '车辆正面照',
-  };
+  static const requiredMaterials = <String>{'行驶证主页', '行驶证副页', '车辆正面照'};
 
   bool get materialsComplete =>
       requiredMaterials.every(selectedMaterials.containsKey);
@@ -72,8 +69,8 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
         selectedMaterials[label] = _SelectedImage(
           fileName: file.name,
           bytes: bytes,
-          contentType: file.mimeType ??
-              StorageUploadService.imageContentType(file.name),
+          contentType:
+              file.mimeType ?? StorageUploadService.imageContentType(file.name),
         );
       });
     } catch (error) {
@@ -86,6 +83,48 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
   }
 
   Future<void> submit() async {
+    // 先检查驾驶证认证，避免用户选择并上传完多张图片后才被后端拒绝。
+    try {
+      final profile = await UserProfileService(
+        context.read<AppSession>().api,
+      ).me();
+      if (profile['drivingLicenseCertificationStatus'] != 'APPROVED') {
+        if (!mounted) return;
+        final goAuthenticate = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('请先完成驾驶证认证'),
+            content: const Text('驾驶证认证通过后，才能提交行驶证和车辆认证资料。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('稍后再说'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('去认证'),
+              ),
+            ],
+          ),
+        );
+        if (goAuthenticate == true) {
+          if (!mounted) return;
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const DrivingLicensePage()),
+          );
+        }
+        return;
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('无法校验驾驶证认证状态：$error')));
+      }
+      return;
+    }
+    if (!mounted) return;
     if (!formKey.currentState!.validate()) return;
     if (!materialsComplete) {
       ScaffoldMessenger.of(
@@ -141,8 +180,8 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
         ],
         vehicleImages: [
           uploadedKeys['车辆正面照']!,
-          if (uploadedKeys['车辆侧面照'] case final key?) key,
-          if (uploadedKeys['车辆后方照'] case final key?) key,
+          ?uploadedKeys['车辆侧面照'],
+          ?uploadedKeys['车辆后方照'],
         ],
       );
       if (mounted) {
@@ -203,11 +242,11 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
           const SizedBox(height: 18),
           _materials('车辆行驶证', '主页与副页均需清晰完整', ['行驶证主页', '行驶证副页']),
           const SizedBox(height: 14),
-          _materials(
-            '车辆照片',
-            '正面照必传，侧面和后方照片可选，需能清楚识别车辆',
-            ['车辆正面照', '车辆侧面照', '车辆后方照'],
-          ),
+          _materials('车辆照片', '正面照必传，侧面和后方照片可选，需能清楚识别车辆', [
+            '车辆正面照',
+            '车辆侧面照',
+            '车辆后方照',
+          ]),
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: saving ? null : submit,
@@ -316,7 +355,10 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
                                   gradient: LinearGradient(
                                     begin: Alignment.topCenter,
                                     end: Alignment.bottomCenter,
-                                    colors: [Colors.transparent, Color(0xAA000000)],
+                                    colors: [
+                                      Colors.transparent,
+                                      Color(0xAA000000),
+                                    ],
                                   ),
                                 ),
                               ),

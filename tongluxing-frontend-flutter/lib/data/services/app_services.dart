@@ -294,6 +294,10 @@ class TripService {
     required String description,
     required String departureTime,
     required int maxVehicleCount,
+    int? expectedPeople,
+    int? estimatedDays,
+    List<String>? vehicleRequirements,
+    String? remark,
     Map<String, dynamic>? startLocation,
     Map<String, dynamic>? endLocation,
     List<Map<String, dynamic>>? waypoints,
@@ -305,21 +309,24 @@ class TripService {
             'title': title,
             'description': description,
             'coverImageKey': raw['coverImageKey'],
-            'expectedPeople': raw['expectedPeople'],
+            'expectedPeople': expectedPeople ?? raw['expectedPeople'],
             'startLocation': startLocation ?? raw['startLocation'],
             'endLocation': endLocation ?? raw['endLocation'],
             'routeSummary': raw['routeSummary'],
             'departureTime': departureTime,
-            'estimatedDays': raw['estimatedDays'],
+            'estimatedDays': estimatedDays ?? raw['estimatedDays'],
             'routeDistance': raw['routeDistance'],
             'routeDuration': raw['routeDuration'],
             'routePolyline': raw['routePolyline'],
             'maxVehicleCount': maxVehicleCount,
             'travelDepth': raw['travelDepth'] ?? 'LIGHT',
             'publicFlag': raw['publicFlag'] != false,
-            'vehicleRequirements': raw['vehicleRequirements'] ?? const ['不限'],
+            'vehicleRequirements':
+                vehicleRequirements ??
+                raw['vehicleRequirements'] ??
+                const ['不限'],
             'budgetDescription': raw['budgetDescription'],
-            'remark': raw['remark'],
+            'remark': remark ?? raw['remark'],
             'waypoints': waypoints ?? raw['waypoints'] ?? const [],
           },
         )
@@ -701,12 +708,14 @@ class TripDiscoveryService {
         as Map,
   );
 
-  Future<TripPublicDetailModel> publicDetail(String tripId) async =>
-      TripPublicDetailModel.fromJson(
-        Map<String, dynamic>.from(
-          await api.get('/v1/trips/$tripId/public-detail') as Map,
-        ),
-      );
+  Future<TripPublicDetailModel> publicDetail(String tripId) async {
+    final data = await api
+        .get('/v1/trips/$tripId/public-detail')
+        .timeout(const Duration(seconds: 8));
+    return TripPublicDetailModel.fromJson(
+      Map<String, dynamic>.from(data as Map),
+    );
+  }
 
   Future<bool> favorite(String tripId) async =>
       await api.post('/v1/trips/$tripId/favorite') == true;
@@ -1204,6 +1213,11 @@ class ChatAttachmentService {
     required Uint8List bytes,
     required bool image,
   }) async {
+    if (bytes.isEmpty) throw const ApiException('附件内容为空');
+    final maxBytes = image ? 10 * 1024 * 1024 : 20 * 1024 * 1024;
+    if (bytes.length > maxBytes) {
+      throw ApiException(image ? '单张图片不能超过 10MB' : '聊天附件不能超过 20MB');
+    }
     final bizType = image ? 'CHAT_IMAGE' : 'CHAT_FILE';
     final presign = Map<String, dynamic>.from(
       await api.post(

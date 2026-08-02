@@ -19,6 +19,7 @@ class RouteMapView extends StatefulWidget {
     this.interactive = true,
     this.trafficEnabled = false,
     this.drawPolyline = true,
+    this.performanceLabel = 'route_map',
     this.onLocationChanged,
     this.onMapInteraction,
     super.key,
@@ -31,6 +32,7 @@ class RouteMapView extends StatefulWidget {
   final bool interactive;
   final bool trafficEnabled;
   final bool drawPolyline;
+  final String performanceLabel;
   final ValueChanged<AMapLocation>? onLocationChanged;
   final VoidCallback? onMapInteraction;
 
@@ -48,6 +50,10 @@ class _RouteMapViewState extends State<RouteMapView> {
 
   bool _nativeSupported = false;
   bool _checking = true;
+  bool _nativeMapReady = false;
+  int _buildCount = 0;
+  List<LocationSelection>? _previousBuildPoints;
+  late final int _viewId;
 
   bool get _nativeRequested =>
       !kIsWeb &&
@@ -57,6 +63,7 @@ class _RouteMapViewState extends State<RouteMapView> {
   @override
   void initState() {
     super.initState();
+    _viewId = identityHashCode(this);
     _checkNativeSupport();
   }
 
@@ -83,11 +90,43 @@ class _RouteMapViewState extends State<RouteMapView> {
 
   @override
   Widget build(BuildContext context) {
+    final buildNumber = ++_buildCount;
+    final frameStopwatch = Stopwatch()..start();
+    final samplingStopwatch = Stopwatch()..start();
     final route = _samplePolyline(widget.polylinePoints);
+    samplingStopwatch.stop();
+    final sameInputList = identical(
+      _previousBuildPoints,
+      widget.polylinePoints,
+    );
+    _previousBuildPoints = widget.polylinePoints;
+    final metrics = _RouteRenderMetrics(
+      samplingMicros: samplingStopwatch.elapsedMicroseconds,
+    );
     if (route.isEmpty) {
       return SizedBox(
         height: widget.height,
         child: const Center(child: Text('暂无可展示的路线')),
+      );
+    }
+    final map = _nativeSupported
+        ? _buildNativeMap(
+            context,
+            route,
+            metrics,
+            buildNumber,
+            sameInputList,
+            frameStopwatch,
+          )
+        : _buildFallback(route, metrics);
+    if (!_nativeSupported || _nativeMapReady) {
+      _scheduleDrawCompleteLog(
+        renderer: _nativeSupported ? 'native' : 'fallback',
+        route: route,
+        metrics: metrics,
+        buildNumber: buildNumber,
+        sameInputList: sameInputList,
+        frameStopwatch: frameStopwatch,
       );
     }
     return SizedBox(
@@ -110,11 +149,7 @@ class _RouteMapViewState extends State<RouteMapView> {
             onPointerUp: widget.interactive
                 ? (_) => widget.onMapInteraction?.call()
                 : null,
-            child: SizedBox.expand(
-              child: _nativeSupported
-                  ? _buildNativeMap(context, route)
-                  : _buildFallback(route),
-            ),
+            child: SizedBox.expand(child: map),
           ),
         ),
       ),
@@ -124,13 +159,32 @@ class _RouteMapViewState extends State<RouteMapView> {
   Widget _buildNativeMap(
     BuildContext context,
     List<LocationSelection> route,
+    _RouteRenderMetrics metrics,
+    int buildNumber,
+    bool sameInputList,
+    Stopwatch frameStopwatch,
   ) {
+    final preparationStopwatch = Stopwatch()..start();
     AMapInitializer.init(context);
     AMapInitializer.updatePrivacyAgree(_privacy);
     final camera = _cameraFor(route);
     final stops = widget.stops.isEmpty
         ? <LocationSelection>[route.first, route.last]
         : widget.stops;
+    final polylines = widget.drawPolyline && route.length >= 2
+        ? {
+            Polyline(
+              points: route
+                  .map((point) => LatLng(point.latitude, point.longitude))
+                  .toList(growable: false),
+              width: 8,
+              color: AppColors.primary,
+              capType: CapType.round,
+              joinType: JoinType.round,
+            ),
+          }
+        : const <Polyline>{};
+    metrics.polylinePrepareMicros = preparationStopwatch.elapsedMicroseconds;
     return AMapWidget(
       initialCameraPosition: camera,
       trafficEnabled: widget.trafficEnabled,
@@ -140,24 +194,23 @@ class _RouteMapViewState extends State<RouteMapView> {
       zoomGesturesEnabled: widget.interactive,
       touchPoiEnabled: widget.interactive,
       myLocationStyleOptions: MyLocationStyleOptions(widget.showMyLocation),
-      polylines: widget.drawPolyline && route.length >= 2
-          ? {
-              Polyline(
-                points: route
-                    .map((point) => LatLng(point.latitude, point.longitude))
-                    .toList(growable: false),
-                width: 8,
-                color: AppColors.primary,
-                capType: CapType.round,
-                joinType: JoinType.round,
-              ),
-            }
-          : const <Polyline>{},
+      polylines: polylines,
       markers: _markers(stops),
       // 收起控件由外层 Listener 在真实点击、拖动或缩放时触发。
       // 不再使用 onCameraMove，避免地图惯性移动导致“展开”后立刻再次收起。
       onTap: (_) => widget.onMapInteraction?.call(),
       onLocationChanged: widget.onLocationChanged,
+      onMapCreated: (_) {
+        _nativeMapReady = true;
+        _scheduleDrawCompleteLog(
+          renderer: 'native',
+          route: route,
+          metrics: metrics,
+          buildNumber: buildNumber,
+          sameInputList: sameInputList,
+          frameStopwatch: frameStopwatch,
+        );
+      },
     );
   }
 
@@ -185,7 +238,10 @@ class _RouteMapViewState extends State<RouteMapView> {
     }).toSet();
   }
 
-  Widget _buildFallback(List<LocationSelection> route) => InteractiveViewer(
+  Widget _buildFallback(
+    List<LocationSelection> route,
+    _RouteRenderMetrics metrics,
+  ) => InteractiveViewer(
     panEnabled: widget.interactive,
     scaleEnabled: widget.interactive,
     minScale: 1,
@@ -205,6 +261,7 @@ class _RouteMapViewState extends State<RouteMapView> {
                   ? <LocationSelection>[route.first, route.last]
                   : widget.stops,
               drawPolyline: widget.drawPolyline,
+              metrics: metrics,
             ),
           ),
         ),
@@ -262,6 +319,51 @@ class _RouteMapViewState extends State<RouteMapView> {
       points.last,
     ];
   }
+
+  /// 在当前 Flutter 帧完成后记录绘制完成点。
+  ///
+  /// fallback 模式下回调发生在 CustomPainter.paint 之后；原生高德地图首次绘制以
+  /// onMapCreated 为起点再等待一帧。高德 SDK 没有暴露 polyline GPU 完成回调，
+  /// 因此原生模式记录的是覆盖物已提交到平台视图的最接近时刻。
+  void _scheduleDrawCompleteLog({
+    required String renderer,
+    required List<LocationSelection> route,
+    required _RouteRenderMetrics metrics,
+    required int buildNumber,
+    required bool sameInputList,
+    required Stopwatch frameStopwatch,
+  }) {
+    if (metrics.logScheduled) return;
+    metrics.logScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      frameStopwatch.stop();
+      debugPrint(
+        '[RoutePerformance] map_draw_complete '
+        'timestamp=${DateTime.now().toIso8601String()} '
+        'label=${widget.performanceLabel} viewId=$_viewId '
+        'renderer=$renderer buildCount=$buildNumber '
+        'sameInputList=$sameInputList rawPoints=${widget.polylinePoints.length} '
+        'drawnPoints=${route.length} samplingUs=${metrics.samplingMicros} '
+        'polylinePrepareUs=${metrics.polylinePrepareMicros} '
+        'polylinePaintUs=${metrics.polylinePaintMicros} '
+        'polylinePainted=${metrics.polylinePainted} '
+        'frameElapsedMs=${frameStopwatch.elapsedMilliseconds}',
+      );
+    });
+  }
+}
+
+/// 单次 RouteMapView build 对应的轻量计时容器。
+/// CustomPainter 在绘制阶段回填数据，帧结束日志再统一读取，避免在 paint 中直接打印日志。
+class _RouteRenderMetrics {
+  _RouteRenderMetrics({required this.samplingMicros});
+
+  final int samplingMicros;
+  int polylinePrepareMicros = 0;
+  int polylinePaintMicros = 0;
+  bool polylinePainted = false;
+  bool logScheduled = false;
 }
 
 class _MapBackdropPainter extends CustomPainter {
@@ -305,11 +407,13 @@ class _PolylinePainter extends CustomPainter {
     this.route,
     this.stops, {
     required this.drawPolyline,
+    required this.metrics,
   });
 
   final List<LocationSelection> route;
   final List<LocationSelection> stops;
   final bool drawPolyline;
+  final _RouteRenderMetrics metrics;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -330,6 +434,7 @@ class _PolylinePainter extends CustomPainter {
     );
 
     if (drawPolyline && route.length >= 2) {
+      final paintStopwatch = Stopwatch()..start();
       final path = Path()
         ..moveTo(project(route.first).dx, project(route.first).dy);
       for (final point in route.skip(1)) {
@@ -344,6 +449,10 @@ class _PolylinePainter extends CustomPainter {
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round,
       );
+      paintStopwatch.stop();
+      metrics
+        ..polylinePaintMicros = paintStopwatch.elapsedMicroseconds
+        ..polylinePainted = true;
     }
     for (var index = 0; index < stops.length; index++) {
       final center = project(stops[index]);

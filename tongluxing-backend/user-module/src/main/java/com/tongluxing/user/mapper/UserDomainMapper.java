@@ -100,7 +100,7 @@ public interface UserDomainMapper {
      */
     @Insert("""
             insert into user_profile(id,user_id,tongluxing_id,nickname,avatar_image_key,gender,birthday,city_code,city_name,bio,profile_status,created_at,updated_at,deleted)
-            values(#{id},#{userId},#{tongluxingId},'', '',0,null,'','', '', 'ACTIVE',#{now},#{now},0)
+            values(#{id},#{userId},#{tongluxingId},#{tongluxingId}, '',0,null,'','', '', 'ACTIVE',#{now},#{now},0)
             """)
     int insertProfile(@Param("id") Long id, @Param("userId") Long userId,
                       @Param("tongluxingId") String tongluxingId, @Param("now") LocalDateTime now);

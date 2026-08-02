@@ -1,46 +1,72 @@
 CREATE TABLE IF NOT EXISTS growth_account (
-  id BIGINT NOT NULL, user_id BIGINT NOT NULL, total_points INT NOT NULL DEFAULT 0,
-  level_code VARCHAR(16) NOT NULL DEFAULT 'LV1', version INT NOT NULL DEFAULT 0,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  deleted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (id),
+  id BIGINT NOT NULL comment '记录主键',
+  user_id BIGINT NOT NULL comment '平台用户ID',
+  total_points INT NOT NULL DEFAULT 0 comment '累计成长值',
+  level_code VARCHAR(16) NOT NULL DEFAULT 'LV1' comment '等级编码',
+  version INT NOT NULL DEFAULT 0 comment '版本',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP comment '记录创建时间',
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '记录最后更新时间',
+  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+  PRIMARY KEY (id),
   UNIQUE KEY uk_growth_account_user (user_id, deleted)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='成长值账号表';
 CREATE TABLE IF NOT EXISTS growth_log (
-  id BIGINT NOT NULL, user_id BIGINT NOT NULL, biz_type VARCHAR(32) NOT NULL,
-  biz_id VARCHAR(64) NOT NULL, point_delta INT NOT NULL, balance_after INT NOT NULL,
-  remark VARCHAR(255) NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  deleted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (id),
+  id BIGINT NOT NULL comment '记录主键',
+  user_id BIGINT NOT NULL comment '平台用户ID',
+  biz_type VARCHAR(32) NOT NULL comment '关联业务类型',
+  biz_id VARCHAR(64) NOT NULL comment '关联业务单据标识',
+  point_delta INT NOT NULL comment '本次成长值变动值',
+  balance_after INT NOT NULL comment '本次成长值变动后的余额',
+  remark VARCHAR(255) NULL comment '业务备注',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP comment '记录创建时间',
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '记录最后更新时间',
+  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+  PRIMARY KEY (id),
   UNIQUE KEY uk_growth_log_biz (biz_type, biz_id, user_id),
   KEY idx_growth_log_user_time (user_id, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='成长值流水表';
 CREATE TABLE IF NOT EXISTS growth_level_rule (
-  id BIGINT NOT NULL, level_code VARCHAR(16) NOT NULL, level_name VARCHAR(32) NOT NULL,
-  min_points INT NOT NULL, max_points INT NULL, benefit_json JSON NOT NULL,
-  enabled_flag TINYINT NOT NULL DEFAULT 1, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  deleted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (id),
+  id BIGINT NOT NULL comment '记录主键',
+  level_code VARCHAR(16) NOT NULL comment '等级编码',
+  level_name VARCHAR(32) NOT NULL comment '等级名称',
+  min_points INT NOT NULL comment '等级所需最低成长值',
+  max_points INT NULL comment '等级所需最高成长值',
+  benefit_json JSON NOT NULL comment '权益JSON数据',
+  enabled_flag TINYINT NOT NULL DEFAULT 1 comment '是否启用：0否、1是',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP comment '记录创建时间',
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '记录最后更新时间',
+  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+  PRIMARY KEY (id),
   UNIQUE KEY uk_growth_level_code (level_code, deleted)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='成长值等级规则表';
 CREATE TABLE IF NOT EXISTS growth_badge (
-  id BIGINT NOT NULL, badge_code VARCHAR(32) NOT NULL, badge_name VARCHAR(64) NOT NULL,
-  badge_image_key VARCHAR(512) NULL, condition_description VARCHAR(128) NOT NULL,
-  event_type VARCHAR(32) NOT NULL, threshold INT NOT NULL,
-  enabled_flag TINYINT NOT NULL DEFAULT 1, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  deleted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (id),
+  id BIGINT NOT NULL comment '记录主键',
+  badge_code VARCHAR(32) NOT NULL comment '徽章编码',
+  badge_name VARCHAR(64) NOT NULL comment '徽章名称',
+  badge_image_key VARCHAR(512) NULL comment '徽章图片标识或存储Key',
+  condition_description VARCHAR(128) NOT NULL comment '条件说明',
+  event_type VARCHAR(32) NOT NULL comment '事件类型',
+  threshold INT NOT NULL comment '业务达成阈值',
+  enabled_flag TINYINT NOT NULL DEFAULT 1 comment '是否启用：0否、1是',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP comment '记录创建时间',
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '记录最后更新时间',
+  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+  PRIMARY KEY (id),
   UNIQUE KEY uk_growth_badge_code (badge_code, deleted),
   KEY idx_growth_badge_event_threshold (event_type, enabled_flag, deleted, threshold)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='成长值徽章表';
 CREATE TABLE IF NOT EXISTS growth_user_badge (
-  id BIGINT NOT NULL, user_id BIGINT NOT NULL, badge_id BIGINT NOT NULL,
-  source_biz_id VARCHAR(64) NULL, awarded_at DATETIME NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  deleted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (id),
+  id BIGINT NOT NULL comment '记录主键',
+  user_id BIGINT NOT NULL comment '平台用户ID',
+  badge_id BIGINT NOT NULL comment '徽章ID',
+  source_biz_id VARCHAR(64) NULL comment '来源业务ID',
+  awarded_at DATETIME NOT NULL comment '获得时间',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP comment '记录创建时间',
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '记录最后更新时间',
+  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+  PRIMARY KEY (id),
   UNIQUE KEY uk_growth_user_badge (user_id, badge_id, deleted)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='成长值用户徽章表';
 
 INSERT IGNORE INTO growth_level_rule (
   id, level_code, level_name, min_points, max_points, benefit_json, enabled_flag, deleted

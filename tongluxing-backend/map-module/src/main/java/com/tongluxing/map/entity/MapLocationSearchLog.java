@@ -26,12 +26,12 @@ public class MapLocationSearchLog {
     private BigDecimal selectedLongitude;
     /** 使用场景，例如 RESOLVE。 */
     private String scene;
-    /** 地图服务商类型。 */
+    /** 地图服务商及接口版本，例如 AMAP_WEB_V5_POI。 */
     private String providerType;
     /** 创建时间。 */
     private LocalDateTime createdAt;
     /** 更新时间。 */
     private LocalDateTime updatedAt;
-    /** 逻辑删除标记。 */
+    /** 逻辑删除标记：0 有效，1 已删除。 */
     private Integer deleted;
 }

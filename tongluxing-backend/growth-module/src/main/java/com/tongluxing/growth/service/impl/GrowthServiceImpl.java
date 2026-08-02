@@ -14,11 +14,11 @@ import com.tongluxing.growth.integration.GrowthFacade.GrowthGrantResult;
 import com.tongluxing.growth.mapper.GrowthMapper;
 import com.tongluxing.growth.dto.GrowthQueryDTO;
 import com.tongluxing.growth.service.GrowthService;
-import com.tongluxing.user.model.UserModels.BadgeVO;
-import com.tongluxing.user.model.UserModels.BadgeWallVO;
-import com.tongluxing.user.model.UserModels.GrowthLogVO;
-import com.tongluxing.user.model.UserModels.GrowthSummaryVO;
-import com.tongluxing.user.model.UserModels.PageResult;
+import com.tongluxing.user.vo.BadgeVO;
+import com.tongluxing.user.vo.BadgeWallVO;
+import com.tongluxing.user.vo.GrowthLogVO;
+import com.tongluxing.user.vo.GrowthSummaryVO;
+import com.tongluxing.common.model.PageResult;
 import com.tongluxing.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;

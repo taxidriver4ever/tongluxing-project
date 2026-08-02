@@ -32,12 +32,13 @@ class MapHomePage extends StatefulWidget {
 
 class _MapHomePageState extends State<MapHomePage> {
   static const _permissionChannel = MethodChannel('com.tongluxing/permissions');
-  // 收起时只露出拖动提示和搜索框，把绝大部分屏幕还给地图。
-  static const double _collapsedSheetSize = .11;
-  static const double _keyboardMinSheetSize = .36;
-  static const double _halfSheetSize = .48;
+  // 初始只露出一小段白色面板和灰色把手；点击或上滑后才显示搜索框。
+  static const double _collapsedSheetSize = .04;
+  static const double _contentRevealSheetSize = .14;
+  // 展开档位需容纳把手、搜索框和至少一屏历史记录；低于 .54 时小屏设备
+  // 在展开动画末尾可能出现内容溢出。
+  static const double _halfSheetSize = .56;
   static const double _expandedSheetSize = .76;
-  static const double _keyboardMaxSheetSize = .92;
 
   final searchController = TextEditingController();
   final searchFocus = FocusNode();
@@ -54,6 +55,11 @@ class _MapHomePageState extends State<MapHomePage> {
   bool amapRuntimeSupported = false;
   bool checkingAmapSupport = true;
   bool searchLoading = false;
+  bool searchContentVisible = false;
+  bool searchOriginWarmupStarted = false;
+  int searchGeneration = 0;
+  int sheetMoveGeneration = 0;
+  double searchSheetSize = _collapsedSheetSize;
   String? searchError;
   LocationSelection? selectedLocation;
   List<LocationSelection> searchResults = const [];
@@ -65,9 +71,11 @@ class _MapHomePageState extends State<MapHomePage> {
     _checkAmapSupport();
     searchFocus.addListener(() {
       if (!mounted) return;
-      setState(() {});
       if (searchFocus.hasFocus) {
-        _animateSearchSheet(_expandedSheetSize);
+        setState(() => searchContentVisible = true);
+        unawaited(_moveSearchSheet(_expandedSheetSize));
+      } else {
+        setState(() {});
       }
     });
   }
@@ -76,12 +84,20 @@ class _MapHomePageState extends State<MapHomePage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (locationService != null) return;
-    locationService = LocationService(context.read<AppSession>().api);
+    // 独立组件预览和 Widget 测试可能没有注入会话；正式 App 始终由根节点注入。
+    // 缺少会话时跳过服务端历史记录，不影响地图、定位与底部面板本身。
+    try {
+      locationService = LocationService(context.read<AppSession>().api);
+    } on ProviderNotFoundException {
+      return;
+    }
     _loadHistory();
   }
 
   @override
   void dispose() {
+    searchGeneration++;
+    sheetMoveGeneration++;
     debounce?.cancel();
     searchController.dispose();
     searchFocus.dispose();
@@ -103,6 +119,9 @@ class _MapHomePageState extends State<MapHomePage> {
         amapRuntimeSupported = supported;
         checkingAmapSupport = false;
       });
+      if (supported) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _locate());
+      }
     } on PlatformException {
       if (mounted) setState(() => checkingAmapSupport = false);
     } on MissingPluginException {
@@ -127,8 +146,18 @@ class _MapHomePageState extends State<MapHomePage> {
       _showMessage('请使用 ARM64 Android 真机体验高德定位');
       return;
     }
-    final granted =
-        await _permissionChannel.invokeMethod<bool>('requestLocation') ?? false;
+    bool granted;
+    try {
+      granted =
+          await _permissionChannel.invokeMethod<bool>('requestLocation') ??
+          false;
+    } on PlatformException {
+      _showMessage('定位服务暂不可用，请检查系统定位设置后重试');
+      return;
+    } on MissingPluginException {
+      _showMessage('当前设备暂不支持定位，仍可使用右侧定位按钮重试');
+      return;
+    }
     if (!mounted) return;
     if (!granted) {
       _showMessage('需要允许定位权限，才能显示当前位置');
@@ -162,6 +191,14 @@ class _MapHomePageState extends State<MapHomePage> {
     } on MissingPluginException {
       return;
     }
+  }
+
+  /// 搜索不能等待定位结果，否则首次输入可能额外卡住约两秒。
+  /// 这里只在后台预热一次；本次搜索立即使用已有坐标或无坐标搜索。
+  void _warmSearchOriginInBackground() {
+    if (searchOriginWarmupStarted || lastLocation != null) return;
+    searchOriginWarmupStarted = true;
+    unawaited(_prepareSearchOrigin());
   }
 
   void _toggleTraffic() {
@@ -201,22 +238,50 @@ class _MapHomePageState extends State<MapHomePage> {
     );
   }
 
-  Future<void> _animateSearchSheet(double size) async {
+  /// 只允许最后一次面板操作决定终点。
+  ///
+  /// 聚焦搜索框会触发展开，失焦又会触发收起。用户快速点击时，两个
+  /// animateTo 可能交叉执行，导致最终停在不稳定的中间高度。每次新操作
+  /// 先用 jumpTo 取消旧动画，再在完成后校准到统一的 snap 尺寸。
+  Future<void> _moveSearchSheet(double size) async {
+    final generation = ++sheetMoveGeneration;
     if (!searchSheetController.isAttached) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _animateSearchSheet(size);
+        if (mounted && generation == sheetMoveGeneration) {
+          unawaited(_moveSearchSheet(size));
+        }
       });
       return;
     }
-    await searchSheetController.animateTo(
-      size,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
+    try {
+      // jumpTo(当前位置) 不会产生视觉跳动，但会终止上一个动画。
+      searchSheetController.jumpTo(searchSheetController.size);
+      await searchSheetController.animateTo(
+        size,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+      );
+    } catch (_) {
+      // 用户在程序动画过程中直接拖动时，旧动画可能被取消；以手势位置为准。
+    } finally {
+      // animateTo 可能被 snap 或失焦过程中断。只要期间没有新操作，
+      // 仍强制落在目标尺寸，保证“初始收起”与“搜索后收起”完全一致。
+      if (mounted &&
+          generation == sheetMoveGeneration &&
+          searchSheetController.isAttached) {
+        searchSheetController.jumpTo(size);
+      }
+    }
   }
 
   void _collapseSearchSheet() {
     FocusManager.instance.primaryFocus?.unfocus();
+    if (mounted) {
+      setState(() {
+        searchContentVisible = false;
+        searchSheetSize = _collapsedSheetSize;
+      });
+    }
     final scrollController = searchSheetScrollController;
     if (scrollController != null && scrollController.hasClients) {
       scrollController.animateTo(
@@ -225,68 +290,144 @@ class _MapHomePageState extends State<MapHomePage> {
         curve: Curves.easeOut,
       );
     }
-    _animateSearchSheet(_collapsedSheetSize);
-    // 键盘关闭动画期间抽屉的最小高度仍可能是键盘模式的高度；动画结束后
-    // 再收起一次，确保点击地图时最终只保留底部搜索框。
-    Future<void>.delayed(const Duration(milliseconds: 320), () {
-      if (mounted && !searchFocus.hasFocus) {
-        _animateSearchSheet(_collapsedSheetSize);
-      }
-    });
+    // 收起使用面板原生 reset，确保与首次进入时的
+    // initialChildSize 是同一个值，不再受键盘失焦或 snap 误差影响。
+    sheetMoveGeneration++;
+    if (searchSheetController.isAttached) {
+      searchSheetController.reset();
+    }
   }
 
   void _toggleSearchSheet() {
+    // 点击行为以“内容是否可见”为准，不依赖动画中瞬时高度。
+    // 否则聚焦展开尚未结束时点击把手，会被误判为再次展开。
+    if (searchContentVisible) {
+      _collapseSearchSheet();
+      return;
+    }
+    setState(() => searchContentVisible = true);
+    unawaited(_moveSearchSheet(_halfSheetSize));
+  }
+
+  void _dragSearchHandle(DragUpdateDetails details) {
     if (!searchSheetController.isAttached) return;
+    sheetMoveGeneration++;
+    final delta = details.primaryDelta ?? 0;
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final next = (searchSheetController.size - delta / screenHeight)
+        .clamp(_collapsedSheetSize, _expandedSheetSize)
+        .toDouble();
+    final showContent = next >= _contentRevealSheetSize;
+    if (showContent != searchContentVisible) {
+      setState(() => searchContentVisible = showContent);
+    }
+    searchSheetController.jumpTo(next);
+  }
+
+  void _startSearchHandleDrag(DragStartDetails details) {
+    sheetMoveGeneration++;
+    if (!searchContentVisible) {
+      setState(() => searchContentVisible = true);
+    }
+  }
+
+  void _endSearchHandleDrag(DragEndDetails details) {
+    if (!searchSheetController.isAttached) return;
+    final velocity = details.primaryVelocity ?? 0;
     final current = searchSheetController.size;
-    _animateSearchSheet(
-      current > _halfSheetSize - .05 ? _collapsedSheetSize : _halfSheetSize,
-    );
+    final target = velocity < -450
+        ? (current >= _halfSheetSize ? _expandedSheetSize : _halfSheetSize)
+        : velocity > 450
+        ? _collapsedSheetSize
+        : current < (_collapsedSheetSize + _halfSheetSize) / 2
+        ? _collapsedSheetSize
+        : current < (_halfSheetSize + _expandedSheetSize) / 2
+        ? _halfSheetSize
+        : _expandedSheetSize;
+    if (target == _collapsedSheetSize) {
+      _collapseSearchSheet();
+    } else {
+      setState(() => searchContentVisible = true);
+      unawaited(_moveSearchSheet(target));
+    }
   }
 
   void _onKeywordChanged(String value) {
     debounce?.cancel();
+    final query = value.trim();
+    final generation = ++searchGeneration;
     setState(() {
       searchError = null;
       selectedLocation = null;
-      if (value.trim().isEmpty) searchResults = const [];
+      searchResults = const [];
+      searchLoading = query.isNotEmpty;
     });
-    if (value.trim().isEmpty) return;
+    if (query.isEmpty) return;
     debounce = Timer(
-      const Duration(milliseconds: 400),
-      () => _search(value.trim()),
+      const Duration(milliseconds: 250),
+      () => _search(query, generation: generation),
     );
   }
 
-  Future<void> _search(String keyword) async {
+  void _submitSearch(String keyword) {
+    debounce?.cancel();
+    final generation = ++searchGeneration;
+    unawaited(_search(keyword, generation: generation));
+  }
+
+  Future<void> _search(String keyword, {required int generation}) async {
     final query = keyword.trim();
-    if (query.isEmpty) return;
-    await _prepareSearchOrigin();
-    if (!mounted) return;
+    if (query.isEmpty || generation != searchGeneration) return;
+    _warmSearchOriginInBackground();
+    final service = locationService;
+    if (service == null) {
+      if (mounted && generation == searchGeneration) {
+        setState(() {
+          searchError = '搜索服务尚未准备好，请稍后重试';
+          searchLoading = false;
+        });
+      }
+      return;
+    }
     setState(() {
       searchLoading = true;
       searchError = null;
     });
     try {
-      final rows = await locationService!.search(
-        query,
-        latitude: lastLocation?.latitude,
-        longitude: lastLocation?.longitude,
-      );
-      if (!mounted || query != searchController.text.trim()) return;
+      final rows = await service
+          .search(
+            query,
+            latitude: lastLocation?.latitude,
+            longitude: lastLocation?.longitude,
+          )
+          .timeout(const Duration(seconds: 8));
+      if (!mounted ||
+          generation != searchGeneration ||
+          query != searchController.text.trim()) {
+        return;
+      }
       setState(() {
         searchResults = rows;
         searchLoading = false;
       });
     } on ApiException catch (error) {
-      if (!mounted || query != searchController.text.trim()) return;
+      if (!mounted || generation != searchGeneration) return;
       setState(() {
         searchError = error.message;
+        searchLoading = false;
+      });
+    } catch (_) {
+      if (!mounted || generation != searchGeneration) return;
+      setState(() {
+        searchError = '搜索暂时不可用，请稍后重试';
         searchLoading = false;
       });
     }
   }
 
   Future<void> _selectLocation(LocationSelection location) async {
+    debounce?.cancel();
+    searchGeneration++;
     FocusScope.of(context).unfocus();
     try {
       final saved = await locationService!.select(location);
@@ -295,6 +436,8 @@ class _MapHomePageState extends State<MapHomePage> {
         selectedLocation = saved;
         searchController.text = saved.name;
         searchResults = const [];
+        searchLoading = false;
+        searchError = null;
       });
       LocationSnapshot.current = LocationSnapshot(
         saved.latitude,
@@ -302,7 +445,7 @@ class _MapHomePageState extends State<MapHomePage> {
       );
       _moveToLocation(LatLng(saved.latitude, saved.longitude));
       await _loadHistory();
-      await _animateSearchSheet(.36);
+      await _moveSearchSheet(_halfSheetSize);
     } on ApiException catch (error) {
       _showMessage(error.message);
     }
@@ -310,6 +453,7 @@ class _MapHomePageState extends State<MapHomePage> {
 
   void _clearSearch() {
     debounce?.cancel();
+    searchGeneration++;
     searchController.clear();
     setState(() {
       selectedLocation = null;
@@ -318,7 +462,7 @@ class _MapHomePageState extends State<MapHomePage> {
       searchLoading = false;
     });
     searchFocus.requestFocus();
-    _animateSearchSheet(_expandedSheetSize);
+    unawaited(_moveSearchSheet(_expandedSheetSize));
   }
 
   Future<void> _createTrip({
@@ -340,14 +484,6 @@ class _MapHomePageState extends State<MapHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
-    final minSheetSize = keyboardVisible
-        ? _keyboardMinSheetSize
-        : _collapsedSheetSize;
-    final maxSheetSize = keyboardVisible
-        ? _keyboardMaxSheetSize
-        : _expandedSheetSize;
-
     return Stack(
       children: [
         Positioned.fill(
@@ -399,25 +535,38 @@ class _MapHomePageState extends State<MapHomePage> {
           ),
         ),
         NotificationListener<DraggableScrollableNotification>(
-          onNotification: (_) => false,
+          onNotification: (notification) {
+            final nextSize = notification.extent;
+            var nextContentVisible = searchContentVisible;
+            if (nextSize >= _contentRevealSheetSize) {
+              nextContentVisible = true;
+            } else if (nextSize <= _collapsedSheetSize + .015) {
+              nextContentVisible = false;
+            }
+            if ((searchSheetSize - nextSize).abs() > .005 ||
+                nextContentVisible != searchContentVisible) {
+              setState(() {
+                searchSheetSize = nextSize;
+                searchContentVisible = nextContentVisible;
+              });
+            }
+            if (nextSize <= _collapsedSheetSize + .015 &&
+                searchFocus.hasFocus) {
+              searchFocus.unfocus();
+            }
+            return false;
+          },
           child: DraggableScrollableSheet(
             controller: searchSheetController,
-            initialChildSize: minSheetSize,
-            minChildSize: minSheetSize,
-            maxChildSize: maxSheetSize,
+            initialChildSize: _collapsedSheetSize,
+            minChildSize: _collapsedSheetSize,
+            maxChildSize: _expandedSheetSize,
             snap: true,
-            snapSizes: keyboardVisible
-                ? const [
-                    _keyboardMinSheetSize,
-                    _halfSheetSize,
-                    _expandedSheetSize,
-                    _keyboardMaxSheetSize,
-                  ]
-                : const [
-                    _collapsedSheetSize,
-                    _halfSheetSize,
-                    _expandedSheetSize,
-                  ],
+            snapSizes: const [
+              _collapsedSheetSize,
+              _halfSheetSize,
+              _expandedSheetSize,
+            ],
             builder: (context, scrollController) {
               searchSheetScrollController = scrollController;
               return _SearchSheet(
@@ -429,9 +578,13 @@ class _MapHomePageState extends State<MapHomePage> {
                 history: recentLocations,
                 loading: searchLoading,
                 error: searchError,
+                collapsed: !searchContentVisible,
                 onHandleTap: _toggleSearchSheet,
+                onHandleDragStart: _startSearchHandleDrag,
+                onHandleDragUpdate: _dragSearchHandle,
+                onHandleDragEnd: _endSearchHandleDrag,
                 onChanged: _onKeywordChanged,
-                onSubmitted: _search,
+                onSubmitted: _submitSearch,
                 onClear: _clearSearch,
                 onSelect: _selectLocation,
                 onSetStart: selectedLocation == null
@@ -462,7 +615,11 @@ class _SearchSheet extends StatelessWidget {
     required this.history,
     required this.loading,
     required this.error,
+    required this.collapsed,
     required this.onHandleTap,
+    required this.onHandleDragStart,
+    required this.onHandleDragUpdate,
+    required this.onHandleDragEnd,
     required this.onChanged,
     required this.onSubmitted,
     required this.onClear,
@@ -480,7 +637,11 @@ class _SearchSheet extends StatelessWidget {
   final List<LocationSelection> history;
   final bool loading;
   final String? error;
+  final bool collapsed;
   final VoidCallback onHandleTap;
+  final GestureDragStartCallback onHandleDragStart;
+  final GestureDragUpdateCallback onHandleDragUpdate;
+  final GestureDragEndCallback onHandleDragEnd;
   final ValueChanged<String> onChanged;
   final ValueChanged<String> onSubmitted;
   final VoidCallback onClear;
@@ -493,6 +654,7 @@ class _SearchSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
+    key: const ValueKey('map-search-sheet-surface'),
     decoration: const BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -507,124 +669,166 @@ class _SearchSheet extends StatelessWidget {
     clipBehavior: Clip.antiAlias,
     child: Material(
       color: Colors.transparent,
-      child: Column(
-        children: [
-          // 头部固定，避免抽屉滚动后搜索框被带出可视区域。
-          InkWell(
-            onTap: onHandleTap,
-            child: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 5),
-              child: SizedBox(
-                width: 32,
-                height: 4,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Color(0xFFD0D5DD),
-                    borderRadius: BorderRadius.all(Radius.circular(99)),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-            child: Container(
-              height: 44,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF4F6F8),
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: const Color(0xFFE4E7EC)),
-              ),
-              child: TextField(
-                controller: searchController,
-                focusNode: focusNode,
-                onChanged: onChanged,
-                onSubmitted: onSubmitted,
-                textInputAction: TextInputAction.search,
-                style: const TextStyle(color: Color(0xFF1D2939), fontSize: 15),
-                cursorColor: AppColors.primary,
-                decoration: InputDecoration(
-                  hintText: '搜索地点或地址',
-                  hintStyle: const TextStyle(color: Color(0xFF98A2B3)),
-                  prefixIcon: const Icon(
-                    LucideIcons.search,
-                    size: 20,
-                    color: Color(0xFF344054),
-                  ),
-                  prefixIconConstraints: const BoxConstraints(
-                    minWidth: 40,
-                    minHeight: 40,
-                  ),
-                  suffixIcon: hasKeyword
-                      ? IconButton(
-                          tooltip: '清空',
-                          onPressed: onClear,
-                          icon: const Icon(
-                            LucideIcons.x,
-                            size: 19,
-                            color: Color(0xFF667085),
-                          ),
-                        )
-                      : null,
-                  suffixIconConstraints: const BoxConstraints(
-                    minWidth: 42,
-                    minHeight: 42,
-                  ),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  filled: false,
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: CustomScrollView(
-              controller: controller,
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              slivers: [
-                if (selectedLocation != null)
-                  SliverToBoxAdapter(
-                    child: _SelectedPlaceCard(
-                      location: selectedLocation!,
-                      onSetStart: onSetStart!,
-                      onSetWaypoint: onSetWaypoint!,
-                      onSetEnd: onSetEnd!,
-                    ),
-                  ),
-                if (loading)
-                  const SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else if (error != null)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
+      child: LayoutBuilder(
+        builder: (context, constraints) => Stack(
+          children: [
+            // 头部固定，避免抽屉滚动后搜索框被带出可视区域。
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: GestureDetector(
+                key: const ValueKey('map-search-sheet-handle'),
+                behavior: HitTestBehavior.opaque,
+                onVerticalDragStart: onHandleDragStart,
+                onVerticalDragUpdate: onHandleDragUpdate,
+                onVerticalDragEnd: onHandleDragEnd,
+                child: InkWell(
+                  onTap: onHandleTap,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 7),
                     child: Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Text(
-                          error!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Color(0xFF667085)),
+                      child: SizedBox(
+                        width: 52,
+                        height: 6,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Color(0xFFD0D5DD),
+                            borderRadius: BorderRadius.all(Radius.circular(99)),
+                          ),
                         ),
                       ),
                     ),
-                  )
-                else
-                  _PlaceListSliver(
-                    title: hasKeyword ? '搜索结果' : '最近搜索',
-                    rows: hasKeyword ? results : history,
-                    emptyText: hasKeyword ? '没有找到相关地点' : '暂无最近搜索',
-                    onSelect: onSelect,
                   ),
-                const SliverToBoxAdapter(child: SizedBox(height: 20)),
-              ],
+                ),
+              ),
             ),
-          ),
-        ],
+            if (!collapsed)
+              Positioned(
+                left: 12,
+                right: 12,
+                top: 20,
+                height: 50,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Container(
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF4F6F8),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: const Color(0xFFE4E7EC)),
+                    ),
+                    child: TextField(
+                      key: const ValueKey('map-place-search-field'),
+                      controller: searchController,
+                      focusNode: focusNode,
+                      onChanged: onChanged,
+                      onSubmitted: onSubmitted,
+                      textInputAction: TextInputAction.search,
+                      style: const TextStyle(
+                        color: Color(0xFF1D2939),
+                        fontSize: 15,
+                      ),
+                      cursorColor: AppColors.primary,
+                      decoration: InputDecoration(
+                        hintText: '搜索地点或地址',
+                        hintStyle: const TextStyle(color: Color(0xFF98A2B3)),
+                        prefixIcon: const Icon(
+                          LucideIcons.search,
+                          size: 20,
+                          color: Color(0xFF344054),
+                        ),
+                        prefixIconConstraints: const BoxConstraints(
+                          minWidth: 40,
+                          minHeight: 40,
+                        ),
+                        suffixIcon: hasKeyword
+                            ? IconButton(
+                                tooltip: '清空',
+                                onPressed: onClear,
+                                icon: const Icon(
+                                  LucideIcons.x,
+                                  size: 19,
+                                  color: Color(0xFF667085),
+                                ),
+                              )
+                            : null,
+                        suffixIconConstraints: const BoxConstraints(
+                          minWidth: 42,
+                          minHeight: 42,
+                        ),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        filled: false,
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if (!collapsed)
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 70,
+                bottom: 0,
+                child: CustomScrollView(
+                  controller: controller,
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  slivers: [
+                    if (selectedLocation != null)
+                      SliverToBoxAdapter(
+                        child: _SelectedPlaceCard(
+                          location: selectedLocation!,
+                          onSetStart: onSetStart!,
+                          onSetWaypoint: onSetWaypoint!,
+                          onSetEnd: onSetEnd!,
+                        ),
+                      ),
+                    if (loading)
+                      const SliverToBoxAdapter(
+                        child: LinearProgressIndicator(
+                          minHeight: 2,
+                          color: AppColors.primary,
+                          backgroundColor: Color(0xFFE4E7EC),
+                        ),
+                      )
+                    else if (error != null)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Text(
+                              error!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Color(0xFF667085)),
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      _PlaceListSliver(
+                        title: hasKeyword ? '猜你要找' : '最近搜索',
+                        rows: hasKeyword ? results : history,
+                        emptyText: hasKeyword ? '没有找到相关地点' : '暂无最近搜索',
+                        onSelect: onSelect,
+                      ),
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: MediaQuery.viewInsetsOf(context).bottom + 20,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     ),
   );

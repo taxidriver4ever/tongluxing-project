@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'app_session.dart';
@@ -62,6 +63,13 @@ class _TongLuXingAppState extends State<TongLuXingApp> {
       title: '同路行',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [Locale('zh', 'CN')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       initialRoute: initialRoute,
       // Flutter 默认会在 /home 前先压入 /；本项目的 / 会落到登录页，
       // 导致首页按返回键时错误返回登录页。初始路由只保留当前目标页。

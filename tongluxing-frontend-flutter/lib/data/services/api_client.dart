@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'dart:typed_data';
-
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../common/constants/api_config.dart';
@@ -32,6 +32,16 @@ class ApiClient {
     : _client = client ?? http.Client();
 
   static const int accountLoggedInElsewhereCode = 40101;
+  static const Duration requestTimeout = Duration(seconds: 15);
+  static final RegExp _tripDetailPath = RegExp(
+    r'^/v1/trips/[^/]+(?:/public-detail)?$',
+  );
+  static final RegExp _storedRoutePath = RegExp(r'^/v1/trip/[^/]+/route$');
+  static final RegExp _draftRoutePlanPath = RegExp(
+    r'^/v1/trip/draft/[^/]+/route/plan$',
+  );
+  static int _routeRequestSequence = 0;
+
   final http.Client _client;
   final bool useDemo;
   String? token;
@@ -56,11 +66,18 @@ class ApiClient {
     Uint8List bytes, {
     required String contentType,
   }) async {
-    final response = await _client.put(
-      Uri.parse(url),
-      headers: {'Content-Type': contentType},
-      body: bytes,
-    );
+    late http.Response response;
+    try {
+      response = await _client
+          .put(
+            Uri.parse(url),
+            headers: {'Content-Type': contentType},
+            body: bytes,
+          )
+          .timeout(requestTimeout);
+    } on TimeoutException {
+      throw const ApiException('文件上传超时，请重试', networkError: true);
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException('文件上传失败', statusCode: response.statusCode);
     }
@@ -72,7 +89,43 @@ class ApiClient {
     Map<String, String>? query,
     Object? body,
   }) async {
-    if (useDemo) return DemoApi.request(method, path, body: body);
+    final tracesRouteLoading = _tracesRouteLoading(method, path);
+    final requestId = tracesRouteLoading
+        ? '${DateTime.now().microsecondsSinceEpoch}-${++_routeRequestSequence}'
+        : null;
+    final requestStopwatch = Stopwatch()..start();
+    if (requestId != null) {
+      debugPrint(
+        '[RoutePerformance] request_start '
+        'requestId=$requestId timestamp=${DateTime.now().toIso8601String()} '
+        'method=$method path=$path',
+      );
+    }
+
+    if (useDemo) {
+      try {
+        final result = await DemoApi.request(method, path, body: body);
+        if (requestId != null) {
+          debugPrint(
+            '[RoutePerformance] api_response '
+            'requestId=$requestId timestamp=${DateTime.now().toIso8601String()} '
+            'method=$method path=$path status=demo '
+            'elapsedMs=${requestStopwatch.elapsedMilliseconds}',
+          );
+        }
+        return result;
+      } catch (_) {
+        if (requestId != null) {
+          debugPrint(
+            '[RoutePerformance] api_response '
+            'requestId=$requestId timestamp=${DateTime.now().toIso8601String()} '
+            'method=$method path=$path status=demo_error '
+            'elapsedMs=${requestStopwatch.elapsedMilliseconds}',
+          );
+        }
+        rethrow;
+      }
+    }
     final base = Uri.parse(ApiConfig.baseUrl);
     final uri = base.replace(
       path: '${base.path}${path.startsWith('/') ? path : '/$path'}',
@@ -96,24 +149,41 @@ class ApiClient {
 
     late http.Response response;
     try {
-      response = switch (method) {
-        'POST' => await _client.post(
-          uri,
-          headers: headers,
-          body: encodedBody,
-        ),
-        'PUT' => await _client.put(
-          uri,
-          headers: headers,
-          body: encodedBody,
-        ),
-        'DELETE' => await _client.delete(uri, headers: headers),
-        _ => await _client.get(uri, headers: headers),
-      };
+      response = await (switch (method) {
+        'POST' => _client.post(uri, headers: headers, body: encodedBody),
+        'PUT' => _client.put(uri, headers: headers, body: encodedBody),
+        'DELETE' => _client.delete(uri, headers: headers),
+        _ => _client.get(uri, headers: headers),
+      }).timeout(requestTimeout);
+    } on TimeoutException {
+      if (requestId != null) {
+        debugPrint(
+          '[RoutePerformance] api_response '
+          'requestId=$requestId timestamp=${DateTime.now().toIso8601String()} '
+          'method=$method path=$path status=timeout '
+          'elapsedMs=${requestStopwatch.elapsedMilliseconds}',
+        );
+      }
+      throw const ApiException('请求超时，请检查网络后重试', networkError: true);
     } catch (_) {
-      throw const ApiException(
-        '无法连接服务器，请确认后端已启动',
-        networkError: true,
+      if (requestId != null) {
+        debugPrint(
+          '[RoutePerformance] api_response '
+          'requestId=$requestId timestamp=${DateTime.now().toIso8601String()} '
+          'method=$method path=$path status=network_error '
+          'elapsedMs=${requestStopwatch.elapsedMilliseconds}',
+        );
+      }
+      throw const ApiException('无法连接服务器，请确认后端已启动', networkError: true);
+    }
+
+    if (requestId != null) {
+      debugPrint(
+        '[RoutePerformance] api_response '
+        'requestId=$requestId timestamp=${DateTime.now().toIso8601String()} '
+        'method=$method path=$path status=${response.statusCode} '
+        'elapsedMs=${requestStopwatch.elapsedMilliseconds} '
+        'responseBytes=${response.bodyBytes.length}',
       );
     }
 
@@ -151,5 +221,15 @@ class ApiClient {
       return payload['data'];
     }
     return payload;
+  }
+
+  /// 只跟踪会直接提供或刷新路线折线的请求，避免普通接口污染性能日志。
+  static bool _tracesRouteLoading(String method, String path) {
+    if (path == '/v1/map/routes/plan' ||
+        _draftRoutePlanPath.hasMatch(path) ||
+        _storedRoutePath.hasMatch(path)) {
+      return true;
+    }
+    return method == 'GET' && _tripDetailPath.hasMatch(path);
   }
 }

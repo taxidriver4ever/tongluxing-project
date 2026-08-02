@@ -12,12 +12,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.tongluxing.common.result.Result;
 import com.tongluxing.trip.service.TripDraftService;
-import com.tongluxing.user.model.UserModels.PageResult;
-import com.tongluxing.user.model.UserModels.PublishDraftRequest;
-import com.tongluxing.user.model.UserModels.PublishResultVO;
-import com.tongluxing.user.model.UserModels.TeamMatchVO;
-import com.tongluxing.user.model.UserModels.TripDraftRequest;
-import com.tongluxing.user.model.UserModels.TripDraftVO;
+import com.tongluxing.common.model.PageResult;
+import com.tongluxing.user.dto.request.PublishDraftRequest;
+import com.tongluxing.user.vo.PublishResultVO;
+import com.tongluxing.user.vo.TeamMatchVO;
+import com.tongluxing.user.dto.request.TripDraftRequest;
+import com.tongluxing.user.vo.TripDraftVO;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

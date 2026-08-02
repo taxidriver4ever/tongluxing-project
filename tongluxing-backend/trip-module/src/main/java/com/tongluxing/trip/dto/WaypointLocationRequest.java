@@ -15,6 +15,6 @@ public record WaypointLocationRequest(
         @Size(max = 255) String address,
         @NotNull BigDecimal latitude,
         @NotNull BigDecimal longitude,
-        @Min(1) @Max(5) Integer sortOrder
+        @Min(1) @Max(20) Integer sortOrder
 ) {
 }

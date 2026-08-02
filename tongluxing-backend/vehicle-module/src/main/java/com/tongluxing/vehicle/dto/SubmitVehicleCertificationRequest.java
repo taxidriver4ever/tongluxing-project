@@ -35,8 +35,9 @@ public record SubmitVehicleCertificationRequest(
         @NotBlank(message = "发动机号不能为空")
         @Size(max = 32, message = "发动机号长度不能超过32位")
         String engineNo,
-        /** 注册日期与发证日期。 */
+        /** 车辆注册日期，允许 OCR 未识别时为空。 */
         LocalDate registerDate,
+        /** 行驶证签发日期，允许 OCR 未识别时为空。 */
         LocalDate issueDate,
         /** 发证机关。 */
         @Size(max = 128, message = "发证机关长度不能超过128位")
@@ -57,7 +58,9 @@ public record SubmitVehicleCertificationRequest(
 ) {
     /** 单张车辆审核图片。 */
     public record VehicleImageRequest(
+            /** 图片业务类型，限定为枚举列表中的证件或车辆角度。 */
             @NotBlank @Pattern(regexp = "DRIVER_LICENSE|REGISTRATION_LICENSE|VEHICLE|VEHICLE_FRONT|VEHICLE_REAR|VEHICLE_SIDE|VEHICLE_OTHER") String imageType,
+            /** 已上传至对象存储的资源 key 或 URL。 */
             @NotBlank @Size(max = 512) String imageKey
     ) {
     }

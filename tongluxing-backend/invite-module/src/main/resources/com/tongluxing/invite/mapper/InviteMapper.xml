@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.tongluxing.invite.mapper.InviteMapper">
+    <!-- 邀请人视角的关系列表：status 为空时查询全部，按最新绑定时间倒序。 -->
     <select id="findRecords" resultType="com.tongluxing.invite.dto.InviteQueryDTO">
         select id as relationId,
                invitee_user_id as inviteeUserId,
@@ -22,6 +23,7 @@
               #{size}
     </select>
 
+    <!-- 总数查询必须与 findRecords 使用完全相同的邀请人、状态和逻辑删除条件。 -->
     <select id="countRecords" resultType="long">
         select count(*)
         from invite_relation

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -14,6 +15,7 @@ import '../../../data/models/app_models.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import '../../home/pages/search_location_page.dart';
+import '../../profile/pages/vehicle_auth_status_page.dart';
 import '../widgets/trip_route_preview.dart';
 
 /// 三步式行程创建：路线、基本信息和同行要求彼此分开，避免表单拥挤。
@@ -63,6 +65,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
   int step = 0;
   int expectPeople = 5;
   DateTime? startTime;
+  DateTime? expectedEndDate;
   LocationSelection? start;
   LocationSelection? end;
   String? draftId;
@@ -72,6 +75,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
   bool routePlanQueued = false;
   Timer? routeTimer;
   int routeGeneration = 0;
+  String? plannedRouteSignature;
 
   Uint8List? coverBytes;
   String coverFileName = '';
@@ -96,6 +100,11 @@ class _TripCreatePageState extends State<TripCreatePage> {
               : draft.vehicleRequirements,
         );
       startTime = DateTime.tryParse(draft.startTime ?? '');
+      if (startTime != null) {
+        expectedEndDate = startTime!.add(
+          Duration(days: math.max(1, draft.durationDays) - 1),
+        );
+      }
       start = draft.startLocation;
       end = draft.destination;
       expectPeople = draft.expectPeople;
@@ -112,6 +121,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
       );
       persistedWaypointIds.addAll(draft.waypoints.map((item) => item.id));
       route = draft.route;
+      if (route != null) plannedRouteSignature = _routeSignature();
       coverImageKey = draft.coverImageKey;
       if (coverImageKey.isNotEmpty) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _loadCoverUrl());
@@ -178,8 +188,8 @@ class _TripCreatePageState extends State<TripCreatePage> {
   }
 
   Future<void> _addWaypoint() async {
-    if (waypoints.length >= 5) {
-      _showMessage('经停点最多 5 个');
+    if (waypoints.length >= 20) {
+      _showMessage('经停点最多 20 个');
       return;
     }
     final value = await _pickLocation();
@@ -235,7 +245,6 @@ class _TripCreatePageState extends State<TripCreatePage> {
 
   void _reorderWaypoint(int oldIndex, int newIndex) {
     setState(() {
-      if (newIndex > oldIndex) newIndex--;
       final item = waypoints.removeAt(oldIndex);
       waypoints.insert(newIndex, item);
       route = null;
@@ -247,6 +256,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
     routeTimer?.cancel();
     final generation = ++routeGeneration;
     if (start == null || end == null || _routeConflictMessage() != null) return;
+    if (route != null && plannedRouteSignature == _routeSignature()) return;
     routeTimer = Timer(_routeDebounce, () async {
       if (!mounted || generation != routeGeneration) return;
       if (routePlanning) {
@@ -340,21 +350,22 @@ class _TripCreatePageState extends State<TripCreatePage> {
   Future<void> _pickTime() async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final initialDate =
-        startTime != null && startTime!.isAfter(now)
+    final initialDate = startTime != null && startTime!.isAfter(now)
         ? startTime!
         : now.add(const Duration(days: 1));
     final date = await showDatePicker(
       context: context,
+      locale: const Locale('zh', 'CN'),
+      helpText: '选择出发日期',
+      cancelText: '取消',
+      confirmText: '确定',
       initialDate: initialDate,
       firstDate: today,
       lastDate: today.add(const Duration(days: 365)),
     );
     if (date == null || !mounted) return;
     final selectingToday =
-        date.year == now.year &&
-        date.month == now.month &&
-        date.day == now.day;
+        date.year == now.year && date.month == now.month && date.day == now.day;
     final suggestedTime = selectingToday
         ? TimeOfDay.fromDateTime(now.add(const Duration(minutes: 5)))
         : startTime != null &&
@@ -365,7 +376,14 @@ class _TripCreatePageState extends State<TripCreatePage> {
         : const TimeOfDay(hour: 8, minute: 0);
     final time = await showTimePicker(
       context: context,
+      helpText: '选择出发时间',
+      cancelText: '取消',
+      confirmText: '确定',
       initialTime: suggestedTime,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+        child: child!,
+      ),
     );
     if (time == null || !mounted) return;
     final selected = DateTime(
@@ -381,7 +399,39 @@ class _TripCreatePageState extends State<TripCreatePage> {
     }
     setState(() {
       startTime = selected;
+      if (expectedEndDate == null || expectedEndDate!.isBefore(selected)) {
+        expectedEndDate = selected;
+      }
     });
+  }
+
+  Future<void> _pickExpectedEndDate() async {
+    final startValue = startTime;
+    if (startValue == null) {
+      _showMessage('请先选择预计出发时间');
+      return;
+    }
+    final selected = await showDatePicker(
+      context: context,
+      locale: const Locale('zh', 'CN'),
+      helpText: '选择预计结束日期',
+      cancelText: '取消',
+      confirmText: '确定',
+      initialDate: expectedEndDate ?? startValue,
+      firstDate: DateTime(startValue.year, startValue.month, startValue.day),
+      lastDate: DateTime(startValue.year + 1, startValue.month, startValue.day),
+    );
+    if (selected != null && mounted) {
+      setState(
+        () => expectedEndDate = DateTime(
+          selected.year,
+          selected.month,
+          selected.day,
+          startValue.hour,
+          startValue.minute,
+        ),
+      );
+    }
   }
 
   String _formatTime(DateTime value) =>
@@ -390,6 +440,10 @@ class _TripCreatePageState extends State<TripCreatePage> {
       '${value.day.toString().padLeft(2, '0')} '
       '${value.hour.toString().padLeft(2, '0')}:'
       '${value.minute.toString().padLeft(2, '0')}:00';
+
+  String _formatChineseTime(DateTime value, {bool dateOnly = false}) =>
+      '${value.year}年${value.month}月${value.day}日'
+      '${dateOnly ? '' : ' ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}'}';
 
   Future<void> _loadCoverUrl() async {
     try {
@@ -427,13 +481,13 @@ class _TripCreatePageState extends State<TripCreatePage> {
   Future<void> _ensureCoverUploaded() async {
     final bytes = coverBytes;
     if (bytes == null) return;
-    final uploaded = await StorageUploadService(context.read<AppSession>().api)
-        .upload(
-          bizType: 'TRIP_COVER',
-          bizId: draftId ?? context.read<AppSession>().userId,
-          fileName: coverFileName.isEmpty ? 'trip-cover.jpg' : coverFileName,
-          bytes: bytes,
-        );
+    final storageService = StorageUploadService(context.read<AppSession>().api);
+    final uploaded = await storageService.upload(
+      bizType: 'TRIP_COVER',
+      bizId: draftId ?? context.read<AppSession>().userId,
+      fileName: coverFileName.isEmpty ? 'trip-cover.jpg' : coverFileName,
+      bytes: bytes,
+    );
     final uploadedKey = uploaded['objectKey']?.toString() ?? '';
     if (uploadedKey.isEmpty) {
       throw const ApiException('行程封面上传结果缺少 objectKey');
@@ -441,9 +495,9 @@ class _TripCreatePageState extends State<TripCreatePage> {
     coverImageKey = uploadedKey;
     coverBytes = null;
     try {
-      coverDownloadUrl = await StorageUploadService(
-        context.read<AppSession>().api,
-      ).downloadUrlByObjectKey(coverImageKey);
+      coverDownloadUrl = await storageService.downloadUrlByObjectKey(
+        coverImageKey,
+      );
     } catch (_) {
       coverDownloadUrl = '';
     }
@@ -457,7 +511,14 @@ class _TripCreatePageState extends State<TripCreatePage> {
     'description': description.text.trim(),
     'coverImageKey': coverImageKey.isEmpty ? null : coverImageKey,
     'expectPeople': expectPeople,
-    'durationDays': 1,
+    'durationDays': startTime == null || expectedEndDate == null
+        ? 1
+        : expectedEndDate!
+                  .difference(
+                    DateTime(startTime!.year, startTime!.month, startTime!.day),
+                  )
+                  .inDays +
+              1,
     'vehicleRequirements': vehicleRequirements.toList(),
     'budgetDescription': budget.text.trim(),
     'notes': notes.text.trim(),
@@ -486,6 +547,10 @@ class _TripCreatePageState extends State<TripCreatePage> {
     try {
       final id = await _ensureDraft();
       await _tripService.updateDraft(id, _draftBody());
+      final signature = _routeSignature();
+      // 路线节点未变化时复用已经成功的规划结果，避免“下一步”和“发布”
+      // 再次提交所有途经点、排序并调用地图服务。
+      if (route != null && plannedRouteSignature == signature) return true;
       final previousIds = persistedWaypointIds.toSet();
       final activeIds = <String>[];
       for (var i = 0; i < waypoints.length; i++) {
@@ -525,6 +590,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
         final json = await _tripService.planRoute(id);
         if (generation == null || generation == routeGeneration) {
           route = TripDraftRouteModel.fromJson(json);
+          plannedRouteSignature = signature;
         }
       }
       if (mounted) setState(() {});
@@ -547,17 +613,47 @@ class _TripCreatePageState extends State<TripCreatePage> {
     setState(() => submitting = true);
     try {
       await _ensureCoverUploaded();
-      final id = await _ensureDraft();
-      await _tripService.updateDraft(id, _draftBody());
       if (start != null && end != null) {
         return await _persistRoute(plan: plan, showError: true);
       }
+      final id = await _ensureDraft();
+      await _tripService.updateDraft(id, _draftBody());
       return true;
     } catch (error) {
       _showMessage('$error');
       return false;
     } finally {
       if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  Future<void> _handlePublishError(Object error) async {
+    if (!'$error'.contains('车辆认证') || !mounted) {
+      _showMessage('$error');
+      return;
+    }
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('发布前需要车辆认证'),
+        content: const Text('内测阶段提交完整车辆资料后会自动通过，认证完成可直接返回继续发布。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('稍后处理'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('去认证'),
+          ),
+        ],
+      ),
+    );
+    if (go == true && mounted) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const VehicleAuthStatusPage()),
+      );
     }
   }
 
@@ -629,7 +725,6 @@ class _TripCreatePageState extends State<TripCreatePage> {
     try {
       await _ensureCoverUploaded();
       final id = await _ensureDraft();
-      await _tripService.updateDraft(id, _draftBody());
       if (!await _persistRoute(plan: true, showError: true)) return;
       if (!await _confirmTimeConflict()) return;
       await _tripService.publishDraft(id);
@@ -637,11 +732,19 @@ class _TripCreatePageState extends State<TripCreatePage> {
       _showMessage('行程发布成功，群聊已创建');
       Navigator.pushNamedAndRemoveUntil(context, AppRoutes.home, (_) => false);
     } catch (error) {
-      _showMessage('$error');
+      await _handlePublishError(error);
     } finally {
       if (mounted) setState(() => submitting = false);
     }
   }
+
+  String _routeSignature() => jsonEncode({
+    'start': start == null ? null : [start!.latitude, start!.longitude],
+    'end': end == null ? null : [end!.latitude, end!.longitude],
+    'waypoints': waypoints
+        .map((item) => [item.location.latitude, item.location.longitude])
+        .toList(),
+  });
 
   Future<bool> _confirmTimeConflict() async {
     final departure = startTime;
@@ -730,9 +833,9 @@ class _TripCreatePageState extends State<TripCreatePage> {
   }
 
   List<LocationSelection> get _routePoints => [
-    if (start != null) start!,
+    ?start,
     ...waypoints.map((item) => item.location),
-    if (end != null) end!,
+    ?end,
   ];
 
   String get _distanceText {
@@ -958,7 +1061,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
                     physics: const NeverScrollableScrollPhysics(),
                     buildDefaultDragHandles: false,
                     itemCount: waypoints.length,
-                    onReorder: _reorderWaypoint,
+                    onReorderItem: _reorderWaypoint,
                     itemBuilder: (context, index) {
                       final item = waypoints[index];
                       return Padding(
@@ -982,12 +1085,12 @@ class _TripCreatePageState extends State<TripCreatePage> {
                     },
                   ),
                   OutlinedButton.icon(
-                    onPressed: routePlanning || waypoints.length >= 5
+                    onPressed: routePlanning || waypoints.length >= 20
                         ? null
                         : _addWaypoint,
                     icon: const Icon(LucideIcons.plus),
                     label: Text(
-                      waypoints.length >= 5 ? '已达到 5 个停靠点上限' : '添加停靠点',
+                      waypoints.length >= 20 ? '已达到 20 个停靠点上限' : '添加停靠点',
                     ),
                   ),
                   const Padding(
@@ -1074,9 +1177,18 @@ class _TripCreatePageState extends State<TripCreatePage> {
       const SizedBox(height: 14),
       _PlaceButton(
         label: '预计出发时间',
-        value: startTime == null ? '请选择' : _formatTime(startTime!),
+        value: startTime == null ? '请选择' : _formatChineseTime(startTime!),
         icon: LucideIcons.calendarClock,
         onTap: submitting ? null : _pickTime,
+      ),
+      const SizedBox(height: 14),
+      _PlaceButton(
+        label: '预计结束日期',
+        value: expectedEndDate == null
+            ? '请选择'
+            : _formatChineseTime(expectedEndDate!, dateOnly: true),
+        icon: LucideIcons.calendarCheck,
+        onTap: submitting ? null : _pickExpectedEndDate,
       ),
       const SizedBox(height: 14),
       Container(
@@ -1113,7 +1225,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
             IconButton(
-              onPressed: expectPeople < 20
+              onPressed: expectPeople < 50
                   ? () => setState(() => expectPeople++)
                   : null,
               icon: const Icon(LucideIcons.plus),

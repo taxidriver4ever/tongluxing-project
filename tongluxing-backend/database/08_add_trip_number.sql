@@ -20,7 +20,7 @@ BEGIN
               AND column_name = 'trip_number'
         ) THEN
             ALTER TABLE trip
-                ADD COLUMN trip_number varchar(20) NULL AFTER id;
+                ADD COLUMN trip_number varchar(20) NULL COMMENT '对外展示的行程编号' AFTER id;
         END IF;
 
         UPDATE trip
@@ -28,7 +28,7 @@ BEGIN
         WHERE trip_number IS NULL OR TRIM(trip_number) = '';
 
         ALTER TABLE trip
-            MODIFY COLUMN trip_number varchar(20) NOT NULL;
+            MODIFY COLUMN trip_number varchar(20) NOT NULL COMMENT '对外展示的行程编号';
 
         IF NOT EXISTS (
             SELECT 1

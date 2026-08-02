@@ -10,6 +10,7 @@ import '../../../data/services/location_snapshot.dart';
 import 'trip_discovery_detail_page.dart';
 import 'trip_discovery_filter_sheet.dart';
 import 'trip_discovery_widgets.dart';
+import 'trip_create_page.dart';
 import 'trip_search_results_page.dart';
 
 class TripDiscoveryPage extends StatefulWidget {
@@ -21,16 +22,16 @@ class TripDiscoveryPage extends StatefulWidget {
 
 class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
   static const _sortTabs = <({String label, String value})>[
-    (label: '顺路优先', value: 'ROUTE_MATCH'),
+    (label: '个人推荐', value: 'RECOMMENDED'),
     (label: '附近优先', value: 'NEARBY'),
-    (label: '时间优先', value: 'DEPARTURE_TIME'),
+    (label: '同路优先', value: 'ROUTE_MATCH'),
   ];
 
   final search = TextEditingController();
   final searchFocus = FocusNode();
   final scroll = ScrollController();
 
-  String sort = 'ROUTE_MATCH';
+  String sort = 'RECOMMENDED';
   TripDiscoveryFilter filter = const TripDiscoveryFilter();
   List<TripDiscoverModel> trips = const [];
   bool loading = true;
@@ -38,7 +39,9 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
   bool hasMore = true;
   int page = 1;
   int requestSerial = 0;
-  int refreshSeed = DateTime.now().microsecondsSinceEpoch;
+  String? referenceTripId;
+  bool referenceResolved = false;
+  List<({String id, String title})> referenceTrips = const [];
   String? error;
 
   @override
@@ -69,7 +72,6 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
 
   Future<void> _load({required bool reset}) async {
     if (reset) {
-      refreshSeed++;
       setState(() {
         loading = true;
         error = null;
@@ -80,23 +82,41 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
     }
     final serial = ++requestSerial;
     final targetPage = reset ? 1 : page + 1;
+    final discoveryService = TripDiscoveryService(
+      context.read<AppSession>().api,
+    );
     try {
+      if (sort == 'ROUTE_MATCH' && !referenceResolved) {
+        await _resolveReferenceTrip();
+      }
+      // 同路优先必须有用户自己的基准行程。没有基准时不发起无意义的
+      // 推荐请求，直接展示创建行程引导，避免错误显示通用推荐分。
+      if (sort == 'ROUTE_MATCH' && referenceTripId == null) {
+        if (!mounted || serial != requestSerial) return;
+        setState(() {
+          trips = const [];
+          page = 1;
+          hasMore = false;
+          error = null;
+        });
+        return;
+      }
       final point = LocationSnapshot.current ?? LocationSnapshot.demoFallback;
-      final result = await TripDiscoveryService(context.read<AppSession>().api)
-          .discover(
-            sort: sort,
-            latitude: point.latitude,
-            longitude: point.longitude,
-            startCity: filter.startCity,
-            destination: filter.destination,
-            departureDateFrom: filter.departureFrom,
-            departureDateTo: filter.departureTo,
-            vehicleType: filter.vehicleType,
-            minimumRemainingSeats: filter.minimumRemainingSeats,
-            page: targetPage,
-            size: 8,
-            refreshSeed: refreshSeed,
-          );
+      final result = await discoveryService.discover(
+        sort: sort,
+        latitude: point.latitude,
+        longitude: point.longitude,
+        startCity: filter.startCity,
+        destination: filter.destination,
+        departureDateFrom: filter.departureFrom,
+        departureDateTo: filter.departureTo,
+        vehicleType: filter.vehicleType,
+        minimumRemainingSeats: filter.minimumRemainingSeats,
+        page: targetPage,
+        size: 8,
+        // 个人推荐和附近优先都不传基准行程，因此后端不会计算或返回同路率。
+        referenceTripId: sort == 'ROUTE_MATCH' ? referenceTripId : null,
+      );
       if (!mounted || serial != requestSerial) return;
       final values =
           (result['records'] as List? ?? result['items'] as List? ?? const [])
@@ -123,6 +143,37 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
           loadingMore = false;
         });
       }
+    }
+  }
+
+  Future<void> _resolveReferenceTrip() async {
+    referenceResolved = true;
+    try {
+      final dashboard = await TripService(
+        context.read<AppSession>().api,
+      ).dashboard();
+      final current = dashboard['currentTrip'];
+      final options = <({String id, String title})>[];
+      if (current is Map && current['tripId'] != null) {
+        options.add((
+          id: current['tripId'].toString(),
+          title: current['title']?.toString() ?? '当前行程',
+        ));
+      }
+      final upcoming = dashboard['upcomingTrips'];
+      if (upcoming is List) {
+        for (final value in upcoming.whereType<Map>()) {
+          final id = value['tripId']?.toString();
+          if (id != null && options.every((item) => item.id != id)) {
+            options.add((id: id, title: value['title']?.toString() ?? '我的行程'));
+          }
+        }
+      }
+      referenceTrips = options;
+      referenceTripId = options.isEmpty ? null : options.first.id;
+    } catch (_) {
+      // 没有可用基准行程时仍加载发现列表，只是不显示顺路率。
+      referenceTripId = null;
     }
   }
 
@@ -176,6 +227,46 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
             },
             onFilter: _openFilter,
           ),
+          if (sort == 'ROUTE_MATCH' && referenceTrips.isNotEmpty)
+            Container(
+              height: 42,
+              margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  isExpanded: true,
+                  value: referenceTripId ?? '',
+                  hint: const Text('未选择基准行程，不显示顺路率'),
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: '',
+                      child: Text('不使用基准行程'),
+                    ),
+                    ...referenceTrips.map(
+                      (item) => DropdownMenuItem<String>(
+                        value: item.id,
+                        child: Text(
+                          '基准：${item.title}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    setState(
+                      () => referenceTripId = value?.isEmpty == true
+                          ? null
+                          : value,
+                    );
+                    _load(reset: true);
+                  },
+                ),
+              ),
+            ),
           Expanded(child: _body()),
         ],
       ),
@@ -221,6 +312,15 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
       );
     }
     if (trips.isEmpty) {
+      if (sort == 'ROUTE_MATCH' && referenceTripId == null) {
+        return _DiscoveryState(
+          icon: LucideIcons.mapPinned,
+          title: '暂未发布行程',
+          subtitle: '发布一条行程后，才能按实际路线计算同路率',
+          button: '创建行程',
+          onTap: _openCreateTrip,
+        );
+      }
       return _DiscoveryState(
         icon: LucideIcons.routeOff,
         title: '暂时没有合适的公开行程',
@@ -249,17 +349,38 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
           final trip = trips[index];
           return TripDiscoveryCard(
             trip: trip,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    TripDiscoveryDetailPage(tripId: trip.tripId, initial: trip),
-              ),
-            ),
+            showMatchScore: sort == 'ROUTE_MATCH',
+            showPublishLocation: sort == 'NEARBY',
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => TripDiscoveryDetailPage(
+                    tripId: trip.tripId,
+                    initial: trip,
+                  ),
+                ),
+              );
+              if (mounted) await _load(reset: true);
+            },
           );
         },
       ),
     );
+  }
+
+  Future<void> _openCreateTrip() async {
+    final created = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const TripCreatePage()),
+    );
+    if (!mounted || created != true) return;
+    setState(() {
+      referenceResolved = false;
+      referenceTripId = null;
+      referenceTrips = const [];
+    });
+    await _load(reset: true);
   }
 }
 

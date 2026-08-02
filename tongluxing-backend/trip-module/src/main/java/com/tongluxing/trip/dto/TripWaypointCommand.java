@@ -16,7 +16,7 @@ public record TripWaypointCommand(
         @NotNull BigDecimal longitude,
         @NotNull BigDecimal latitude,
         @NotBlank @Pattern(regexp = "MEETING|REST|HOTEL|FUEL|CHARGING|CHECK_IN|NORMAL") String type,
-        @Min(1) @Max(5) Integer sort,
+        @Min(1) @Max(20) Integer sort,
         @Min(0) @Max(1440) Integer stayMinutes,
         @Size(max = 255) String remark
 ) { }

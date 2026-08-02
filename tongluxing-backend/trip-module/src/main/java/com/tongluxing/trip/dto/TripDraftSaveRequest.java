@@ -15,7 +15,7 @@ public record TripDraftSaveRequest(
         @Valid LocationRequest destination,
         @Size(max = 1000) String description,
         @Size(max = 512) String coverImageKey,
-        @Min(1) @Max(20) Integer expectPeople,
+        @Min(1) @Max(50) Integer expectPeople,
         @Min(1) @Max(365) Integer durationDays,
         @Size(max = 8) List<@Size(max = 16) String> vehicleRequirements,
         @Size(max = 128) String budgetDescription,

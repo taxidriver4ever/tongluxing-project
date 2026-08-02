@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../common/widgets/app_widgets.dart';
+import '../../../common/utils/display_text.dart';
 import '../../../data/services/api_client.dart';
 import '../models/invite_bind_status.dart';
 import '../services/invite_service.dart';
@@ -61,10 +62,7 @@ class _InviteBindPageState extends State<InviteBindPage> {
 
   String _normalize(String value) => value.trim().toUpperCase();
 
-  Future<void> _submitCode(
-    String rawCode, {
-    required String sourceType,
-  }) async {
+  Future<void> _submitCode(String rawCode, {required String sourceType}) async {
     if (_submitting) return;
     final code = _normalize(rawCode);
     if (!RegExp(r'^[A-Z0-9]{6,16}$').hasMatch(code)) {
@@ -81,7 +79,7 @@ class _InviteBindPageState extends State<InviteBindPage> {
         builder: (context) => AlertDialog(
           title: const Text('确认绑定该邀请人吗？'),
           content: Text(
-            '${nickname?.isNotEmpty == true ? '邀请人：$nickname\n\n' : ''}绑定后不可修改。',
+            '${nickname?.isNotEmpty == true ? '邀请人：${compactDisplayName(nickname)}\n\n' : ''}绑定后不可修改。',
           ),
           actions: [
             TextButton(
@@ -142,7 +140,8 @@ class _InviteBindPageState extends State<InviteBindPage> {
         .map((host) => host.trim().toLowerCase())
         .where((host) => host.isNotEmpty)
         .toSet();
-    final officialHttps = uri.scheme == 'https' &&
+    final officialHttps =
+        uri.scheme == 'https' &&
         officialHosts.contains(uri.host.toLowerCase()) &&
         uri.path == '/invite';
     if (!customScheme && !officialHttps) {
@@ -193,7 +192,7 @@ class _InviteBindPageState extends State<InviteBindPage> {
         title: '您已经完成邀请绑定了',
         detail: [
           if (status.inviterNickname?.isNotEmpty == true)
-            '邀请人：${status.inviterNickname}',
+            '邀请人：${compactDisplayName(status.inviterNickname)}',
           '邀请关系绑定后不可修改。',
         ].join('\n'),
       );
@@ -246,9 +245,9 @@ class _InviteBindPageState extends State<InviteBindPage> {
                   onPressed: _submitting
                       ? null
                       : () => _submitCode(
-                            _controller.text,
-                            sourceType: 'MANUAL_CODE',
-                          ),
+                          _controller.text,
+                          sourceType: 'MANUAL_CODE',
+                        ),
                   child: _submitting
                       ? const SizedBox(
                           width: 20,

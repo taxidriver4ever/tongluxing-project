@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
+import '../../../common/utils/display_text.dart';
 import '../../../data/models/app_models.dart';
+import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import '../../profile/widgets/user_avatar.dart';
 import 'trip_create_page.dart';
@@ -25,6 +27,13 @@ class TripHomePage extends StatefulWidget {
 class _TripHomePageState extends State<TripHomePage> {
   int section = 0;
 
+  Future<void> _openCreateTrip() async {
+    await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const TripCreatePage()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => AnnotatedRegion<SystemUiOverlayStyle>(
     value: const SystemUiOverlayStyle(
@@ -43,19 +52,36 @@ class _TripHomePageState extends State<TripHomePage> {
             bottom: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 7),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  _TopTab(
-                    label: '发现行程',
-                    active: section == 0,
-                    onTap: () => setState(() => section = 0),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _TopTab(
+                        label: '发现行程',
+                        active: section == 0,
+                        onTap: () => setState(() => section = 0),
+                      ),
+                      const SizedBox(width: 42),
+                      _TopTab(
+                        label: '我的行程',
+                        active: section == 1,
+                        onTap: () => setState(() => section = 1),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 42),
-                  _TopTab(
-                    label: '我的行程',
-                    active: section == 1,
-                    onTap: () => setState(() => section = 1),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: IconButton(
+                      tooltip: '创建行程',
+                      onPressed: _openCreateTrip,
+                      style: IconButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: const Color(0x33FFFFFF),
+                      ),
+                      icon: const Icon(LucideIcons.plus, size: 25),
+                    ),
                   ),
                 ],
               ),
@@ -151,12 +177,13 @@ class _MyTripsPageState extends State<_MyTripsPage> {
       });
     }
     final api = context.read<AppSession>().api;
+    final profileFuture = UserProfileService(
+      api,
+    ).me().catchError((_) => <String, dynamic>{});
     try {
-      final values = await Future.wait<dynamic>([
-        TripService(api).dashboard(),
-        UserProfileService(api).me(),
-      ]);
-      final dashboard = Map<String, dynamic>.from(values[0] as Map);
+      final dashboard = Map<String, dynamic>.from(
+        await TripService(api).dashboard(),
+      );
       TripModel? nextCurrent;
       if (dashboard['currentTrip'] is Map) {
         nextCurrent = TripModel.fromJson(
@@ -165,29 +192,37 @@ class _MyTripsPageState extends State<_MyTripsPage> {
       }
       final nextUpcoming = _tripList(dashboard['upcomingTrips']);
       final nextRecent = _tripList(dashboard['recentTrips']);
+      final loadedProfile = await profileFuture;
       if (mounted) {
         setState(() {
           current = nextCurrent;
           upcoming = nextUpcoming;
           recent = nextRecent;
-          profile = Map<String, dynamic>.from(values[1] as Map);
+          profile = Map<String, dynamic>.from(loadedProfile);
         });
       }
     } catch (e) {
-      // 兼容尚未部署聚合接口的旧后端，自动回退到原有接口。
+      // 仅当聚合接口尚未部署时回退；网络、鉴权或资料接口失败不能触发
+      // 整套行程接口二次请求。
+      final mayFallback =
+          e is ApiException && (e.statusCode == 404 || e.statusCode == 501);
+      if (!mayFallback) {
+        if (mounted) setState(() => error = e.toString());
+        return;
+      }
       try {
         final values = await Future.wait<dynamic>([
           TripService(api).current(),
           TripService(api).mine(),
           TripService(api).mine(scope: 'history'),
-          UserProfileService(api).me(),
         ]);
+        final loadedProfile = await profileFuture;
         if (mounted) {
           setState(() {
             current = values[0] as TripModel?;
             upcoming = List<TripModel>.from(values[1] as List);
             recent = List<TripModel>.from(values[2] as List);
-            profile = Map<String, dynamic>.from(values[3] as Map);
+            profile = Map<String, dynamic>.from(loadedProfile);
           });
         }
       } catch (fallbackError) {
@@ -330,7 +365,7 @@ class _DashboardHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '你好，$nickname',
+                '你好，${compactDisplayName(nickname)}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -390,35 +425,44 @@ class _DashboardGrid extends StatelessWidget {
           borderRadius: BorderRadius.circular(17),
           border: Border.all(color: const Color(0xFFE4EBF4)),
         ),
-        child: Row(
+        child: Column(
           children: [
-            Expanded(
-              child: _QuickAction(
-                icon: LucideIcons.calendarDays,
-                label: '行程计划',
-                onTap: onPlan,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: _QuickAction(
+                    icon: LucideIcons.calendarDays,
+                    label: '行程计划',
+                    onTap: onPlan,
+                  ),
+                ),
+                Expanded(
+                  child: _QuickAction(
+                    icon: LucideIcons.filePenLine,
+                    label: '行程草稿',
+                    onTap: onDrafts,
+                  ),
+                ),
+                Expanded(
+                  child: _QuickAction(
+                    icon: LucideIcons.history,
+                    label: '历史行程',
+                    onTap: onHistory,
+                  ),
+                ),
+              ],
             ),
-            Expanded(
-              child: _QuickAction(
-                icon: LucideIcons.filePenLine,
-                label: '行程草稿',
-                onTap: onDrafts,
-              ),
-            ),
-            Expanded(
-              child: _QuickAction(
-                icon: LucideIcons.history,
-                label: '历史行程',
-                onTap: onHistory,
-              ),
-            ),
-            Expanded(
-              child: _QuickAction(
-                icon: LucideIcons.mapPinned,
-                label: '创建行程',
-                emphasized: true,
-                onTap: onCreate,
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: FilledButton.icon(
+                onPressed: onCreate,
+                icon: const Icon(LucideIcons.plus, size: 23),
+                label: const Text(
+                  '创建行程',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                ),
               ),
             ),
           ],
@@ -500,7 +544,7 @@ class _CurrentJourneyCard extends StatelessWidget {
                         const SizedBox(height: 5),
                         Text(
                           trip == null
-                              ? '点击创建行程，寻找同路伙伴'
+                              ? '点击发布新行程，寻找同路伙伴'
                               : '${trip!.startName} → ${trip!.endName} · ${_dateLabel(trip!.departureTime)}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -555,13 +599,11 @@ class _QuickAction extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
-    this.emphasized = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final bool emphasized;
 
   @override
   Widget build(BuildContext context) => InkWell(
@@ -576,14 +618,10 @@ class _QuickAction extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: emphasized ? AppColors.primary : AppColors.primarySoft,
+              color: AppColors.primarySoft,
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              icon,
-              size: 17,
-              color: emphasized ? Colors.white : AppColors.primary,
-            ),
+            child: Icon(icon, size: 17, color: AppColors.primary),
           ),
           const SizedBox(height: 7),
           Text(
@@ -736,7 +774,7 @@ class _EmptyUpcoming extends StatelessWidget {
               Text('还没有即将出发的行程', style: TextStyle(fontWeight: FontWeight.w800)),
               SizedBox(height: 3),
               Text(
-                '创建行程后会在这里展示',
+                '发布新行程后会在这里展示',
                 style: TextStyle(color: AppColors.muted, fontSize: 12),
               ),
             ],

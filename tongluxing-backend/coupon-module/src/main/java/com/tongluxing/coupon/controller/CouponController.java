@@ -9,7 +9,13 @@ import org.springframework.web.bind.annotation.*;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.coupon.integration.CouponFacade.CouponIssueResult;
 import com.tongluxing.coupon.service.CouponService;
-import com.tongluxing.user.model.UserModels.*;
+import com.tongluxing.common.model.PageResult;
+import com.tongluxing.user.dto.request.CouponLockRequest;
+import com.tongluxing.user.dto.request.CouponOrderResultRequest;
+import com.tongluxing.user.vo.AvailableCouponVO;
+import com.tongluxing.user.vo.CouponDeductionVO;
+import com.tongluxing.user.vo.CouponSummaryVO;
+import com.tongluxing.user.vo.UserCouponDetailVO;
 
 import lombok.RequiredArgsConstructor;
 

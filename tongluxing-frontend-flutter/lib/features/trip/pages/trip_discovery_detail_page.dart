@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
+import '../../../common/utils/display_text.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
 import '../../../data/services/follow_service.dart';
@@ -12,7 +13,6 @@ import '../../chat/pages/chat_session_page.dart';
 import '../../profile/pages/profile_system_pages.dart';
 import '../../profile/widgets/user_avatar.dart';
 import 'trip_detail_page.dart';
-import 'trip_route_map_page.dart';
 import 'trip_discovery_widgets.dart';
 import '../widgets/trip_discovery_theme.dart';
 import '../widgets/route_map_view.dart';
@@ -58,25 +58,9 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
       detail = loaded;
       followed = loaded.owner.followed;
       saved = loaded.favorited;
-      roadRoute = loaded.routePoints;
-      final stored = loaded.routePoints;
-      // 旧行程常常只保存起点、途经点和终点。此时必须向路线规划接口
-      // 请求真实道路折线，不能把这些位置直接用直线连接。
-      if (stored.length >= 2 &&
-          stored.length <= loaded.trip.waypoints.length + 2) {
-        try {
-          final planned = await TripService(api).planRoadRoute(
-            start: stored.first,
-            end: stored.last,
-            waypoints: stored.sublist(1, stored.length - 1),
-          );
-          if (planned.polylinePoints.length > 2) {
-            roadRoute = planned.polylinePoints;
-          }
-        } catch (_) {
-          // 保留后端折线并展示加载失败状态；页面主体仍可正常使用。
-        }
-      }
+      // 发现详情只展示可拖动底图和起终点标记，不下载、不解析实际道路折线。
+      // 真实 routePolyline 仍保留在后端，继续供导航和顺路率计算使用。
+      roadRoute = loaded.mapPoints;
     } catch (e) {
       error = e.toString();
     }
@@ -339,13 +323,13 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
                       padding: const EdgeInsets.fromLTRB(12, 10, 12, 104),
                       sliver: SliverList.list(
                         children: [
-                          if (current == null && loading)
-                            const Padding(
-                              padding: EdgeInsets.all(42),
-                              child: Center(child: CircularProgressIndicator()),
+                          if (current == null)
+                            _FallbackDetailCard(
+                              trip: trip,
+                              loading: loading,
+                              error: error,
+                              onRetry: load,
                             )
-                          else if (current == null)
-                            _Error(onRetry: load, message: error)
                           else ...[
                             _OwnerCard(
                               owner: current.owner,
@@ -385,17 +369,20 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
 
   VoidCallback? _primaryAction(TripPublicDetailModel value) {
     if (value.ownerTrip) {
-      return () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => TripDetailPage(tripId: widget.tripId),
-        ),
-      );
+      return _openOwnerManagement;
     }
     if (value.trip.relationshipStatus == 'JOINED') return openChat;
     if (value.trip.relationshipStatus == 'PENDING') return null;
     if (!value.allowApply || !value.joinable) return null;
     return apply;
+  }
+
+  Future<void> _openOwnerManagement() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => TripDetailPage(tripId: widget.tripId)),
+    );
+    if (mounted) await load();
   }
 
   String _primaryLabel(TripPublicDetailModel value) {
@@ -444,14 +431,19 @@ class _DiscoveryHero extends StatelessWidget {
         children: [
           Row(
             children: [
-              _HeroTag(
-                text: '顺路度 ${trip.matchScore}%',
-                foreground: TripDiscoveryColors.primary,
-                background: const Color(0xDDE6F5FF),
-              ),
+              if (trip.matchScore != null)
+                _HeroTag(
+                  text: '同路率 ${trip.matchScore}%',
+                  foreground: TripDiscoveryColors.primary,
+                  background: const Color(0xDDE6F5FF),
+                ),
               const Spacer(),
               _HeroTag(
-                text: trip.matchScore >= 90 ? '🔥 热门招募中' : '招募中',
+                text: const ['RUNNING', 'ONGOING'].contains(trip.status)
+                    ? '进行中'
+                    : (trip.matchScore ?? 0) >= 90
+                    ? '🔥 热门招募中'
+                    : '招募中',
                 foreground: Colors.white,
                 background: const Color(0x24FFFFFF),
               ),
@@ -646,7 +638,7 @@ class _OwnerCard extends StatelessWidget {
                       children: [
                         Flexible(
                           child: Text(
-                            owner.nickname,
+                            compactDisplayName(owner.nickname),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -875,81 +867,71 @@ class _TripRouteMapCard extends StatelessWidget {
               color: Colors.transparent,
               borderRadius: radius,
               clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => TripRouteMapPage(
-                      detail: detail,
-                      routePoints: routePoints,
+              child: SizedBox(
+                width: double.infinity,
+                height: mapHeight,
+                child: Stack(
+                  fit: StackFit.expand,
+                  clipBehavior: Clip.hardEdge,
+                  children: [
+                    RouteMapView(
+                      polylinePoints: routePoints,
+                      performanceLabel:
+                          'trip_discovery_detail:${detail.trip.tripId}',
+                      stops: [
+                        LocationSelection(
+                          name: detail.trip.startName,
+                          address: '',
+                          latitude: routePoints.first.latitude,
+                          longitude: routePoints.first.longitude,
+                        ),
+                        LocationSelection(
+                          name: detail.trip.endName,
+                          address: '',
+                          latitude: routePoints.last.latitude,
+                          longitude: routePoints.last.longitude,
+                        ),
+                      ],
+                      height: mapHeight,
+                      interactive: true,
+                      drawPolyline: false,
                     ),
-                  ),
-                ),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: mapHeight,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    clipBehavior: Clip.hardEdge,
-                    children: [
-                      IgnorePointer(
-                        child: RouteMapView(
-                          polylinePoints: routePoints,
-                          stops: [
-                            LocationSelection(
-                              name: detail.trip.startName,
-                              address: '',
-                              latitude: routePoints.first.latitude,
-                              longitude: routePoints.first.longitude,
-                            ),
-                            LocationSelection(
-                              name: detail.trip.endName,
-                              address: '',
-                              latitude: routePoints.last.latitude,
-                              longitude: routePoints.last.longitude,
+                    Positioned(
+                      right: 10,
+                      bottom: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: .94),
+                          borderRadius: BorderRadius.circular(99),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x19000000),
+                              blurRadius: 8,
+                              offset: Offset(0, 2),
                             ),
                           ],
-                          height: mapHeight,
-                          interactive: false,
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(LucideIcons.move, size: 14),
+                            SizedBox(width: 5),
+                            Text(
+                              '可拖动和缩放地图',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      Positioned(
-                        right: 10,
-                        bottom: 10,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 7,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: .94),
-                            borderRadius: BorderRadius.circular(99),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x19000000),
-                                blurRadius: 8,
-                                offset: Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(LucideIcons.scanSearch, size: 14),
-                              SizedBox(width: 5),
-                              Text(
-                                '查看完整路线',
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1052,6 +1034,73 @@ class _TripInformationCard extends StatelessWidget {
   }
 }
 
+/// 公开详情接口尚未返回时，先使用发现列表已经取得的数据展示核心行程信息。
+/// 这样旧服务器响应过大、网络超时或接口失败时，用户也不会只看到空白加载页。
+class _FallbackDetailCard extends StatelessWidget {
+  const _FallbackDetailCard({
+    required this.trip,
+    required this.loading,
+    required this.error,
+    required this.onRetry,
+  });
+
+  final TripDiscoverModel trip;
+  final bool loading;
+  final String? error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    margin: EdgeInsets.zero,
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (loading) ...[
+            const LinearProgressIndicator(minHeight: 3),
+            const SizedBox(height: 12),
+          ],
+          Text(
+            trip.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            [trip.startName, ...trip.waypoints, trip.endName].join(' → '),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${formatDiscoverDate(trip.departureTime)} 出发 · 预计${trip.estimatedDays}天',
+            style: const TextStyle(color: TripDiscoveryColors.secondaryText),
+          ),
+          if (trip.description.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(trip.description),
+          ],
+          if (!loading && error != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              '更多详情暂时加载失败：$error',
+              style: const TextStyle(color: TripDiscoveryColors.secondaryText),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(LucideIcons.refreshCw, size: 16),
+              label: const Text('重新加载'),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
 class _InfoLine extends StatelessWidget {
   const _InfoLine({required this.icon, required this.text});
 
@@ -1106,7 +1155,7 @@ class _MemberTile extends StatelessWidget {
           ),
           const SizedBox(height: 5),
           Text(
-            member.nickname,
+            compactDisplayName(member.nickname, fallback: '车队成员'),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,

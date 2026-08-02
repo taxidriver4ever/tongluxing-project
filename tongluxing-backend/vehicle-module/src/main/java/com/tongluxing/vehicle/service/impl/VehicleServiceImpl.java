@@ -16,6 +16,7 @@ import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.user.support.CurrentUserContext;
+import com.tongluxing.user.service.UserService;
 import com.tongluxing.vehicle.dto.CreateVehicleRequest;
 import com.tongluxing.vehicle.dto.SubmitVehicleCertificationRequest;
 import com.tongluxing.vehicle.dto.UpdateVehicleRequest;
@@ -76,6 +77,8 @@ public class VehicleServiceImpl implements VehicleService {
 
     /** 当前登录用户上下文。 */
     private final CurrentUserContext currentUserContext;
+    /** 用户服务，用于校验车辆认证前必须完成驾驶证认证。 */
+    private final UserService userService;
     /** Redis 用于缓存车辆查询结果和简单限流计数。 */
     private final StringRedisTemplate redisTemplate;
     /** JSON 工具，用于缓存和审计快照序列化。 */
@@ -94,18 +97,24 @@ public class VehicleServiceImpl implements VehicleService {
     /** 查询当前用户车辆列表，优先读缓存。 */
     @Override
     public VehicleListResponse getMyVehicles() {
+        // 用户 ID 必须从服务端认证上下文获取，不能相信客户端传入的归属信息。
         Long userId = currentUserContext.requireUserId();
         String cacheKey = LIST_CACHE_KEY.formatted(userId);
+
+        // 列表数据读多写少，先读取用户维度缓存，命中后避免重复查询数据库。
         VehicleListResponse cached = readJson(cacheKey, VehicleListResponse.class);
         if (cached != null) {
             return cached;
         }
 
+        // Mapper 已按“默认车辆优先、创建时间倒序”排序；这里只负责响应模型转换。
         List<VehicleResponse> vehicles = vehicleProfileMapper.findByUserId(userId)
                 .stream()
                 .map(this::toVehicleResponse)
                 .toList();
         VehicleListResponse response = new VehicleListResponse(vehicles);
+
+        // 缓存完整响应而不是数据库实体，防止加密车牌等内部字段进入 Redis 返回链路。
         writeJson(cacheKey, response, Duration.ofMinutes(20));
         return response;
     }
@@ -114,22 +123,30 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     @Transactional
     public VehicleResponse createVehicle(CreateVehicleRequest request) {
+        // 第一步：确认登录身份并限制创建频率，防止恶意批量制造车辆档案。
         Long userId = currentUserContext.requireUserId();
         checkRateLimit(CREATE_RL_KEY.formatted(userId), CREATE_LIMIT, Duration.ofHours(1), "车辆创建太频繁，请稍后再试");
 
+        // 第二步：构建初始车辆实体。ID 在应用侧生成，便于插入后直接用于缓存和审计。
         LocalDateTime now = LocalDateTime.now();
         VehicleProfile vehicle = new VehicleProfile();
         vehicle.setId(SnowflakeIdGenerator.nextId());
         vehicle.setUserId(userId);
+
+        // 车牌先统一大小写和空格，再分别保存可检索密文与仅用于展示的脱敏值。
         String normalizedPlateNo = normalizePlateNo(request.plateNo());
         vehicle.setPlateNoCipher(cipher(normalizedPlateNo));
         vehicle.setPlateNoMask(maskPlateNo(normalizedPlateNo));
+
+        // 新建档案还未提交认证，因此不能直接成为默认车辆。
         vehicle.setCertificationStatus(CERTIFICATION_UNSUBMITTED);
         vehicle.setDefaultFlag(0);
         vehicle.setCreatedAt(now);
         vehicle.setUpdatedAt(now);
         vehicle.setDeleted(0);
         fillVehicle(vehicle, request);
+
+        // 第三步：持久化后清理列表/详情缓存，并留下可追溯的创建审计记录。
         vehicleProfileMapper.insert(vehicle);
         clearVehicleCaches(userId, vehicle.getId());
         insertAuditLog(vehicle.getId(), userId, "CREATE", null, vehicle, "创建车辆");
@@ -140,6 +157,8 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     public VehicleResponse getVehicle(Long vehicleId) {
         Long userId = currentUserContext.requireUserId();
+
+        // 即使缓存中存在详情，也要先检查车辆归属，避免知道 vehicleId 后越权读取缓存。
         VehicleProfile owned = requireOwnedVehicle(vehicleId, userId);
         String cacheKey = DETAIL_CACHE_KEY.formatted(vehicleId);
         VehicleResponse cached = readJson(cacheKey, VehicleResponse.class);
@@ -147,6 +166,7 @@ public class VehicleServiceImpl implements VehicleService {
             return cached;
         }
 
+        // 缓存中仅保存对外响应；敏感字段的密文不会通过详情接口暴露。
         VehicleResponse response = toVehicleResponse(owned);
         writeJson(cacheKey, response, Duration.ofMinutes(20));
         return response;
@@ -157,13 +177,18 @@ public class VehicleServiceImpl implements VehicleService {
     @Transactional
     public VehicleResponse updateVehicle(Long vehicleId, UpdateVehicleRequest request) {
         Long userId = currentUserContext.requireUserId();
+
+        // before 保留数据库原始状态；复制后再修改，确保审计的前后快照不会指向同一对象。
         VehicleProfile before = requireOwnedVehicle(vehicleId, userId);
         VehicleProfile vehicle = copyVehicle(before);
+
+        // 更新请求只允许修改展示字段，不允许在此接口修改车牌、认证状态或默认标记。
         fillVehicle(vehicle, request);
         vehicle.setUpdatedAt(LocalDateTime.now());
         vehicleProfileMapper.update(vehicle);
         clearVehicleCaches(userId, vehicleId);
         insertAuditLog(vehicleId, userId, "UPDATE", before, vehicle, "更新车辆");
+        // 重新查询数据库而不是直接返回内存对象，保证响应体现数据库最终状态。
         return toVehicleResponse(requireOwnedVehicle(vehicleId, userId));
     }
 
@@ -173,12 +198,16 @@ public class VehicleServiceImpl implements VehicleService {
     public void deleteVehicle(Long vehicleId) {
         Long userId = currentUserContext.requireUserId();
         VehicleProfile before = requireOwnedVehicle(vehicleId, userId);
+
+        // 待审核记录仍可能被后台处理，禁止此时移除，避免认证记录失去有效车辆载体。
         if (CERTIFICATION_PENDING.equals(before.getCertificationStatus())) {
             throw new BusinessException(409, "车辆认证正在审核，暂时不能移除");
         }
         if ("REJECTED".equals(before.getCertificationStatus())) {
             throw new BusinessException(409, "认证驳回车辆请使用“删除驳回记录”操作");
         }
+
+        // 采用逻辑删除保留审计和历史关联；Mapper 同时清除默认车辆标记。
         int rows = vehicleProfileMapper.logicDelete(vehicleId, userId, LocalDateTime.now());
         if (rows == 0) {
             throw new BusinessException(ResultCode.NOT_FOUND, "车辆不存在");
@@ -193,10 +222,13 @@ public class VehicleServiceImpl implements VehicleService {
     public void deleteRejectedCertificationHistory(Long vehicleId) {
         Long userId = currentUserContext.requireUserId();
         VehicleProfile before = requireOwnedVehicle(vehicleId, userId);
+
+        // 必须以最新认证记录为准；非驳回状态不能通过此入口清理历史。
         VehicleCertification latest = certificationMapper.findLatestByVehicleId(vehicleId);
         if (latest == null || !"REJECTED".equals(latest.getStatus())) {
             throw new BusinessException(409, "只有认证驳回的车辆才能删除认证历史");
         }
+        // 先清认证附件及驳回记录，再逻辑删除车辆卡片，整个过程由事务保证原子性。
         certificationImageMapper.deleteByVehicleId(vehicleId);
         certificationMapper.deleteRejectedByVehicleAndUser(vehicleId, userId);
         int rows = vehicleProfileMapper.logicDelete(vehicleId, userId, LocalDateTime.now());
@@ -218,9 +250,12 @@ public class VehicleServiceImpl implements VehicleService {
             throw new BusinessException(409, "只有认证通过的车辆才能设为主要车辆");
         }
         LocalDateTime now = LocalDateTime.now();
+
+        // 先清空再设置，配合事务使一个用户最终只保留一辆主要车辆。
         vehicleProfileMapper.clearDefault(userId, now);
         vehicleProfileMapper.setDefault(vehicleId, userId, now);
         clearVehicleCaches(userId, vehicleId);
+        // 回查 after 用于返回与审计，避免审计快照仍携带旧的 defaultFlag。
         VehicleProfile after = requireOwnedVehicle(vehicleId, userId);
         insertAuditLog(vehicleId, userId, "SET_DEFAULT", before, after, "设置默认车辆");
         return toVehicleResponse(after);
@@ -230,17 +265,24 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     @Transactional
     public VehicleCertificationResponse submitCertification(Long vehicleId, SubmitVehicleCertificationRequest request) {
+        // 阶段一：身份、认证顺序、提交频率和车辆归属四项前置校验。
         Long userId = currentUserContext.requireUserId();
+        requireApprovedDrivingLicense();
         checkRateLimit(CERTIFICATION_RL_KEY.formatted(userId), CERTIFICATION_SUBMIT_LIMIT, Duration.ofHours(24), "车辆认证提交太频繁，请明天再试");
         requireOwnedVehicle(vehicleId, userId);
+
+        // 车牌规范化后再参与重复认证检查，避免空格或大小写差异绕过规则。
         String normalizedPlateNo = normalizePlateNo(request.plateNo());
 
+        // 阶段二：同一车辆存在待审核或已通过申请时不允许重复提交；被驳回后可以重提。
         VehicleCertification latest = certificationMapper.findLatestByVehicleId(vehicleId);
         if (latest != null && List.of("PENDING", "APPROVED").contains(latest.getStatus())) {
             throw new BusinessException(409, "车辆认证正在审核或已通过，不能重复提交");
         }
+        // 同时检查全平台是否已有相同车牌的已通过记录，避免一车多认证。
         ensurePlateNotApproved(normalizedPlateNo);
 
+        // 阶段三：组装认证主记录。敏感字段保存加密值，对外查询只使用 mask 字段。
         LocalDateTime now = LocalDateTime.now();
         VehicleCertification certification = new VehicleCertification();
         certification.setId(SnowflakeIdGenerator.nextId());
@@ -264,6 +306,8 @@ public class VehicleServiceImpl implements VehicleService {
         certification.setRejectReason("");
         certification.setSubmittedAt(now);
         certificationMapper.insert(certification);
+
+        // 阶段四：车辆照片按请求顺序逐条入库。sortNo 从 0 递增，保证展示顺序稳定。
         int sortNo = 0;
         for (SubmitVehicleCertificationRequest.VehicleImageRequest item : request.vehicleImages()) {
             VehicleCertificationImage image = new VehicleCertificationImage();
@@ -277,19 +321,24 @@ public class VehicleServiceImpl implements VehicleService {
             image.setDeleted(0);
             certificationImageMapper.insert(image);
         }
-        vehicleProfileMapper.updateCertificationStatus(vehicleId, userId, CERTIFICATION_PENDING, now);
-        clearVehicleCaches(userId, vehicleId);
+
+        // 先记录原始提交动作，再执行内测自动审核，审计链中仍能区分“提交”和“审核”。
         insertAuditLog(vehicleId, userId, "CERTIFICATION", null, certification, "提交车辆认证");
-        return toCertificationResponse(certification);
+        // 内测阶段资料完整即自动通过；仍保留认证记录和审核审计，后续恢复人工审核无需迁移数据。
+        applyCertificationAuditResult(certification.getId(), CERTIFICATION_APPROVED, null, 0L);
+        return toCertificationResponse(certificationMapper.findById(certification.getId()));
     }
 
     /** 查询车辆最近一次认证记录；没有记录时返回未提交状态。 */
     @Override
     public VehicleCertificationResponse getCertification(Long vehicleId) {
         Long userId = currentUserContext.requireUserId();
+
+        // 查询前校验归属，认证记录本身包含证件信息，不能按 vehicleId 公开读取。
         requireOwnedVehicle(vehicleId, userId);
         VehicleCertification certification = certificationMapper.findLatestByVehicleId(vehicleId);
         if (certification == null) {
+            // 使用显式 UNSUBMITTED 响应简化客户端状态机，避免客户端把 null 当作异常。
             return new VehicleCertificationResponse(vehicleId, "", "", "", "", "", "", List.of(),
                     CERTIFICATION_UNSUBMITTED, "", null, null, true);
         }
@@ -302,8 +351,17 @@ public class VehicleServiceImpl implements VehicleService {
      */
     @Override
     public VehicleAuthEligibilityResponse checkVehicleAuthEligibility(String plateNumber) {
+        // requireUserId 同时承担接口鉴权作用；此接口不接受用户 ID 参数。
         currentUserContext.requireUserId();
+
+        // 产品要求驾驶证认证先于车辆认证，未满足时返回不可提交及明确引导语。
+        if (!CERTIFICATION_APPROVED.equals(userService.getLatestCertification().status())) {
+            return new VehicleAuthEligibilityResponse(false, CERTIFICATION_UNSUBMITTED,
+                    "请先完成驾驶证认证，再提交行驶证和车辆认证资料");
+        }
         String normalizedPlateNo = normalizePlateNo(plateNumber);
+
+        // 查询时同时兼容 v2 密文与历史 Base64 值，避免升级后重复认证老车辆。
         VehicleCertification approved = findApprovedCertification(normalizedPlateNo);
         if (approved != null) {
             return new VehicleAuthEligibilityResponse(false, CERTIFICATION_APPROVED,
@@ -315,9 +373,13 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     @Transactional
     public VehicleAuthStatusResponse submitVehicleAuth(VehicleAuthSubmitRequest request) {
+        // 阶段一：校验登录用户已通过驾驶证认证，并确保车牌尚未被其他通过记录占用。
         Long userId = currentUserContext.requireUserId();
+        requireApprovedDrivingLicense();
         String normalizedPlateNo = normalizePlateNo(request.plateNumber());
         ensurePlateNotApproved(normalizedPlateNo);
+
+        // 阶段二：优先按新加密格式复用车辆档案；未找到时再兼容查询历史 Base64 数据。
         String plateCipher = cipher(normalizedPlateNo);
         VehicleProfile vehicle = vehicleProfileMapper.findByUserIdAndPlateNoCipher(userId, plateCipher);
         if (vehicle == null) {
@@ -325,11 +387,13 @@ public class VehicleServiceImpl implements VehicleService {
                     userId, vehicleDataCipher.legacyEncoded(normalizedPlateNo));
         }
         if (vehicle == null) {
+            // 用户名下没有同车牌档案时创建一辆基础车辆，首张车辆图片作为封面。
             VehicleResponse created = createVehicle(new CreateVehicleRequest(
                     normalizedPlateNo, request.vehicleBrand(), request.vehicleModel(), "轿车",
                     request.vehicleColor(), 5, "", request.vehicleImages().get(0)));
             vehicle = vehicleProfileMapper.findByIdAndUserId(created.vehicleId(), userId);
         } else {
+            // 已有档案只同步品牌、车型、颜色和封面，不改变车辆归属及认证主键。
             VehicleProfile before = copyVehicle(vehicle);
             vehicle.setBrand(normalize(request.vehicleBrand()));
             vehicle.setModel(normalize(request.vehicleModel()));
@@ -341,23 +405,41 @@ public class VehicleServiceImpl implements VehicleService {
             insertAuditLog(vehicle.getId(), userId, "UPDATE", before, vehicle, "车辆认证同步基础资料");
         }
 
+        // 阶段三：把两类图片转换为统一的认证附件命令；行驶证在前、车辆外观图在后。
         List<SubmitVehicleCertificationRequest.VehicleImageRequest> images = new java.util.ArrayList<>();
         request.registrationLicenseImages().forEach(url -> images.add(
                 new SubmitVehicleCertificationRequest.VehicleImageRequest("REGISTRATION_LICENSE", url)));
         request.vehicleImages().forEach(url -> images.add(
                 new SubmitVehicleCertificationRequest.VehicleImageRequest("VEHICLE", url)));
 
+        // 阶段四：复用标准认证提交入口，确保限流、重复校验、加密、审计及自动审核规则一致。
         submitCertification(vehicle.getId(), new SubmitVehicleCertificationRequest(
                 "", normalizedPlateNo, "轿车", "", "", null, null, "",
                 request.registrationLicenseImages().get(0), request.registrationLicenseImages().get(1),
                 images, "MANUAL_UPLOAD"));
+        // 重新查询最新记录，因为内测自动审核已可能把 PENDING 更新为 APPROVED。
         return toVehicleAuthStatus(certificationMapper.findLatestByVehicleId(vehicle.getId()));
+    }
+
+    /**
+     * 车辆认证的前置条件校验。
+     *
+     * <p>前端会先展示引导，但后端仍必须执行同样的硬校验，防止旧版本客户端或
+     * 直接调用接口绕过认证顺序。只有最新驾驶证认证状态为 APPROVED 时才放行。</p>
+     */
+    private void requireApprovedDrivingLicense() {
+        // getLatestCertification 返回用户模块定义的最新驾驶证认证结果。
+        if (!CERTIFICATION_APPROVED.equals(userService.getLatestCertification().status())) {
+            throw new BusinessException(409, "请先完成驾驶证认证，再提交行驶证和车辆认证资料");
+        }
     }
 
     /** 查询当前用户最近一次车辆认证申请，并转换为产品约定状态。 */
     @Override
     public VehicleAuthStatusResponse getMyVehicleAuthStatus() {
         Long userId = currentUserContext.requireUserId();
+
+        // 只读取当前未删除车辆关联的最新认证，已删除车辆的历史不会污染用户当前状态。
         VehicleCertification certification = certificationMapper.findLatestByUserId(userId);
         if (certification == null) {
             return new VehicleAuthStatusResponse(null, null, CERTIFICATION_UNSUBMITTED, null, null, null);
@@ -369,10 +451,15 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     public PageResult<VehicleCertificationAuditSummaryVO> pageCertifications(
             String status, String keyword, int page, int size) {
+        // 页码最小为 1，单页最多 100 条，避免后台误传参数形成全表大查询。
         int normalizedPage = Math.max(page, 1);
         int normalizedSize = Math.min(Math.max(size, 1), 100);
+
+        // 状态统一转为数据库枚举值；关键词只去除首尾空白，具体模糊匹配由 XML 完成。
         String normalizedStatus = normalizeStatusFilter(status);
         String normalizedKeyword = normalize(keyword);
+
+        // 数据列表与总数使用完全相同的过滤条件，确保分页元数据和页面内容一致。
         List<VehicleCertificationAuditSummaryVO> records = certificationMapper.page(
                         normalizedStatus, normalizedKeyword, (normalizedPage - 1) * normalizedSize, normalizedSize)
                 .stream()
@@ -387,6 +474,7 @@ public class VehicleServiceImpl implements VehicleService {
     /** 后台查询车辆认证详情。 */
     @Override
     public VehicleCertificationAuditDetailVO getCertificationForAudit(Long certificationId) {
+        // 后台详情按认证申请主键读取，不按 vehicleId 读取，便于查看每一次历史提交。
         VehicleCertification certification = certificationMapper.findById(certificationId);
         if (certification == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "车辆认证申请不存在");
@@ -399,8 +487,11 @@ public class VehicleServiceImpl implements VehicleService {
     @Transactional
     public VehicleCertificationAuditDetailVO applyCertificationAuditResult(
             Long certificationId, String auditResult, String rejectReason, Long operatorId) {
+        // 先规范化审核结果和原因；通过时原因强制置空，驳回时校验原因长度。
         String normalizedResult = normalizeAuditResult(auditResult);
         String normalizedReason = normalizeRejectReason(normalizedResult, rejectReason);
+
+        // 查询当前状态用于存在性与幂等校验，只有 PENDING 记录允许被审核。
         VehicleCertification certification = certificationMapper.findById(certificationId);
         if (certification == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "车辆认证申请不存在");
@@ -409,18 +500,25 @@ public class VehicleServiceImpl implements VehicleService {
             throw new BusinessException(409, "车辆认证申请已审核");
         }
         if (CERTIFICATION_APPROVED.equals(normalizedResult)) {
+            // 审核通过前再次执行全平台去重，防止两条待审申请并发通过同一车牌。
             String normalizedPlateNo = normalizePlateNo(decipher(certification.getPlateNoCipher()));
             ensurePlateNotApproved(normalizedPlateNo);
         }
         LocalDateTime now = LocalDateTime.now();
+
+        // SQL 的 where 条件包含 status='PENDING'；changed != 1 表示发生并发审核或状态变化。
         int changed = certificationMapper.updateAudit(
                 certificationId, normalizedResult, normalizedReason, operatorId, now);
         if (changed != 1) {
             throw new BusinessException(409, "车辆认证状态已发生变化，请刷新后重试");
         }
+
+        // 认证表保存每次申请，车辆档案保存当前汇总状态，两处必须在同一事务内同步。
         vehicleProfileMapper.updateCertificationStatus(
                 certification.getVehicleId(), certification.getUserId(), normalizedResult, now);
         clearVehicleCaches(certification.getUserId(), certification.getVehicleId());
+
+        // 审计 after 快照从数据库回查，保证包含最终审核人和审核时间。
         insertAuditLog(certification.getVehicleId(), certification.getUserId(), "CERTIFICATION_AUDIT",
                 certification, certificationMapper.findById(certificationId), normalizedReason);
         return toAuditDetail(certificationMapper.findById(certificationId));
@@ -430,11 +528,14 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     public PublicVehicleCardResponse getPublicCard(Long vehicleId) {
         String cacheKey = PUBLIC_CARD_CACHE_KEY.formatted(vehicleId);
+
+        // 公开卡片不含敏感明文，可短期缓存供行程、用户主页等高频场景复用。
         PublicVehicleCardResponse cached = readJson(cacheKey, PublicVehicleCardResponse.class);
         if (cached != null) {
             return cached;
         }
 
+        // 公开查询仍过滤逻辑删除车辆，但不校验当前登录用户是否为车主。
         VehicleProfile vehicle = vehicleProfileMapper.findById(vehicleId);
         if (vehicle == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "车辆不存在");
@@ -446,12 +547,14 @@ public class VehicleServiceImpl implements VehicleService {
 
     @Override
     public PublicVehicleCardResponse getPublicMainCard(Long userId) {
+        // Mapper 优先默认车辆，其次优先已认证车辆；用户没有车辆时按接口约定返回 null。
         VehicleProfile vehicle = vehicleProfileMapper.findMainByUserId(userId);
         return vehicle == null ? null : toPublicCardResponse(vehicle);
     }
 
     /** 校验车辆属于当前用户，防止越权操作。 */
     private VehicleProfile requireOwnedVehicle(Long vehicleId, Long userId) {
+        // 把 vehicleId 和 userId 同时放入 SQL 条件，避免“先查车辆、再在内存判断”产生越权窗口。
         VehicleProfile vehicle = vehicleProfileMapper.findByIdAndUserId(vehicleId, userId);
         if (vehicle == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "车辆不存在");
@@ -461,10 +564,12 @@ public class VehicleServiceImpl implements VehicleService {
 
     /** 填充创建车辆时允许写入的字段。 */
     private void fillVehicle(VehicleProfile vehicle, CreateVehicleRequest request) {
+        // 所有可选文本统一转换为空串，避免数据库 null 与空串造成前端重复判空。
         vehicle.setBrand(normalize(request.brand()));
         vehicle.setModel(normalize(request.model()));
         vehicle.setVehicleType(normalize(request.vehicleType()));
         vehicle.setColor(normalize(request.color()));
+        // 创建时未提供座位数使用产品默认值 5。
         vehicle.setSeatCount(request.seatCount() == null ? 5 : request.seatCount());
         vehicle.setEnergyType(normalize(request.energyType()));
         vehicle.setVehiclePhotoImageKey(normalize(request.vehiclePhotoImageKey()));
@@ -476,6 +581,7 @@ public class VehicleServiceImpl implements VehicleService {
         vehicle.setModel(normalize(request.model()));
         vehicle.setVehicleType(normalize(request.vehicleType()));
         vehicle.setColor(normalize(request.color()));
+        // 更新时未提供座位数表示保持原值，而不是重置为创建默认值。
         vehicle.setSeatCount(request.seatCount() == null ? vehicle.getSeatCount() : request.seatCount());
         vehicle.setEnergyType(normalize(request.energyType()));
         vehicle.setVehiclePhotoImageKey(normalize(request.vehiclePhotoImageKey()));
@@ -483,10 +589,12 @@ public class VehicleServiceImpl implements VehicleService {
 
     /** 转换为车辆详情响应。 */
     private VehicleResponse toVehicleResponse(VehicleProfile vehicle) {
+        // 车辆档案只保存当前认证状态，响应还需要最新申请 ID、驳回原因和审核时间。
         VehicleCertification certification = certificationMapper.findLatestByVehicleId(vehicle.getId());
         return new VehicleResponse(
                 vehicle.getId(),
                 vehicle.getUserId(),
+                // 永远返回脱敏车牌，密文仅用于服务端去重和后台授权查看。
                 vehicle.getPlateNoMask(),
                 vehicle.getBrand(),
                 vehicle.getModel(),
@@ -506,6 +614,7 @@ public class VehicleServiceImpl implements VehicleService {
 
     /** 转换为车辆认证响应。 */
     private VehicleCertificationResponse toCertificationResponse(VehicleCertification certification) {
+        // 认证详情同样只返回脱敏证件号；图片列表按 sortNo 排序后单独组装。
         return new VehicleCertificationResponse(
                 certification.getVehicleId(),
                 certification.getOwnerName(),
@@ -519,15 +628,18 @@ public class VehicleServiceImpl implements VehicleService {
                 certification.getRejectReason(),
                 certification.getSubmittedAt(),
                 certification.getReviewedAt(),
+                // 未提交或被驳回时允许再次提交，待审和通过状态均禁止重复提交。
                 CERTIFICATION_UNSUBMITTED.equals(certification.getStatus()) || "REJECTED".equals(certification.getStatus())
         );
     }
 
     /** 转换后台审核详情并解码授权字段。 */
     private VehicleCertificationAuditDetailVO toAuditDetail(VehicleCertification certification) {
+        // 后台审核详情需要车辆品牌等档案字段，因此补查车辆；历史车辆不存在时返回空展示值。
         VehicleProfile vehicle = vehicleProfileMapper.findById(certification.getVehicleId());
         return new VehicleCertificationAuditDetailVO(
                 certification.getId(), certification.getVehicleId(), certification.getUserId(),
+                // 只有后台审核模型会解密车牌、VIN 和发动机号，用户侧响应不会进入此转换方法。
                 certification.getOwnerName(), decipher(certification.getPlateNoCipher()),
                 vehicle == null ? "" : vehicle.getBrand(), vehicle == null ? "" : vehicle.getModel(),
                 vehicle == null ? "" : vehicle.getColor(), certification.getVehicleType(),
@@ -540,6 +652,7 @@ public class VehicleServiceImpl implements VehicleService {
 
     /** 将内部 APPROVED/REJECTED 状态映射为产品接口 PASS/REJECT。 */
     private VehicleAuthStatusResponse toVehicleAuthStatus(VehicleCertification certification) {
+        // 新版产品协议使用 PASS/REJECT；数据库仍沿用 APPROVED/REJECTED，需在边界层转换。
         String status = switch (certification.getStatus()) {
             case "APPROVED" -> "PASS";
             case "REJECTED" -> "REJECT";
@@ -549,6 +662,7 @@ public class VehicleServiceImpl implements VehicleService {
                 certification.getRejectReason(), certification.getSubmittedAt(), certification.getReviewedAt());
     }
 
+    /** 查询一条认证申请的附件，并裁剪成只包含类型和资源标识的响应对象。 */
     private List<VehicleCertificationImageVO> certificationImages(Long certificationId) {
         return certificationImageMapper.findByCertificationId(certificationId).stream()
                 .map(image -> new VehicleCertificationImageVO(image.getImageType(), image.getImageKey()))
@@ -571,6 +685,7 @@ public class VehicleServiceImpl implements VehicleService {
 
     /** 复制车辆实体，避免直接修改查询出的原始对象导致审计快照失真。 */
     private VehicleProfile copyVehicle(VehicleProfile source) {
+        // 手工复制所有持久化字段，避免 Lombok/序列化复制隐藏字段遗漏或改变类型。
         VehicleProfile vehicle = new VehicleProfile();
         vehicle.setId(source.getId());
         vehicle.setUserId(source.getUserId());
@@ -593,6 +708,7 @@ public class VehicleServiceImpl implements VehicleService {
 
     /** 清理车辆列表、详情和公开卡片缓存。 */
     private void clearVehicleCaches(Long userId, Long vehicleId) {
+        // 一次车辆写操作会同时影响“我的车辆”、车辆详情和跨模块公开卡片三个读模型。
         redisTemplate.delete(LIST_CACHE_KEY.formatted(userId));
         redisTemplate.delete(DETAIL_CACHE_KEY.formatted(vehicleId));
         redisTemplate.delete(PUBLIC_CARD_CACHE_KEY.formatted(vehicleId));
@@ -600,17 +716,20 @@ public class VehicleServiceImpl implements VehicleService {
 
     /** 基于 Redis 计数器实现简单频率限制。 */
     private void checkRateLimit(String key, int limit, Duration ttl, String message) {
+        // Redis INCR 原子递增；首次出现 key 时设置统计窗口的过期时间。
         Long count = redisTemplate.opsForValue().increment(key);
         if (count != null && count == 1) {
             redisTemplate.expire(key, ttl);
         }
         if (count != null && count > limit) {
+            // Redis 暂不可用并返回 null 时不阻断主业务；只有明确超过阈值才拒绝。
             throw new BusinessException(message);
         }
     }
 
     /** 写入车辆操作审计日志。 */
     private void insertAuditLog(Long vehicleId, Long userId, String operationType, Object before, Object after, String remark) {
+        // 前后对象在进入 Mapper 前转换为 JSON 快照，后续对象变化不会影响历史审计内容。
         auditLogMapper.insert(
                 SnowflakeIdGenerator.nextId(),
                 vehicleId,
@@ -626,11 +745,13 @@ public class VehicleServiceImpl implements VehicleService {
     /** 序列化审计快照；序列化失败时返回空 JSON，避免审计异常影响主流程。 */
     private String toJson(Object value) {
         if (value == null) {
+            // null 表示操作前或操作后确实不存在对象，例如 CREATE 的 before 和 REMOVE 的 after。
             return null;
         }
         try {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException exception) {
+            // 审计序列化属于辅助能力，失败时保留合法空 JSON，不能回滚核心车辆操作。
             return "{}";
         }
     }
@@ -644,6 +765,7 @@ public class VehicleServiceImpl implements VehicleService {
         try {
             return objectMapper.readValue(json, clazz);
         } catch (JsonProcessingException exception) {
+            // 版本升级后旧缓存可能无法反序列化；删除后由调用方自然回源数据库。
             redisTemplate.delete(key);
             return null;
         }
@@ -654,12 +776,14 @@ public class VehicleServiceImpl implements VehicleService {
         try {
             redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl);
         } catch (JsonProcessingException ignored) {
+            // 不写入半成品 JSON，同时删除可能存在的旧值，保证下一次请求回源获取新结构。
             redisTemplate.delete(key);
         }
     }
 
     /** 查询全平台是否已有相同车牌的通过认证记录。 */
     private VehicleCertification findApprovedCertification(String normalizedPlateNo) {
+        // 新格式用于当前数据，legacyEncoded 仅用于升级期匹配历史记录。
         return certificationMapper.findApprovedByPlateNoCipher(
                 cipher(normalizedPlateNo),
                 vehicleDataCipher.legacyEncoded(normalizedPlateNo));
@@ -674,6 +798,7 @@ public class VehicleServiceImpl implements VehicleService {
 
     /** 统一车牌格式，避免大小写和空格差异绕过重复校验。 */
     private String normalizePlateNo(String plateNo) {
+        // 去除普通空格并统一大写，使“粤A12345”和“粤a 12345”得到相同检索密文。
         String value = normalize(plateNo).replace(" ", "").toUpperCase(Locale.ROOT);
         if (!StringUtils.hasText(value)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "车牌号不能为空");
@@ -691,6 +816,7 @@ public class VehicleServiceImpl implements VehicleService {
         return vehicleDataCipher.decrypt(value);
     }
 
+    /** 规范化后台列表状态筛选；空串表示不按状态过滤。 */
     private String normalizeStatusFilter(String status) {
         String value = normalize(status).toUpperCase();
         if (value.isEmpty()) {
@@ -702,6 +828,7 @@ public class VehicleServiceImpl implements VehicleService {
         return value;
     }
 
+    /** 校验并规范化后台审核结果，只接受可落库的终态。 */
     private String normalizeAuditResult(String auditResult) {
         String value = normalize(auditResult).toUpperCase();
         if (!List.of("APPROVED", "REJECTED").contains(value)) {
@@ -710,6 +837,9 @@ public class VehicleServiceImpl implements VehicleService {
         return value;
     }
 
+    /**
+     * 规范化审核原因：通过时不保留无意义原因，驳回时必须提供 2~255 字符说明。
+     */
     private String normalizeRejectReason(String auditResult, String rejectReason) {
         String value = normalize(rejectReason);
         if ("REJECTED".equals(auditResult) && (value.length() < 2 || value.length() > 255)) {
@@ -725,6 +855,7 @@ public class VehicleServiceImpl implements VehicleService {
         }
         String value = plateNo.trim();
         if (value.length() <= 2) {
+            // 极短异常值没有足够字符可保留头尾，直接返回便于后台识别数据问题。
             return value;
         }
         if (value.length() <= 4) {
@@ -738,6 +869,7 @@ public class VehicleServiceImpl implements VehicleService {
         if (!StringUtils.hasText(vin) || vin.trim().length() < 8) {
             return normalize(vin);
         }
+        // VIN 正常为 17 位：保留前三位和后四位，中间统一隐藏。
         String value = vin.trim();
         return value.substring(0, 3) + "********" + value.substring(value.length() - 4);
     }
@@ -747,6 +879,7 @@ public class VehicleServiceImpl implements VehicleService {
         if (!StringUtils.hasText(engineNo) || engineNo.trim().length() <= 4) {
             return normalize(engineNo);
         }
+        // 发动机号仅保留末四位，满足用户核对需要且降低敏感信息暴露。
         String value = engineNo.trim();
         return "****" + value.substring(value.length() - 4);
     }

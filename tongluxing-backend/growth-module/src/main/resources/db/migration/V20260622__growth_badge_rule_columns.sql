@@ -8,7 +8,7 @@ set @sql = if(
           and column_name = 'event_type'
     ),
     'select 1',
-    'alter table growth_badge add column event_type varchar(32) null after badge_image_key'
+    'alter table growth_badge add column event_type varchar(32) null COMMENT ''事件类型'' after badge_image_key'
 );
 prepare stmt from @sql;
 execute stmt;
@@ -23,7 +23,7 @@ set @sql = if(
           and column_name = 'threshold'
     ),
     'select 1',
-    'alter table growth_badge add column threshold int null after event_type'
+    'alter table growth_badge add column threshold int null COMMENT ''业务达成阈值'' after event_type'
 );
 prepare stmt from @sql;
 execute stmt;
@@ -58,7 +58,7 @@ set @unmigrated = (
 
 set @sql = if(
     @unmigrated = 0,
-    'alter table growth_badge modify column event_type varchar(32) not null, modify column threshold int not null',
+    'alter table growth_badge modify column event_type varchar(32) not null COMMENT ''徽章进度事件类型'', modify column threshold int not null COMMENT ''业务达成阈值''',
     'select 1'
 );
 prepare stmt from @sql;

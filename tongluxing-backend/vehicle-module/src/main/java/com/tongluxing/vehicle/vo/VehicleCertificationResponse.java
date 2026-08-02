@@ -19,8 +19,9 @@ public record VehicleCertificationResponse(
         String vinMask,
         /** 脱敏后的发动机号。 */
         String engineNoMask,
-        /** 行驶证正页/副页资源标识。 */
+        /** 行驶证正页资源标识。 */
         String licenseFrontImageKey,
+        /** 行驶证副页资源标识。 */
         String licenseBackImageKey,
         /** 车辆审核图片。 */
         List<VehicleCertificationImageVO> vehicleImages,

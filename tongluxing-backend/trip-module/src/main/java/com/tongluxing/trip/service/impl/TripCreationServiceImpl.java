@@ -47,10 +47,12 @@ import com.tongluxing.trip.vo.TripResponse;
 import com.tongluxing.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /** 创建行程草稿、路线、经停点和发布事务实现。 */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TripCreationServiceImpl implements TripCreationService {
     private static final Set<String> WAYPOINT_TYPES = Set.of("MEETING", "REST", "HOTEL", "FUEL", "CHARGING", "CHECK_IN", "NORMAL");
     private final CurrentUserContext currentUserContext;
@@ -147,7 +149,7 @@ public class TripCreationServiceImpl implements TripCreationService {
     public TripCreationWaypointResponse addWaypoint(Long draftId, TripWaypointCommand request) {
         TripCreationDraft draft = requireEditableDraft(draftId);
         List<TripWaypoint> values = waypointMapper.findByDraftId(draftId);
-        if (values.size() >= 5) throw bad("经停点最多 5 个");
+        if (values.size() >= 20) throw bad("经停点最多 20 个");
         ensureWaypointUnique(draft, values, request, null);
         TripWaypoint waypoint = waypoint(draftId, null, request,
                 request.sort() == null ? values.size() + 1 : request.sort());
@@ -205,14 +207,18 @@ public class TripCreationServiceImpl implements TripCreationService {
     @Override
     @Transactional
     public TripDraftRouteResponse planRoute(Long draftId) {
+        long totalStarted = System.nanoTime();
         TripCreationDraft draft = requireEditableDraft(draftId);
         LocationRequest start = location(draft.getStartLocationJson());
         LocationRequest end = location(draft.getEndLocationJson());
         if (start == null || end == null) throw bad("请先选择起点和终点");
         List<TripWaypoint> waypoints = waypointMapper.findByDraftId(draftId);
+        long databaseFinished = System.nanoTime();
         validateRouteLocations(start, end, waypoints);
+        long calculationFinished = System.nanoTime();
         RoutePlanResponse plan = mapService.planRoute(new RoutePlanRequest(dto(start), dto(end),
                 waypoints.stream().map(this::dto).toList()));
+        long mapFinished = System.nanoTime();
         LocalDateTime now = LocalDateTime.now();
         TripRoute route = new TripRoute();
         route.setId(SnowflakeIdGenerator.nextId());
@@ -230,7 +236,12 @@ public class TripCreationServiceImpl implements TripCreationService {
         route.setUpdatedAt(now);
         route.setDeleted(0);
         if (routeMapper.updateByDraftId(route) == 0) routeMapper.insert(route);
-        return routeResponse(routeMapper.findByDraftId(draftId), start, end, waypoints);
+        TripDraftRouteResponse response = routeResponse(routeMapper.findByDraftId(draftId), start, end, waypoints);
+        long finished = System.nanoTime();
+        log.info("trip_route_plan_timing draftId={} databaseMs={} calculationMs={} mapMs={} assembleMs={} totalMs={}",
+                draftId, millis(totalStarted, databaseFinished), millis(databaseFinished, calculationFinished),
+                millis(calculationFinished, mapFinished), millis(mapFinished, finished), millis(totalStarted, finished));
+        return response;
     }
 
     @Override
@@ -458,6 +469,8 @@ public class TripCreationServiceImpl implements TripCreationService {
         LocalDateTime now = LocalDateTime.now();
         for (int i = 0; i < values.size(); i++) waypointMapper.updateDraftSequence(draftId, values.get(i).getId(), i + 1, now);
     }
+
+    private long millis(long start, long end) { return (end - start) / 1_000_000L; }
 
     private List<TripCreationWaypointResponse> waypointResponses(Long draftId) {
         return waypointMapper.findByDraftId(draftId).stream().map(this::response).toList();

@@ -69,8 +69,10 @@ services:
       MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN}
       TZ: Asia/Shanghai
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      # Windows 当前可能保留 8906-9005 端口段，本地改用 19000/19001，
+      # 容器内部端口保持 MinIO 默认值不变。
+      - "${MINIO_PORT:-19000}:9000"
+      - "${MINIO_CONSOLE_PORT:-19001}:9001"
     volumes:
       - tongluxing_minio_data:/data
     healthcheck:

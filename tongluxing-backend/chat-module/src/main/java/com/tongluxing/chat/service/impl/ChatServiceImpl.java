@@ -40,7 +40,7 @@ import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.user.support.CurrentUserContext;
 import com.tongluxing.user.service.UserService;
-import com.tongluxing.user.model.UserModels.PublicProfileVO;
+import com.tongluxing.user.vo.PublicProfileVO;
 import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.vo.TripResponse;
 import com.tongluxing.team.service.TeamService;

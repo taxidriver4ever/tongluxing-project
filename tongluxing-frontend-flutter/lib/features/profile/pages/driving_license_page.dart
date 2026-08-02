@@ -73,8 +73,8 @@ class _DrivingLicensePageState extends State<DrivingLicensePage> {
         _selectedImages[label] = _SelectedLicenseImage(
           fileName: file.name,
           bytes: bytes,
-          contentType: file.mimeType ??
-              StorageUploadService.imageContentType(file.name),
+          contentType:
+              file.mimeType ?? StorageUploadService.imageContentType(file.name),
         );
       });
     } catch (error) {
@@ -104,9 +104,10 @@ class _DrivingLicensePageState extends State<DrivingLicensePage> {
       final storage = StorageUploadService(api);
       final front = _selectedImages['正面']!;
       final back = _selectedImages['背面']!;
+      final userId = context.read<AppSession>().userId;
       final frontResult = await storage.upload(
         bizType: 'USER_DRIVER_LICENSE_FRONT',
-        bizId: context.read<AppSession>().userId,
+        bizId: userId,
         fileName: front.fileName,
         bytes: front.bytes,
         contentType: front.contentType,
@@ -114,7 +115,7 @@ class _DrivingLicensePageState extends State<DrivingLicensePage> {
       if (mounted) setState(() => _submittingLabel = '正在上传驾驶证背面…');
       final backResult = await storage.upload(
         bizType: 'USER_DRIVER_LICENSE_BACK',
-        bizId: context.read<AppSession>().userId,
+        bizId: userId,
         fileName: back.fileName,
         bytes: back.bytes,
         contentType: back.contentType,

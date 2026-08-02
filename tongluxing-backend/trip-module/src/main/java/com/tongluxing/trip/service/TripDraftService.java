@@ -1,10 +1,10 @@
 package com.tongluxing.trip.service;
 
-import com.tongluxing.user.model.UserModels.PageResult;
-import com.tongluxing.user.model.UserModels.PublishResultVO;
-import com.tongluxing.user.model.UserModels.TeamMatchVO;
-import com.tongluxing.user.model.UserModels.TripDraftRequest;
-import com.tongluxing.user.model.UserModels.TripDraftVO;
+import com.tongluxing.common.model.PageResult;
+import com.tongluxing.user.vo.PublishResultVO;
+import com.tongluxing.user.vo.TeamMatchVO;
+import com.tongluxing.user.dto.request.TripDraftRequest;
+import com.tongluxing.user.vo.TripDraftVO;
 
 /**
  * 行程草稿业务服务接口。

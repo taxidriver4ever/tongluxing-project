@@ -5,11 +5,8 @@ import '../../../data/models/app_models.dart';
 import '../widgets/route_map_view.dart';
 
 class TripRouteMapPage extends StatelessWidget {
-  const TripRouteMapPage({
-    required this.detail,
-    this.routePoints,
-    super.key,
-  }) : trip = null;
+  const TripRouteMapPage({required this.detail, this.routePoints, super.key})
+    : trip = null;
 
   const TripRouteMapPage.forTrip({
     required this.trip,
@@ -30,7 +27,8 @@ class TripRouteMapPage extends StatelessWidget {
         publicDetail?.routePoints ??
         ownedTrip?.routePoints ??
         const <LocationSelection>[];
-    final startName = publicDetail?.trip.startName ?? ownedTrip?.startName ?? '起点';
+    final startName =
+        publicDetail?.trip.startName ?? ownedTrip?.startName ?? '起点';
     final endName = publicDetail?.trip.endName ?? ownedTrip?.endName ?? '终点';
     final waypointNames =
         publicDetail?.trip.waypoints ??
@@ -63,6 +61,8 @@ class TripRouteMapPage extends StatelessWidget {
             child: RouteMapView(
               polylinePoints: points,
               stops: stops,
+              performanceLabel:
+                  'trip_route_full:${publicDetail?.trip.tripId ?? ownedTrip?.id ?? 'unknown'}',
               height: MediaQuery.sizeOf(context).height,
               interactive: true,
             ),
@@ -90,11 +90,7 @@ class TripRouteMapPage extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            [
-                              startName,
-                              ...waypointNames,
-                              endName,
-                            ].join(' → '),
+                            [startName, ...waypointNames, endName].join(' → '),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(

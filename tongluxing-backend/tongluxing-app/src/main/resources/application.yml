@@ -13,6 +13,9 @@ spring:
     name: tongluxing-backend
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
+    group:
+      # dev 复用本地开发配置；容器部署时仍由 .env 中的数据库、Redis、MinIO 等环境变量覆盖连接地址。
+      dev: local
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
   sql:
@@ -78,6 +81,11 @@ management:
   endpoint:
     health:
       show-details: when_authorized
+
+# HTTP 接口耗时观测：超过阈值的请求使用 WARN 日志记录，可通过环境变量按部署环境调整。
+observability:
+  http:
+    slow-request-threshold-ms: ${HTTP_SLOW_REQUEST_THRESHOLD_MS:2000}
 
 # MVP 轨迹风控阈值：后台首轮内测只读，统一配置，禁止业务代码散落硬编码。
 trajectory:

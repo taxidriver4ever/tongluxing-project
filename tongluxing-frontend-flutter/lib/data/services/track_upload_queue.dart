@@ -45,8 +45,8 @@ class TrackUploadQueue {
                 : value
           : value,
     );
-    final next = ((storage.getInt(_sequenceKey(tripId, userId)) ?? 0) >
-                queuedMax
+    final next =
+        ((storage.getInt(_sequenceKey(tripId, userId)) ?? 0) > queuedMax
             ? storage.getInt(_sequenceKey(tripId, userId)) ?? 0
             : queuedMax) +
         1;
@@ -93,11 +93,7 @@ class TrackUploadQueue {
     }
   }
 
-  Future<void> remove(
-    String tripId,
-    String userId,
-    int sequenceNo,
-  ) async {
+  Future<void> remove(String tripId, String userId, int sequenceNo) async {
     final storage = await SharedPreferences.getInstance();
     final rows = await pending(tripId, userId);
     rows.removeWhere(
@@ -119,9 +115,8 @@ class TrackUploadQueue {
   ) {
     final leftTime = DateTime.tryParse(left['recordTime']?.toString() ?? '');
     final rightTime = DateTime.tryParse(right['recordTime']?.toString() ?? '');
-    final byTime = (leftTime ?? DateTime.fromMillisecondsSinceEpoch(0)).compareTo(
-      rightTime ?? DateTime.fromMillisecondsSinceEpoch(0),
-    );
+    final byTime = (leftTime ?? DateTime.fromMillisecondsSinceEpoch(0))
+        .compareTo(rightTime ?? DateTime.fromMillisecondsSinceEpoch(0));
     if (byTime != 0) return byTime;
     return ((left['sequenceNo'] as num?)?.toInt() ?? 0).compareTo(
       (right['sequenceNo'] as num?)?.toInt() ?? 0,

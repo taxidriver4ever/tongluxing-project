@@ -1,7 +1,7 @@
 package com.tongluxing.growth.integration;
 
-import com.tongluxing.user.model.UserModels.BadgeWallVO;
-import com.tongluxing.user.model.UserModels.GrowthSummaryVO;
+import com.tongluxing.user.vo.BadgeWallVO;
+import com.tongluxing.user.vo.GrowthSummaryVO;
 
 /**
  * 成长模块对其他模块开放的门面接口。

@@ -75,9 +75,11 @@ class _TripNavigationPageState extends State<TripNavigationPage>
       backgroundStartedAt = null;
       final lastCaptured = lastTrackCapturedAt;
       if (backgroundAt != null &&
-          DateTime.now().difference(backgroundAt) > const Duration(seconds: 20) &&
+          DateTime.now().difference(backgroundAt) >
+              const Duration(seconds: 20) &&
           (lastCaptured == null ||
-              DateTime.now().difference(lastCaptured) > const Duration(seconds: 20))) {
+              DateTime.now().difference(lastCaptured) >
+                  const Duration(seconds: 20))) {
         _warnBackgroundTrackingInterrupted();
       }
       unawaited(_flushTrackQueue(showError: false));
@@ -109,9 +111,9 @@ class _TripNavigationPageState extends State<TripNavigationPage>
         await location.invokeMethod<bool>('requestLocation') ?? false;
     if (!granted || !mounted) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('请开启定位权限，否则无法记录路程和结算成长值')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('请开启定位权限，否则无法记录路程和结算成长值')));
       }
       return;
     }
@@ -207,9 +209,7 @@ class _TripNavigationPageState extends State<TripNavigationPage>
         accuracyWarningShown = true;
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(
-            const SnackBar(content: Text('定位信号较弱，暂未记录无效定位点')),
-          );
+          ..showSnackBar(const SnackBar(content: Text('定位信号较弱，暂未记录无效定位点')));
       }
       return;
     }
@@ -272,8 +272,7 @@ class _TripNavigationPageState extends State<TripNavigationPage>
           response = await service.uploadTrackPayload(point);
         } on ApiException catch (error, stackTrace) {
           final duplicateMessage =
-              error.message.contains('已上传') ||
-              error.message.contains('重复提交');
+              error.message.contains('已上传') || error.message.contains('重复提交');
           final duplicateCode = error.code == 409 || error.statusCode == 409;
           if (duplicateCode && duplicateMessage) {
             await trackQueue.remove(
@@ -300,10 +299,7 @@ class _TripNavigationPageState extends State<TripNavigationPage>
           debugPrintStack(stackTrace: stackTrace);
 
           if (showError && mounted) {
-            final pendingCount = await trackQueue.count(
-              widget.trip.id,
-              userId,
-            );
+            final pendingCount = await trackQueue.count(widget.trip.id, userId);
             if (!mounted) return;
             final message = error.networkError
                 ? '轨迹已本地保存，网络恢复后自动补传（待传 $pendingCount 点）'
@@ -319,14 +315,9 @@ class _TripNavigationPageState extends State<TripNavigationPage>
           );
           debugPrintStack(stackTrace: stackTrace);
           if (showError && mounted) {
-            final pendingCount = await trackQueue.count(
-              widget.trip.id,
-              userId,
-            );
+            final pendingCount = await trackQueue.count(widget.trip.id, userId);
             if (!mounted) return;
-            _showTrackUploadMessage(
-              '轨迹处理异常，数据已保存在本地（待传 $pendingCount 点）',
-            );
+            _showTrackUploadMessage('轨迹处理异常，数据已保存在本地（待传 $pendingCount 点）');
           }
           break;
         }
@@ -446,14 +437,13 @@ class _TripNavigationPageState extends State<TripNavigationPage>
     final id = conversationId;
     if (id == null || id.isEmpty || !mounted) return;
     try {
-      final rows = await ChatService(
-        context.read<AppSession>().api,
-      ).shareLocation(
-        id,
-        latitude: latitude,
-        longitude: longitude,
-        speed: speed,
-      );
+      final rows = await ChatService(context.read<AppSession>().api)
+          .shareLocation(
+            id,
+            latitude: latitude,
+            longitude: longitude,
+            speed: speed,
+          );
       final points = rows
           .map(
             (row) => LocationSelection(
@@ -540,7 +530,6 @@ class _TripNavigationPageState extends State<TripNavigationPage>
   }
 
   void _notifySettlement(Map<String, dynamic> response) {
-    final points = (response['grantedPoints'] as num?)?.toInt() ?? 0;
     final waypoint = response['reachedWaypointName']?.toString();
     if (!mounted) return;
     if (waypoint != null && waypoint.isNotEmpty) {
@@ -553,11 +542,7 @@ class _TripNavigationPageState extends State<TripNavigationPage>
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text(
-              '已按顺序到达节点“$waypoint”，下一导航目标已更新',
-            ),
-          ),
+          SnackBar(content: Text('已按顺序到达节点“$waypoint”，下一导航目标已更新')),
         );
       _announceCurrentStage();
       return;
@@ -669,13 +654,13 @@ class _TripNavigationPageState extends State<TripNavigationPage>
         ) ??
         false;
     if (!ok || !mounted) return;
+    final session = context.read<AppSession>();
     trackTimer?.cancel();
     setState(() => ending = true);
     var tripEnded = false;
     try {
       await _uploadCurrentPoint(force: true);
       await _flushTrackQueue(showError: false);
-      final session = context.read<AppSession>();
       final pendingCount = await trackQueue.count(
         widget.trip.id,
         session.userId ?? 'anonymous',
@@ -815,6 +800,7 @@ class _TripNavigationPageState extends State<TripNavigationPage>
         children: [
           Positioned.fill(
             child: RouteMapView(
+              performanceLabel: 'trip_navigation:${widget.trip.id}',
               polylinePoints: showTeamPanel
                   ? (teamLocations.isEmpty ? _routeStops : teamLocations)
                   : _routePoints,
@@ -1084,9 +1070,7 @@ class _TripNavigationPageState extends State<TripNavigationPage>
                             ? null
                             : _confirmArrival,
                         icon: const Icon(LucideIcons.mapPinCheck, size: 18),
-                        label: Text(
-                          confirmingArrival ? '正在核验位置…' : '确认到达当前节点',
-                        ),
+                        label: Text(confirmingArrival ? '正在核验位置…' : '确认到达当前节点'),
                       ),
                     ),
                     const SizedBox(height: 8),

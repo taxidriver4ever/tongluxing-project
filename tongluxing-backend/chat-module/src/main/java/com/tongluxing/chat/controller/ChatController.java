@@ -82,6 +82,7 @@ public class ChatController {
         return Result.success(chatService.startPrivateConversation(userId));
     }
 
+    /** 查询当前用户在指定私聊会话中的实时发送权限。 */
     @GetMapping("/conversations/{conversationId}/private-permission")
     public Result<PrivateChatPermissionResponse> privateConversationPermission(
             @PathVariable Long conversationId) {
@@ -137,34 +138,40 @@ public class ChatController {
         return Result.success();
     }
 
+    /** 查询指定会话的有效成员及公开资料摘要。 */
     @GetMapping("/conversations/{conversationId}/members")
     public Result<List<ConversationMemberResponse>> members(@PathVariable Long conversationId) {
         return Result.success(chatService.getMembers(conversationId));
     }
 
+    /** 查询当前用户对指定会话设置的免打扰与置顶状态。 */
     @GetMapping("/conversations/{conversationId}/settings")
     public Result<ConversationSettingResponse> settings(@PathVariable Long conversationId) {
         return Result.success(chatService.getSettings(conversationId));
     }
 
+    /** 更新当前用户独有的会话设置，不会影响群内其他成员。 */
     @PutMapping("/conversations/{conversationId}/settings")
     public Result<ConversationSettingResponse> updateSettings(@PathVariable Long conversationId,
             @Valid @RequestBody ConversationSettingRequest request) {
         return Result.success(chatService.updateSettings(conversationId, request.muted(), request.pinned()));
     }
 
+    /** 当前用户向指定群聊提交入群申请。 */
     @PostMapping("/conversations/{conversationId}/join-applications")
     public Result<JoinApplicationResponse> applyToJoin(@PathVariable Long conversationId,
             @Valid @RequestBody JoinApplicationRequest request) {
         return Result.success(chatService.applyToJoin(conversationId, request.message()));
     }
 
+    /** 查询当前用户作为群主有权处理的入群申请。 */
     @GetMapping("/join-applications")
     public Result<List<JoinApplicationResponse>> joinApplications(
             @RequestParam(defaultValue = "PENDING") String status) {
         return Result.success(chatService.getJoinApplications(status));
     }
 
+    /** 群主通过或拒绝一条尚未处理的入群申请。 */
     @PostMapping("/join-applications/{applicationId}/review")
     public Result<JoinApplicationResponse> review(@PathVariable Long applicationId,
             @Valid @RequestBody JoinApplicationReviewRequest request) {

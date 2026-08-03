@@ -11,6 +11,7 @@ import com.tongluxing.chat.entity.ChatJoinApplication;
  */
 @Mapper
 public interface ChatJoinApplicationMapper {
+    /** 写入一条初始状态为 PENDING 的入群申请。 */
     @Insert("""
         insert into chat_join_application(id,conversation_id,applicant_user_id,application_message,
           application_status,created_at,updated_at,deleted)
@@ -18,6 +19,10 @@ public interface ChatJoinApplicationMapper {
         """)
     void insert(ChatJoinApplication row);
 
+    /**
+     * 查询指定群主有权审核的申请队列。
+     * SQL 通过 ACTIVE + OWNER 成员记录完成权限范围约束，而非读取全量数据后再由 Java 过滤。
+     */
     @Select("""
         select a.id,a.conversation_id conversationId,a.applicant_user_id applicantUserId,
           a.application_message applicationMessage,a.application_status applicationStatus,
@@ -29,6 +34,7 @@ public interface ChatJoinApplicationMapper {
         """)
     List<ChatJoinApplication> findOwnerQueue(@Param("ownerId") Long ownerId, @Param("status") String status);
 
+    /** 按主键查询未被逻辑删除的申请。 */
     @Select("""
         select id,conversation_id conversationId,applicant_user_id applicantUserId,
           application_message applicationMessage,application_status applicationStatus,
@@ -37,6 +43,7 @@ public interface ChatJoinApplicationMapper {
         """)
     ChatJoinApplication findById(@Param("id") Long id);
 
+    /** 查询用户在同一会话中尚未处理的申请，用于提交前防重。 */
     @Select("""
         select id,conversation_id conversationId,applicant_user_id applicantUserId,
           application_message applicationMessage,application_status applicationStatus,
@@ -48,6 +55,10 @@ public interface ChatJoinApplicationMapper {
     ChatJoinApplication findPending(@Param("conversationId") Long conversationId,
                                     @Param("applicantUserId") Long applicantUserId);
 
+    /**
+     * 审核申请并记录审核人和时间。
+     * 更新条件限定原状态必须为 PENDING，返回值可用于识别并发或重复审核。
+     */
     @Update("""
         update chat_join_application set application_status=#{decision},reviewer_user_id=#{reviewerId},
           reviewed_at=#{now},updated_at=#{now}

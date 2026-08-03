@@ -50,6 +50,7 @@ public class TencentImServiceImpl implements TencentImService {
     /** 判断云端必要配置是否完整；未配置时业务层使用本地同步模式。 */
     @Override
     public boolean isConfigured() {
+        // provider 类型和凭据必须同时满足；仅填写密钥但显式选择 MOCK 时也不会访问公网。
         return "TENCENT_IM".equals(providerType()) && properties.hasCredentials();
     }
 
@@ -62,6 +63,7 @@ public class TencentImServiceImpl implements TencentImService {
     /** 为指定 IM 用户 ID 生成 UserSig。 */
     @Override
     public String generateUserSig(String userId) {
+        // UserSig 相当于腾讯 IM 登录凭证，生成前必须拒绝缺失或占位配置。
         validateConfig();
         TLSSigAPIv2 api = new TLSSigAPIv2(properties.getSdkAppId(), properties.getSecretKey());
         return api.genUserSig(userId, properties.getExpireSeconds());
@@ -71,7 +73,9 @@ public class TencentImServiceImpl implements TencentImService {
     @Override
     public ImUserSigResponse generateCurrentUserSig() {
         Long userId = currentUserContext.requireUserId();
+        // 使用固定前缀隔离业务用户 ID 与腾讯控制台中可能存在的其他账号体系。
         String imUserId = toImUserId(userId);
+        // account_import 是幂等操作，先导入可避免客户端首次登录时出现账号不存在。
         importAccount(imUserId);
         String userSig = generateUserSig(imUserId);
         Long expireTime = Instant.now().getEpochSecond() + properties.getExpireSeconds();
@@ -81,6 +85,7 @@ public class TencentImServiceImpl implements TencentImService {
     /** 在腾讯云 IM 创建公开群组。 */
     @Override
     public void createGroup(String groupId, String ownerUserId, String groupName) {
+        // 腾讯云要求 Owner_Account 已存在，因此建群前先执行幂等账号导入。
         importAccount(ownerUserId);
         Map<String, Object> payload = Map.of(
                 "Owner_Account", ownerUserId,
@@ -101,6 +106,7 @@ public class TencentImServiceImpl implements TencentImService {
     /** 添加腾讯云 IM 群成员。 */
     @Override
     public void addGroupMember(String groupId, String userId) {
+        // 与群主相同，普通成员也必须先导入腾讯账号体系才能被加入群组。
         importAccount(userId);
         Map<String, Object> payload = Map.of(
                 "GroupId", groupId,
@@ -123,6 +129,7 @@ public class TencentImServiceImpl implements TencentImService {
     @Override
     public String sendGroupText(String groupId, String senderUserId, String content) {
         importAccount(senderUserId);
+        // Random 用于腾讯侧消息去重；同时作为本地 providerMessageKey 的关联依据。
         int random = ThreadLocalRandom.current().nextInt(100000, Integer.MAX_VALUE);
         Map<String, Object> payload = Map.of(
                 "GroupId", groupId,
@@ -140,6 +147,7 @@ public class TencentImServiceImpl implements TencentImService {
     /** 通过腾讯 IM REST API 发送单聊文本，并返回腾讯侧随机号作为本地关联 key。 */
     @Override
     public String sendC2CText(String receiverUserId, String senderUserId, String content) {
+        // 双方账号都先导入，避免新用户首次私聊只有其中一端存在而投递失败。
         importAccount(senderUserId);
         importAccount(receiverUserId);
         int random = ThreadLocalRandom.current().nextInt(100000, Integer.MAX_VALUE);
@@ -160,6 +168,7 @@ public class TencentImServiceImpl implements TencentImService {
 
     /** 将业务用户幂等导入腾讯 IM，避免建群或加群时出现 invalid owner/member id。 */
     private void importAccount(String userId) {
+        // 重复导入同一 Identifier 会更新/复用账号，不需要额外查询云端是否存在。
         callRest("im_open_login_svc/account_import", Map.of(
                 "Identifier", userId,
                 "Nick", "同路行用户"
@@ -168,6 +177,7 @@ public class TencentImServiceImpl implements TencentImService {
 
     /** 将业务用户 ID 转换为腾讯云 IM 用户 ID。 */
     public static String toImUserId(Long userId) {
+        // 该映射仅用于腾讯云通道；本地数据库关联仍始终使用原始 Long userId。
         return "u_" + userId;
     }
 
@@ -179,6 +189,7 @@ public class TencentImServiceImpl implements TencentImService {
     /** 调用腾讯云 REST API，并允许部分业务错误码按幂等成功处理。 */
     private void callRest(String command, Map<String, Object> payload, Set<Integer> acceptedErrorCodes) {
         validateConfig();
+        // REST 管理接口必须用管理员 UserSig 鉴权，不能复用当前 App 用户的 UserSig。
         String adminSig = generateUserSig(properties.getAdminUserId());
         String url = REST_BASE_URL + command
                 + "?sdkappid=" + properties.getSdkAppId()
@@ -187,12 +198,14 @@ public class TencentImServiceImpl implements TencentImService {
                 + "&random=" + ThreadLocalRandom.current().nextInt(100000, 999999999)
                 + "&contenttype=json";
         try {
+            // 每个调用独立序列化请求体，避免共享可变 JSON 状态造成并发污染。
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            // 先检查传输层状态，再解析腾讯云响应中的业务状态。
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new BusinessException(ResultCode.BUSINESS_ERROR, "腾讯云 IM 请求失败");
             }
@@ -202,6 +215,7 @@ public class TencentImServiceImpl implements TencentImService {
             Object actionStatus = body.get("ActionStatus");
             if (!"OK".equals(actionStatus)) {
                 Object errorCode = body.get("ErrorCode");
+                // 建群等幂等场景可把“资源已存在”视为成功，其余错误仍向业务层抛出。
                 if (errorCode instanceof Number number && acceptedErrorCodes.contains(number.intValue())) {
                     return;
                 }
@@ -213,6 +227,7 @@ public class TencentImServiceImpl implements TencentImService {
         } catch (IOException exception) {
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "腾讯云 IM 网络请求失败");
         } catch (InterruptedException exception) {
+            // 恢复中断标记，避免上层线程池无法感知取消信号。
             Thread.currentThread().interrupt();
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "腾讯云 IM 请求被中断");
         }

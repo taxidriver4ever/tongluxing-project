@@ -20,12 +20,14 @@ public interface ChatMessageMapper {
                                    @Param("clearedBeforeMessageId") Long clearedBeforeMessageId,
                                    @Param("limit") Integer limit);
 
+    /** 查询会话内未被拦截的最新消息 ID，用作已读和隐藏游标。 */
     @org.apache.ibatis.annotations.Select("""
             select max(id) from chat_message
             where conversation_id=#{conversationId} and deleted=0 and message_status<>'BLOCKED'
             """)
     Long findLatestMessageId(@Param("conversationId") Long conversationId);
 
+    /** 统计指定用户在会话中已成功保存且未被拦截的消息数，用于私聊额度计算。 */
     @org.apache.ibatis.annotations.Select("""
             select count(*) from chat_message
             where conversation_id=#{conversationId} and sender_user_id=#{senderUserId}

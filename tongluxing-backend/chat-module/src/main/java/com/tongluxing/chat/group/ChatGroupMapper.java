@@ -9,51 +9,63 @@ import org.apache.ibatis.annotations.*;
  */
 @Mapper
 public interface ChatGroupMapper {
+ /** 查询群工作区主信息，并聚合关联行程与当前有效成员数量。 */
  @Select("""
  select c.id conversationId,c.conversation_name conversationName,c.biz_id tripId,c.conversation_status conversationStatus,
    t.title tripName,t.trip_number tripNumber,t.start_name startName,t.end_name endName,t.departure_time departureTime,t.status tripStatus,
    t.joined_vehicle_count vehicleCount,(select count(*) from chat_conversation_member m where m.conversation_id=c.id and m.member_status='ACTIVE' and m.deleted=0) memberCount
    from chat_conversation c left join trip t on c.biz_type='TRIP' and t.id=c.biz_id and t.deleted=0 where c.id=#{id} and c.deleted=0""")
  Map<String,Object> workspace(@Param("id")Long id);
+ /** 查询会话内仍可展示的协作事项，并附带每项投票总数。 */
  @Select("""
  select i.id,i.conversation_id conversationId,i.item_type itemType,i.title,i.content,i.payload_json payloadJson,
    i.item_status itemStatus,i.creator_user_id creatorUserId,i.created_at createdAt,i.updated_at updatedAt,
    (select count(*) from chat_group_vote v where v.item_id=i.id) voteCount
    from chat_group_item i where i.conversation_id=#{id} and i.item_status in ('ACTIVE','CLOSED') and i.deleted=0 order by i.created_at desc""")
  List<Map<String,Object>> items(@Param("id")Long id);
+ /** 新增一条 ACTIVE 状态的群协作事项。 */
  @Insert("""
  insert into chat_group_item(id,conversation_id,item_type,title,content,payload_json,item_status,creator_user_id,created_at,updated_at,deleted)
    values(#{id},#{conversationId},#{type},#{title},#{content},#{payload},'ACTIVE',#{creator},#{now},#{now},0)""")
  void insertItem(@Param("id")Long id,@Param("conversationId")Long conversationId,@Param("type")String type,
    @Param("title")String title,@Param("content")String content,@Param("payload")String payload,@Param("creator")Long creator,@Param("now")LocalDateTime now);
+ /** 按主键读取未被逻辑删除的协作事项。 */
  @Select("""
  select id,conversation_id conversationId,item_type itemType,title,content,payload_json payloadJson,
    item_status itemStatus,creator_user_id creatorUserId,created_at createdAt,updated_at updatedAt
    from chat_group_item where id=#{id} and deleted=0 limit 1""") Map<String,Object> item(@Param("id")Long id);
+ /** 仅更新仍处于 ACTIVE 状态的事项，返回受影响行数供服务层判断。 */
  @Update("""
  update chat_group_item set title=#{title},content=#{content},payload_json=#{payload},updated_at=#{now}
    where id=#{id} and item_status='ACTIVE' and deleted=0""")
  int updateItem(@Param("id")Long id,@Param("title")String title,@Param("content")String content,@Param("payload")String payload,@Param("now")LocalDateTime now);
+ /** 原子关闭进行中的投票，已关闭投票不会再次变更。 */
  @Update("update chat_group_item set item_status='CLOSED',updated_at=#{now} where id=#{id} and item_type='POLL' and item_status='ACTIVE' and deleted=0")
  int closePoll(@Param("id")Long id,@Param("now")LocalDateTime now);
+ /** 写入用户选票；insert ignore 配合唯一键实现并发防重复投票。 */
  @Insert("""
  insert ignore into chat_group_vote(id,item_id,option_key,user_id,created_at)
  values(#{id},#{itemId},#{optionKey},#{userId},#{now})""")
  int vote(@Param("id")Long id,@Param("itemId")Long itemId,@Param("optionKey")String optionKey,@Param("userId")Long userId,@Param("now")LocalDateTime now);
+ /** 按选项汇总一项投票的票数。 */
  @Select("select option_key optionKey,count(*) votes from chat_group_vote where item_id=#{id} group by option_key") List<Map<String,Object>> votes(@Param("id")Long id);
+ /** 查询指定用户在该投票中的选择，未投票时返回空。 */
  @Select("select option_key from chat_group_vote where item_id=#{itemId} and user_id=#{userId} limit 1")
  String userVote(@Param("itemId")Long itemId,@Param("userId")Long userId);
+ /** 新增或覆盖成员的最新位置与共享开关，每名成员只保留一条最新位置。 */
  @Insert("""
  insert into chat_member_location(id,conversation_id,user_id,latitude,longitude,speed,sharing_flag,recorded_at,updated_at)
    values(#{id},#{conversationId},#{userId},#{lat},#{lng},#{speed},#{sharing},#{now},#{now})
    on duplicate key update latitude=values(latitude),longitude=values(longitude),speed=values(speed),sharing_flag=values(sharing_flag),recorded_at=values(recorded_at),updated_at=values(updated_at)""")
  void location(@Param("id")Long id,@Param("conversationId")Long conversationId,@Param("userId")Long userId,
    @Param("lat")BigDecimal lat,@Param("lng")BigDecimal lng,@Param("speed")BigDecimal speed,@Param("sharing")boolean sharing,@Param("now")LocalDateTime now);
+ /** 查询十五分钟内仍开启共享的位置，自动排除过期坐标。 */
  @Select("""
  select l.user_id userId,p.nickname,p.avatar_image_key avatarImageKey,l.latitude,l.longitude,l.speed,l.recorded_at recordedAt
    from chat_member_location l left join user_profile p on p.user_id=l.user_id and p.deleted=0
    where l.conversation_id=#{id} and l.sharing_flag=1 and l.recorded_at>=date_sub(now(),interval 15 minute) order by l.recorded_at desc""")
  List<Map<String,Object>> locations(@Param("id")Long id);
+ /** 查询有效成员已认证的默认车辆，用于群工作区车辆卡片。 */
  @Select("""
  select m.user_id userId,v.brand,v.model,v.color,v.plate_no_mask plateNoMask,v.vehicle_photo_image_key vehiclePhotoImageKey
    from chat_conversation_member m join vehicle_profile v on v.user_id=m.user_id and v.is_default=1
@@ -61,6 +73,7 @@ public interface ChatGroupMapper {
    where m.conversation_id=#{id} and m.member_status='ACTIVE' and m.deleted=0
  """)
  List<Map<String,Object>> memberVehicles(@Param("id")Long id);
+ /** 扫描最多五十条到期且尚未派发的提醒，并携带云端投递信息。 */
  @Select("""
  select i.id,i.conversation_id conversationId,i.title,i.content,i.payload_json payloadJson,
    c.provider_type providerType,c.provider_conversation_key providerConversationKey,
@@ -73,14 +86,17 @@ public interface ChatGroupMapper {
      and str_to_date(json_unquote(json_extract(i.payload_json,'$.scheduledAt')),'%Y-%m-%dT%H:%i:%s')<=now()
    order by i.created_at asc limit 50
  """) List<Map<String,Object>> dueReminders();
+ /** 通过提醒 ID 主键抢占派发资格；重复插入返回 0。 */
  @Insert("insert ignore into chat_reminder_dispatch(item_id,dispatched_at) values(#{itemId},#{now})")
  int markReminderDispatched(@Param("itemId")Long itemId,@Param("now")LocalDateTime now);
+ /** 将到期提醒写入本地消息表，确保云端失败时仍可审计和读取。 */
  @Insert("""
  insert into chat_message(id,conversation_id,sender_user_id,message_type,message_payload_json,message_status,
    provider_message_key,sent_at,created_at,updated_at,deleted)
  values(#{id},#{conversationId},null,'SYSTEM',#{payload},'NORMAL',#{providerKey},#{now},#{now},#{now},0)
  """) void insertReminderMessage(@Param("id")Long id,@Param("conversationId")Long conversationId,
    @Param("payload")String payload,@Param("providerKey")String providerKey,@Param("now")LocalDateTime now);
+ /** 将投票、确认等群业务对象写成可在消息流展示的卡片消息。 */
  @Insert("""
  insert into chat_message(id,conversation_id,sender_user_id,message_type,message_payload_json,message_status,
    provider_message_key,sent_at,created_at,updated_at,deleted)
@@ -88,42 +104,50 @@ public interface ChatGroupMapper {
  """) void insertCardMessage(@Param("id")Long id,@Param("conversationId")Long conversationId,
    @Param("senderUserId")Long senderUserId,@Param("messageType")String messageType,
    @Param("payload")String payload,@Param("providerKey")String providerKey,@Param("now")LocalDateTime now);
+ /** 更新会话最后消息摘要，使新提醒或卡片立即出现在会话列表。 */
  @Update("""
  update chat_conversation set last_message_id=#{messageId},last_message_preview=#{preview},last_message_at=#{now},updated_at=#{now}
  where id=#{conversationId} and conversation_status='ACTIVE' and deleted=0
  """) void updateReminderPreview(@Param("conversationId")Long conversationId,@Param("messageId")Long messageId,
    @Param("preview")String preview,@Param("now")LocalDateTime now);
+ /** 系统提醒没有发送者，因此给会话内所有有效成员增加未读数。 */
  @Update("""
  update chat_conversation_member set unread_count=unread_count+1,updated_at=#{now}
  where conversation_id=#{conversationId} and member_status='ACTIVE' and deleted=0
  """) void incrementReminderUnread(@Param("conversationId")Long conversationId,@Param("now")LocalDateTime now);
+ /** 修改普通成员角色；SQL 明确排除 OWNER，防止转移或覆盖群主身份。 */
  @Update("""
  update chat_conversation_member set member_role=#{role},updated_at=#{now}
  where conversation_id=#{conversationId} and user_id=#{userId} and member_role<>'OWNER'
    and member_status='ACTIVE' and deleted=0
  """) int updateMemberRole(@Param("conversationId")Long conversationId,@Param("userId")Long userId,
    @Param("role")String role,@Param("now")LocalDateTime now);
+ /** 创建一批 OPEN 状态的出发前成员确认单。 */
  @Insert("""
  insert into trip_confirmation(id,trip_id,conversation_id,creator_user_id,confirmation_status,created_at)
  values(#{id},#{tripId},#{conversationId},#{creator},'OPEN',#{now})
  """) void insertConfirmation(@Param("id")Long id,@Param("tripId")Long tripId,@Param("conversationId")Long conversationId,
    @Param("creator")Long creator,@Param("now")LocalDateTime now);
+ /** 写入确认单中的一名成员快照及初始确认状态。 */
  @Insert("""
  insert into trip_confirm_record(id,confirmation_id,trip_id,user_id,status,confirm_time,created_at,updated_at)
  values(#{id},#{confirmationId},#{tripId},#{userId},#{status},#{confirmTime},#{now},#{now})
  """) void insertConfirmationRecord(@Param("id")Long id,@Param("confirmationId")Long confirmationId,
    @Param("tripId")Long tripId,@Param("userId")Long userId,@Param("status")String status,
    @Param("confirmTime")LocalDateTime confirmTime,@Param("now")LocalDateTime now);
+ /** 按会话和确认单 ID 查询确认批次，防止跨会话枚举数据。 */
  @Select("""
  select id,trip_id tripId,conversation_id conversationId,creator_user_id creatorUserId,
    confirmation_status confirmationStatus,created_at createdAt,closed_at closedAt
  from trip_confirmation where id=#{id} and conversation_id=#{conversationId} limit 1
  """) Map<String,Object> confirmation(@Param("conversationId")Long conversationId,@Param("id")Long id);
+ /** 仅允许 WAITING 成员首次提交确认结果，返回值用于识别重复提交。 */
  @Update("""
  update trip_confirm_record set status=#{status},reject_reason=#{reason},confirm_time=#{now},updated_at=#{now}
  where confirmation_id=#{confirmationId} and user_id=#{userId} and status='WAITING'
  """) int respondConfirmation(@Param("confirmationId")Long confirmationId,@Param("userId")Long userId,
    @Param("status")String status,@Param("reason")String reason,@Param("now")LocalDateTime now);
+ /** 查询确认成员明细，并补充公开资料和当前群角色。 */
  @Select("""
  select r.user_id userId,p.nickname,p.avatar_image_key avatarImageKey,m.member_role memberRole,
    r.status,r.reject_reason rejectReason,r.confirm_time confirmTime
@@ -133,20 +157,24 @@ public interface ChatGroupMapper {
  where r.confirmation_id=#{confirmationId}
  order by case m.member_role when 'OWNER' then 0 when 'ADMIN' then 1 else 2 end,p.nickname
  """) List<Map<String,Object>> confirmationRecords(@Param("conversationId")Long conversationId,@Param("confirmationId")Long confirmationId);
+ /** 查询会话最近一批仍开放的确认单，用于创建操作幂等复用。 */
  @Select("""
  select id,trip_id tripId,conversation_id conversationId,creator_user_id creatorUserId,
    confirmation_status confirmationStatus,created_at createdAt,closed_at closedAt
  from trip_confirmation where conversation_id=#{conversationId} and confirmation_status='OPEN'
  order by created_at desc limit 1
  """) Map<String,Object> openConfirmation(@Param("conversationId")Long conversationId);
+ /** 原子关闭 OPEN 确认单，已关闭记录不再重复更新。 */
  @Update("update trip_confirmation set confirmation_status='CLOSED',closed_at=#{now} where id=#{id} and confirmation_status='OPEN'")
  int closeConfirmation(@Param("id")Long id,@Param("now")LocalDateTime now);
+ /** 创建待审核的群聊、成员或消息举报记录。 */
  @Insert("""
  insert into chat_report(id,conversation_id,reporter_user_id,target_type,target_id,report_type,reason,evidence_json,
    report_status,created_at,updated_at) values(#{id},#{conversationId},#{reporter},#{targetType},#{targetId},#{reportType},#{reason},#{evidence},'PENDING',#{now},#{now})""")
  void report(@Param("id")Long id,@Param("conversationId")Long conversationId,@Param("reporter")Long reporter,
   @Param("targetType")String targetType,@Param("targetId")String targetId,@Param("reportType")String reportType,
   @Param("reason")String reason,@Param("evidence")String evidence,@Param("now")LocalDateTime now);
+ /** 按审核状态分页查询举报队列；空状态表示不过滤。 */
  @Select("""
  select id,conversation_id conversationId,reporter_user_id reporterUserId,target_type targetType,target_id targetId,
    report_type reportType,reason,evidence_json evidenceJson,report_status reportStatus,reviewer_id reviewerId,
@@ -154,15 +182,18 @@ public interface ChatGroupMapper {
    from chat_report where (#{status}='' or report_status=#{status}) order by created_at desc limit #{limit}
  """)
  List<Map<String,Object>> reports(@Param("status")String status,@Param("limit")int limit);
+ /** 仅审核仍为 PENDING 的举报，避免并发覆盖已有结论。 */
  @Update("""
  update chat_report set report_status=#{decision},reviewer_id=#{reviewer},review_note=#{note},reviewed_at=#{now},updated_at=#{now}
    where id=#{id} and report_status='PENDING'""")
  int review(@Param("id")Long id,@Param("decision")String decision,@Param("reviewer")Long reviewer,@Param("note")String note,@Param("now")LocalDateTime now);
+ /** 查询消息风险命中及原消息上下文，供受限管理接口审核。 */
  @Select("""
  select r.id,r.message_id messageId,r.risk_level riskLevel,r.risk_type riskType,r.confidence,r.status,r.matched_rule matchedRule,
    m.conversation_id conversationId,m.sender_user_id senderUserId,m.message_payload_json messagePayloadJson,r.created_at createdAt
    from message_risk r join chat_message m on m.id=r.message_id where (#{status}='' or r.status=#{status}) order by r.created_at desc limit #{limit}""")
  List<Map<String,Object>> risks(@Param("status")String status,@Param("limit")int limit);
+ /** 查询确认批次列表并按状态聚合成员数量。 */
  @Select("""
  select tc.id,tc.trip_id tripId,tc.conversation_id conversationId,t.title tripName,
    tc.creator_user_id creatorUserId,tc.confirmation_status confirmationStatus,tc.created_at createdAt,tc.closed_at closedAt,
@@ -177,6 +208,7 @@ public interface ChatGroupMapper {
  group by tc.id,tc.trip_id,tc.conversation_id,t.title,tc.creator_user_id,tc.confirmation_status,tc.created_at,tc.closed_at
  order by tc.created_at desc limit #{limit}
  """) List<Map<String,Object>> confirmations(@Param("status")String status,@Param("limit")int limit);
+ /** 仅允许重命名仍处于 ACTIVE 状态的会话。 */
  @Update("update chat_conversation set conversation_name=#{name},updated_at=#{now} where id=#{id} and conversation_status='ACTIVE' and deleted=0")
  int rename(@Param("id")Long id,@Param("name")String name,@Param("now")LocalDateTime now);
 }

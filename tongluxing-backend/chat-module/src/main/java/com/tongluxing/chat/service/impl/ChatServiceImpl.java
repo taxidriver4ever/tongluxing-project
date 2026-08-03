@@ -92,6 +92,7 @@ public class ChatServiceImpl implements ChatService {
     @Override
     @Transactional
     public ConversationResponse createTeamConversation(TeamConversationRequest request) {
+        // 业务维度（TEAM + teamId）具有唯一性：先复用已有会话，避免重复建表数据和云端群组。
         ChatConversation existed = conversationMapper.findByBiz("TEAM", request.teamId());
         if (existed != null) {
             return toConversationResponse(ensureConfiguredProvider(existed));
@@ -102,8 +103,10 @@ public class ChatServiceImpl implements ChatService {
         String groupId = groupId(request.teamId());
         boolean cloudEnabled = tencentImService.isConfigured();
         if (cloudEnabled) {
+            // 只有配置完整时才创建腾讯云群；本地环境仍可依靠数据库完成聊天业务调试。
             tencentImService.createGroup(groupId, TencentImServiceImpl.toImUserId(request.ownerUserId()), request.conversationName());
         }
+        // 云端创建完成后再写入本地事实表，避免客户端拿到一个尚不可用的云端会话。
         conversation.setBizType("TEAM");
         conversation.setBizId(request.teamId());
         conversation.setConversationName(request.conversationName());
@@ -113,6 +116,7 @@ public class ChatServiceImpl implements ChatService {
         conversation.setCreatedAt(now);
         conversation.setUpdatedAt(now);
         conversationMapper.insert(conversation);
+        // 创建者必须同时写入成员表，否则后续所有接口都会被成员权限校验拒绝。
         addMemberInternal(conversation.getId(), request.ownerUserId(), "OWNER");
         return toConversationResponse(conversation);
     }
@@ -121,6 +125,7 @@ public class ChatServiceImpl implements ChatService {
     @Override
     @Transactional
     public ConversationResponse openTripConversation(Long tripId, String tripName, Long ownerUserId, List<Long> memberUserIds) {
+        // 开始行程可能因接口重试被重复触发，因此整个方法按行程业务键保持幂等。
         ChatConversation existed = conversationMapper.findByBiz("TRIP", tripId);
         if (existed != null) {
             syncTripMembers(existed, ownerUserId, memberUserIds);
@@ -145,6 +150,7 @@ public class ChatServiceImpl implements ChatService {
 
     private ConversationResponse createTripConversation(Long tripId, String tripName, Long ownerUserId,
                                                         List<Long> memberUserIds, String initialMessage) {
+        // trip_{tripId} 是稳定的云端 GroupId，服务重启或迁移重试不会产生多个群。
         LocalDateTime now = LocalDateTime.now();
         String groupId = "trip_" + tripId;
         boolean cloudEnabled = tencentImService.isConfigured();
@@ -164,12 +170,14 @@ public class ChatServiceImpl implements ChatService {
         conversation.setUpdatedAt(now);
         conversationMapper.insert(conversation);
 
+        // 会话主记录落库后再同步成员和系统消息；外层事务保证任一步失败时本地数据整体回滚。
         syncTripMembers(conversation, ownerUserId, memberUserIds);
         persistSystemMessage(conversation.getId(), initialMessage);
         return toConversationResponse(conversationMapper.findById(conversation.getId()));
     }
 
     private void syncTripMembers(ChatConversation conversation, Long ownerUserId, List<Long> memberUserIds) {
+        // LinkedHashSet 同时完成去重并保留 owner 在首位，避免成员列表中重复写入同一用户。
         LinkedHashSet<Long> users = new LinkedHashSet<>();
         users.add(ownerUserId);
         if (memberUserIds != null) {
@@ -180,6 +188,7 @@ public class ChatServiceImpl implements ChatService {
                 continue;
             }
             ChatConversationMember before = memberMapper.findByConversationAndUser(conversation.getId(), userId);
+            // 仅新增或重新激活的成员需要调用云端加群接口，减少无意义的远程请求。
             boolean needsCloudSync = before == null || !"ACTIVE".equals(before.getMemberStatus());
             addMemberInternal(conversation.getId(), userId, userId.equals(ownerUserId) ? "OWNER" : "MEMBER");
             if (needsCloudSync && "TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()
@@ -195,6 +204,7 @@ public class ChatServiceImpl implements ChatService {
         Long userId = currentUserContext.requireUserId();
         ChatConversation conversation = conversationMapper.findByBiz("TRIP", tripId);
         if (conversation == null) {
+            // 兼容升级前已发布但没有群聊的数据：首次访问时从行程事实表恢复群及有效成员。
             TripResponse trip = tripService.getTrip(tripId);
             List<Long> tripMembers = tripService.getMembers(tripId).stream()
                     .filter(member -> "OWNER".equals(member.joinStatus()) || "APPROVED".equals(member.joinStatus()))
@@ -202,6 +212,7 @@ public class ChatServiceImpl implements ChatService {
                     .distinct()
                     .toList();
             Long ownerId = Long.valueOf(trip.userId());
+            // 已开始的行程补建时使用“开启”文案，其余可聊天状态使用“已发布”文案。
             if (List.of("RUNNING", "ONGOING").contains(trip.status())) {
                 openTripConversation(tripId, trip.title(), ownerId, tripMembers);
             } else {
@@ -233,6 +244,7 @@ public class ChatServiceImpl implements ChatService {
     @Override
     public ConversationListResponse getConversations(String title) {
         Long userId = currentUserContext.requireUserId();
+        // 空白关键词统一转为 null，让 Mapper 跳过 LIKE 条件并复用普通查询计划。
         String titleKeyword = StringUtils.hasText(title) ? title.trim() : null;
         return new ConversationListResponse(conversationMapper.findActiveByUserId(userId, titleKeyword).stream()
                 .map(conversation -> toConversationResponse(conversation,
@@ -240,6 +252,7 @@ public class ChatServiceImpl implements ChatService {
                 .toList());
     }
 
+    /** 检查当前用户能否与目标用户发起私聊，以及未解锁时剩余的文字消息额度。 */
     @Override
     public PrivateChatPermissionResponse getPrivatePermission(Long targetUserId) {
         Long currentUserId = currentUserContext.requireUserId();
@@ -248,14 +261,17 @@ public class ChatServiceImpl implements ChatService {
         return privatePermission(currentUserId, targetUserId, existing);
     }
 
+    /** 创建或恢复两名用户之间唯一的私聊会话。 */
     @Override
     @Transactional
     public ConversationResponse startPrivateConversation(Long targetUserId) {
         Long currentUserId = currentUserContext.requireUserId();
         validatePrivateTarget(currentUserId, targetUserId);
         String pairKey = privatePairKey(currentUserId, targetUserId);
+        // pairKey 对用户 ID 排序，因此 A 找 B 与 B 找 A 始终命中同一会话。
         ChatConversation existing = conversationMapper.findByProviderKey("PRIVATE", pairKey);
         if (existing != null) {
+            // 曾退出或被隐藏的私聊成员在再次发起时重新激活，同时保留原有角色语义。
             addMemberInternal(existing.getId(), currentUserId, existingPrivateRole(existing.getId(), currentUserId, "OWNER"));
             addMemberInternal(existing.getId(), targetUserId, existingPrivateRole(existing.getId(), targetUserId, "MEMBER"));
             existing = ensureConfiguredProvider(existing);
@@ -267,6 +283,7 @@ public class ChatServiceImpl implements ChatService {
             throw new BusinessException(ResultCode.FORBIDDEN,
                     StringUtils.hasText(permission.reason()) ? permission.reason() : "关注对方后即可发起私聊");
         }
+        // 私聊不创建腾讯云群，云端消息在发送时通过 C2C 接口按双方账号投递。
         LocalDateTime now = LocalDateTime.now();
         ChatConversation conversation = new ChatConversation();
         conversation.setId(SnowflakeIdGenerator.nextId());
@@ -284,6 +301,7 @@ public class ChatServiceImpl implements ChatService {
         return toConversationResponse(conversation, mine);
     }
 
+    /** 查询既有私聊的发送权限；先校验会话成员身份，防止枚举会话 ID。 */
     @Override
     public PrivateChatPermissionResponse getPrivateConversationPermission(Long conversationId) {
         Long currentUserId = currentUserContext.requireUserId();
@@ -309,6 +327,7 @@ public class ChatServiceImpl implements ChatService {
         List<ChatMessage> messages = messageMapper.findMessages(conversationId, beforeMessageId,
                 null, safeLimit);
         if (beforeMessageId == null) {
+            // 只有读取最新一页才推进已读游标；向上翻历史消息不应误清除新消息未读数。
             Long latest = messageMapper.findLatestMessageId(conversationId);
             LocalDateTime now = LocalDateTime.now();
             memberMapper.markRead(conversationId, userId, latest, now);
@@ -318,6 +337,7 @@ public class ChatServiceImpl implements ChatService {
         return new MessageListResponse(messages.stream().map(this::toMessageResponse).toList());
     }
 
+    /** 从当前用户的会话列表隐藏会话；新消息到达后会自动重新出现。 */
     @Override
     @Transactional
     public void hideConversation(Long conversationId) {
@@ -329,6 +349,7 @@ public class ChatServiceImpl implements ChatService {
         memberMapper.clearLocalMessages(conversationId, userId, latest == null ? 0L : latest, LocalDateTime.now());
     }
 
+    /** 行程资料被群主修改后写入系统提示，并让其他成员看到未读提醒。 */
     @Override
     @Transactional
     public void notifyTripUpdated(Long tripId, Long operatorUserId) {
@@ -349,6 +370,7 @@ public class ChatServiceImpl implements ChatService {
     @Transactional
     public MessageResponse sendMessage(Long conversationId, SendMessageRequest request) {
         Long userId = currentUserContext.requireUserId();
+        // 权限校验必须在解析和持久化消息之前完成，避免越权用户制造消息或风险记录。
         requireActiveMember(conversationId, userId);
         ChatConversation conversation = conversationMapper.findById(conversationId);
         if (conversation == null || !List.of("ACTIVE", "HISTORY").contains(conversation.getConversationStatus())) {
@@ -356,6 +378,7 @@ public class ChatServiceImpl implements ChatService {
         }
         conversation = ensureConfiguredProvider(conversation);
         if ("PRIVATE".equals(conversation.getBizType())) {
+            // 陌生人私聊存在三条文字限额及媒体发送限制，群聊不适用该规则。
             validatePrivateMessage(conversation, userId, request);
         }
         boolean imageMessage = "IMAGE".equalsIgnoreCase(request.messageType());
@@ -372,6 +395,7 @@ public class ChatServiceImpl implements ChatService {
         message.setSenderUserId(userId);
         message.setMessageType(request.messageType());
         Map<String, Object> messagePayload = new java.util.LinkedHashMap<>();
+        // 业务扩展字段与文本统一存为 JSON，便于图片、行程卡片等消息复用同一张表。
         messagePayload.put("content", imageMessage ? "" : request.content());
         if (request.payload() != null) messagePayload.putAll(request.payload());
         if (imageMessage) {
@@ -382,6 +406,7 @@ public class ChatServiceImpl implements ChatService {
         }
         message.setMessagePayloadJson(toJson(messagePayload));
         RiskDecision risk = imageMessage ? null : detectRisk(request.content());
+        // BLOCKED 不投递；RISK_REVIEW 仍正常送达但会生成待审核事实记录。
         message.setMessageStatus(risk == null ? "NORMAL" : (risk.blocked() ? "BLOCKED" : "RISK_REVIEW"));
         message.setProviderMessageKey("local-msg-" + message.getId());
         message.setSentAt(now);
@@ -411,10 +436,12 @@ public class ChatServiceImpl implements ChatService {
             }
         }
         messageMapper.insert(message);
+        // 无论是否拦截，消息事实都需要落库，确保风控结果可审计且客户端能看到发送结果。
         if (risk != null) {
             persistRisk(message.getId(), risk, now);
         }
         if (risk != null && risk.blocked()) {
+            // 被拦截消息不能更新会话摘要和成员未读数，也不会进入腾讯云通道。
             return toMessageResponse(message);
         }
         conversationMapper.updateLastMessage(conversationId, message.getId(), imageMessage ? "[图片]" : preview(request.content()), now);
@@ -445,6 +472,7 @@ public class ChatServiceImpl implements ChatService {
     @Override
     @Transactional
     public void addApprovedTripMember(Long tripId, Long userId) {
+        // 行程审批回调可能早于群聊创建，必要时先根据行程成员补建整个会话。
         ChatConversation conversation = conversationMapper.findByBiz("TRIP", tripId);
         if (conversation == null) {
             TripResponse trip = tripService.getTrip(tripId);
@@ -461,6 +489,7 @@ public class ChatServiceImpl implements ChatService {
         }
         ChatConversationMember before = memberMapper.findByConversationAndUser(conversation.getId(), userId);
         if (before != null && "ACTIVE".equals(before.getMemberStatus())) {
+            // 审批接口重试时直接返回，防止重复加云群和重复发送“已加入”系统消息。
             return;
         }
         if ("TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()
@@ -486,6 +515,7 @@ public class ChatServiceImpl implements ChatService {
             throw new BusinessException(ResultCode.NOT_FOUND, "会话不存在");
         }
         if ("TRIP".equals(conversation.getBizType())) {
+            // 先释放关联业务的成员名额，再把聊天成员标记为退出，保持三个模块状态一致。
             teamService.exitTrip(conversation.getBizId());
         } else if ("TEAM".equals(conversation.getBizType())) {
             teamService.exit(conversation.getBizId());
@@ -516,6 +546,7 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
+    /** 返回会话内仍处于 ACTIVE 状态的成员及其公开资料。 */
     @Override
     public List<ConversationMemberResponse> getMembers(Long conversationId) {
         Long userId = currentUserContext.requireUserId();
@@ -524,12 +555,14 @@ public class ChatServiceImpl implements ChatService {
                 .map(this::toMemberResponse).toList();
     }
 
+    /** 查询当前用户在会话中的免打扰和置顶设置。 */
     @Override
     public ConversationSettingResponse getSettings(Long conversationId) {
         ChatConversationMember member = requireActiveMember(conversationId, currentUserContext.requireUserId());
         return toSettingResponse(member);
     }
 
+    /** 更新当前用户独有的会话设置，不影响其他成员。 */
     @Override
     public ConversationSettingResponse updateSettings(Long conversationId, boolean muted, boolean pinned) {
         Long userId = currentUserContext.requireUserId();
@@ -538,6 +571,7 @@ public class ChatServiceImpl implements ChatService {
         return new ConversationSettingResponse(String.valueOf(conversationId), muted, pinned);
     }
 
+    /** 提交入群申请；有效成员和已有待审申请不能重复提交。 */
     @Override
     @Transactional
     public JoinApplicationResponse applyToJoin(Long conversationId, String message) {
@@ -553,6 +587,7 @@ public class ChatServiceImpl implements ChatService {
         if (joinApplicationMapper.findPending(conversationId, userId) != null) {
             throw new BusinessException(409, "你已有待审核的入群申请");
         }
+        // 申请记录是审核事实，不能直接激活成员；只有 APPROVED 审核路径才真正加群。
         LocalDateTime now = LocalDateTime.now();
         ChatJoinApplication row = new ChatJoinApplication();
         row.setId(SnowflakeIdGenerator.nextId());
@@ -566,6 +601,7 @@ public class ChatServiceImpl implements ChatService {
         return toJoinApplicationResponse(row);
     }
 
+    /** 查询当前用户作为群主可审核的入群申请队列。 */
     @Override
     public List<JoinApplicationResponse> getJoinApplications(String status) {
         String normalized = StringUtils.hasText(status) ? status.trim().toUpperCase() : "PENDING";
@@ -576,6 +612,7 @@ public class ChatServiceImpl implements ChatService {
                 .stream().map(this::toJoinApplicationResponse).toList();
     }
 
+    /** 原子审核入群申请；仅首次状态变更成功时执行后续加群动作。 */
     @Override
     @Transactional
     public JoinApplicationResponse reviewJoinApplication(Long applicationId, String decision) {
@@ -589,6 +626,7 @@ public class ChatServiceImpl implements ChatService {
             throw new BusinessException(ResultCode.FORBIDDEN, "只有队长可以审核入群申请");
         }
         String normalized = decision.trim().toUpperCase();
+        // Mapper 更新条件包含 PENDING，可避免两个审核请求同时通过同一申请。
         if (joinApplicationMapper.review(applicationId, normalized, reviewerId, LocalDateTime.now()) != 1) {
             throw new BusinessException(409, "该申请已经处理");
         }
@@ -600,6 +638,7 @@ public class ChatServiceImpl implements ChatService {
         return toJoinApplicationResponse(row);
     }
 
+    /** 校验私聊目标存在且不是当前用户本人。 */
     private void validatePrivateTarget(Long currentUserId, Long targetUserId) {
         if (targetUserId == null || currentUserId.equals(targetUserId)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "不能与自己发起私聊");
@@ -607,17 +646,23 @@ public class ChatServiceImpl implements ChatService {
         userService.getChatMemberProfile(targetUserId);
     }
 
+    /** 生成与发起方向无关的私聊唯一业务键。 */
     private String privatePairKey(Long first, Long second) {
         long min = Math.min(first, second);
         long max = Math.max(first, second);
         return "private:" + min + ":" + max;
     }
 
+    /** 恢复旧私聊时优先沿用成员原角色，缺失时才使用默认角色。 */
     private String existingPrivateRole(Long conversationId, Long userId, String fallback) {
         ChatConversationMember member = memberMapper.findByConversationAndUser(conversationId, userId);
         return member == null || !StringUtils.hasText(member.getMemberRole()) ? fallback : member.getMemberRole();
     }
 
+    /**
+     * 综合关注关系、共同有效行程和对方是否回复，计算私聊是否解锁。
+     * 未解锁时只有会话发起者受“三条文字”限制，接收方可以回复以解锁双方能力。
+     */
     private PrivateChatPermissionResponse privatePermission(Long currentUserId, Long targetUserId,
                                                             ChatConversation existing) {
         var follow = userService.getFollowStatus(targetUserId);
@@ -626,6 +671,7 @@ public class ChatServiceImpl implements ChatService {
         boolean currentIsInitiator = true;
         int sentByInitiator = 0;
         if (existing != null) {
+            // OWNER 表示首次发起者；角色用于确定限额归属，不代表私聊中的管理权限。
             ChatConversationMember mine = memberMapper.findByConversationAndUser(existing.getId(), currentUserId);
             ChatConversationMember peer = memberMapper.findByConversationAndUser(existing.getId(), targetUserId);
             currentIsInitiator = mine == null || "OWNER".equals(mine.getMemberRole());
@@ -638,6 +684,7 @@ public class ChatServiceImpl implements ChatService {
             }
         }
         boolean mutual = Boolean.TRUE.equals(follow.mutual());
+        // 任一可信关系成立即解锁媒体消息；单向关注只允许创建会话，不直接解锁。
         boolean unlocked = mutual || sharedTrip || replied;
         int remaining = unlocked || !currentIsInitiator ? 3 : Math.max(0, 3 - sentByInitiator);
         String relationType;
@@ -654,6 +701,7 @@ public class ChatServiceImpl implements ChatService {
                 remaining, unlocked, unlocked, reason);
     }
 
+    /** 在发送前执行私聊消息类型和三条文字额度校验。 */
     private void validatePrivateMessage(ChatConversation conversation, Long userId, SendMessageRequest request) {
         ChatConversationMember peer = memberMapper.findOtherActive(conversation.getId(), userId);
         if (peer == null) {
@@ -692,6 +740,7 @@ public class ChatServiceImpl implements ChatService {
         message.setCreatedAt(now);
         message.setUpdatedAt(now);
         messageMapper.insert(message);
+        // 系统消息同样更新最后消息摘要，但发送者为空，因此不会排除某个成员的未读增量。
         conversationMapper.updateLastMessage(conversationId, message.getId(), content, now);
     }
 
@@ -712,6 +761,7 @@ public class ChatServiceImpl implements ChatService {
 
     /** 第一阶段本地规则：高风险拦截，中低风险正常送达并进入审核队列。 */
     private RiskDecision detectRisk(String content) {
+        // 调用方已校验普通文本非空；统一转小写便于后续扩展英文关键词规则。
         String text = content.toLowerCase();
         if (containsAny(text, "转账", "银行卡", "验证码", "保证金")) {
             return new RiskDecision("HIGH", "FRAUD", 95, "fraud-keyword", true);
@@ -731,6 +781,7 @@ public class ChatServiceImpl implements ChatService {
         return null;
     }
 
+    /** 判断文本是否命中任意一个本地风险关键词。 */
     private boolean containsAny(String content, String... keywords) {
         for (String keyword : keywords) {
             if (content.contains(keyword)) {
@@ -740,6 +791,7 @@ public class ChatServiceImpl implements ChatService {
         return false;
     }
 
+    /** 一次风险识别结果；blocked 决定是否阻断发送，其余字段用于后台审核。 */
     private record RiskDecision(String level, String type, int confidence, String rule, boolean blocked) {
     }
 
@@ -751,6 +803,7 @@ public class ChatServiceImpl implements ChatService {
         }
         LocalDateTime now = LocalDateTime.now();
         if (existed != null) {
+            // 退出成员复用原数据行并重置个人会话状态，避免唯一键冲突和历史成员重复。
             memberMapper.reactivate(conversationId, userId, role, now);
             existed.setMemberRole(role);
             existed.setMemberStatus("ACTIVE");
@@ -760,6 +813,7 @@ public class ChatServiceImpl implements ChatService {
             return existed;
         }
         ChatConversationMember member = new ChatConversationMember();
+        // 新成员从零未读、非置顶、非免打扰开始，加入时间与审计时间使用同一时刻。
         member.setId(SnowflakeIdGenerator.nextId());
         member.setConversationId(conversationId);
         member.setUserId(userId);
@@ -787,6 +841,7 @@ public class ChatServiceImpl implements ChatService {
         }
         String providerKey = conversation.getProviderConversationKey();
         if ("PRIVATE".equals(conversation.getBizType())) {
+            // 私聊通过 C2C 投递，不存在需要补建的云端群，只需升级 provider 标记。
             conversationMapper.updateProvider(conversation.getId(), "TENCENT_IM", providerKey, LocalDateTime.now());
             conversation.setProviderType("TENCENT_IM");
             return conversation;
@@ -797,6 +852,7 @@ public class ChatServiceImpl implements ChatService {
                     : groupId(conversation.getBizId());
         }
         List<ChatConversationMember> members = memberMapper.findActiveByConversationId(conversation.getId());
+        // 腾讯云建群必须指定 owner；若历史数据缺失 OWNER，则退化选择首个有效成员。
         ChatConversationMember owner = members.stream()
                 .filter(member -> "OWNER".equals(member.getMemberRole()))
                 .findFirst()
@@ -806,6 +862,7 @@ public class ChatServiceImpl implements ChatService {
         }
         String ownerImUserId = TencentImServiceImpl.toImUserId(owner.getUserId());
         tencentImService.createGroup(providerKey, ownerImUserId, conversation.getConversationName());
+        // owner 已随 createGroup 入群，其余成员逐个补入，避免重复添加群主。
         for (ChatConversationMember member : members) {
             if (!member.getUserId().equals(owner.getUserId())) {
                 tencentImService.addGroupMember(providerKey,
@@ -841,6 +898,7 @@ public class ChatServiceImpl implements ChatService {
         int remainingTextMessages = 0;
         boolean canSendMedia = true;
         if ("PRIVATE".equals(conversation.getBizType()) && member != null) {
+            // 私聊列表展示对方资料而不是固定“私聊”名称，并附带实时权限状态。
             ChatConversationMember peer = memberMapper.findOtherActive(conversation.getId(), member.getUserId());
             if (peer != null) {
                 PublicProfileVO profile = safePublicProfile(peer.getUserId());
@@ -905,11 +963,13 @@ public class ChatServiceImpl implements ChatService {
         );
     }
 
+    /** 将成员的个人会话设置转换为接口响应。 */
     private ConversationSettingResponse toSettingResponse(ChatConversationMember member) {
         return new ConversationSettingResponse(String.valueOf(member.getConversationId()),
                 Boolean.TRUE.equals(member.getMutedFlag()), Boolean.TRUE.equals(member.getPinnedFlag()));
     }
 
+    /** 组装入群申请，并补充会话名称、申请人资料和双方关注关系。 */
     private JoinApplicationResponse toJoinApplicationResponse(ChatJoinApplication row) {
         PublicProfileVO profile = safePublicProfile(row.getApplicantUserId());
         ChatConversation conversation = conversationMapper.findById(row.getConversationId());
@@ -922,11 +982,16 @@ public class ChatServiceImpl implements ChatService {
                 Boolean.TRUE.equals(relation.mutual()));
     }
 
+    /** 获取系统消息使用的公开昵称，资料异常或昵称为空时使用安全兜底。 */
     private String publicName(Long userId) {
         String name = safePublicProfile(userId).nickname();
         return StringUtils.hasText(name) ? name : "新成员";
     }
 
+    /**
+     * 安全读取聊天公开资料。
+     * 用户模块短暂失败不应导致整页会话或消息不可用，因此这里只降级展示默认资料。
+     */
     private PublicProfileVO safePublicProfile(Long userId) {
         try {
             PublicProfileVO profile = userService.getChatMemberProfile(userId);
@@ -990,6 +1055,7 @@ public class ChatServiceImpl implements ChatService {
         }
     }
 
+    /** 解析完整消息 payload；历史脏数据解析失败时返回空对象以保证消息列表可展示。 */
     private Map<String, Object> readPayload(String value) {
         try {
             return objectMapper.readValue(value, new TypeReference<>() {});
@@ -1011,3 +1077,4 @@ public class ChatServiceImpl implements ChatService {
         return time == null ? null : FORMATTER.format(time);
     }
 }
+        // “清空聊天”只隐藏清空前的摘要，不删除消息；新消息 ID 越过游标后摘要自然恢复。

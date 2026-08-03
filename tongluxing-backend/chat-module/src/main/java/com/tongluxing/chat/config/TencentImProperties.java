@@ -32,19 +32,23 @@ public class TencentImProperties {
     /** 启动时拒绝未知通道，且生产选择腾讯 IM 时必须提供完整凭据。 */
     @PostConstruct
     public void validate() {
+        // 先规范化大小写和首尾空格，避免配置书写差异造成错误分支。
         String normalized = normalizedProviderType();
         if (!"MOCK".equals(normalized) && !"TENCENT_IM".equals(normalized)) {
             throw new IllegalStateException("tencent.im.provider-type 仅支持 MOCK 或 TENCENT_IM");
         }
         if ("TENCENT_IM".equals(normalized) && !hasCredentials()) {
+            // 真实通道配置不完整时启动即失败，避免运行到发送消息时才暴露配置问题。
             throw new IllegalStateException("已选择 TENCENT_IM，但腾讯云 IM 配置不完整");
         }
     }
 
+    /** 返回标准大写的通道类型；未配置或空白时安全回退到 MOCK。 */
     public String normalizedProviderType() {
         return StringUtils.hasText(providerType) ? providerType.trim().toUpperCase() : "MOCK";
     }
 
+    /** 判断 SDKAppID、签名密钥、管理员和有效期是否均为可用值。 */
     public boolean hasCredentials() {
         return sdkAppId != null && sdkAppId > 0
                 && StringUtils.hasText(secretKey)

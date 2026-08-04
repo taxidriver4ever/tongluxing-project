@@ -28,6 +28,8 @@ public class TencentImProperties {
     private String adminUserId;
     /** UserSig 有效期，单位秒。 */
     private Long expireSeconds;
+    /** 腾讯 IM 控制台配置的回调鉴权 Token；为空时拒绝生产回调。 */
+    private String callbackToken;
 
     /** 启动时拒绝未知通道，且生产选择腾讯 IM 时必须提供完整凭据。 */
     @PostConstruct
@@ -48,11 +50,17 @@ public class TencentImProperties {
         return StringUtils.hasText(providerType) ? providerType.trim().toUpperCase() : "MOCK";
     }
 
-    /** 判断 SDKAppID、签名密钥、管理员和有效期是否均为可用值。 */
+    /**
+     * 判断 SDKAppID、签名密钥、管理员、回调 Token 和有效期是否均为可用值。
+     *
+     * <p>当前架构依赖发送前/发送后回调完成权限、风控和审计，因此真实通道不能
+     * 在未配置 callbackToken 的情况下启动。</p>
+     */
     public boolean hasCredentials() {
         return sdkAppId != null && sdkAppId > 0
                 && StringUtils.hasText(secretKey)
                 && StringUtils.hasText(adminUserId)
+                && StringUtils.hasText(callbackToken)
                 && expireSeconds != null && expireSeconds > 0;
     }
 }

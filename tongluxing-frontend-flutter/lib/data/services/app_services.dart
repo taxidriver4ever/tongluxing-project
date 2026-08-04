@@ -884,6 +884,26 @@ class SosService {
 class ChatService {
   const ChatService(this.api);
   final ApiClient api;
+
+  /// 获取 App 所需的同路行业务会话绑定。
+  ///
+  /// 最后一条消息、未读、置顶和免打扰不以这里的值为准，Flutter 会使用
+  /// [TencentImClient] 从腾讯 IM SDK 获取后覆盖。该接口只保留本地
+  /// conversationId、tripId/teamId、群权限以及腾讯 IM 会话 ID 的对应关系。
+  Future<List<ConversationModel>> imBindings() async {
+    final data = await api.get('/v1/chats/im/bindings');
+    final list = data is Map
+        ? (data['conversations'] as List? ?? const [])
+        : const [];
+    return list
+        .map(
+          (e) =>
+              ConversationModel.fromJson(Map<String, dynamic>.from(e as Map)),
+        )
+        .toList();
+  }
+
+  @Deprecated('Flutter App should use imBindings + TencentImClient.conversations')
   Future<List<ConversationModel>> conversations({String? title}) async {
     final keyword = title?.trim() ?? '';
     final data = await api.get(
@@ -1138,8 +1158,15 @@ class ChatService {
         as Map,
   );
 
+  /// 邀请用户加入群聊。后端会校验操作者是否为当前有效群成员。
+  Future<void> addGroupMember(String id, String userId) => api.post(
+    '/v1/chats/groups/$id/members',
+    body: {'userId': int.parse(userId)},
+  );
+
+  /// 队长移除群成员，并同步腾讯 IM 群成员状态。
   Future<void> removeMember(String id, String userId) =>
-      api.delete('/v1/chats/conversations/$id/group/members/$userId');
+      api.delete('/v1/chats/groups/$id/members/$userId');
 
   Future<void> updateMemberRole(String id, String userId, String role) =>
       api.put(
@@ -1188,18 +1215,18 @@ class ChatService {
 
   Future<Map<String, dynamic>> renameGroup(String id, String name) async =>
       Map<String, dynamic>.from(
-        await api.put(
-              '/v1/chats/conversations/$id/group/name',
+        await api.patch(
+              '/v1/chats/groups/$id',
               body: {'name': name},
             )
             as Map,
       );
 
   Future<void> closeGroup(String id) =>
-      api.post('/v1/chats/conversations/$id/group/close');
+      api.post('/v1/chats/groups/$id/dissolve');
 
   Future<void> exitGroup(String id) =>
-      api.delete('/v1/chats/conversations/$id/members/me');
+      api.delete('/v1/chats/groups/$id/members/me');
 }
 
 class ChatAttachmentService {
@@ -1257,10 +1284,7 @@ class ChatAttachmentService {
 
   Future<String> downloadUrl(Object fileId) async {
     final data = Map<String, dynamic>.from(
-      await api.get(
-            '/v1/storage/presign-download',
-            query: {'fileId': fileId.toString()},
-          )
+      await api.get('/v1/chats/media/${fileId.toString()}/access-url')
           as Map,
     );
     return data['downloadUrl'].toString();

@@ -39,7 +39,6 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   final Set<String> respondingConfirmations = {};
   bool loading = true, sending = false, announcementHidden = false;
   bool toolsExpanded = false;
-  Timer? pollingTimer;
   StreamSubscription<void>? imMessageSubscription;
 
   bool get isPrivate => widget.conversation.isPrivate;
@@ -62,10 +61,6 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
         .tencentIm
         .messageEvents
         .listen((_) => load(silent: true));
-    pollingTimer = Timer.periodic(
-      const Duration(seconds: 2),
-      (_) => load(silent: true),
-    );
     focus.addListener(() {
       if (focus.hasFocus) {
         if (toolsExpanded) setState(() => toolsExpanded = false);
@@ -79,22 +74,37 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     input.dispose();
     scroll.dispose();
     focus.dispose();
-    pollingTimer?.cancel();
     imMessageSubscription?.cancel();
     super.dispose();
   }
 
+  /// 加载聊天记录和同路行业务信息。
+  ///
+  /// 正式腾讯 IM 会话直接从 SDK 拉取历史消息；只有 MOCK/旧数据会话才回退到
+  /// 后端旧接口，避免本地开发环境在尚未配置腾讯 IM 时完全不可用。
   Future<void> load({bool silent = false}) async {
+    final session = context.read<AppSession>();
+    final service = ChatService(session.api);
     try {
-      final service = ChatService(context.read<AppSession>().api);
-      final values = await Future.wait<dynamic>([
-        service.messages(widget.conversation.id),
-        isPrivate
-            ? service.privateConversationPermission(widget.conversation.id)
-            : service.groupWorkspace(widget.conversation.id),
-      ]);
-      final nextMessages = (values[0] as List<Map<String, dynamic>>).reversed
-          .toList();
+      // 群工作区、私聊权限属于同路行业务数据，仍然从后端获取。
+      final businessFuture = isPrivate
+          ? service.privateConversationPermission(widget.conversation.id)
+          : service.groupWorkspace(widget.conversation.id);
+
+      List<Map<String, dynamic>> nextMessages;
+      if (_usesTencentIm) {
+        // 会话历史、发送状态和未读数由腾讯 IM 作为唯一聊天数据源。
+        await session.tencentIm.connect();
+        nextMessages = await session.tencentIm.messages(widget.conversation);
+        await session.tencentIm.markRead(widget.conversation);
+      } else {
+        // 兼容尚未迁移到腾讯 IM 的 MOCK 会话，后续线上稳定后可以移除。
+        nextMessages = (await service.messages(widget.conversation.id))
+            .reversed
+            .toList();
+      }
+
+      final business = await businessFuture;
       final previousLatestId = messages.isEmpty
           ? null
           : messages.last['messageId']?.toString();
@@ -103,19 +113,34 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
           : nextMessages.last['messageId']?.toString();
       if (previousLatestId != nextLatestId) confirmationDetails.clear();
       messages = nextMessages;
+
       if (isPrivate) {
-        privatePermission = Map<String, dynamic>.from(values[1] as Map);
+        privatePermission = Map<String, dynamic>.from(business as Map);
         workspace = const {'selfRole': 'MEMBER', 'items': <Object>[]};
       } else {
-        workspace = Map<String, dynamic>.from(values[1] as Map);
+        workspace = Map<String, dynamic>.from(business as Map);
         privatePermission = const {};
       }
-    } catch (_) {}
+    } catch (error) {
+      if (!silent && mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('聊天记录加载失败：$error')));
+      }
+    }
     if (mounted) {
       setState(() => loading = false);
       if (!silent) _showLatest();
     }
   }
+
+  /// 只有具备完整腾讯 IM 会话标识的正式会话才直接使用 SDK。
+  bool get _usesTencentIm =>
+      widget.conversation.providerType == 'TENCENT_IM' &&
+      widget.conversation.imConversationId.isNotEmpty &&
+      (widget.conversation.isPrivate
+          ? widget.conversation.imPeerUserId.isNotEmpty
+          : widget.conversation.imGroupId.isNotEmpty);
 
   void _showLatest() => WidgetsBinding.instance.addPostFrameCallback((_) {
     if (scroll.hasClients) {
@@ -127,25 +152,30 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     }
   });
 
+  /// 发送文本消息。
+  ///
+  /// 正式环境由客户端直接发送到腾讯 IM，后端通过发送前/发送后回调完成
+  /// 权限检查、风控和审计落库，不再由后端代发消息。
   Future<void> send() async {
     final text = input.text.trim();
     if (text.isEmpty || sending) return;
     setState(() => sending = true);
     try {
-      final response = await ChatService(
-        context.read<AppSession>().api,
-      ).send(widget.conversation.id, text);
-      if (response['messageStatus'] == 'BLOCKED') {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('消息触发安全规则，已拦截且不会发送给其他成员')),
-          );
-        }
+      final session = context.read<AppSession>();
+      if (_usesTencentIm) {
+        await session.tencentIm.sendText(widget.conversation, text);
       } else {
-        input.clear();
-        await load(silent: true);
-        _showLatest();
+        // 仅供本地 MOCK 或历史会话兼容，正式腾讯 IM 会话不会进入这里。
+        final response = await ChatService(
+          session.api,
+        ).send(widget.conversation.id, text);
+        if (response['messageStatus'] == 'BLOCKED') {
+          throw StateError('消息触发安全规则，已被拦截');
+        }
       }
+      input.clear();
+      await load(silent: true);
+      _showLatest();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -938,6 +968,10 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     );
   }
 
+  /// 上传图片或文件并发送腾讯 IM 自定义消息。
+  ///
+  /// 文件二进制只进入 MinIO；腾讯 IM 消息只携带不可猜测的 fileId/mediaId
+  /// 和展示所需元数据。禁止把 objectKey、预签名 URL 或 MinIO 密钥写进消息。
   Future<void> _upload(
     String name,
     String contentType,
@@ -946,30 +980,65 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
   ) async {
     setState(() => sending = true);
     try {
-      final api = context.read<AppSession>().api;
-      final meta = await ChatAttachmentService(api).upload(
+      final session = context.read<AppSession>();
+      final meta = await ChatAttachmentService(session.api).upload(
         conversationId: widget.conversation.id,
         fileName: name,
         contentType: contentType,
         bytes: bytes,
         image: image,
       );
-      await ChatService(api).send(
-        widget.conversation.id,
-        image ? '' : name,
-        type: image ? 'IMAGE' : 'FILE',
-        payload: meta,
-      );
+
+      // 只对白名单字段编码，避免把上传地址和内部存储路径泄露到腾讯 IM。
+      final fileId = meta['fileId']?.toString() ?? '';
+      if (fileId.isEmpty) throw StateError('MinIO 上传完成后未返回 fileId');
+      final payload = <String, dynamic>{
+        'version': 1,
+        'type': image ? 'CHAT_IMAGE' : 'CHAT_FILE',
+        'fileId': fileId,
+        'mediaId': fileId,
+        'fileName': name,
+        'contentType': contentType,
+        'size': bytes.length,
+        if (meta['width'] != null) 'width': meta['width'],
+        if (meta['height'] != null) 'height': meta['height'],
+        if (meta['thumbnailFileId'] != null)
+          'thumbnailFileId': meta['thumbnailFileId'],
+      };
+
+      if (_usesTencentIm) {
+        await session.tencentIm.sendCustom(
+          widget.conversation,
+          payload: payload,
+          description: image ? '[图片]' : name,
+          extension: image ? 'CHAT_IMAGE' : 'CHAT_FILE',
+        );
+      } else {
+        // 兼容本地 MOCK 环境；正式环境始终通过腾讯 IM 自定义消息发送。
+        await ChatService(session.api).send(
+          widget.conversation.id,
+          image ? '' : name,
+          type: image ? 'IMAGE' : 'FILE',
+          payload: payload,
+        );
+      }
       await load(silent: true);
       _showLatest();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('发送失败：$error')));
+      }
     } finally {
       if (mounted) setState(() => sending = false);
     }
   }
 
+  /// 获取当前位置并以自定义消息发送，位置数据不再经后端消息发送接口代发。
   Future<void> _sendLocation() async {
     if (!canSendMedia) return;
-    final api = context.read<AppSession>().api;
+    final session = context.read<AppSession>();
     final granted =
         await permissionChannel.invokeMethod<bool>('requestLocation') ?? false;
     if (!granted || !mounted) return;
@@ -978,15 +1047,29 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
           const {},
     );
     final address = location['address']?.toString().trim();
-    await ChatService(api).send(
-      widget.conversation.id,
-      address?.isNotEmpty == true ? address! : '我的当前位置',
-      type: 'LOCATION',
-      payload: {
-        ...location,
-        'address': address?.isNotEmpty == true ? address : '当前位置',
-      },
-    );
+    final payload = <String, dynamic>{
+      'version': 1,
+      'type': 'LOCATION',
+      ...location,
+      'content': address?.isNotEmpty == true ? address : '我的当前位置',
+      'address': address?.isNotEmpty == true ? address : '当前位置',
+    };
+
+    if (_usesTencentIm) {
+      await session.tencentIm.sendCustom(
+        widget.conversation,
+        payload: payload,
+        description: '[位置]',
+        extension: 'LOCATION',
+      );
+    } else {
+      await ChatService(session.api).send(
+        widget.conversation.id,
+        payload['content']?.toString() ?? '我的当前位置',
+        type: 'LOCATION',
+        payload: payload,
+      );
+    }
     await load(silent: true);
     _showLatest();
   }

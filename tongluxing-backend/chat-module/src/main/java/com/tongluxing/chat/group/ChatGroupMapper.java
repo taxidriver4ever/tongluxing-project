@@ -11,10 +11,18 @@ import org.apache.ibatis.annotations.*;
 public interface ChatGroupMapper {
  /** 查询群工作区主信息，并聚合关联行程与当前有效成员数量。 */
  @Select("""
- select c.id conversationId,c.conversation_name conversationName,c.biz_id tripId,c.conversation_status conversationStatus,
-   t.title tripName,t.trip_number tripNumber,t.start_name startName,t.end_name endName,t.departure_time departureTime,t.status tripStatus,
-   t.joined_vehicle_count vehicleCount,(select count(*) from chat_conversation_member m where m.conversation_id=c.id and m.member_status='ACTIVE' and m.deleted=0) memberCount
-   from chat_conversation c left join trip t on c.biz_type='TRIP' and t.id=c.biz_id and t.deleted=0 where c.id=#{id} and c.deleted=0""")
+ select c.id conversationId,c.conversation_name conversationName,c.biz_type bizType,c.biz_id bizId,
+   case when c.biz_type='TEAM' then c.biz_id else tm.id end teamId,
+   t.id tripId,c.conversation_status conversationStatus,
+   t.title tripName,t.trip_number tripNumber,t.start_name startName,t.end_name endName,
+   t.departure_time departureTime,t.status tripStatus,t.joined_vehicle_count vehicleCount,
+   (select count(*) from chat_conversation_member m where m.conversation_id=c.id
+      and m.member_status='ACTIVE' and m.deleted=0) memberCount
+   from chat_conversation c
+   left join team tm on ((c.biz_type='TEAM' and tm.id=c.biz_id)
+      or (c.biz_type='TRIP' and tm.trip_id=c.biz_id and tm.team_status='ACTIVE')) and tm.deleted=0
+   left join trip t on t.id=(case when c.biz_type='TEAM' then tm.trip_id else c.biz_id end) and t.deleted=0
+   where c.id=#{id} and c.deleted=0""")
  Map<String,Object> workspace(@Param("id")Long id);
  /** 查询会话内仍可展示的协作事项，并附带每项投票总数。 */
  @Select("""

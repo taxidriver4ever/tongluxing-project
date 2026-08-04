@@ -24,6 +24,9 @@ public interface TencentImService {
     /** 在腾讯云 IM 创建群组。 */
     void createGroup(String groupId, String ownerUserId, String groupName);
 
+    /** 修改腾讯云 IM 群名称。 */
+    void updateGroupName(String groupId, String groupName);
+
     /** 销毁腾讯云 IM 群组。 */
     void destroyGroup(String groupId);
 
@@ -35,6 +38,13 @@ public interface TencentImService {
 
     /** 以群成员身份向腾讯 IM 群发送文本消息。 */
     String sendGroupText(String groupId, String senderUserId, String content);
+
+    /**
+     * 向腾讯 IM 群发送自定义 JSON 消息。
+     *
+     * <p>图片、文件和业务卡片只传 mediaId/fileId 或业务标识，不把 MinIO 临时 URL 写入消息。</p>
+     */
+    String sendGroupCustom(String groupId, String senderUserId, String data, String description, String extension);
 
     /** 以业务用户身份发送腾讯 IM 单聊文本消息。 */
     String sendC2CText(String receiverUserId, String senderUserId, String content);

@@ -44,6 +44,7 @@ import com.tongluxing.user.vo.PublicProfileVO;
 import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.vo.TripResponse;
 import com.tongluxing.team.service.TeamService;
+import com.tongluxing.team.vo.TeamResponse;
 import com.tongluxing.storage.service.StorageService;
 
 import lombok.RequiredArgsConstructor;
@@ -52,8 +53,9 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * 聊天业务服务实现。
  *
- * <p>本类维护本地会话、成员和消息表；腾讯云 IM 只作为实时通信通道，
- * 本地数据库仍是会话归属、消息摘要和成员状态的事实来源。</p>
+ * <p>本类维护同路行自己的业务绑定、成员权限、举报与兼容消息表。
+ * App 的会话列表、未读数、置顶、免打扰、消息历史和实时收发由腾讯 IM SDK 负责；
+ * 本地数据库不再作为 App 普通聊天记录的读取来源。</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -92,33 +94,46 @@ public class ChatServiceImpl implements ChatService {
     @Override
     @Transactional
     public ConversationResponse createTeamConversation(TeamConversationRequest request) {
-        // 业务维度（TEAM + teamId）具有唯一性：先复用已有会话，避免重复建表数据和云端群组。
+        Long currentUserId = currentUserContext.requireUserId();
+
+        // 第一步：从 team-module 读取真实车队信息，绝不信任客户端提交的群主身份。
+        TeamResponse team = teamService.getTeam(request.teamId());
+        if (!String.valueOf(currentUserId).equals(team.ownerUserId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "只有车队队长可以创建车队群");
+        }
+        if (!"ACTIVE".equals(team.teamStatus())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "当前车队状态不允许创建群聊");
+        }
+
+        // 第二步：业务维度（TEAM + teamId）保持唯一，接口重试时直接复用已有群。
         ChatConversation existed = conversationMapper.findByBiz("TEAM", request.teamId());
         if (existed != null) {
-            return toConversationResponse(ensureConfiguredProvider(existed));
+            return toConversationResponse(ensureConfiguredProvider(existed),
+                    memberMapper.findByConversationAndUser(existed.getId(), currentUserId));
         }
+
         LocalDateTime now = LocalDateTime.now();
         ChatConversation conversation = new ChatConversation();
         conversation.setId(SnowflakeIdGenerator.nextId());
         String groupId = groupId(request.teamId());
-        boolean cloudEnabled = tencentImService.isConfigured();
-        if (cloudEnabled) {
-            // 只有配置完整时才创建腾讯云群；本地环境仍可依靠数据库完成聊天业务调试。
-            tencentImService.createGroup(groupId, TencentImServiceImpl.toImUserId(request.ownerUserId()), request.conversationName());
+        if (tencentImService.isConfigured()) {
+            // 第三步：云端群主固定为当前已校验的队长，不能由请求体指定。
+            tencentImService.createGroup(groupId, TencentImServiceImpl.toImUserId(currentUserId),
+                    request.conversationName().trim());
         }
-        // 云端创建完成后再写入本地事实表，避免客户端拿到一个尚不可用的云端会话。
+
+        // 第四步：保存同路行的业务绑定；消息、未读和置顶由腾讯 IM 托管。
         conversation.setBizType("TEAM");
         conversation.setBizId(request.teamId());
-        conversation.setConversationName(request.conversationName());
+        conversation.setConversationName(request.conversationName().trim());
         conversation.setConversationStatus("ACTIVE");
         conversation.setProviderType(tencentImService.providerType());
         conversation.setProviderConversationKey(groupId);
         conversation.setCreatedAt(now);
         conversation.setUpdatedAt(now);
         conversationMapper.insert(conversation);
-        // 创建者必须同时写入成员表，否则后续所有接口都会被成员权限校验拒绝。
-        addMemberInternal(conversation.getId(), request.ownerUserId(), "OWNER");
-        return toConversationResponse(conversation);
+        ChatConversationMember owner = addMemberInternal(conversation.getId(), currentUserId, "OWNER");
+        return toConversationResponse(conversation, owner);
     }
 
     /** 行程开启后自动创建群聊，并把车主和已通过成员加入群聊。 */
@@ -250,6 +265,22 @@ public class ChatServiceImpl implements ChatService {
                 .map(conversation -> toConversationResponse(conversation,
                         memberMapper.findByConversationAndUser(conversation.getId(), userId)))
                 .toList());
+    }
+
+    /**
+     * 返回腾讯 IM 会话与同路行业务对象的绑定信息。
+     *
+     * <p>这里只返回当前用户有权访问的本地业务元数据；App 会用 imConversationId
+     * 与腾讯 IM SDK 的会话列表做合并，SDK 数据决定排序、未读、最后消息、置顶和免打扰。</p>
+     */
+    @Override
+    public ConversationListResponse getImConversationBindings() {
+        Long userId = currentUserContext.requireUserId();
+        List<ConversationResponse> bindings = conversationMapper.findActiveByUserId(userId, null).stream()
+                .map(conversation -> toConversationResponse(conversation,
+                        memberMapper.findByConversationAndUser(conversation.getId(), userId)))
+                .toList();
+        return new ConversationListResponse(bindings);
     }
 
     /** 检查当前用户能否与目标用户发起私聊，以及未解锁时剩余的文字消息额度。 */
@@ -454,19 +485,35 @@ public class ChatServiceImpl implements ChatService {
     @Override
     @Transactional
     public ConversationMemberResponse addMember(Long conversationId, Long userId) {
-        ChatConversationMember operator = requireActiveMember(conversationId, currentUserContext.requireUserId());
-        if (!"OWNER".equals(operator.getMemberRole())) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "只有队长可以添加群成员");
-        }
+        // 任何当前有效群成员都可以邀请其他用户；未入群用户不能枚举 conversationId 拉人。
+        Long operatorUserId = currentUserContext.requireUserId();
+        requireActiveMember(conversationId, operatorUserId);
         ChatConversation conversation = conversationMapper.findById(conversationId);
-        if (conversation == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "会话不存在");
+        if (conversation == null || !"ACTIVE".equals(conversation.getConversationStatus())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "群聊不存在或已结束");
         }
+        if ("PRIVATE".equals(conversation.getBizType())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "私聊不能添加群成员");
+        }
+        if (userId == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "被邀请用户不能为空");
+        }
+
+        ChatConversationMember existed = memberMapper.findByConversationAndUser(conversationId, userId);
+        if (existed != null && "ACTIVE".equals(existed.getMemberStatus())) {
+            // 重复邀请按幂等成功处理，避免再次调用腾讯 IM 触发“成员已存在”错误。
+            return toMemberResponse(existed);
+        }
+        // 在调用腾讯 IM 前确认业务用户真实存在，防止云端产生无法映射的账号。
+        userService.getChatMemberProfile(userId);
         if ("TENCENT_IM".equals(conversation.getProviderType()) && tencentImService.isConfigured()
                 && StringUtils.hasText(conversation.getProviderConversationKey())) {
-            tencentImService.addGroupMember(conversation.getProviderConversationKey(), TencentImServiceImpl.toImUserId(userId));
+            tencentImService.addGroupMember(conversation.getProviderConversationKey(),
+                    TencentImServiceImpl.toImUserId(userId));
         }
-        return toMemberResponse(addMemberInternal(conversationId, userId, "MEMBER"));
+        ChatConversationMember member = addMemberInternal(conversationId, userId, "MEMBER");
+        persistSystemMessage(conversationId, publicName(operatorUserId) + " 邀请 " + publicName(userId) + " 加入群聊");
+        return toMemberResponse(member);
     }
 
     @Override
@@ -526,14 +573,7 @@ public class ChatServiceImpl implements ChatService {
                 && StringUtils.hasText(conversation.getProviderConversationKey())) {
             String imUserId = TencentImServiceImpl.toImUserId(userId);
             try {
-                // 先广播再移除成员，确保群内其余成员能够实时看到退出通知。
-                tencentImService.sendGroupText(conversation.getProviderConversationKey(), imUserId, exitMessage);
-            } catch (RuntimeException ex) {
-                // 本地消息仍是事实来源，腾讯云暂时不可用不能阻止退出和释放行程名额。
-                log.warn("广播退群通知到腾讯 IM 失败，conversationId={}, userId={}",
-                        conversationId, userId, ex);
-            }
-            try {
+                // persistSystemMessage 已把退出通知作为自定义消息同步到腾讯 IM；这里仅移除成员，避免重复消息。
                 tencentImService.removeGroupMember(conversation.getProviderConversationKey(), imUserId);
             } catch (RuntimeException ex) {
                 log.warn("从腾讯 IM 群移除成员失败，conversationId={}, userId={}",
@@ -740,8 +780,29 @@ public class ChatServiceImpl implements ChatService {
         message.setCreatedAt(now);
         message.setUpdatedAt(now);
         messageMapper.insert(message);
-        // 系统消息同样更新最后消息摘要，但发送者为空，因此不会排除某个成员的未读增量。
+        // 兼容表继续保存系统消息，便于后台审计和旧客户端读取。
         conversationMapper.updateLastMessage(conversationId, message.getId(), content, now);
+
+        ChatConversation conversation = conversationMapper.findById(conversationId);
+        if (conversation != null && tencentImService.isConfigured()
+                && StringUtils.hasText(conversation.getProviderConversationKey())
+                && !"PRIVATE".equals(conversation.getBizType())) {
+            try {
+                // App 已改为读取腾讯 IM 历史，因此系统通知也必须进入腾讯 IM 消息流。
+                String payload = toJson(Map.of(
+                        "version", 1,
+                        // 发送后回调据此识别后端已经保存的系统消息，避免重复落库。
+                        "localMessageId", String.valueOf(message.getId()),
+                        "type", "SYSTEM",
+                        "content", content
+                ));
+                tencentImService.sendGroupCustom(conversation.getProviderConversationKey(), null,
+                        payload, content, "SYSTEM");
+            } catch (RuntimeException ex) {
+                // 本地审计已经成功；云端同步失败先记录，避免生命周期事务整体回滚。
+                log.warn("同步系统消息到腾讯 IM 失败，conversationId={}", conversationId, ex);
+            }
+        }
     }
 
     /** 保存风险命中事实，后续管理端只能通过风险审核权限访问。 */
@@ -920,6 +981,17 @@ public class ChatServiceImpl implements ChatService {
         String effectiveProviderType = tencentImService.isConfigured()
                 ? conversation.getProviderType()
                 : "MOCK";
+        String providerKey = conversation.getProviderConversationKey();
+        String imConversationId;
+        if ("PRIVATE".equals(conversation.getBizType()) && peerUserId != null) {
+            // 腾讯 IM 单聊会话 ID 固定为 c2c_ + 对方 IM 用户 ID。
+            imConversationId = "c2c_" + TencentImServiceImpl.toImUserId(Long.valueOf(peerUserId));
+        } else if (StringUtils.hasText(providerKey)) {
+            // 腾讯 IM 群会话 ID 固定为 group_ + 原始 GroupId。
+            imConversationId = "group_" + providerKey;
+        } else {
+            imConversationId = "";
+        }
         return new ConversationResponse(
                 String.valueOf(conversation.getId()),
                 conversation.getBizType(),
@@ -927,6 +999,8 @@ public class ChatServiceImpl implements ChatService {
                 name,
                 conversation.getConversationStatus(),
                 effectiveProviderType,
+                providerKey,
+                imConversationId,
                 clearedLastMessage ? "" : conversation.getLastMessagePreview(),
                 clearedLastMessage ? null : format(conversation.getLastMessageAt()),
                 member != null && Boolean.TRUE.equals(member.getPinnedFlag()),

@@ -75,14 +75,54 @@ public class ChatGroupService {
  @Transactional public Map<String,Object> report(Long cid,ChatReportRequest r){requireMember(cid);Long id=SnowflakeIdGenerator.nextId();
   mapper.report(id,cid,current.requireUserId(),r.targetType(),r.targetId(),r.reportType().trim(),r.reason().trim(),write(r.evidence()),LocalDateTime.now());
   return Map.of("reportId",String.valueOf(id),"status","PENDING");}
- /** 修改会话名称，并校验操作者的管理权限。 */
- @Transactional public Map<String,Object> rename(Long cid,String name){ChatConversationMember me=requireMember(cid);requireOwner(me);
-  if(name==null||name.isBlank()||name.length()>64)throw new BusinessException(ResultCode.BAD_REQUEST,"群名称长度不正确");
-  mapper.rename(cid,name.trim(),LocalDateTime.now());return workspace(cid);}
- /** 移除指定成员；调用方必须具有会话管理权限。 */
- @Transactional public void remove(Long cid,Long uid){ChatConversationMember me=requireMember(cid);requireOwner(me);
-  if(current.requireUserId().equals(uid))throw new BusinessException(ResultCode.BAD_REQUEST,"队长不能移除自己");
-  members.exit(cid,uid,LocalDateTime.now());}
+ /** 修改群名称，并同时同步腾讯 IM 群资料。 */
+ @Transactional
+ public Map<String,Object> rename(Long cid,String name){
+  ChatConversationMember me=requireMember(cid);
+  requireOwner(me);
+  if(name==null||name.isBlank()||name.trim().length()>64){
+   throw new BusinessException(ResultCode.BAD_REQUEST,"群名称长度不正确");
+  }
+
+  // 第一步：读取本地业务绑定，确保只对仍有效的真实群会话执行云端群资料修改。
+  ChatConversation conversation=requireActiveGroup(cid);
+  String normalizedName=name.trim();
+
+  // 第二步：先同步腾讯 IM；失败时不修改本地名称，避免两端长期不一致。
+  if(tencentIm.isConfigured()&&conversation.getProviderConversationKey()!=null
+    &&!conversation.getProviderConversationKey().isBlank()){
+   tencentIm.updateGroupName(conversation.getProviderConversationKey(),normalizedName);
+  }
+
+  // 第三步：云端成功后再更新本地业务摘要。
+  mapper.rename(cid,normalizedName,LocalDateTime.now());
+  return workspace(cid);
+ }
+
+ /** 队长移除指定群成员，并同步腾讯 IM 成员关系。 */
+ @Transactional
+ public void remove(Long cid,Long uid){
+  ChatConversationMember me=requireMember(cid);
+  requireOwner(me);
+  if(current.requireUserId().equals(uid)){
+   throw new BusinessException(ResultCode.BAD_REQUEST,"队长不能移除自己");
+  }
+  ChatConversationMember target=members.findByConversationAndUser(cid,uid);
+  if(target==null||!"ACTIVE".equals(target.getMemberStatus())){
+   throw new BusinessException(ResultCode.NOT_FOUND,"群成员不存在");
+  }
+  ChatConversation conversation=requireActiveGroup(cid);
+
+  // 先移除云端成员，防止本地已经退出但仍能继续接收腾讯 IM 群消息。
+  if(tencentIm.isConfigured()&&conversation.getProviderConversationKey()!=null
+    &&!conversation.getProviderConversationKey().isBlank()){
+   tencentIm.removeGroupMember(conversation.getProviderConversationKey(),
+     com.tongluxing.chat.service.impl.TencentImServiceImpl.toImUserId(uid));
+  }
+  members.exit(cid,uid,LocalDateTime.now());
+  persistCard(cid,current.requireUserId(),"SYSTEM","队长已移除群成员",null,
+    Map.of("removedUserId",String.valueOf(uid)));
+ }
  /** 更新成员角色，并确保角色值和操作者权限合法。 */
  @Transactional public void updateRole(Long cid,Long uid,String role){ChatConversationMember me=requireMember(cid);requireOwner(me);
   String normalized=role==null?"":role.trim().toUpperCase();if(!List.of("ADMIN","MEMBER","NAVIGATOR").contains(normalized))
@@ -128,21 +168,46 @@ public class ChatGroupService {
   List<Long> confirmedUserIds=records.stream().filter(r->"CONFIRMED".equals(r.get("status"))).map(r->longValue(r.get("userId"))).filter(Objects::nonNull).toList();
   // 仅把已确认成员传给行程服务，未确认/拒绝成员不会进入实际出发行程名单。
   trips.startTrip(tripId,confirmedUserIds);mapper.closeConfirmation(id,LocalDateTime.now());persistCard(cid,null,"SYSTEM","行程正式开始",null,Map.of("tripId",String.valueOf(tripId),"confirmed",details.get("confirmed")));return workspace(cid);}
- /** 关闭当前资源，并阻止后续需要活跃状态的操作。 */
- @Transactional public void close(Long cid){ChatConversationMember me=requireMember(cid);requireOwner(me);
-  Map<String,Object> workspace=requireWorkspace(cid);Long tripId=longValue(workspace.get("tripId"));
-  if(tripId==null)throw new BusinessException(ResultCode.BAD_REQUEST,"当前群未绑定行程");
-  ChatConversation conversation=conversations.findById(cid);
-  // 解散是跨行程、车队和聊天的领域操作：先取消关联业务，再归档会话和退出成员。
-  trips.cancelTrip(tripId);teams.dissolveTrip(tripId);
-  persistCard(cid,current.requireUserId(),"SYSTEM","群主已解散群聊","关联行程已取消，所有成员已退出",Map.of("tripId",String.valueOf(tripId)));
-  LocalDateTime now=LocalDateTime.now();conversations.archive(cid,now);members.exitAll(cid,now);
-  if(conversation!=null&&"TENCENT_IM".equals(conversation.getProviderType())&&tencentIm.isConfigured()
-    &&conversation.getProviderConversationKey()!=null&&!conversation.getProviderConversationKey().isBlank()){
-   // 云群销毁失败不能回滚已经完成的本地解散，否则会恢复已取消行程；仅记录告警供补偿。
-   try{tencentIm.destroyGroup(conversation.getProviderConversationKey());}
-   catch(RuntimeException ex){log.warn("销毁腾讯 IM 群失败，conversationId={}",cid,ex);}
-  }}
+ /** 队长解散群聊，并结束或取消关联行程。 */
+ @Transactional
+ public void close(Long cid){
+  ChatConversationMember me=requireMember(cid);
+  requireOwner(me);
+  Map<String,Object> workspace=requireWorkspace(cid);
+  Long tripId=longValue(workspace.get("tripId"));
+  if(tripId==null){
+   throw new BusinessException(ResultCode.BAD_REQUEST,"当前群未绑定行程");
+  }
+  ChatConversation conversation=requireActiveGroup(cid);
+
+  // 第一步：按行程状态执行正确的终止动作。行驶中的行程记为已结束，尚未开始的行程记为取消。
+  String tripStatus=String.valueOf(workspace.get("tripStatus"));
+  if(List.of("RUNNING","ONGOING").contains(tripStatus)){
+   trips.endTrip(tripId);
+  }else{
+   trips.cancelTrip(tripId);
+  }
+  teams.dissolveTrip(tripId);
+
+  // 第二步：在销毁群之前发送最终系统消息，让在线成员能够看到明确的结束原因。
+  persistCard(cid,current.requireUserId(),"SYSTEM","队长已解散群聊",
+    "关联行程已结束，群聊不再可用",Map.of("tripId",String.valueOf(tripId)));
+
+  // 第三步：归档本地业务绑定并退出所有成员。
+  LocalDateTime now=LocalDateTime.now();
+  conversations.archive(cid,now);
+  members.exitAll(cid,now);
+
+  // 第四步：销毁腾讯 IM 群。失败只记录补偿日志，不能把已经结束的行程回滚为进行中。
+  if(tencentIm.isConfigured()&&conversation.getProviderConversationKey()!=null
+    &&!conversation.getProviderConversationKey().isBlank()){
+   try{
+    tencentIm.destroyGroup(conversation.getProviderConversationKey());
+   }catch(RuntimeException ex){
+    log.warn("销毁腾讯 IM 群失败，conversationId={}",cid,ex);
+   }
+  }
+ }
  /** 查询待处理或已处理的聊天举报记录。 */
  public List<Map<String,Object>> reports(String status,Integer limit){return mapper.reports(norm(status),safe(limit));}
  /** 查询消息风控命中记录。 */
@@ -156,14 +221,53 @@ public class ChatGroupService {
  private ChatConversationMember requireMember(Long cid){Long uid=current.requireUserId();if(conversations.findById(cid)==null)notFound();
   // 所有工作区操作统一经过此入口，避免各方法遗漏会话存在性或成员状态校验。
   ChatConversationMember m=members.findByConversationAndUser(cid,uid);if(m==null||!"ACTIVE".equals(m.getMemberStatus()))throw new BusinessException(ResultCode.FORBIDDEN,"你不是当前群成员");return m;}
+ /** 读取仍处于 ACTIVE 状态的群会话，统一排除私聊和已归档群。 */
+ private ChatConversation requireActiveGroup(Long cid){
+  ChatConversation conversation=conversations.findById(cid);
+  if(conversation==null)notFound();
+  if("PRIVATE".equals(conversation.getBizType()))
+   throw new BusinessException(ResultCode.BAD_REQUEST,"该操作仅适用于群聊");
+  if(!"ACTIVE".equals(conversation.getConversationStatus()))
+   throw new BusinessException(ResultCode.BAD_REQUEST,"群聊已结束，不能继续管理");
+  return conversation;
+ }
  private void requireOwner(ChatConversationMember m){if(!"OWNER".equals(m.getMemberRole()))throw new BusinessException(ResultCode.FORBIDDEN,"只有队长可以执行此操作");}
  private void requireManager(ChatConversationMember m){if(!List.of("OWNER","ADMIN").contains(m.getMemberRole()))throw new BusinessException(ResultCode.FORBIDDEN,"只有队长或管理员可以执行此操作");}
- private void persistCard(Long cid,Long sender,String type,String title,String content,Map<String,Object>extra){LocalDateTime now=LocalDateTime.now();Long mid=SnowflakeIdGenerator.nextId();
-  // 卡片使用普通消息表承载，payload 保存跳转所需业务字段，客户端无需另建消息通道。
-  Map<String,Object>payload=new LinkedHashMap<>();payload.put("content",content==null?title:content);payload.put("title",title);if(extra!=null)payload.putAll(extra);
-  mapper.insertCardMessage(mid,cid,sender,type,write(payload),"business-card-"+mid,now);mapper.updateReminderPreview(cid,mid,title,now);
-  // 系统卡片没有发送者，给所有成员增加未读；成员卡片则排除发送者本人。
-  if(sender==null)mapper.incrementReminderUnread(cid,now);else members.incrementUnread(cid,sender,now);}
+ private void persistCard(Long cid,Long sender,String type,String title,String content,Map<String,Object>extra){
+  LocalDateTime now=LocalDateTime.now();
+  Long mid=SnowflakeIdGenerator.nextId();
+
+  // 第一步：构造稳定的自定义消息协议。图片和文件同样只应携带 fileId/mediaId，不携带临时 URL。
+  Map<String,Object>payload=new LinkedHashMap<>();
+  payload.put("version",1);
+  // 回调通过该 ID 识别“后端已先行落库”的业务卡片，避免生成重复审计消息。
+  payload.put("localMessageId",String.valueOf(mid));
+  payload.put("type",type);
+  payload.put("content",content==null?title:content);
+  payload.put("title",title);
+  if(extra!=null)payload.putAll(extra);
+
+  // 第二步：保留本地审计记录，供举报、风控和旧客户端兼容读取。
+  mapper.insertCardMessage(mid,cid,sender,type,write(payload),"business-card-"+mid,now);
+  mapper.updateReminderPreview(cid,mid,title,now);
+  if(sender==null)mapper.incrementReminderUnread(cid,now);else members.incrementUnread(cid,sender,now);
+
+  // 第三步：新 App 从腾讯 IM 拉取消息历史，因此业务卡片必须同步到腾讯 IM 自定义消息。
+  ChatConversation conversation=conversations.findById(cid);
+  if(conversation!=null&&tencentIm.isConfigured()
+    &&conversation.getProviderConversationKey()!=null
+    &&!conversation.getProviderConversationKey().isBlank()){
+   String imSender=sender==null?null:
+     com.tongluxing.chat.service.impl.TencentImServiceImpl.toImUserId(sender);
+   try{
+    tencentIm.sendGroupCustom(conversation.getProviderConversationKey(),imSender,
+      write(payload),title,type);
+   }catch(RuntimeException ex){
+    // 本地业务动作已经成功，云端消息失败只记补偿日志，避免投票/确认事务被网络异常回滚。
+    log.warn("同步业务卡片到腾讯 IM 失败，conversationId={}, type={}",cid,type,ex);
+   }
+  }
+ }
  private Map<String,Object> requireWorkspace(Long id){Map<String,Object>w=mapper.workspace(id);if(w==null)notFound();return new LinkedHashMap<>(w);}
  private void notFound(){throw new BusinessException(ResultCode.NOT_FOUND,"群聊数据不存在");}
  private String write(Object v){try{return v==null?"{}":json.writeValueAsString(v);}catch(Exception e){throw new BusinessException(ResultCode.BAD_REQUEST,"业务数据格式错误");}}

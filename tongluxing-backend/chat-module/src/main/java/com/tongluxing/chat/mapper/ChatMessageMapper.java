@@ -36,6 +36,21 @@ public interface ChatMessageMapper {
     int countSentByUser(@Param("conversationId") Long conversationId,
                         @Param("senderUserId") Long senderUserId);
 
+    /** 判断腾讯 IM 回调消息是否已经落库，防止回调重试产生重复记录。 */
+    @org.apache.ibatis.annotations.Select("""
+            select count(*) from chat_message
+            where provider_message_key=#{providerMessageKey} and deleted=0
+            """)
+    int countByProviderMessageKey(@Param("providerMessageKey") String providerMessageKey);
+
+    /** 判断业务系统卡片是否已由后端先行落库，避免发送后回调重复保存。 */
+    @org.apache.ibatis.annotations.Select("""
+            select count(*) from chat_message
+            where id=#{messageId} and conversation_id=#{conversationId} and deleted=0
+            """)
+    int countByIdAndConversation(@Param("messageId") Long messageId,
+                                 @Param("conversationId") Long conversationId);
+
     /** 新增聊天消息。 */
     @Insert("""
             insert into chat_message

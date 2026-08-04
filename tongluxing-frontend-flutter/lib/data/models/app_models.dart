@@ -785,6 +785,11 @@ class TripApplicationModel {
       );
 }
 
+/// 同路行业务会话与腾讯 IM 会话的合并模型。
+///
+/// [id]、[bizType]、[bizId] 等字段来自后端业务绑定；[preview]、[unread]、
+/// [pinned]、[muted] 等聊天状态由腾讯 IM SDK 覆盖。这样既不重复维护聊天数据，
+/// 又能保留行程、车队和权限等同路行自己的业务关系。
 class ConversationModel {
   const ConversationModel({
     required this.id,
@@ -796,6 +801,8 @@ class ConversationModel {
     this.bizId = '',
     this.status = 'ACTIVE',
     this.providerType = 'LOCAL',
+    this.providerConversationKey = '',
+    this.imConversationId = '',
     this.pinned = false,
     this.muted = false,
     this.avatarImageKey = '',
@@ -805,7 +812,11 @@ class ConversationModel {
     this.remainingTextMessages = 0,
     this.canSendMedia = true,
   });
+
+  /// 后端本地业务会话 ID，群管理、举报、行程关联仍使用该值。
   final String id;
+
+  /// SDK 群名或单聊对方昵称；SDK 暂无数据时回退到后端业务名称。
   final String name;
   final String preview;
   final String time;
@@ -814,6 +825,12 @@ class ConversationModel {
   final String bizId;
   final String status;
   final String providerType;
+
+  /// 腾讯 IM 原始 GroupId；私聊通常为空。
+  final String providerConversationKey;
+
+  /// 腾讯 IM SDK 会话 ID，例如 group_trip_100 或 c2c_u_200。
+  final String imConversationId;
   final bool pinned;
   final bool muted;
   final String avatarImageKey;
@@ -822,7 +839,20 @@ class ConversationModel {
   final String relationType;
   final int remainingTextMessages;
   final bool canSendMedia;
+
   bool get isPrivate => bizType == 'PRIVATE';
+
+  /// 群聊调用 SDK 时使用原始 GroupId，而不是带 group_ 前缀的会话 ID。
+  String get imGroupId => isPrivate ? '' : providerConversationKey;
+
+  /// 单聊调用 SDK 时使用 u_<userId>，优先从后端返回的会话 ID 中提取。
+  String get imPeerUserId {
+    if (!isPrivate) return '';
+    if (imConversationId.startsWith('c2c_')) {
+      return imConversationId.substring('c2c_'.length);
+    }
+    return peerUserId.isEmpty ? '' : 'u_$peerUserId';
+  }
 
   factory ConversationModel.fromJson(Map<String, dynamic> json) =>
       ConversationModel(
@@ -835,6 +865,9 @@ class ConversationModel {
         bizId: json['bizId']?.toString() ?? '',
         status: json['conversationStatus']?.toString() ?? 'ACTIVE',
         providerType: json['providerType']?.toString() ?? 'LOCAL',
+        providerConversationKey:
+            json['providerConversationKey']?.toString() ?? '',
+        imConversationId: json['imConversationId']?.toString() ?? '',
         pinned: json['pinned'] == true,
         muted: json['muted'] == true,
         avatarImageKey: json['avatarImageKey']?.toString() ?? '',

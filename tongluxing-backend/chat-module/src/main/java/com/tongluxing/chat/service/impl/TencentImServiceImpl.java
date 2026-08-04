@@ -5,6 +5,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -44,8 +45,14 @@ public class TencentImServiceImpl implements TencentImService {
     private final CurrentUserContext currentUserContext;
     /** JSON 序列化工具。 */
     private final ObjectMapper objectMapper;
-    /** JDK HTTP 客户端，用于调用腾讯云 IM REST API。 */
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    /**
+     * JDK HTTP 客户端，用于调用腾讯云 IM REST API。
+     *
+     * <p>显式设置连接超时，避免腾讯网络异常时长期占用 Tomcat 工作线程。</p>
+     */
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(3))
+            .build();
 
     /** 判断云端必要配置是否完整；未配置时业务层使用本地同步模式。 */
     @Override
@@ -97,6 +104,16 @@ public class TencentImServiceImpl implements TencentImService {
         callRest("group_open_http_svc/create_group", payload, Set.of(10025));
     }
 
+    /** 修改腾讯云 IM 群名称。 */
+    @Override
+    public void updateGroupName(String groupId, String groupName) {
+        // 群名称由后端队长权限接口统一修改，客户端不能绕过业务规则直接改云端群资料。
+        callRest("group_open_http_svc/modify_group_base_info", Map.of(
+                "GroupId", groupId,
+                "Name", groupName
+        ));
+    }
+
     /** 销毁腾讯云 IM 群组。 */
     @Override
     public void destroyGroup(String groupId) {
@@ -138,6 +155,35 @@ public class TencentImServiceImpl implements TencentImService {
                 "MsgBody", List.of(Map.of(
                         "MsgType", "TIMTextElem",
                         "MsgContent", Map.of("Text", content)
+                ))
+        );
+        callRest("group_open_http_svc/send_group_msg", payload);
+        return "tencent-" + random;
+    }
+
+    /** 通过腾讯 IM REST API 发送自定义 JSON 消息。 */
+    @Override
+    public String sendGroupCustom(String groupId, String senderUserId, String data,
+                                  String description, String extension) {
+        if (senderUserId != null && !senderUserId.isBlank()) {
+            // 有明确业务发送者时先幂等导入；系统消息可由管理员账号代发。
+            importAccount(senderUserId);
+        }
+        int random = ThreadLocalRandom.current().nextInt(100000, Integer.MAX_VALUE);
+        String fromAccount = senderUserId == null || senderUserId.isBlank()
+                ? properties.getAdminUserId()
+                : senderUserId;
+        Map<String, Object> payload = Map.of(
+                "GroupId", groupId,
+                "Random", random,
+                "From_Account", fromAccount,
+                "MsgBody", List.of(Map.of(
+                        "MsgType", "TIMCustomElem",
+                        "MsgContent", Map.of(
+                                "Data", data,
+                                "Desc", description == null ? "[自定义消息]" : description,
+                                "Ext", extension == null ? "" : extension
+                        )
                 ))
         );
         callRest("group_open_http_svc/send_group_msg", payload);
@@ -202,6 +248,7 @@ public class TencentImServiceImpl implements TencentImService {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(6))
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());

@@ -4,6 +4,7 @@ import com.tongluxing.storage.dto.ConfirmUploadRequest;
 import com.tongluxing.storage.dto.PresignUploadRequest;
 import com.tongluxing.storage.vo.ConfirmUploadResponse;
 import com.tongluxing.storage.vo.DeleteFileResponse;
+import com.tongluxing.storage.vo.FileMetadataResponse;
 import com.tongluxing.storage.vo.PresignDownloadResponse;
 import com.tongluxing.storage.vo.PresignUploadResponse;
 
@@ -23,7 +24,12 @@ public interface StorageService {
     ConfirmUploadResponse confirmUpload(ConfirmUploadRequest request);
 
     /**
-     * 获取短期有效下载 URL。
+     * 读取不含 MinIO 内部路径的业务元数据，供上层模块执行访问权限校验。
+     */
+    FileMetadataResponse getMetadata(Long fileId);
+
+    /**
+     * 获取短期有效下载 URL。调用方需要先完成对应业务的访问权限校验。
      */
     PresignDownloadResponse presignDownload(Long fileId, String bucket, String objectKey);
 

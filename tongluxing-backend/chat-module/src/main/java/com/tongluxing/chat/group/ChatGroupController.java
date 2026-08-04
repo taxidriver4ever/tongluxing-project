@@ -44,5 +44,5 @@ public class ChatGroupController {
  /** 在满足业务前置条件后启动已确认的行程。 */
  @PostMapping("/trip-confirmations/{id}/start") public Result<Map<String,Object>> start(@PathVariable Long conversationId,@PathVariable Long id,@RequestHeader(value="X-Client-Type",required=false)String clientType){if("MINI_PROGRAM".equalsIgnoreCase(clientType)){throw new BusinessException("小程序暂不支持开启行程，请下载同路行 App 使用此功能");}return Result.success(service.startConfirmedTrip(conversationId,id));}
  /** 关闭当前资源，并阻止后续需要活跃状态的操作。 */
- @PostMapping("/close") public Result<Void> close(@PathVariable Long conversationId){service.close(conversationId);return Result.success();}
+ @PostMapping({"/close","/dissolve"}) public Result<Void> close(@PathVariable Long conversationId){service.close(conversationId);return Result.success();}
 }

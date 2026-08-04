@@ -22,6 +22,7 @@ import com.tongluxing.storage.mapper.FileStorageMapper;
 import com.tongluxing.storage.service.StorageService;
 import com.tongluxing.storage.vo.ConfirmUploadResponse;
 import com.tongluxing.storage.vo.DeleteFileResponse;
+import com.tongluxing.storage.vo.FileMetadataResponse;
 import com.tongluxing.storage.vo.PresignDownloadResponse;
 import com.tongluxing.storage.vo.PresignUploadResponse;
 import com.tongluxing.user.support.CurrentUserContext;
@@ -148,6 +149,25 @@ public class StorageServiceImpl implements StorageService {
         }
         cacheConfirmResult(request.bucket(), request.objectKey(), fileId);
         return new ConfirmUploadResponse(fileId, request.bucket(), request.objectKey(), "CONFIRMED");
+    }
+
+    /**
+     * 读取文件的业务元数据。
+     *
+     * <p>只返回业务授权需要的字段，不返回 bucket 和 objectKey；聊天模块会据此校验
+     * 文件是否属于当前会话、是否由消息发送者上传以及是否已经确认。</p>
+     */
+    @Override
+    public FileMetadataResponse getMetadata(Long fileId) {
+        if (fileId == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "fileId 不能为空");
+        }
+        FileStorage file = mapper.findById(fileId);
+        if (file == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "文件不存在");
+        }
+        return new FileMetadataResponse(file.getId(), file.getBizType(), file.getBizId(),
+                file.getUserId(), file.getContentType(), file.getFileSize(), file.getUploadStatus());
     }
 
     /**

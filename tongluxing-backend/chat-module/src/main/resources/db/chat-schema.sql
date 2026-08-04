@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS chat_message (
   deleted TINYINT(1) NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
   PRIMARY KEY (id),
   KEY idx_chat_msg_conversation_time (conversation_id, sent_at),
-  KEY idx_chat_msg_sender_time (sender_user_id, sent_at)
+  KEY idx_chat_msg_sender_time (sender_user_id, sent_at),
+  UNIQUE KEY uk_chat_msg_provider (provider_message_key, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='聊天消息表';
 
 CREATE TABLE IF NOT EXISTS message_risk (

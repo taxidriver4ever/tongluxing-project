@@ -71,9 +71,16 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
   @override
   void initState() {
     super.initState();
+    // 置顶和免打扰由腾讯 IM 云端会话维护，进入页面时直接使用会话对象中的 SDK 状态。
+    muted = widget.conversation.muted;
+    pinned = widget.conversation.pinned;
     load();
   }
 
+  /// 加载群成员和同路行业务工作区。
+  ///
+  /// 群成员优先从腾讯 IM 获取；后端只提供关联行程、队长权限等业务字段。
+  /// MOCK 会话继续回退到旧成员接口，方便没有腾讯 IM 配置的本地环境调试。
   Future<void> load() async {
     if (mounted) {
       setState(() {
@@ -82,19 +89,25 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
       });
     }
     try {
-      final service = ChatService(context.read<AppSession>().api);
-      final values = await Future.wait([
-        service.members(widget.conversation.id),
-        service.settings(widget.conversation.id),
+      final session = context.read<AppSession>();
+      final service = ChatService(session.api);
+      Future<List<Map<String, dynamic>>> memberFuture;
+      if (widget.conversation.providerType == 'TENCENT_IM' &&
+          widget.conversation.imGroupId.isNotEmpty) {
+        await session.tencentIm.connect();
+        memberFuture = session.tencentIm.groupMembers(widget.conversation);
+      } else {
+        memberFuture = service.members(widget.conversation.id);
+      }
+
+      final values = await Future.wait<dynamic>([
+        memberFuture,
         service.groupWorkspace(widget.conversation.id),
       ]);
       if (!mounted) return;
-      final settings = values[1] as Map<String, dynamic>;
       setState(() {
         members = values[0] as List<Map<String, dynamic>>;
-        workspace = values[2] as Map<String, dynamic>;
-        muted = settings['muted'] == true;
-        pinned = settings['pinned'] == true;
+        workspace = Map<String, dynamic>.from(values[1] as Map);
         loading = false;
       });
     } catch (e) {
@@ -106,6 +119,9 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
     }
   }
 
+  /// 修改腾讯 IM 云端置顶或免打扰状态。
+  ///
+  /// 正式会话不再写后端 chat_conversation_member 的本地设置，避免双份状态不一致。
   Future<void> update({bool? nextMuted, bool? nextPinned}) async {
     final oldMuted = muted;
     final oldPinned = pinned;
@@ -114,9 +130,25 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
       pinned = nextPinned ?? pinned;
     });
     try {
-      await ChatService(
-        context.read<AppSession>().api,
-      ).updateSettings(widget.conversation.id, muted: muted, pinned: pinned);
+      final session = context.read<AppSession>();
+      final usesTencentIm =
+          widget.conversation.providerType == 'TENCENT_IM' &&
+          widget.conversation.imConversationId.isNotEmpty;
+      if (usesTencentIm) {
+        await session.tencentIm.connect();
+        // 只调用发生变化的 SDK 接口，避免一个开关修改时重复写另一个状态。
+        if (nextMuted != null) {
+          await session.tencentIm.setMuted(widget.conversation, nextMuted);
+        }
+        if (nextPinned != null) {
+          await session.tencentIm.setPinned(widget.conversation, nextPinned);
+        }
+      } else {
+        // 仅保留给 MOCK/旧会话的兼容路径。
+        await ChatService(
+          session.api,
+        ).updateSettings(widget.conversation.id, muted: muted, pinned: pinned);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -224,6 +256,12 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
                         onTap: _rename,
                       ),
                     _ChatInfoRow(
+                      title: '邀请群成员',
+                      value: '群内任何成员都可以邀请',
+                      showChevron: true,
+                      onTap: _inviteMember,
+                    ),
+                    _ChatInfoRow(
                       title: '举报与违规反馈',
                       showChevron: true,
                       onTap: () => _open(
@@ -290,16 +328,18 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
     );
   }
 
-  void _openMembers() {
-    Navigator.push(
+  Future<void> _openMembers() async {
+    final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => ChatGroupMembersPage(
           conversation: widget.conversation,
           members: members,
+          canRemoveMembers: isOwner,
         ),
       ),
     );
+    if (changed == true && mounted) await load();
   }
 
   void _openTripInfo() {
@@ -357,10 +397,10 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('解散群聊并取消行程？'),
+        title: const Text('解散群聊并结束行程？'),
         content: const Text(
-          '解散后该行程将被取消，所有成员会被移出群聊并释放全部名额。'
-          '所有成员都可以在“历史与结算”的“已退出”中查看这段行程。此操作不可撤销。',
+          '解散后群聊将不可继续发送消息；关联行程会按当前状态结束或取消，'
+          '所有成员都会被移出群聊。此操作不可撤销。',
         ),
         actions: [
           TextButton(
@@ -385,6 +425,55 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
   Future<void> _open(Widget page) async {
     await Navigator.push(context, MaterialPageRoute(builder: (_) => page));
     if (mounted) await load();
+  }
+
+  /// 邀请成员加入群聊。任何有效群成员都可以调用，最终权限由后端再次校验。
+  Future<void> _inviteMember() async {
+    final controller = TextEditingController();
+    final rawUserId = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('邀请群成员'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: '用户 ID',
+            hintText: '请输入要邀请的同路行用户 ID',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('邀请'),
+          ),
+        ],
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    controller.dispose();
+    final userId = rawUserId == null ? null : int.tryParse(rawUserId);
+    if (userId == null || !mounted) return;
+
+    try {
+      await ChatService(
+        context.read<AppSession>().api,
+      ).addGroupMember(widget.conversation.id, userId.toString());
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('成员已加入群聊')));
+      await load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
   }
 
   Future<void> _rename() async {
@@ -427,11 +516,13 @@ class ChatGroupMembersPage extends StatefulWidget {
   const ChatGroupMembersPage({
     required this.conversation,
     required this.members,
+    required this.canRemoveMembers,
     super.key,
   });
 
   final ConversationModel conversation;
   final List<Map<String, dynamic>> members;
+  final bool canRemoveMembers;
 
   @override
   State<ChatGroupMembersPage> createState() => _ChatGroupMembersPageState();
@@ -606,10 +697,60 @@ class _ChatGroupMembersPageState extends State<ChatGroupMembersPage> {
                   ),
                 ),
               ),
+            if (widget.canRemoveMembers && role != 'OWNER') ...[
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: '移出群聊',
+                icon: const Icon(
+                  LucideIcons.userRoundX,
+                  size: 19,
+                  color: AppColors.danger,
+                ),
+                onPressed: () => _removeMember(member),
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+  /// 队长移除群成员。后端会同步本地群成员状态和腾讯 IM 群成员。
+  Future<void> _removeMember(Map<String, dynamic> member) async {
+    final userId = member['userId']?.toString() ?? '';
+    if (userId.isEmpty) return;
+    final nickname = compactDisplayName(member['nickname']?.toString());
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('移出群聊？'),
+        content: Text('确定将“$nickname”移出群聊吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('移出'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ChatService(
+        context.read<AppSession>().api,
+      ).removeMember(widget.conversation.id, userId);
+      if (!mounted) return;
+      setState(() {
+        rows.removeWhere((row) => row['userId']?.toString() == userId);
+      });
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
   }
 }
 

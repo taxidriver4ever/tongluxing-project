@@ -51,10 +51,31 @@ public class ChatController {
     /** 腾讯云 IM 服务，用于生成 UserSig 和同步群组成员。 */
     private final TencentImService tencentImService;
 
-    /** 获取当前登录用户的腾讯云 IM UserSig。 */
+    /**
+     * 获取当前登录用户的腾讯 IM SDK 登录会话。
+     *
+     * <p>App 使用该接口获得 sdkAppId、userId、userSig 和过期时间，随后直接登录腾讯 IM SDK。</p>
+     */
+    @GetMapping("/im/session")
+    public Result<ImUserSigResponse> getImSession() {
+        return Result.success(tencentImService.generateCurrentUserSig());
+    }
+
+    /** 兼容旧 App 的 UserSig 地址；新代码统一使用 /im/session。 */
+    @Deprecated
     @GetMapping("/im/user-sig")
     public Result<ImUserSigResponse> getImUserSig() {
-        return Result.success(tencentImService.generateCurrentUserSig());
+        return getImSession();
+    }
+
+    /**
+     * 获取腾讯 IM 会话 ID 与同路行业务会话的绑定。
+     *
+     * <p>该接口不返回未读、置顶、免打扰或消息历史，这些信息全部以腾讯 IM SDK 为准。</p>
+     */
+    @GetMapping("/im/bindings")
+    public Result<ConversationListResponse> getImBindings() {
+        return Result.success(chatService.getImConversationBindings());
     }
 
     /** 创建或获取车队关联的群聊会话。 */
@@ -63,7 +84,8 @@ public class ChatController {
         return Result.success(chatService.createTeamConversation(request));
     }
 
-    /** 查询当前登录用户参与的会话列表。 */
+    /** 兼容旧客户端：查询本地会话摘要；新 App 使用腾讯 IM SDK 会话列表。 */
+    @Deprecated
     @GetMapping("/conversations")
     public Result<ConversationListResponse> getConversations(
             @RequestParam(required = false) @Size(max = 64) String title) {
@@ -95,7 +117,8 @@ public class ChatController {
         return Result.success(chatService.getTripConversation(tripId));
     }
 
-    /** 分页查询指定会话的历史消息。 */
+    /** 兼容旧客户端：查询本地审计消息；新 App 使用腾讯 IM SDK 历史消息。 */
+    @Deprecated
     @GetMapping("/conversations/{conversationId}/messages")
     public Result<MessageListResponse> getMessages(@PathVariable Long conversationId,
                                                    @RequestParam(required = false) Long beforeMessageId,
@@ -117,7 +140,8 @@ public class ChatController {
         return Result.success();
     }
 
-    /** 向指定会话发送消息。 */
+    /** 兼容旧客户端：后端代发消息；新 App 直接通过腾讯 IM SDK 发送。 */
+    @Deprecated
     @PostMapping("/conversations/{conversationId}/messages")
     public Result<MessageResponse> sendMessage(@PathVariable Long conversationId,
                                                @Valid @RequestBody SendMessageRequest request) {
@@ -144,13 +168,15 @@ public class ChatController {
         return Result.success(chatService.getMembers(conversationId));
     }
 
-    /** 查询当前用户对指定会话设置的免打扰与置顶状态。 */
+    /** 兼容旧客户端：本地设置；新 App 的置顶和免打扰由腾讯 IM SDK 托管。 */
+    @Deprecated
     @GetMapping("/conversations/{conversationId}/settings")
     public Result<ConversationSettingResponse> settings(@PathVariable Long conversationId) {
         return Result.success(chatService.getSettings(conversationId));
     }
 
-    /** 更新当前用户独有的会话设置，不会影响群内其他成员。 */
+    /** 兼容旧客户端：本地设置；新 App 直接调用腾讯 IM SDK。 */
+    @Deprecated
     @PutMapping("/conversations/{conversationId}/settings")
     public Result<ConversationSettingResponse> updateSettings(@PathVariable Long conversationId,
             @Valid @RequestBody ConversationSettingRequest request) {

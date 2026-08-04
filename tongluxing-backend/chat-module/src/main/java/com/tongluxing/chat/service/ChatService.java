@@ -38,6 +38,14 @@ public interface ChatService {
     /** 查询当前登录用户参与的有效会话。 */
     ConversationListResponse getConversations(String title);
 
+    /**
+     * 查询腾讯 IM 会话与同路行业务对象的绑定关系。
+     *
+     * <p>App 的会话排序、未读数、置顶和最后消息来自腾讯 IM；本接口只补充本地 conversationId、
+     * tripId/teamId、业务状态和私聊权限，不再充当会话列表事实来源。</p>
+     */
+    ConversationListResponse getImConversationBindings();
+
     /** 查询与目标用户的私聊权限及已有会话。 */
     PrivateChatPermissionResponse getPrivatePermission(Long targetUserId);
 

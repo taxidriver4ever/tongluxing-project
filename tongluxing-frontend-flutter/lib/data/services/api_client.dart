@@ -59,6 +59,10 @@ class ApiClient {
   Future<dynamic> put(String path, {Object? body}) =>
       _request('PUT', path, body: body);
 
+  /// 发送 PATCH 请求，适合只更新群名称、置顶等部分资源字段。
+  Future<dynamic> patch(String path, {Object? body}) =>
+      _request('PATCH', path, body: body);
+
   Future<dynamic> delete(String path) => _request('DELETE', path);
 
   Future<void> putBytes(
@@ -138,7 +142,7 @@ class ApiClient {
     }
 
     String? encodedBody;
-    if (method == 'POST' || method == 'PUT') {
+    if (method == 'POST' || method == 'PUT' || method == 'PATCH') {
       try {
         encodedBody = jsonEncode(body);
       } catch (_) {
@@ -152,6 +156,7 @@ class ApiClient {
       response = await (switch (method) {
         'POST' => _client.post(uri, headers: headers, body: encodedBody),
         'PUT' => _client.put(uri, headers: headers, body: encodedBody),
+        'PATCH' => _client.patch(uri, headers: headers, body: encodedBody),
         'DELETE' => _client.delete(uri, headers: headers),
         _ => _client.get(uri, headers: headers),
       }).timeout(requestTimeout);

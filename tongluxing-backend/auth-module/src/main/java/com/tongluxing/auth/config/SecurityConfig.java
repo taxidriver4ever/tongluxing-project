@@ -76,6 +76,8 @@ public class SecurityConfig {
                                 "/v1/auth/wx-phone-login",
                                 "/v1/auth/app/login",
                                 "/v1/auth/refresh-token",
+                                // 腾讯 IM 服务器没有用户 Bearer Token，回调自身使用 Sign + RequestTime 鉴权。
+                                "/v1/callbacks/tencent-im",
                                 "/v1/invites/qr/validate",
                                 "/health",
                                 "/actuator/health"

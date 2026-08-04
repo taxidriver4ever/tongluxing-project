@@ -16,6 +16,10 @@ public record ConversationResponse(
         String conversationStatus,
         /** 第三方 IM 服务商类型。 */
         String providerType,
+        /** 腾讯 IM 原始群 ID；私聊为空。 */
+        String providerConversationKey,
+        /** SDK 使用的会话 ID，例如 group_trip_1 或 c2c_u_10001。 */
+        String imConversationId,
         /** 最后一条消息预览。 */
         String lastMessagePreview,
         /** 最后一条消息时间。 */

@@ -1,8 +1,10 @@
 package com.tongluxing.invite.service.impl;
 
 import java.io.ByteArrayOutputStream;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -96,6 +98,16 @@ public class InviteServiceImpl implements InviteService {
     );
     /** 邀请码发生唯一键碰撞时的最大换盐重试次数。 */
     private static final int MAX_CODE_GENERATE_ATTEMPTS = 5;
+    /** 邀请码中的用户 ID 片段长度。 */
+    private static final int INVITE_USER_PART_LENGTH = 6;
+    /** 邀请码中的随机盐片段长度。 */
+    private static final int INVITE_SALT_PART_LENGTH = 4;
+    /** 邀请码中的 HMAC 签名片段长度。 */
+    private static final int INVITE_SIGNATURE_PART_LENGTH = 6;
+    /** 4 位 36 进制随机盐的取值空间。 */
+    private static final int INVITE_SALT_SPACE = 36 * 36 * 36 * 36;
+    /** 使用密码学安全随机数生成邀请码盐。 */
+    private static final SecureRandom INVITE_CODE_RANDOM = new SecureRandom();
     /** 邀请二维码签名有效周期，当前为七天。 */
     private static final long QR_PERIOD_SECONDS = 7L * 24 * 60 * 60;
 
@@ -110,7 +122,7 @@ public class InviteServiceImpl implements InviteService {
     /** Spring 事件发布器，用于在关系提交后触发奖励。 */
     private final ApplicationEventPublisher eventPublisher;
 
-    /** 复用 JWT 环境密钥对邀请二维码 payload 进行 HMAC 签名。 */
+    /** 复用 JWT 环境密钥对邀请码和邀请二维码 payload 进行 HMAC 签名。 */
     @Value("${auth.jwt.secret}")
     private String qrSecret;
 
@@ -295,10 +307,10 @@ public class InviteServiceImpl implements InviteService {
         InviteQueryDTO row = mapper.findCodeByUser(userId);
         for (int i = 0; i < MAX_CODE_GENERATE_ATTEMPTS && row == null; i++) {
             try {
-                // 邀请码唯一键保护全平台唯一性，salt 用于碰撞后换一个候选值。
-                mapper.insertCode(SnowflakeIdGenerator.nextId(), userId, code(userId, i), LocalDateTime.now());
+                // 每轮使用新的随机盐；邀请码由用户 ID 片段、盐和 HMAC 签名组成。
+                mapper.insertCode(SnowflakeIdGenerator.nextId(), userId, code(userId), LocalDateTime.now());
             } catch (DuplicateKeyException ignored) {
-                // 唯一键碰撞后换 salt 重试。
+                // 唯一键碰撞后重新生成随机盐和签名。
             }
             // 不依赖 insert 返回值，每轮回查也能兼容并发请求已经为用户创建的记录。
             row = mapper.findCodeByUser(userId);
@@ -682,13 +694,42 @@ public class InviteServiceImpl implements InviteService {
     }
 
     /**
-     * 从用户 ID 和碰撞重试 salt 生成 6~10 位大写 36 进制邀请码候选值。
-     * 最终唯一性仍以数据库唯一索引为准。
+     * 生成 16 位邀请码：6 位用户 ID 片段 + 4 位随机盐 + 6 位 HMAC 签名。
+     * 签名使用完整用户 ID 和可见随机盐计算，最终唯一性仍以数据库唯一索引为准。
      */
-    private String code(long id, int salt) {
-        String value = Long.toUnsignedString(id + salt * 97L, 36).toUpperCase(Locale.ROOT);
-        return value.length() >= 6 ? value.substring(0, Math.min(10, value.length()))
-                : "0".repeat(6 - value.length()) + value;
+    private String code(long userId) {
+        String userPart = fixedBase36(userId, INVITE_USER_PART_LENGTH);
+        String saltPart = fixedBase36(
+                INVITE_CODE_RANDOM.nextInt(INVITE_SALT_SPACE),
+                INVITE_SALT_PART_LENGTH);
+        String signaturePart = inviteCodeSignature(userId, saltPart);
+        return userPart + saltPart + signaturePart;
+    }
+
+    /** 将无符号数转换为指定长度的大写 36 进制片段，过长时保留低位。 */
+    private String fixedBase36(long value, int length) {
+        String encoded = Long.toUnsignedString(value, 36).toUpperCase(Locale.ROOT);
+        if (encoded.length() >= length) {
+            return encoded.substring(encoded.length() - length);
+        }
+        return "0".repeat(length - encoded.length()) + encoded;
+    }
+
+    /** 根据完整用户 ID 和随机盐计算 HMAC-SHA256，并截取为 6 位大写 36 进制签名。 */
+    private String inviteCodeSignature(long userId, String salt) {
+        try {
+            String payload = userId + "|" + salt;
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(qrSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            String encoded = new BigInteger(1, mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)))
+                    .toString(36)
+                    .toUpperCase(Locale.ROOT);
+            return encoded.length() >= INVITE_SIGNATURE_PART_LENGTH
+                    ? encoded.substring(0, INVITE_SIGNATURE_PART_LENGTH)
+                    : "0".repeat(INVITE_SIGNATURE_PART_LENGTH - encoded.length()) + encoded;
+        } catch (Exception exception) {
+            throw new IllegalStateException("邀请码签名失败", exception);
+        }
     }
 
     /** 计算距离下一个邀请人数展示节点还差多少人。 */

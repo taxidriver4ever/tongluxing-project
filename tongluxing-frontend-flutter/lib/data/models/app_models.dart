@@ -800,7 +800,7 @@ class ConversationModel {
     this.bizType = '',
     this.bizId = '',
     this.status = 'ACTIVE',
-    this.providerType = 'LOCAL',
+    this.providerType = 'TENCENT_IM',
     this.providerConversationKey = '',
     this.imConversationId = '',
     this.pinned = false,
@@ -864,7 +864,7 @@ class ConversationModel {
         bizType: json['bizType']?.toString() ?? '',
         bizId: json['bizId']?.toString() ?? '',
         status: json['conversationStatus']?.toString() ?? 'ACTIVE',
-        providerType: json['providerType']?.toString() ?? 'LOCAL',
+        providerType: json['providerType']?.toString() ?? 'TENCENT_IM',
         providerConversationKey:
             json['providerConversationKey']?.toString() ?? '',
         imConversationId: json['imConversationId']?.toString() ?? '',

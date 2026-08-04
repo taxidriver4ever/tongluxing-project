@@ -5,15 +5,10 @@ import com.tongluxing.chat.vo.ImUserSigResponse;
 /**
  * 腾讯云 IM 集成服务。
  *
- * <p>只封装 IM 侧 UserSig、群组创建/销毁和成员维护能力，业务会话数据仍以本地数据库为准。</p>
+ * <p>聊天模块只使用真实腾讯 IM，不再提供 MOCK 通道。该服务负责 UserSig、群组、
+ * 成员和服务端消息投递；行程、车队、权限、媒体映射与审计数据仍由后端维护。</p>
  */
 public interface TencentImService {
-
-    /** 当前选择的聊天通道：MOCK 或 TENCENT_IM。 */
-    String providerType();
-
-    /** 腾讯云 IM 必要配置是否完整。 */
-    boolean isConfigured();
 
     /** 为指定 IM 用户 ID 生成 UserSig。 */
     String generateUserSig(String userId);

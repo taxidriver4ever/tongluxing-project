@@ -65,16 +65,9 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
       final session = context.read<AppSession>();
       final service = ChatService(session.api);
       final bindings = await service.imBindings();
-      List<ConversationModel> conversations;
-      try {
-        // SDK 负责最后消息、未读数、置顶、免打扰和排序；后端只提供业务绑定。
-        await session.tencentIm.connect();
-        conversations = await session.tencentIm.conversations(bindings);
-      } catch (imError) {
-        // 本地 MOCK 或腾讯 IM 暂时不可用时保留业务群入口，便于继续调试群管理。
-        debugPrint('Load Tencent IM conversations failed: $imError');
-        conversations = bindings;
-      }
+      // 聊天 MOCK 已移除：腾讯 IM 连接失败时直接展示错误，不能再回退到后端会话数据。
+      await session.tencentIm.connect();
+      final conversations = await session.tencentIm.conversations(bindings);
       List<Map<String, dynamic>> applications = const [];
       var unreadFollowers = 0;
       try {
@@ -123,10 +116,9 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
     setState(() {});
   }
 
-  /// 修改当前账号的置顶或免打扰设置。
+  /// 修改当前账号的腾讯 IM 置顶或免打扰设置。
   ///
-  /// 正式腾讯 IM 会话直接写腾讯云；本地 MOCK/升级前旧会话继续调用后端兼容接口，
-  /// 这样开发环境没有腾讯配置时仍然可以测试聊天页面。
+  /// 聊天状态只写腾讯 IM，不再调用后端本地设置接口，避免维护两份状态。
   Future<void> updateSettings(
     ConversationModel row, {
     bool? pinned,
@@ -134,18 +126,10 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
   }) async {
     try {
       final session = context.read<AppSession>();
-      if (_usesTencentIm(row)) {
-        // SDK 状态是正式 App 的唯一事实来源，避免后端再维护一份重复的置顶/免打扰。
-        if (pinned != null) await session.tencentIm.setPinned(row, pinned);
-        if (muted != null) await session.tencentIm.setMuted(row, muted);
-      } else {
-        // 仅用于 MOCK/旧会话；未修改的开关沿用当前列表值。
-        await ChatService(session.api).updateSettings(
-          row.id,
-          pinned: pinned ?? row.pinned,
-          muted: muted ?? row.muted,
-        );
-      }
+      await session.tencentIm.connect();
+      // SDK 状态是 App 的唯一事实来源，只调用本次实际发生变化的设置。
+      if (pinned != null) await session.tencentIm.setPinned(row, pinned);
+      if (muted != null) await session.tencentIm.setMuted(row, muted);
       await load(silent: true);
     } catch (e) {
       if (mounted) {
@@ -164,17 +148,14 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
     });
     try {
       final session = context.read<AppSession>();
-      if (_usesTencentIm(row)) {
-        // 腾讯 IM 删除会话只影响当前账号的会话列表，不清空云端历史消息。
-        await session.tencentIm.deleteConversation(row);
-        try {
-          await ChatService(session.api).hideConversation(row.id);
-        } catch (_) {
-          // SDK 已完成用户可见操作，旧后端兼容标记失败无需恢复会话。
-        }
-      } else {
-        // MOCK/旧会话没有可用的腾讯会话 ID，只执行后端隐藏。
+      await session.tencentIm.connect();
+      // 腾讯 IM 删除会话只影响当前账号的会话列表，不清空云端历史消息。
+      await session.tencentIm.deleteConversation(row);
+      try {
+        // 后端只记录同路行业务层的隐藏状态，不再承担聊天会话事实。
         await ChatService(session.api).hideConversation(row.id);
+      } catch (_) {
+        // 腾讯 IM 已完成用户可见操作，业务隐藏标记失败不恢复云端会话。
       }
       if (mounted) {
         ScaffoldMessenger.of(
@@ -190,11 +171,6 @@ class _ChatIndexPageState extends State<ChatIndexPage> {
       }
     }
   }
-
-
-  /// 判断当前业务绑定是否已经具备可操作的腾讯 IM 会话 ID。
-  bool _usesTencentIm(ConversationModel row) =>
-      row.providerType == 'TENCENT_IM' && row.imConversationId.isNotEmpty;
 
   Future<void> openConversation(ConversationModel row) async {
     await Navigator.push(

@@ -30,7 +30,8 @@ import lombok.RequiredArgsConstructor;
 /**
  * 腾讯云 IM 集成服务实现。
  *
- * <p>负责生成 UserSig，并通过腾讯云 REST API 同步群组和成员。业务数据仍由 chat-module 本地表保存。</p>
+ * <p>负责生成 UserSig，并通过腾讯云 REST API 同步群组、成员和服务端消息。
+ * 聊天模块已经取消 MOCK 通道，所有调用都会访问真实腾讯 IM。</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -53,19 +54,6 @@ public class TencentImServiceImpl implements TencentImService {
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(3))
             .build();
-
-    /** 判断云端必要配置是否完整；未配置时业务层使用本地同步模式。 */
-    @Override
-    public boolean isConfigured() {
-        // provider 类型和凭据必须同时满足；仅填写密钥但显式选择 MOCK 时也不会访问公网。
-        return "TENCENT_IM".equals(providerType()) && properties.hasCredentials();
-    }
-
-    /** 返回经过标准化的显式聊天通道配置。 */
-    @Override
-    public String providerType() {
-        return properties.normalizedProviderType();
-    }
 
     /** 为指定 IM 用户 ID 生成 UserSig。 */
     @Override
@@ -282,7 +270,8 @@ public class TencentImServiceImpl implements TencentImService {
 
     /** 校验腾讯云 IM 必要配置是否完整。 */
     private void validateConfig() {
-        if (!isConfigured()) {
+        if (!properties.hasCredentials()) {
+            // 启动校验通常已经拦截该情况；保留此检查防止测试中绕过 Spring 生命周期。
             throw new BusinessException(ResultCode.BUSINESS_ERROR, "腾讯云 IM 配置未完成");
         }
     }

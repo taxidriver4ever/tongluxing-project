@@ -60,11 +60,11 @@ admin:
 
 tencent:
   im:
-    provider-type: ${TENCENT_IM_PROVIDER_TYPE:MOCK}
-    sdk-app-id: ${TENCENT_IM_SDK_APP_ID:0}
-    secret-key: ${TENCENT_IM_SECRET_KEY:}
-    admin-user-id: ${TENCENT_IM_ADMIN_USER_ID:administrator}
-    callback-token: ${TENCENT_IM_CALLBACK_TOKEN:}
+    # 聊天 MOCK 已移除，本地开发也必须配置真实腾讯 IM 凭据。
+    sdk-app-id: ${TENCENT_IM_SDK_APP_ID}
+    secret-key: ${TENCENT_IM_SECRET_KEY}
+    admin-user-id: ${TENCENT_IM_ADMIN_USER_ID}
+    callback-token: ${TENCENT_IM_CALLBACK_TOKEN}
     expire-seconds: ${TENCENT_IM_EXPIRE_SECONDS:604800}
 
 storage:

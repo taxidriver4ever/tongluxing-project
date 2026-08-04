@@ -903,79 +903,12 @@ class ChatService {
         .toList();
   }
 
-  @Deprecated('Flutter App should use imBindings + TencentImClient.conversations')
-  Future<List<ConversationModel>> conversations({String? title}) async {
-    final keyword = title?.trim() ?? '';
-    final data = await api.get(
-      '/v1/chats/conversations',
-      query: keyword.isEmpty ? null : {'title': keyword},
-    );
-    final list = data is Map
-        ? (data['conversations'] as List? ?? const [])
-        : const [];
-    return list
-        .map(
-          (e) =>
-              ConversationModel.fromJson(Map<String, dynamic>.from(e as Map)),
-        )
-        .toList();
-  }
-
-  Future<List<Map<String, dynamic>>> messages(String id) async {
-    final data = await api.get('/v1/chats/conversations/$id/messages');
-    final list = data is Map
-        ? (data['messages'] as List? ?? const [])
-        : const [];
-    return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-  }
-
   Future<ConversationModel> tripConversation(String tripId) async =>
       ConversationModel.fromJson(
         Map<String, dynamic>.from(
           await api.get('/v1/chats/trips/$tripId/conversation') as Map,
         ),
       );
-
-  Future<Map<String, dynamic>> send(
-    String id,
-    String content, {
-    String type = 'TEXT',
-    Map<String, dynamic>? payload,
-  }) async => Map<String, dynamic>.from(
-    await api.post(
-          '/v1/chats/conversations/$id/messages',
-          body: {
-            'messageType': type,
-            'content': content,
-            'payload': payload ?? <String, dynamic>{},
-          },
-        )
-        as Map,
-  );
-
-  Future<List<Map<String, dynamic>>> members(String id) async {
-    final data = await api.get('/v1/chats/conversations/$id/members');
-    return (data as List? ?? const [])
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
-  }
-
-  Future<Map<String, dynamic>> settings(String id) async =>
-      Map<String, dynamic>.from(
-        await api.get('/v1/chats/conversations/$id/settings') as Map,
-      );
-
-  Future<Map<String, dynamic>> updateSettings(
-    String id, {
-    required bool muted,
-    required bool pinned,
-  }) async => Map<String, dynamic>.from(
-    await api.put(
-          '/v1/chats/conversations/$id/settings',
-          body: {'muted': muted, 'pinned': pinned},
-        )
-        as Map,
-  );
 
   Future<List<Map<String, dynamic>>> joinApplications({
     String status = 'PENDING',

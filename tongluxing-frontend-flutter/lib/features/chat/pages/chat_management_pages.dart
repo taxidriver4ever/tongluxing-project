@@ -77,10 +77,9 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
     load();
   }
 
-  /// 加载群成员和同路行业务工作区。
+  /// 加载腾讯 IM 群成员和同路行业务工作区。
   ///
-  /// 群成员优先从腾讯 IM 获取；后端只提供关联行程、队长权限等业务字段。
-  /// MOCK 会话继续回退到旧成员接口，方便没有腾讯 IM 配置的本地环境调试。
+  /// 群成员只从腾讯 IM SDK 获取；后端只提供关联行程、队长权限等业务字段。
   Future<void> load() async {
     if (mounted) {
       setState(() {
@@ -91,17 +90,12 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
     try {
       final session = context.read<AppSession>();
       final service = ChatService(session.api);
-      Future<List<Map<String, dynamic>>> memberFuture;
-      if (widget.conversation.providerType == 'TENCENT_IM' &&
-          widget.conversation.imGroupId.isNotEmpty) {
-        await session.tencentIm.connect();
-        memberFuture = session.tencentIm.groupMembers(widget.conversation);
-      } else {
-        memberFuture = service.members(widget.conversation.id);
+      if (widget.conversation.imGroupId.isEmpty) {
+        throw StateError('当前群聊缺少腾讯 IM GroupId');
       }
-
+      await session.tencentIm.connect();
       final values = await Future.wait<dynamic>([
-        memberFuture,
+        session.tencentIm.groupMembers(widget.conversation),
         service.groupWorkspace(widget.conversation.id),
       ]);
       if (!mounted) return;
@@ -131,23 +125,16 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
     });
     try {
       final session = context.read<AppSession>();
-      final usesTencentIm =
-          widget.conversation.providerType == 'TENCENT_IM' &&
-          widget.conversation.imConversationId.isNotEmpty;
-      if (usesTencentIm) {
-        await session.tencentIm.connect();
-        // 只调用发生变化的 SDK 接口，避免一个开关修改时重复写另一个状态。
-        if (nextMuted != null) {
-          await session.tencentIm.setMuted(widget.conversation, nextMuted);
-        }
-        if (nextPinned != null) {
-          await session.tencentIm.setPinned(widget.conversation, nextPinned);
-        }
-      } else {
-        // 仅保留给 MOCK/旧会话的兼容路径。
-        await ChatService(
-          session.api,
-        ).updateSettings(widget.conversation.id, muted: muted, pinned: pinned);
+      if (widget.conversation.imConversationId.isEmpty) {
+        throw StateError('当前群聊缺少腾讯 IM 会话绑定');
+      }
+      await session.tencentIm.connect();
+      // 只调用发生变化的 SDK 接口，避免一个开关修改时重复写另一个状态。
+      if (nextMuted != null) {
+        await session.tencentIm.setMuted(widget.conversation, nextMuted);
+      }
+      if (nextPinned != null) {
+        await session.tencentIm.setPinned(widget.conversation, nextPinned);
       }
     } catch (e) {
       if (!mounted) return;

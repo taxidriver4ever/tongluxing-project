@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS chat_conversation (
   biz_id BIGINT NOT NULL comment '关联业务单据标识',
   conversation_name VARCHAR(64) NOT NULL comment '会话名称',
   conversation_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' comment '会话状态',
-  provider_type VARCHAR(32) NOT NULL DEFAULT 'MOCK' comment '外部服务提供方类型',
+  provider_type VARCHAR(32) NOT NULL DEFAULT 'TENCENT_IM' comment '固定为腾讯云 IM',
   provider_conversation_key VARCHAR(128) NULL comment '服务商会话标识或存储Key',
   last_message_id BIGINT NULL comment '最后消息ID',
   last_message_preview VARCHAR(120) NULL comment '最后消息预览',

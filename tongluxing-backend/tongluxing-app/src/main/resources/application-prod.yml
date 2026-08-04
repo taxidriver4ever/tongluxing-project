@@ -60,11 +60,10 @@ admin:
 
 tencent:
   im:
-    provider-type: ${TENCENT_IM_PROVIDER_TYPE:TENCENT_IM}
     sdk-app-id: ${TENCENT_IM_SDK_APP_ID}
     secret-key: ${TENCENT_IM_SECRET_KEY}
     admin-user-id: ${TENCENT_IM_ADMIN_USER_ID}
-    callback-token: ${TENCENT_IM_CALLBACK_TOKEN:}
+    callback-token: ${TENCENT_IM_CALLBACK_TOKEN}
     expire-seconds: ${TENCENT_IM_EXPIRE_SECONDS}
 
 storage:

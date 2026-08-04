@@ -49,11 +49,14 @@ public class ChatReminderScheduler {
             long messageId = SnowflakeIdGenerator.nextId();
             String providerKey = "system-reminder-" + messageId;
             try {
-                // 只有真实腾讯 IM 会话且能确定群主发送身份时，才尝试实时云端投递。
-                if ("TENCENT_IM".equals(row.get("providerType")) && tencentImService.isConfigured()
-                        && row.get("ownerUserId") instanceof Number owner) {
-                    providerKey = tencentImService.sendGroupText(row.get("providerConversationKey").toString(),
+                // 聊天模块只使用真实腾讯 IM；必须同时具备群主身份和真实 GroupId。
+                Object rawGroupId = row.get("providerConversationKey");
+                if (row.get("ownerUserId") instanceof Number owner
+                        && rawGroupId != null && !rawGroupId.toString().isBlank()) {
+                    providerKey = tencentImService.sendGroupText(rawGroupId.toString(),
                             TencentImServiceImpl.toImUserId(owner.longValue()), content);
+                } else {
+                    throw new IllegalStateException("行程提醒缺少腾讯 IM 群主或 GroupId");
                 }
             } catch (RuntimeException ex) {
                 // 云端失败不抛出：providerKey 保持本地值，后续仍继续保存可审计消息。

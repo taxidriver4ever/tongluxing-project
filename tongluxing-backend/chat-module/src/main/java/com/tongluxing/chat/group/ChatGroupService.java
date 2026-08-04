@@ -89,10 +89,8 @@ public class ChatGroupService {
   String normalizedName=name.trim();
 
   // 第二步：先同步腾讯 IM；失败时不修改本地名称，避免两端长期不一致。
-  if(tencentIm.isConfigured()&&conversation.getProviderConversationKey()!=null
-    &&!conversation.getProviderConversationKey().isBlank()){
-   tencentIm.updateGroupName(conversation.getProviderConversationKey(),normalizedName);
-  }
+  String groupId=requireTencentGroupId(conversation);
+  tencentIm.updateGroupName(groupId,normalizedName);
 
   // 第三步：云端成功后再更新本地业务摘要。
   mapper.rename(cid,normalizedName,LocalDateTime.now());
@@ -114,11 +112,8 @@ public class ChatGroupService {
   ChatConversation conversation=requireActiveGroup(cid);
 
   // 先移除云端成员，防止本地已经退出但仍能继续接收腾讯 IM 群消息。
-  if(tencentIm.isConfigured()&&conversation.getProviderConversationKey()!=null
-    &&!conversation.getProviderConversationKey().isBlank()){
-   tencentIm.removeGroupMember(conversation.getProviderConversationKey(),
-     com.tongluxing.chat.service.impl.TencentImServiceImpl.toImUserId(uid));
-  }
+  tencentIm.removeGroupMember(requireTencentGroupId(conversation),
+    com.tongluxing.chat.service.impl.TencentImServiceImpl.toImUserId(uid));
   members.exit(cid,uid,LocalDateTime.now());
   persistCard(cid,current.requireUserId(),"SYSTEM","队长已移除群成员",null,
     Map.of("removedUserId",String.valueOf(uid)));
@@ -179,6 +174,8 @@ public class ChatGroupService {
    throw new BusinessException(ResultCode.BAD_REQUEST,"当前群未绑定行程");
   }
   ChatConversation conversation=requireActiveGroup(cid);
+  // 在变更行程状态前确认腾讯群绑定存在，禁止出现“只结束本地行程但没有真实腾讯群”的状态。
+  String groupId=requireTencentGroupId(conversation);
 
   // 第一步：按行程状态执行正确的终止动作。行驶中的行程记为已结束，尚未开始的行程记为取消。
   String tripStatus=String.valueOf(workspace.get("tripStatus"));
@@ -199,13 +196,10 @@ public class ChatGroupService {
   members.exitAll(cid,now);
 
   // 第四步：销毁腾讯 IM 群。失败只记录补偿日志，不能把已经结束的行程回滚为进行中。
-  if(tencentIm.isConfigured()&&conversation.getProviderConversationKey()!=null
-    &&!conversation.getProviderConversationKey().isBlank()){
-   try{
-    tencentIm.destroyGroup(conversation.getProviderConversationKey());
-   }catch(RuntimeException ex){
-    log.warn("销毁腾讯 IM 群失败，conversationId={}",cid,ex);
-   }
+  try{
+    tencentIm.destroyGroup(groupId);
+  }catch(RuntimeException ex){
+   log.warn("销毁腾讯 IM 群失败，conversationId={}",cid,ex);
   }
  }
  /** 查询待处理或已处理的聊天举报记录。 */
@@ -231,6 +225,12 @@ public class ChatGroupService {
    throw new BusinessException(ResultCode.BAD_REQUEST,"群聊已结束，不能继续管理");
   return conversation;
  }
+ /** 返回真实腾讯 IM GroupId；缺少绑定时禁止只修改本地数据。 */
+ private String requireTencentGroupId(ChatConversation conversation){
+  String groupId=conversation==null?null:conversation.getProviderConversationKey();
+  if(groupId==null||groupId.isBlank())throw new BusinessException(ResultCode.BUSINESS_ERROR,"群聊缺少腾讯 IM GroupId");
+  return groupId;
+ }
  private void requireOwner(ChatConversationMember m){if(!"OWNER".equals(m.getMemberRole()))throw new BusinessException(ResultCode.FORBIDDEN,"只有队长可以执行此操作");}
  private void requireManager(ChatConversationMember m){if(!List.of("OWNER","ADMIN").contains(m.getMemberRole()))throw new BusinessException(ResultCode.FORBIDDEN,"只有队长或管理员可以执行此操作");}
  private void persistCard(Long cid,Long sender,String type,String title,String content,Map<String,Object>extra){
@@ -254,13 +254,12 @@ public class ChatGroupService {
 
   // 第三步：新 App 从腾讯 IM 拉取消息历史，因此业务卡片必须同步到腾讯 IM 自定义消息。
   ChatConversation conversation=conversations.findById(cid);
-  if(conversation!=null&&tencentIm.isConfigured()
-    &&conversation.getProviderConversationKey()!=null
-    &&!conversation.getProviderConversationKey().isBlank()){
+  if(conversation!=null){
+   String groupId=requireTencentGroupId(conversation);
    String imSender=sender==null?null:
      com.tongluxing.chat.service.impl.TencentImServiceImpl.toImUserId(sender);
    try{
-    tencentIm.sendGroupCustom(conversation.getProviderConversationKey(),imSender,
+    tencentIm.sendGroupCustom(groupId,imSender,
       write(payload),title,type);
    }catch(RuntimeException ex){
     // 本地业务动作已经成功，云端消息失败只记补偿日志，避免投票/确认事务被网络异常回滚。

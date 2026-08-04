@@ -110,7 +110,7 @@ public interface ChatConversationMapper {
                            @Param("preview") String preview,
                            @Param("messageAt") LocalDateTime messageAt);
 
-    /** 更新聊天供应商，用于将历史 MOCK/LOCAL 会话惰性迁移到腾讯 IM。 */
+    /** 更新聊天供应商，用于修复数据库中遗留的非腾讯 IM 会话记录。 */
     @Update("""
             update chat_conversation
             set provider_type = #{providerType},

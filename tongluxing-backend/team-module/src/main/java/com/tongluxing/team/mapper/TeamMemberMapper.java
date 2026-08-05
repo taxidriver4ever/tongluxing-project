@@ -91,7 +91,7 @@ public interface TeamMemberMapper {
                 (id, team_id, user_id, vehicle_id, linked_owner_user_id, linked_vehicle_id, plate_reference, owner_confirm_status, removed_by_user_id, removed_reason, member_role, member_status, joined_at,
                  exited_at, nickname_snapshot, vehicle_snapshot, created_at, updated_at, deleted)
             values
-                (#{id}, #{teamId}, #{userId}, #{vehicleId}, #{linkedOwnerUserId}, #{linkedVehicleId}, #{plateReference}, #{ownerConfirmStatus}, #{removedByUserId}, #{removedReason}, #{memberRole}, #{memberStatus}, #{joinedAt},
+                (#{id}, #{teamId}, #{userId}, #{vehicleId}, #{linkedOwnerUserId}, #{linkedVehicleId}, #{plateReference}, COALESCE(#{ownerConfirmStatus}, 'NOT_REQUIRED'), #{removedByUserId}, #{removedReason}, #{memberRole}, #{memberStatus}, #{joinedAt},
                  #{exitedAt}, #{nicknameSnapshot}, #{vehicleSnapshot}, #{createdAt}, #{updatedAt}, 0)
             """)
     void insert(TeamMember member);
@@ -121,6 +121,12 @@ public interface TeamMemberMapper {
     @Update("""
             update team_member
             set vehicle_id = #{vehicleId},
+                linked_owner_user_id = null,
+                linked_vehicle_id = null,
+                plate_reference = null,
+                owner_confirm_status = 'NOT_REQUIRED',
+                removed_by_user_id = null,
+                removed_reason = null,
                 member_role = #{role},
                 member_status = 'ACTIVE',
                 joined_at = #{now},

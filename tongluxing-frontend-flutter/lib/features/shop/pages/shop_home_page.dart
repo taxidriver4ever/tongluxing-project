@@ -20,15 +20,6 @@ class _ShopHomePageState extends State<ShopHomePage> {
   List<Map<String, dynamic>> activeGroups = const [];
   static const categories = ['附近服务', '自驾装备', '露营户外', '特惠拼单'];
 
-  // 原商城静态商品数据，保留作为非拼单品类的后续视觉素材。
-  // ignore: unused_field
-  static const products = [
-    _Product('精致洗车单次套餐', '同路汽车服务中心 · 1.2km', '🚘', 39.9, 68, '128 人已拼'),
-    _Product('夏季空调深度清洁', '悦行汽车养护 · 3.8km', '🧼', 129, 199, '56 人已拼'),
-    _Product('汽车应急启动电源', '行远车品 · 商家配送', '🔋', 169, 259, '92 人已拼'),
-    _Product('双人轻量露营套装', '川途户外营地', '⛺', 299, 459, '31 人已拼'),
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -100,7 +91,7 @@ class _ShopHomePageState extends State<ShopHomePage> {
                     const SizedBox(width: 8),
                     _HeaderButton(
                       icon: LucideIcons.receiptText,
-                      onTap: () => _open(context, '我的订单', _orderRows),
+                      onTap: () => _showUnavailable(context, '我的订单'),
                     ),
                   ],
                 ),
@@ -154,17 +145,17 @@ class _ShopHomePageState extends State<ShopHomePage> {
                 _Quick(
                   icon: LucideIcons.ticket,
                   label: '领券',
-                  onTap: () => _open(context, '今日优惠', _couponRows),
+                  onTap: () => _showUnavailable(context, '今日优惠'),
                 ),
                 _Quick(
                   icon: LucideIcons.heart,
                   label: '收藏',
-                  onTap: () => _open(context, '我的收藏', _favoriteRows),
+                  onTap: () => _showUnavailable(context, '我的收藏'),
                 ),
                 _Quick(
                   icon: LucideIcons.headphones,
                   label: '售后',
-                  onTap: () => _open(context, '退款与售后', _afterSaleRows),
+                  onTap: () => _showUnavailable(context, '退款与售后'),
                 ),
               ],
             ),
@@ -226,12 +217,9 @@ class _ShopHomePageState extends State<ShopHomePage> {
     ),
   );
 
-  static void _open(BuildContext context, String title, List<_SimpleRow> rows) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _ShopListPage(title: title, rows: rows),
-      ),
+  static void _showUnavailable(BuildContext context, String title) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$title尚未接入真实接口')),
     );
   }
 }
@@ -941,27 +929,3 @@ class _SimpleRow {
   final IconData icon;
   final String title, subtitle;
 }
-
-// ignore: unused_element
-const _cartRows = [
-  _SimpleRow(LucideIcons.carFront, '精致洗车单次套餐 × 1', '已选 · ¥39.90'),
-  _SimpleRow(LucideIcons.sparkles, '夏季空调深度清洁 × 1', '已选 · ¥129.00'),
-  _SimpleRow(LucideIcons.batteryCharging, '汽车应急启动电源 × 1', '未选择 · ¥169.00'),
-];
-const _orderRows = [
-  _SimpleRow(LucideIcons.users, '精致洗车单次套餐', '拼单中 · 还差 1 人'),
-  _SimpleRow(LucideIcons.scanLine, '双人露营套装', '待使用 · 核销码 8***6'),
-  _SimpleRow(LucideIcons.circleCheck, '汽车应急启动电源', '已完成 · 2026-07-08'),
-];
-const _couponRows = [
-  _SimpleRow(LucideIcons.ticket, '满 100 减 20', '附近养车服务可用 · 7 天后过期'),
-  _SimpleRow(LucideIcons.ticketCheck, '露营装备 9 折券', '最高优惠 50 元'),
-];
-const _favoriteRows = [
-  _SimpleRow(LucideIcons.heart, '双人轻量露营套装', '降价 60 元 · ¥299'),
-  _SimpleRow(LucideIcons.heart, '便携折叠露营椅', '野行户外 · ¥79'),
-];
-const _afterSaleRows = [
-  _SimpleRow(LucideIcons.clock, '精致洗车单次套餐', '商家处理中 · 预计 24 小时'),
-  _SimpleRow(LucideIcons.circleCheck, '汽车应急启动电源', '退款完成 · ¥169.00'),
-];

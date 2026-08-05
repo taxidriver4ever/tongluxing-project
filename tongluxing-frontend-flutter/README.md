@@ -20,7 +20,7 @@ flutter run
 flutter run -d emulator-5554 --dart-define=API_BASE_URL=http://10.0.2.2:18080/api
 ```
 
-组件测试和离线演示可以显式传入 `--dart-define=API_DEMO=true`，生产及普通开发构建不会自动启用 Mock。
+App 运行时始终连接真实后端，不提供 `API_DEMO` 或本地假数据通道。
 
 ## Android USB 真机联调
 
@@ -44,7 +44,7 @@ cd D:\tlx-flutter-app
 - USB 真机：默认使用 `127.0.0.1`，配合 `adb reverse`。
 - 开发模拟器：显式传入 `10.0.2.2` 地址。
 - USB 真机：脚本注入 `--dart-define=API_BASE_URL=http://127.0.0.1:<端口>/<上下文>`。
-- 测试：测试代码显式构造 `ApiClient(useDemo: true)`。
+- 测试：通过 `MockClient` 仅模拟 HTTP 响应，不影响 App 运行时代码。
 - 生产：发布时显式传入 HTTPS 地址，例如 `--dart-define=API_BASE_URL=https://api.example.com/api`；脚本和 debug 清单不会改变 release 配置。
 
 转发在手机重启、拔线或 ADB 重启后可能失效，重新执行脚本即可。也可以手工执行：

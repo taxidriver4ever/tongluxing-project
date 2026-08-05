@@ -147,8 +147,8 @@ class _SosConfirmPageState extends State<SosConfirmPage> {
           const ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Icon(LucideIcons.triangleAlert, color: Color(0xFFE58B00)),
-            title: Text('报警功能当前为 Mock'),
-            subtitle: Text('本次会真实上报平台，但不会自动联系警方；紧急危险请立即拨打 110/120。'),
+            title: Text('平台 SOS 不等同于报警'),
+            subtitle: Text('求助会真实上报平台运营后台，但不会自动联系警方；紧急危险请立即拨打 110/120。'),
           ),
           const SizedBox(height: 18),
           FilledButton.icon(

@@ -192,17 +192,12 @@ public class TripServiceImpl implements TripService {
                     .map(this::toResponseWithoutChildren)
                     .toList());
         }
-        String cacheKey = MINE_CACHE_KEY.formatted(userId, normalizedScope);
-        TripListResponse cached = readJson(cacheKey, TripListResponse.class);
-        if (cached != null) {
-            return cached;
-        }
+        // “我的行程”必须反映数据库实时状态，不读取 Redis 列表缓存。
+        // 这样数据库重置、取消发布或成员状态变化后不会继续显示旧行程。
         List<Trip> trips = "history".equals(normalizedScope)
                 ? tripMapper.findHistoryByUserId(userId, 50)
                 : tripMapper.findActiveByUserId(userId);
-        TripListResponse response = new TripListResponse(trips.stream().map(this::toResponseWithoutChildren).toList());
-        writeJson(cacheKey, response, Duration.ofMinutes(5));
-        return response;
+        return new TripListResponse(trips.stream().map(this::toResponseWithoutChildren).toList());
     }
 
     /**

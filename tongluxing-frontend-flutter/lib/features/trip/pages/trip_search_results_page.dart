@@ -228,14 +228,14 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
           error = null;
         });
       } else {
-        final point = LocationSnapshot.current ?? LocationSnapshot.demoFallback;
+        final point = LocationSnapshot.current;
         final result =
             await TripDiscoveryService(context.read<AppSession>().api).discover(
               keyword: submittedKeyword,
               searchType: searchType,
               sort: sort,
-              latitude: point.latitude,
-              longitude: point.longitude,
+              latitude: point?.latitude,
+              longitude: point?.longitude,
               startCity: filter.startCity,
               destination: filter.destination,
               departureDateFrom: filter.departureFrom,

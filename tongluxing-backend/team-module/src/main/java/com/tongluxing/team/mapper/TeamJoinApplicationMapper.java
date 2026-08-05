@@ -107,7 +107,7 @@ public interface TeamJoinApplicationMapper {
                  application_status, apply_message, join_question_json, review_message, reviewed_at,
                  created_at, updated_at, deleted)
             values
-                (#{id}, #{teamId}, #{tripId}, #{applicantUserId}, #{applicantVehicleId}, #{applicationType}, #{joinRole}, #{linkedOwnerUserId}, #{linkedVehicleId}, #{plateReference}, #{currentLatitude}, #{currentLongitude}, #{ownerConfirmStatus}, #{reviewerUserId},
+                (#{id}, #{teamId}, #{tripId}, #{applicantUserId}, #{applicantVehicleId}, #{applicationType}, #{joinRole}, #{linkedOwnerUserId}, #{linkedVehicleId}, #{plateReference}, #{currentLatitude}, #{currentLongitude}, COALESCE(#{ownerConfirmStatus}, 'NOT_REQUIRED'), #{reviewerUserId},
                  #{applicationStatus}, #{applyMessage}, #{joinQuestionJson}, #{reviewMessage}, #{reviewedAt},
                  #{createdAt}, #{updatedAt}, 0)
             """)

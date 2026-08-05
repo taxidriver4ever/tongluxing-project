@@ -17,7 +17,7 @@ public class TeamMember {
     private Long linkedVehicleId;
     /** 只保存脱敏车牌，不保存用户输入的完整车牌。 */
     private String plateReference;
-    private String ownerConfirmStatus;
+    private String ownerConfirmStatus = "NOT_REQUIRED";
     private Long removedByUserId;
     private String removedReason;
     private String memberRole;

@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../common/constants/api_config.dart';
-import '../mock/demo_api.dart';
 
 class ApiException implements Exception {
   const ApiException(
@@ -28,8 +27,7 @@ class SessionInvalidation {
 }
 
 class ApiClient {
-  ApiClient({http.Client? client, this.useDemo = demoMode})
-    : _client = client ?? http.Client();
+  ApiClient({http.Client? client}) : _client = client ?? http.Client();
 
   static const int accountLoggedInElsewhereCode = 40101;
   static const Duration requestTimeout = Duration(seconds: 15);
@@ -43,12 +41,8 @@ class ApiClient {
   static int _routeRequestSequence = 0;
 
   final http.Client _client;
-  final bool useDemo;
   String? token;
   void Function(SessionInvalidation event)? onSessionInvalidated;
-
-  /// App 默认连接后端；仅组件测试或离线演示显式开启 API_DEMO。
-  static const bool demoMode = bool.fromEnvironment('API_DEMO');
 
   Future<dynamic> get(String path, {Map<String, String>? query}) =>
       _request('GET', path, query: query);
@@ -106,30 +100,7 @@ class ApiClient {
       );
     }
 
-    if (useDemo) {
-      try {
-        final result = await DemoApi.request(method, path, body: body);
-        if (requestId != null) {
-          debugPrint(
-            '[RoutePerformance] api_response '
-            'requestId=$requestId timestamp=${DateTime.now().toIso8601String()} '
-            'method=$method path=$path status=demo '
-            'elapsedMs=${requestStopwatch.elapsedMilliseconds}',
-          );
-        }
-        return result;
-      } catch (_) {
-        if (requestId != null) {
-          debugPrint(
-            '[RoutePerformance] api_response '
-            'requestId=$requestId timestamp=${DateTime.now().toIso8601String()} '
-            'method=$method path=$path status=demo_error '
-            'elapsedMs=${requestStopwatch.elapsedMilliseconds}',
-          );
-        }
-        rethrow;
-      }
-    }
+
     final base = Uri.parse(ApiConfig.baseUrl);
     final uri = base.replace(
       path: '${base.path}${path.startsWith('/') ? path : '/$path'}',

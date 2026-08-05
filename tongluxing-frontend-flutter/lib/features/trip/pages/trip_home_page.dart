@@ -72,7 +72,14 @@ class _TripHomePageState extends State<TripHomePage> {
         joinedTripIds = joinedIds;
       });
     } catch (error) {
-      if (mounted) setState(() => dashboardError = error.toString());
+      if (mounted) {
+        setState(() {
+          dashboardError = error.toString();
+          dashboard = const {};
+          currentTrips = const [];
+          joinedTripIds = const {};
+        });
+      }
     } finally {
       if (mounted) setState(() => loadingDashboard = false);
     }
@@ -660,16 +667,12 @@ class _MyTripsPageState extends State<_MyTripsPage> {
     final api = context.read<AppSession>().api;
     try {
       final values = await Future.wait<dynamic>([
-        TripService(api).drafts().catchError((_) => <TripDraftModel>[]),
-        TripService(api).mine(scope: 'active').catchError((_) => <TripModel>[]),
-        TripService(api).mine(scope: 'history').catchError((_) => <TripModel>[]),
-        TripService(api).mine(scope: 'exited').catchError((_) => <TripModel>[]),
-        TripDiscoveryService(api)
-            .myApplications()
-            .catchError((_) => <TripApplicationModel>[]),
-        TripDiscoveryService(api).favorites().catchError(
-          (_) => <String, dynamic>{'records': <dynamic>[]},
-        ),
+        TripService(api).drafts(),
+        TripService(api).mine(scope: 'active'),
+        TripService(api).mine(scope: 'history'),
+        TripService(api).mine(scope: 'exited'),
+        TripDiscoveryService(api).myApplications(),
+        TripDiscoveryService(api).favorites(),
       ]);
       final favoriteRaw = Map<String, dynamic>.from(values[5] as Map);
       final favoriteRows = (favoriteRaw['records'] ?? favoriteRaw['list']) as List? ??
@@ -677,10 +680,9 @@ class _MyTripsPageState extends State<_MyTripsPage> {
       if (!mounted) return;
       setState(() {
         drafts = List<TripDraftModel>.from(values[0] as List);
-        active = _dedupeTrips([
-          ...widget.currentTrips,
-          ...List<TripModel>.from(values[1] as List),
-        ]);
+        // “正式行程”只以后端 /v1/trips/me 的实时结果为准，
+        // 不再混入上一次首页 dashboard 的旧内存数据。
+        active = _dedupeTrips(List<TripModel>.from(values[1] as List));
         history = List<TripModel>.from(values[2] as List);
         exited = List<TripModel>.from(values[3] as List);
         applications = List<TripApplicationModel>.from(values[4] as List);
@@ -692,7 +694,17 @@ class _MyTripsPageState extends State<_MyTripsPage> {
             .toList();
       });
     } catch (caught) {
-      if (mounted) setState(() => error = caught.toString());
+      if (mounted) {
+        setState(() {
+          error = caught.toString();
+          drafts = const [];
+          active = const [];
+          history = const [];
+          exited = const [];
+          applications = const [];
+          favorites = const [];
+        });
+      }
     } finally {
       if (mounted) setState(() => loading = false);
     }

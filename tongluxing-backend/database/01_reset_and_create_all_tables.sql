@@ -5,7 +5,7 @@
 --   1. 本脚本会创建并切换到 tongluxing 数据库。
 --   2. 本脚本会永久删除 tongluxing 中下方列出的全部业务表及其数据。
 --   3. 执行前务必确认已完成备份，并使用具有 CREATE、DROP、ALTER、INDEX 权限的 MySQL 账号。
---   4. 建表完成后，再执行 02_mock_users_and_trips.sql 创建联调用户、车辆和行程。
+--   4. 如需开发联调数据，再手动执行 02_seed_test_users_and_trips.sql；生产环境不要执行该文件。
 
 CREATE DATABASE IF NOT EXISTS `tongluxing`
     DEFAULT CHARACTER SET utf8mb4
@@ -1454,10 +1454,14 @@ CREATE TABLE IF NOT EXISTS trip_member_distance_alert (
                                                           notified_at DATETIME NULL comment '告警通知时间',
                                                           recovered_at DATETIME NULL comment '距离恢复正常时间',
                                                           acknowledged_at DATETIME NULL comment '告警确认时间',
+                                                          handled_action VARCHAR(24) NULL comment '队长处理动作：IGNORE、REMOVE、WAIT、CONTINUE',
+                                                          handled_by_user_id BIGINT NULL comment '处理人用户ID',
+                                                          handled_at DATETIME NULL comment '处理时间',
                                                           created_at DATETIME NOT NULL comment '记录创建时间',
                                                           updated_at DATETIME NOT NULL comment '记录最后更新时间',
                                                           deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-                                                          KEY idx_trip_member_alert_active (trip_id, member_user_id, recovered_at, deleted)
+                                                          KEY idx_trip_member_alert_active (trip_id, member_user_id, recovered_at, deleted),
+                                                          KEY idx_trip_member_alert_level (trip_id, alert_level, recovered_at, handled_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='trip_member_distance_alert业务表';
 
 CREATE TABLE IF NOT EXISTS trip_execution (

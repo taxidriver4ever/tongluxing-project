@@ -42,17 +42,12 @@ class AppSession extends ChangeNotifier {
     final storage = await SharedPreferences.getInstance();
     final storedToken = storage.getString(_accessTokenKey);
     final storedRefreshToken = storage.getString(_refreshTokenKey);
-    if (api.useDemo) {
-      api.token = storedToken;
-      userId = storage.getString(_userIdKey);
-    } else {
-      final restored = await _restoreServerSession(
-        storage,
-        storedToken,
-        storedRefreshToken,
-      );
-      if (!restored && !hasForcedLogout) await _clearStoredSession(storage);
-    }
+    final restored = await _restoreServerSession(
+      storage,
+      storedToken,
+      storedRefreshToken,
+    );
+    if (!restored && !hasForcedLogout) await _clearStoredSession(storage);
     if (signedIn) {
       _startSessionHeartbeat();
       _connectTencentIm();
@@ -144,7 +139,7 @@ class AppSession extends ChangeNotifier {
 
   void _startSessionHeartbeat() {
     _sessionHeartbeat?.cancel();
-    if (!signedIn || api.useDemo) return;
+    if (!signedIn) return;
     _sessionHeartbeat = Timer.periodic(const Duration(seconds: 15), (_) async {
       if (!signedIn || hasForcedLogout) return;
       try {
@@ -189,7 +184,7 @@ class AppSession extends ChangeNotifier {
   }
 
   void _connectTencentIm() {
-    if (api.useDemo || !signedIn) return;
+    if (!signedIn) return;
     unawaited(
       tencentIm.connect().catchError((Object error, StackTrace stackTrace) {
         debugPrint('Tencent IM unavailable: $error');

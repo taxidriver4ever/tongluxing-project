@@ -34,7 +34,6 @@ void main() {
           headers: const {'content-type': 'application/json'},
         ),
       ),
-      useDemo: false,
     );
 
     await api.post('/v1/map/routes/plan', body: const <String, Object?>{});

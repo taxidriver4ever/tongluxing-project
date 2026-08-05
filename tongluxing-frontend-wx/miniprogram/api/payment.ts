@@ -10,7 +10,7 @@ export interface JsapiPayParams {
   timeStamp: string
   nonceStr: string
   packageValue: string
-  signType: string
+  signType: "MD5" | "HMAC-SHA256" | "RSA"
   paySign: string
 }
 

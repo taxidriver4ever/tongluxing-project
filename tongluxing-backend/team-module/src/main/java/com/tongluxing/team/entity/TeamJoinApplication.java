@@ -23,7 +23,7 @@ public class TeamJoinApplication {
     private String plateReference;
     private java.math.BigDecimal currentLatitude;
     private java.math.BigDecimal currentLongitude;
-    private String ownerConfirmStatus;
+    private String ownerConfirmStatus = "NOT_REQUIRED";
     private Long reviewerUserId;
     private String applicationStatus;
     private String applyMessage;

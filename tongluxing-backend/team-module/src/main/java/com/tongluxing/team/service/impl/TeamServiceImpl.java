@@ -633,6 +633,9 @@ public class TeamServiceImpl implements TeamService {
         member.setTeamId(teamId);
         member.setUserId(userId);
         member.setVehicleId(vehicleId);
+        // owner_confirm_status 为 NOT NULL。队长或独立驾车成员默认不需要车主确认，
+        // 不能依赖数据库 DEFAULT，因为 MyBatis INSERT 显式写入该列时 null 会覆盖默认值。
+        member.setOwnerConfirmStatus("NOT_REQUIRED");
         member.setMemberRole(role);
         member.setMemberStatus("ACTIVE");
         member.setJoinedAt(now);

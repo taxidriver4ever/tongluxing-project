@@ -212,8 +212,8 @@ Component({
           callback({
             name: result.name || "",
             address: result.address || "",
-            latitude: result.latitude,
-            longitude: result.longitude
+            latitude: Number(result.latitude),
+            longitude: Number(result.longitude)
           })
         },
         fail(error) {

@@ -21,12 +21,12 @@ public interface TripMapper {
      * 根据行程 ID 查询未删除行程。
      */
     @Select("""
-            select id, trip_number, user_id, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
@@ -37,13 +37,13 @@ public interface TripMapper {
 
     /** 根据公开行程号精确查询，不支持前缀或模糊匹配。 */
     @Select("""
-            select id, trip_number, user_id, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth,
-                   public_flag, status, remark, actual_start_time, actual_end_time,
+                   public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark, actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
             where trip_number = #{tripNumber} and deleted = 0
@@ -55,12 +55,12 @@ public interface TripMapper {
      * 查询用户当前活跃行程。
      */
     @Select("""
-            select id, trip_number, user_id, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
@@ -77,12 +77,12 @@ public interface TripMapper {
      * 发布的行程，保证距离和时间基准符合推荐规则。</p>
      */
     @Select("""
-            select id, trip_number, user_id, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time, created_at, updated_at, deleted
             from trip
             where user_id = #{userId}
@@ -98,6 +98,32 @@ public interface TripMapper {
             """)
     Trip findRecommendationReferenceByUserId(@Param("userId") Long userId);
 
+    /** 查询已经到达计划出发时间、允许自动出发且仍有队长的行程。 */
+    @Select("""
+            select *
+            from trip
+            where deleted = 0
+              and captain_user_id is not null
+              and auto_start_enabled = 1
+              and departure_time <= #{now}
+              and status in ('PUBLISHED', 'READY', 'CONFIRMING')
+            order by departure_time asc, created_at asc
+            limit #{limit}
+            """)
+    List<Trip> findDueAutoStartTrips(@Param("now") LocalDateTime now, @Param("limit") int limit);
+
+    /** 查询需要进行到达判断和成员定位检查的行驶中行程。 */
+    @Select("""
+            select *
+            from trip
+            where deleted = 0
+              and captain_user_id is not null
+              and status in ('RUNNING', 'ONGOING')
+            order by coalesce(actual_start_time, updated_at) asc
+            limit #{limit}
+            """)
+    List<Trip> findRunningTrips(@Param("limit") int limit);
+
     /** 查询用户作为发布者拥有的进行中行程 ID。 */
     @Select("""
             select id
@@ -112,12 +138,12 @@ public interface TripMapper {
 
     /** 查询与新行程预计时间重叠的未来行程。 */
     @Select("""
-            select id, trip_number, user_id, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time, created_at, updated_at, deleted
             from trip
             where user_id = #{userId}
@@ -151,12 +177,12 @@ public interface TripMapper {
      * 查询用户历史行程。
      */
     @Select("""
-            select id, trip_number, user_id, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
@@ -173,7 +199,8 @@ public interface TripMapper {
      */
     @Select("""
             select distinct
-                   t.id, t.trip_number, t.user_id, t.vehicle_id, t.title, t.description, t.cover_image_key, t.expected_people,
+                   t.id, t.trip_number, t.user_id, t.trip_type, t.publisher_role, t.captain_user_id,
+                   t.auto_start_enabled, t.vehicle_id, t.title, t.description, t.cover_image_key, t.expected_people,
                    t.start_name, t.start_lat, t.start_lng,
                    t.start_location_name, t.start_location_address, t.start_latitude, t.start_longitude,
                    t.end_name, t.end_lat, t.end_lng,
@@ -182,7 +209,8 @@ public interface TripMapper {
                    t.route_polyline, t.waypoints_json, t.departure_time, t.estimated_days,
                    t.total_distance_meters, t.max_vehicle_count, t.joined_vehicle_count,
                    t.vehicle_requirements, t.budget_description, t.travel_depth, t.public_flag,
-                   t.status, t.remark, t.actual_start_time, t.actual_end_time,
+                   t.status, t.arrival_status, t.arrival_entered_at, t.arrival_decision_deadline,
+                   t.continue_count, t.remark, t.actual_start_time, t.actual_end_time,
                    t.created_at, t.updated_at, t.deleted
             from trip t
             where t.deleted = 0
@@ -217,42 +245,49 @@ public interface TripMapper {
      * 查询公开且仍可参与的行程列表。
      */
     @Select("""
-            select id, trip_number, user_id, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip
             where public_flag = 1 and deleted = 0
               and status in ('PUBLISHED', 'RUNNING', 'ONGOING')
-            order by departure_time asc
+            order by case when #{userId} is not null and user_id = #{userId} then 0 else 1 end,
+                     departure_time asc
             limit #{limit}
             """)
-    List<Trip> findPublicTrips(@Param("limit") Integer limit);
+    List<Trip> findPublicTrips(@Param("userId") Long userId, @Param("limit") Integer limit);
 
     /**
      * 新增行程主表记录。
      */
     @Insert("""
             insert into trip
-                (id, trip_number, user_id, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+                (id, trip_number, user_id, trip_type, publisher_role, captain_user_id, vehicle_id,
+                 title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
                  start_location_name, start_location_address, start_latitude, start_longitude,
                  end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                  route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                  departure_time, estimated_days, total_distance_meters,
-                 max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
+                 max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth,
+                 public_flag, status, auto_start_enabled, arrival_status, arrival_entered_at,
+                 arrival_decision_deadline, continue_count, remark,
                  actual_start_time, actual_end_time,
                  created_at, updated_at, deleted)
             values
-                (#{id}, #{tripNumber}, #{userId}, #{vehicleId}, #{title}, #{description}, #{coverImageKey}, #{expectedPeople}, #{startName}, #{startLat}, #{startLng},
+                (#{id}, #{tripNumber}, #{userId}, #{tripType}, #{publisherRole}, #{captainUserId}, #{vehicleId},
+                 #{title}, #{description}, #{coverImageKey}, #{expectedPeople}, #{startName}, #{startLat}, #{startLng},
                  #{startLocationName}, #{startLocationAddress}, #{startLatitude}, #{startLongitude},
                  #{endName}, #{endLat}, #{endLng}, #{endLocationName}, #{endLocationAddress}, #{endLatitude}, #{endLongitude},
                  #{routeSummary}, #{routePolylineKey}, #{routeDistance}, #{routeDuration}, #{routePolyline}, #{waypointsJson},
                  #{departureTime}, #{estimatedDays}, #{totalDistanceMeters},
-                 #{maxVehicleCount}, #{joinedVehicleCount}, #{vehicleRequirements}, #{budgetDescription}, #{travelDepth}, #{publicFlag}, #{status}, #{remark},
+                 #{maxVehicleCount}, #{joinedVehicleCount}, #{vehicleRequirements}, #{budgetDescription}, #{travelDepth},
+                 #{publicFlag}, #{status}, #{autoStartEnabled}, #{arrivalStatus}, #{arrivalEnteredAt},
+                 #{arrivalDecisionDeadline}, #{continueCount}, #{remark},
                  #{actualStartTime}, #{actualEndTime},
                  #{createdAt}, #{updatedAt}, 0)
             """)
@@ -263,7 +298,11 @@ public interface TripMapper {
      */
     @Update("""
             update trip
-            set vehicle_id = #{vehicleId},
+            set trip_type = #{tripType},
+                publisher_role = #{publisherRole},
+                captain_user_id = #{captainUserId},
+                auto_start_enabled = #{autoStartEnabled},
+                vehicle_id = #{vehicleId},
                 title = #{title},
                 description = #{description},
                 cover_image_key = #{coverImageKey},
@@ -319,6 +358,9 @@ public interface TripMapper {
             update trip
             set status = 'RUNNING',
                 actual_start_time = #{actualStartTime},
+                arrival_status = 'NOT_ARRIVED',
+                arrival_entered_at = null,
+                arrival_decision_deadline = null,
                 updated_at = #{actualStartTime}
             where id = #{tripId}
               and user_id = #{userId}
@@ -327,12 +369,119 @@ public interface TripMapper {
             """)
     int startTrip(@Param("tripId") Long tripId, @Param("userId") Long userId, @Param("actualStartTime") LocalDateTime actualStartTime);
 
+    /** 定时任务自动开始行程；状态条件保证重复扫描幂等。 */
+    @Update("""
+            update trip
+            set status = 'RUNNING',
+                actual_start_time = coalesce(actual_start_time, #{startedAt}),
+                arrival_status = 'NOT_ARRIVED',
+                arrival_entered_at = null,
+                arrival_decision_deadline = null,
+                updated_at = #{startedAt}
+            where id = #{tripId}
+              and captain_user_id is not null
+              and auto_start_enabled = 1
+              and status in ('PUBLISHED', 'READY', 'CONFIRMING')
+              and deleted = 0
+            """)
+    int autoStartTrip(@Param("tripId") Long tripId, @Param("startedAt") LocalDateTime startedAt);
+
+    /** 首次进入终点范围时开始计算停留时间。 */
+    @Update("""
+            update trip
+            set arrival_status = 'DWELLING',
+                arrival_entered_at = #{enteredAt},
+                arrival_decision_deadline = null,
+                updated_at = #{enteredAt}
+            where id = #{tripId}
+              and status in ('RUNNING', 'ONGOING')
+              and arrival_status in ('NOT_ARRIVED', 'CONTINUING')
+              and deleted = 0
+            """)
+    int markArrivalDwelling(@Param("tripId") Long tripId,
+                            @Param("enteredAt") LocalDateTime enteredAt);
+
+    /** 连续停留达到阈值后进入“结束或继续”待确认状态。 */
+    @Update("""
+            update trip
+            set arrival_status = 'AWAITING_DECISION',
+                arrival_entered_at = #{enteredAt},
+                arrival_decision_deadline = #{deadline},
+                updated_at = current_timestamp
+            where id = #{tripId}
+              and status in ('RUNNING', 'ONGOING')
+              and arrival_status = 'DWELLING'
+              and deleted = 0
+            """)
+    int markArrivalPending(@Param("tripId") Long tripId,
+                           @Param("enteredAt") LocalDateTime enteredAt,
+                           @Param("deadline") LocalDateTime deadline);
+
+    /** 停留期间离开终点范围时重置本轮到达判断。 */
+    @Update("""
+            update trip
+            set arrival_status = 'NOT_ARRIVED',
+                arrival_entered_at = null,
+                arrival_decision_deadline = null,
+                updated_at = #{updatedAt}
+            where id = #{tripId}
+              and status in ('RUNNING', 'ONGOING')
+              and arrival_status = 'DWELLING'
+              and deleted = 0
+            """)
+    int resetArrivalDwelling(@Param("tripId") Long tripId,
+                             @Param("updatedAt") LocalDateTime updatedAt);
+
+    /** 到达终点后结束行程；只允许待确认状态推进到结束。 */
+    @Update("""
+            update trip
+            set status = 'FINISHED',
+                arrival_status = 'ENDED',
+                actual_end_time = coalesce(actual_end_time, #{endedAt}),
+                updated_at = #{endedAt}
+            where id = #{tripId}
+              and status in ('RUNNING', 'ONGOING')
+              and arrival_status = 'AWAITING_DECISION'
+              and deleted = 0
+            """)
+    int finishArrivedTrip(@Param("tripId") Long tripId, @Param("endedAt") LocalDateTime endedAt);
+
+    /** 到达后继续前往新终点，并清理上一轮到达状态。 */
+    @Update("""
+            update trip
+            set end_name = #{endName},
+                end_lat = #{endLatitude},
+                end_lng = #{endLongitude},
+                end_location_name = #{endName},
+                end_location_address = #{endAddress},
+                end_latitude = #{endLatitude},
+                end_longitude = #{endLongitude},
+                arrival_status = 'CONTINUING',
+                arrival_entered_at = null,
+                arrival_decision_deadline = null,
+                continue_count = coalesce(continue_count, 0) + 1,
+                updated_at = #{updatedAt}
+            where id = #{tripId}
+              and captain_user_id = #{userId}
+              and status in ('RUNNING', 'ONGOING')
+              and arrival_status = 'AWAITING_DECISION'
+              and deleted = 0
+            """)
+    int continueTrip(@Param("tripId") Long tripId,
+                     @Param("userId") Long userId,
+                     @Param("endName") String endName,
+                     @Param("endAddress") String endAddress,
+                     @Param("endLatitude") java.math.BigDecimal endLatitude,
+                     @Param("endLongitude") java.math.BigDecimal endLongitude,
+                     @Param("updatedAt") LocalDateTime updatedAt);
+
     /**
      * 结束行程，只允许 RUNNING -> FINISHED；兼容迁移前的 ONGOING。
      */
     @Update("""
             update trip
             set status = 'FINISHED',
+                arrival_status = 'ENDED',
                 actual_end_time = #{actualEndTime},
                 updated_at = #{actualEndTime}
             where id = #{tripId}
@@ -344,12 +493,12 @@ public interface TripMapper {
 
     /** 锁定当前用户的行程，供结束后的幂等结算使用。 */
     @Select("""
-            select id, trip_number, user_id, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time, created_at, updated_at, deleted
             from trip
             where id = #{tripId} and user_id = #{userId} and deleted = 0
@@ -370,12 +519,12 @@ public interface TripMapper {
      * 查询当前用户正在驾驶中的行程。
      */
     @Select("""
-            select id, trip_number, user_id, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
-                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time,
                    created_at, updated_at, deleted
             from trip

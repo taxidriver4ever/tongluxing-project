@@ -129,7 +129,10 @@ public interface MatchTripPort {
             Integer maxVehicleCount,
             Integer joinedVehicleCount,
             String status,
-            Integer publicFlag
+            Integer publicFlag,
+            String tripType,
+            String publisherRole,
+            Long captainUserId
     ) {
     }
 }

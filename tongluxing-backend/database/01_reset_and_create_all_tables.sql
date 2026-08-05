@@ -24,6 +24,8 @@ DROP TABLE IF EXISTS `admin_audit_log`;
 DROP TABLE IF EXISTS `admin_operator_role`;
 DROP TABLE IF EXISTS `admin_role`;
 DROP TABLE IF EXISTS `admin_operator`;
+DROP TABLE IF EXISTS `app_push_task`;
+DROP TABLE IF EXISTS `app_push_device`;
 DROP TABLE IF EXISTS `notify_delivery_log`;
 DROP TABLE IF EXISTS `notify_template`;
 DROP TABLE IF EXISTS `notify_message`;
@@ -99,6 +101,8 @@ DROP TABLE IF EXISTS `map_geocode_cache`;
 DROP TABLE IF EXISTS `map_location_catalog`;
 DROP TABLE IF EXISTS `map_location_search_log`;
 DROP TABLE IF EXISTS `map_route_plan`;
+DROP TABLE IF EXISTS `trip_departure_exception`;
+DROP TABLE IF EXISTS `trip_arrival_state`;
 DROP TABLE IF EXISTS `trip_draft`;
 DROP TABLE IF EXISTS `trip_audit_log`;
 DROP TABLE IF EXISTS `trip_member_snapshot`;
@@ -457,55 +461,55 @@ CREATE TABLE IF NOT EXISTS invite_relation (
                                                KEY idx_invite_relation_inviter (inviter_user_id, relation_status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='邀请关系表';
 CREATE TABLE IF NOT EXISTS invite_reward_record (
-  id BIGINT NOT NULL comment '记录主键',
-  relation_id BIGINT NOT NULL comment '关系ID',
-  beneficiary_user_id BIGINT NOT NULL comment '受益人用户ID',
-  inviter_user_id BIGINT NOT NULL comment '邀请人用户ID',
-  invitee_user_id BIGINT NOT NULL comment '被邀请人用户ID',
-  rule_code VARCHAR(64) NOT NULL comment '规则编码',
-  reward_rule_code VARCHAR(64) NOT NULL comment '奖励规则编码',
-  reward_type VARCHAR(32) NOT NULL DEFAULT 'GROWTH_VALUE' comment '奖励类型',
-  reward_value INT NOT NULL DEFAULT 0 comment '奖励值',
-  reward_biz_no VARCHAR(64) NOT NULL comment '奖励业务编号',
-  idempotency_key VARCHAR(128) NOT NULL comment '业务幂等键，用于防止重复处理',
-  reward_snapshot_json JSON NOT NULL comment '奖励快照JSON数据',
-  reward_status VARCHAR(16) NOT NULL DEFAULT 'PENDING' comment '奖励状态',
-  triggered_at DATETIME NOT NULL comment 'TRIGGERED时间',
-  failure_reason VARCHAR(255) NULL comment '失败原因',
-  granted_at DATETIME NULL comment '授予时间',
-  issued_at DATETIME NULL comment '发放时间',
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP comment '记录创建时间',
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '记录最后更新时间',
-  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-  PRIMARY KEY (id),
-  UNIQUE KEY uk_invite_reward_biz (reward_biz_no, deleted),
-  UNIQUE KEY uk_invite_reward_idempotency (idempotency_key, deleted),
-  UNIQUE KEY uk_invite_reward_relation_rule (relation_id, rule_code, deleted),
-  KEY idx_invite_reward_user (beneficiary_user_id, reward_status, created_at),
-  KEY idx_invite_reward_invitee (invitee_user_id, created_at)
+                                                    id BIGINT NOT NULL comment '记录主键',
+                                                    relation_id BIGINT NOT NULL comment '关系ID',
+                                                    beneficiary_user_id BIGINT NOT NULL comment '受益人用户ID',
+                                                    inviter_user_id BIGINT NOT NULL comment '邀请人用户ID',
+                                                    invitee_user_id BIGINT NOT NULL comment '被邀请人用户ID',
+                                                    rule_code VARCHAR(64) NOT NULL comment '规则编码',
+                                                    reward_rule_code VARCHAR(64) NOT NULL comment '奖励规则编码',
+                                                    reward_type VARCHAR(32) NOT NULL DEFAULT 'GROWTH_VALUE' comment '奖励类型',
+                                                    reward_value INT NOT NULL DEFAULT 0 comment '奖励值',
+                                                    reward_biz_no VARCHAR(64) NOT NULL comment '奖励业务编号',
+                                                    idempotency_key VARCHAR(128) NOT NULL comment '业务幂等键，用于防止重复处理',
+                                                    reward_snapshot_json JSON NOT NULL comment '奖励快照JSON数据',
+                                                    reward_status VARCHAR(16) NOT NULL DEFAULT 'PENDING' comment '奖励状态',
+                                                    triggered_at DATETIME NOT NULL comment 'TRIGGERED时间',
+                                                    failure_reason VARCHAR(255) NULL comment '失败原因',
+                                                    granted_at DATETIME NULL comment '授予时间',
+                                                    issued_at DATETIME NULL comment '发放时间',
+                                                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP comment '记录创建时间',
+                                                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '记录最后更新时间',
+                                                    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                                    PRIMARY KEY (id),
+                                                    UNIQUE KEY uk_invite_reward_biz (reward_biz_no, deleted),
+                                                    UNIQUE KEY uk_invite_reward_idempotency (idempotency_key, deleted),
+                                                    UNIQUE KEY uk_invite_reward_relation_rule (relation_id, rule_code, deleted),
+                                                    KEY idx_invite_reward_user (beneficiary_user_id, reward_status, created_at),
+                                                    KEY idx_invite_reward_invitee (invitee_user_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='邀请奖励记录表';
 
 CREATE TABLE IF NOT EXISTS invite_reward_rule (
-  id BIGINT NOT NULL PRIMARY KEY comment '记录主键',
-  rule_code VARCHAR(64) NOT NULL comment '规则编码',
-  reward_type VARCHAR(32) NOT NULL DEFAULT 'GROWTH_VALUE' comment '奖励类型',
-  reward_value INT NOT NULL comment '奖励值',
-  status VARCHAR(16) NOT NULL DEFAULT 'ENABLED' comment '业务状态',
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP comment '记录创建时间',
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '记录最后更新时间',
-  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-  UNIQUE KEY uk_invite_reward_rule_code (rule_code, deleted)
+                                                  id BIGINT NOT NULL PRIMARY KEY comment '记录主键',
+                                                  rule_code VARCHAR(64) NOT NULL comment '规则编码',
+                                                  reward_type VARCHAR(32) NOT NULL DEFAULT 'GROWTH_VALUE' comment '奖励类型',
+                                                  reward_value INT NOT NULL comment '奖励值',
+                                                  status VARCHAR(16) NOT NULL DEFAULT 'ENABLED' comment '业务状态',
+                                                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP comment '记录创建时间',
+                                                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '记录最后更新时间',
+                                                  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                                  UNIQUE KEY uk_invite_reward_rule_code (rule_code, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='邀请奖励规则表';
 
 INSERT IGNORE INTO invite_reward_rule
 (id, rule_code, reward_type, reward_value, status, created_at, updated_at, deleted)
 VALUES
-(202607270001, 'INVITE_REGISTER_SUCCESS', 'GROWTH_VALUE', 50, 'ENABLED', NOW(), NOW(), 0),
-(202607270002, 'INVITEE_FIRST_TEAM_COMPLETED', 'GROWTH_VALUE', 100, 'ENABLED', NOW(), NOW(), 0),
-(202607270003, 'INVITE_STAGE_3', 'GROWTH_VALUE', 200, 'ENABLED', NOW(), NOW(), 0),
-(202607270004, 'INVITE_STAGE_10', 'GROWTH_VALUE', 500, 'ENABLED', NOW(), NOW(), 0),
-(202607270005, 'INVITE_STAGE_30', 'GROWTH_VALUE', 2000, 'ENABLED', NOW(), NOW(), 0),
-(202607270006, 'INVITE_STAGE_50', 'GROWTH_VALUE', 5000, 'ENABLED', NOW(), NOW(), 0);
+    (202607270001, 'INVITE_REGISTER_SUCCESS', 'GROWTH_VALUE', 50, 'ENABLED', NOW(), NOW(), 0),
+    (202607270002, 'INVITEE_FIRST_TEAM_COMPLETED', 'GROWTH_VALUE', 100, 'ENABLED', NOW(), NOW(), 0),
+    (202607270003, 'INVITE_STAGE_3', 'GROWTH_VALUE', 200, 'ENABLED', NOW(), NOW(), 0),
+    (202607270004, 'INVITE_STAGE_10', 'GROWTH_VALUE', 500, 'ENABLED', NOW(), NOW(), 0),
+    (202607270005, 'INVITE_STAGE_30', 'GROWTH_VALUE', 2000, 'ENABLED', NOW(), NOW(), 0),
+    (202607270006, 'INVITE_STAGE_50', 'GROWTH_VALUE', 5000, 'ENABLED', NOW(), NOW(), 0);
 
 -- ============================================================================
 -- coupon-module
@@ -642,32 +646,35 @@ create table if not exists vehicle_audit_log (
 -- ============================================================================
 create table if not exists trip (
                                     id bigint primary key comment '记录主键',
-                                    trip_number varchar(20) not null comment '行程NUMBER',
-                                    user_id bigint not null comment '平台用户ID',
-                                    vehicle_id bigint not null comment '车辆ID',
+                                    trip_number varchar(20) not null comment '对外展示的行程编号',
+                                    user_id bigint not null comment '发布者用户ID',
+                                    trip_type varchar(24) not null default 'DRIVER_TRIP' comment '行程类型：DRIVER_TRIP车主行程、PASSENGER_DEMAND乘客需求',
+                                    publisher_role varchar(16) not null default 'DRIVER' comment '发布者身份：DRIVER、PASSENGER',
+                                    captain_user_id bigint null comment '当前队长用户ID；乘客需求未匹配时为空',
+                                    vehicle_id bigint null comment '发布者车辆ID；乘客需求为空',
                                     title varchar(128) not null default '' comment '展示标题',
                                     description varchar(1000) not null default '' comment '详细说明',
                                     cover_image_key varchar(512) null comment '封面图在对象存储中的文件Key',
                                     expected_people int null comment '预计人数',
                                     start_name varchar(128) not null comment '起点名称',
-                                    start_lat decimal(10,6) null comment '起点LAT',
-                                    start_lng decimal(10,6) null comment '起点LNG',
+                                    start_lat decimal(10,6) null comment '起点纬度',
+                                    start_lng decimal(10,6) null comment '起点经度',
                                     start_location_name varchar(128) not null default '' comment '起点位置名称',
                                     start_location_address varchar(255) not null default '' comment '起点位置地址',
                                     start_latitude decimal(10,6) null comment '起点纬度',
                                     start_longitude decimal(10,6) null comment '起点经度',
                                     end_name varchar(128) not null comment '终点名称',
-                                    end_lat decimal(10,6) null comment '终点LAT',
-                                    end_lng decimal(10,6) null comment '终点LNG',
+                                    end_lat decimal(10,6) null comment '终点纬度',
+                                    end_lng decimal(10,6) null comment '终点经度',
                                     end_location_name varchar(128) not null default '' comment '终点位置名称',
                                     end_location_address varchar(255) not null default '' comment '终点位置地址',
                                     end_latitude decimal(10,6) null comment '终点纬度',
                                     end_longitude decimal(10,6) null comment '终点经度',
                                     route_summary varchar(255) null comment '路线汇总',
-                                    route_polyline_key varchar(512) null comment '路线POLYLINE标识或存储Key',
+                                    route_polyline_key varchar(512) null comment '路线折线数据的对象存储Key',
                                     route_distance int null comment '路线距离',
                                     route_duration int null comment '路线时长',
-                                    route_polyline mediumtext null comment '路线POLYLINE',
+                                    route_polyline mediumtext null comment '路线折线编码数据',
                                     waypoints_json text null comment '途经点列表JSON数据',
                                     departure_time datetime not null comment '出发时间',
                                     estimated_days int null comment '估算，单位为天',
@@ -679,6 +686,11 @@ create table if not exists trip (
                                     travel_depth varchar(16) not null comment '出行深度',
                                     public_flag tinyint(1) not null default 1 comment '是否公开：0否、1是',
                                     status varchar(20) not null comment '业务状态',
+                                    auto_start_enabled tinyint(1) not null default 1 comment '是否到点自动出发',
+                                    arrival_status varchar(24) not null default 'NOT_ARRIVED' comment '到达状态',
+                                    arrival_entered_at datetime null comment '首次进入终点范围时间',
+                                    arrival_decision_deadline datetime null comment '到达后最迟处理时间',
+                                    continue_count int not null default 0 comment '继续行程次数',
                                     remark varchar(255) null comment '业务备注',
                                     actual_start_time datetime null comment '实际起点时间',
                                     actual_end_time datetime null comment '实际终点时间',
@@ -687,9 +699,12 @@ create table if not exists trip (
                                     deleted tinyint(1) not null default 0 comment '逻辑删除标记：0未删除、1已删除',
                                     unique key uk_trip_number (trip_number),
                                     key idx_trip_user_status_time (user_id, status, departure_time),
+                                    key idx_trip_captain_status (captain_user_id, status, departure_time),
                                     key idx_trip_public_status_time (public_flag, status, departure_time),
+                                    key idx_trip_auto_start (auto_start_enabled, status, departure_time),
+                                    key idx_trip_arrival_deadline (arrival_status, arrival_decision_deadline),
                                     key idx_trip_vehicle (vehicle_id)
-) comment='行程主表';
+) comment='行程表';
 
 
 create table if not exists trip_route (
@@ -783,6 +798,41 @@ create table if not exists trip_draft (
                                           key idx_trip_draft_user_status (user_id, draft_status, updated_at),
                                           unique key uk_trip_draft_publish_key (publish_idempotency_key, deleted)
 ) comment='行程草稿表';
+
+create table if not exists trip_departure_exception (
+                                                        id bigint primary key comment '记录主键',
+                                                        trip_id bigint not null comment '行程ID',
+                                                        member_user_id bigint not null comment '异常成员用户ID',
+                                                        distance_m int null comment '成员与队长距离，米',
+                                                        exception_type varchar(32) not null comment '异常类型：OUT_OF_RANGE、LOCATION_MISSING',
+                                                        exception_status varchar(20) not null default 'PENDING' comment '处理状态：PENDING、WAITING、IGNORED、RESOLVED',
+                                                        handled_action varchar(20) null comment '处理动作：WAIT、CONTINUE',
+                                                        detected_at datetime not null comment '检测时间',
+                                                        handled_at datetime null comment '处理时间',
+                                                        created_at datetime not null comment '创建时间',
+                                                        updated_at datetime not null comment '更新时间',
+                                                        deleted tinyint(1) not null default 0 comment '逻辑删除',
+                                                        unique key uk_trip_departure_exception (trip_id, member_user_id, deleted),
+                                                        key idx_trip_departure_pending (trip_id, exception_status, detected_at)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci comment='自动出发成员范围异常表';
+
+create table if not exists trip_arrival_state (
+                                                  id bigint primary key comment '记录主键',
+                                                  trip_id bigint not null comment '行程ID',
+                                                  captain_user_id bigint not null comment '队长用户ID',
+                                                  state varchar(24) not null default 'NOT_ARRIVED' comment 'NOT_ARRIVED、DWELLING、AWAITING_DECISION、CONTINUING、ENDED',
+                                                  first_entered_at datetime null comment '首次进入终点范围时间',
+                                                  prompted_at datetime null comment '满足停留时间后的提示时间',
+                                                  decision_deadline datetime null comment '超时自动结束时间',
+                                                  last_distance_m int null comment '最近一次到终点距离',
+                                                  decision_action varchar(20) null comment 'END、CONTINUE、AUTO_END',
+                                                  decided_at datetime null comment '决策时间',
+                                                  created_at datetime not null comment '创建时间',
+                                                  updated_at datetime not null comment '更新时间',
+                                                  deleted tinyint(1) not null default 0 comment '逻辑删除',
+                                                  unique key uk_trip_arrival_state (trip_id, deleted),
+                                                  key idx_trip_arrival_deadline (state, decision_deadline)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci comment='行程到达停留与开放式结束状态表';
 
 -- ============================================================================
 -- map-module
@@ -1004,7 +1054,7 @@ CREATE TABLE IF NOT EXISTS chat_message (
                                             PRIMARY KEY (id),
                                             KEY idx_chat_msg_conversation_time (conversation_id, sent_at),
                                             KEY idx_chat_msg_sender_time (sender_user_id, sent_at),
-  UNIQUE KEY uk_chat_msg_provider (provider_message_key, deleted)
+                                            UNIQUE KEY uk_chat_msg_provider (provider_message_key, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='聊天消息表';
 
 CREATE TABLE IF NOT EXISTS message_risk (
@@ -1246,260 +1296,260 @@ CREATE TABLE IF NOT EXISTS file_storage (
 -- source: driver-track-module/src/main/resources/db/driver-track-schema.sql
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS driver_track_record (
-    id BIGINT PRIMARY KEY comment '记录主键',
-    trip_id BIGINT NOT NULL comment '行程ID',
-    driver_id BIGINT NOT NULL comment '驾驶人ID',
-    longitude DECIMAL(10,6) NOT NULL comment '经度坐标',
-    latitude DECIMAL(10,6) NOT NULL comment '纬度坐标',
-    altitude DECIMAL(10,2) NULL comment '海拔',
-    speed DECIMAL(10,2) NULL comment '速度',
-    direction DECIMAL(10,2) NULL comment '方向',
-    accuracy DECIMAL(10,2) NOT NULL comment '定位精度',
-    raw_distance_from_prev INT NOT NULL DEFAULT 0 comment '原始距离FROM上一点',
-    distance_from_prev INT NOT NULL DEFAULT 0 comment '距离FROM上一点',
-    calculated_speed_kmh DECIMAL(10,2) NOT NULL DEFAULT 0 comment '计算完成速度公里每小时',
-    provider VARCHAR(16) NOT NULL DEFAULT 'fused' comment '数据或服务提供方',
-    app_state VARCHAR(16) NOT NULL DEFAULT 'foreground' comment '应用状态',
-    battery_level INT NULL comment '电量等级',
-    device_id VARCHAR(128) NULL comment '设备ID',
-    sequence_no BIGINT NOT NULL comment '序号编号',
-    mock_location TINYINT NOT NULL DEFAULT 0 comment '是否疑似模拟定位：0否、1是',
-    point_status VARCHAR(32) NOT NULL DEFAULT 'ACCEPTED' comment '轨迹点状态',
-    valid_point TINYINT NOT NULL DEFAULT 1 comment '是否为有效轨迹点：0否、1是',
-    risk_score INT NOT NULL DEFAULT 0 comment '风险评分',
-    risk_flags VARCHAR(255) NULL comment '风险标记集合',
-    reject_reason VARCHAR(255) NULL comment '驳回原因',
-    record_time DATETIME NOT NULL comment '记录时间',
-    client_send_time DATETIME NULL comment '客户端发送时间',
-    server_receive_time DATETIME NOT NULL comment 'SERVERRECEIVE时间',
-    created_at DATETIME NOT NULL comment '记录创建时间',
-    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-    UNIQUE KEY uk_driver_track_sequence (trip_id, driver_id, sequence_no, deleted),
-    KEY idx_driver_track_trip_time (trip_id, record_time),
-    KEY idx_driver_track_driver_time (driver_id, record_time),
-    KEY idx_driver_track_status (trip_id, point_status)
+                                                   id BIGINT PRIMARY KEY comment '记录主键',
+                                                   trip_id BIGINT NOT NULL comment '行程ID',
+                                                   driver_id BIGINT NOT NULL comment '驾驶人ID',
+                                                   longitude DECIMAL(10,6) NOT NULL comment '经度坐标',
+                                                   latitude DECIMAL(10,6) NOT NULL comment '纬度坐标',
+                                                   altitude DECIMAL(10,2) NULL comment '海拔',
+                                                   speed DECIMAL(10,2) NULL comment '速度',
+                                                   direction DECIMAL(10,2) NULL comment '方向',
+                                                   accuracy DECIMAL(10,2) NOT NULL comment '定位精度',
+                                                   raw_distance_from_prev INT NOT NULL DEFAULT 0 comment '原始距离FROM上一点',
+                                                   distance_from_prev INT NOT NULL DEFAULT 0 comment '距离FROM上一点',
+                                                   calculated_speed_kmh DECIMAL(10,2) NOT NULL DEFAULT 0 comment '计算完成速度公里每小时',
+                                                   provider VARCHAR(16) NOT NULL DEFAULT 'fused' comment '数据或服务提供方',
+                                                   app_state VARCHAR(16) NOT NULL DEFAULT 'foreground' comment '应用状态',
+                                                   battery_level INT NULL comment '电量等级',
+                                                   device_id VARCHAR(128) NULL comment '设备ID',
+                                                   sequence_no BIGINT NOT NULL comment '序号编号',
+                                                   mock_location TINYINT NOT NULL DEFAULT 0 comment '是否疑似模拟定位：0否、1是',
+                                                   point_status VARCHAR(32) NOT NULL DEFAULT 'ACCEPTED' comment '轨迹点状态',
+                                                   valid_point TINYINT NOT NULL DEFAULT 1 comment '是否为有效轨迹点：0否、1是',
+                                                   risk_score INT NOT NULL DEFAULT 0 comment '风险评分',
+                                                   risk_flags VARCHAR(255) NULL comment '风险标记集合',
+                                                   reject_reason VARCHAR(255) NULL comment '驳回原因',
+                                                   record_time DATETIME NOT NULL comment '记录时间',
+                                                   client_send_time DATETIME NULL comment '客户端发送时间',
+                                                   server_receive_time DATETIME NOT NULL comment 'SERVERRECEIVE时间',
+                                                   created_at DATETIME NOT NULL comment '记录创建时间',
+                                                   deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                                   UNIQUE KEY uk_driver_track_sequence (trip_id, driver_id, sequence_no, deleted),
+                                                   KEY idx_driver_track_trip_time (trip_id, record_time),
+                                                   KEY idx_driver_track_driver_time (driver_id, record_time),
+                                                   KEY idx_driver_track_status (trip_id, point_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='驾驶人轨迹记录表';
 
 CREATE TABLE IF NOT EXISTS driver_track_distance_record (
-    id BIGINT PRIMARY KEY comment '记录主键',
-    trip_id BIGINT NOT NULL comment '行程ID',
-    driver_id BIGINT NOT NULL comment '驾驶人ID',
-    total_distance INT NOT NULL DEFAULT 0 comment '总计距离',
-    last_settle_distance INT NOT NULL DEFAULT 0 comment '最后结算距离',
-    settle_type VARCHAR(32) NOT NULL comment '结算类型',
-    settle_key VARCHAR(128) NOT NULL comment '结算标识或存储Key',
-    settle_time DATETIME NOT NULL comment '结算时间',
-    event_published TINYINT NOT NULL DEFAULT 0 comment '相关业务事件是否已发布：0否、1是',
-    created_at DATETIME NOT NULL comment '记录创建时间',
-    updated_at DATETIME NOT NULL comment '记录最后更新时间',
-    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-    UNIQUE KEY uk_driver_track_distance_settle_key (settle_key, deleted),
-    KEY idx_driver_track_distance_trip_driver (trip_id, driver_id, updated_at)
+                                                            id BIGINT PRIMARY KEY comment '记录主键',
+                                                            trip_id BIGINT NOT NULL comment '行程ID',
+                                                            driver_id BIGINT NOT NULL comment '驾驶人ID',
+                                                            total_distance INT NOT NULL DEFAULT 0 comment '总计距离',
+                                                            last_settle_distance INT NOT NULL DEFAULT 0 comment '最后结算距离',
+                                                            settle_type VARCHAR(32) NOT NULL comment '结算类型',
+                                                            settle_key VARCHAR(128) NOT NULL comment '结算标识或存储Key',
+                                                            settle_time DATETIME NOT NULL comment '结算时间',
+                                                            event_published TINYINT NOT NULL DEFAULT 0 comment '相关业务事件是否已发布：0否、1是',
+                                                            created_at DATETIME NOT NULL comment '记录创建时间',
+                                                            updated_at DATETIME NOT NULL comment '记录最后更新时间',
+                                                            deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                                            UNIQUE KEY uk_driver_track_distance_settle_key (settle_key, deleted),
+                                                            KEY idx_driver_track_distance_trip_driver (trip_id, driver_id, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='驾驶人轨迹距离记录表';
 
 CREATE TABLE IF NOT EXISTS driver_track_deviation_record (
-    id BIGINT PRIMARY KEY comment '记录主键',
-    trip_id BIGINT NOT NULL comment '行程ID',
-    driver_id BIGINT NOT NULL comment '驾驶人ID',
-    longitude DECIMAL(10,6) NOT NULL comment '经度坐标',
-    latitude DECIMAL(10,6) NOT NULL comment '纬度坐标',
-    deviation_distance INT NOT NULL DEFAULT 0 comment '偏离距离',
-    deviation_status TINYINT NOT NULL DEFAULT 0 comment '偏离状态',
-    record_time DATETIME NOT NULL comment '记录时间',
-    created_at DATETIME NOT NULL comment '记录创建时间',
-    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-    KEY idx_driver_track_deviation_trip_driver_time (trip_id, driver_id, record_time)
+                                                             id BIGINT PRIMARY KEY comment '记录主键',
+                                                             trip_id BIGINT NOT NULL comment '行程ID',
+                                                             driver_id BIGINT NOT NULL comment '驾驶人ID',
+                                                             longitude DECIMAL(10,6) NOT NULL comment '经度坐标',
+                                                             latitude DECIMAL(10,6) NOT NULL comment '纬度坐标',
+                                                             deviation_distance INT NOT NULL DEFAULT 0 comment '偏离距离',
+                                                             deviation_status TINYINT NOT NULL DEFAULT 0 comment '偏离状态',
+                                                             record_time DATETIME NOT NULL comment '记录时间',
+                                                             created_at DATETIME NOT NULL comment '记录创建时间',
+                                                             deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                                             KEY idx_driver_track_deviation_trip_driver_time (trip_id, driver_id, record_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='驾驶人轨迹偏离记录表';
 
 CREATE TABLE IF NOT EXISTS trip_track_summary (
-    id BIGINT PRIMARY KEY comment '记录主键',
-    trip_id BIGINT NOT NULL comment '行程ID',
-    primary_user_id BIGINT NOT NULL comment '主要用户ID',
-    raw_distance_meters INT NOT NULL DEFAULT 0 comment '原始距离，单位为米',
-    filtered_distance_meters INT NOT NULL DEFAULT 0 comment '过滤后距离，单位为米',
-    approved_distance_meters INT NOT NULL DEFAULT 0 comment '审核认可距离，单位为米',
-    total_point_count INT NOT NULL DEFAULT 0 comment '总计轨迹点数量',
-    valid_point_count INT NOT NULL DEFAULT 0 comment '有效轨迹点数量',
-    invalid_point_count INT NOT NULL DEFAULT 0 comment '无效轨迹点数量',
-    location_gap_count INT NOT NULL DEFAULT 0 comment '位置差值数量',
-    warning_count INT NOT NULL DEFAULT 0 comment '警告数量',
-    hard_anomaly_count INT NOT NULL DEFAULT 0 comment '严重异常数量',
-    risk_score INT NOT NULL DEFAULT 0 comment '风险评分',
-    risk_level VARCHAR(16) NOT NULL DEFAULT 'LOW' comment '风险等级',
-    settlement_status VARCHAR(32) NOT NULL DEFAULT 'PENDING' comment '结算状态',
-    review_reason VARCHAR(255) NULL comment 'REVIEW原因',
-    reviewer_id BIGINT NULL comment '审核人ID',
-    reviewed_at DATETIME NULL comment '审核时间',
-    created_at DATETIME NOT NULL comment '记录创建时间',
-    updated_at DATETIME NOT NULL comment '记录最后更新时间',
-    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-    UNIQUE KEY uk_trip_track_summary_trip (trip_id, deleted),
-    KEY idx_trip_track_summary_risk (risk_level, settlement_status, updated_at)
+                                                  id BIGINT PRIMARY KEY comment '记录主键',
+                                                  trip_id BIGINT NOT NULL comment '行程ID',
+                                                  primary_user_id BIGINT NOT NULL comment '主要用户ID',
+                                                  raw_distance_meters INT NOT NULL DEFAULT 0 comment '原始距离，单位为米',
+                                                  filtered_distance_meters INT NOT NULL DEFAULT 0 comment '过滤后距离，单位为米',
+                                                  approved_distance_meters INT NOT NULL DEFAULT 0 comment '审核认可距离，单位为米',
+                                                  total_point_count INT NOT NULL DEFAULT 0 comment '总计轨迹点数量',
+                                                  valid_point_count INT NOT NULL DEFAULT 0 comment '有效轨迹点数量',
+                                                  invalid_point_count INT NOT NULL DEFAULT 0 comment '无效轨迹点数量',
+                                                  location_gap_count INT NOT NULL DEFAULT 0 comment '位置差值数量',
+                                                  warning_count INT NOT NULL DEFAULT 0 comment '警告数量',
+                                                  hard_anomaly_count INT NOT NULL DEFAULT 0 comment '严重异常数量',
+                                                  risk_score INT NOT NULL DEFAULT 0 comment '风险评分',
+                                                  risk_level VARCHAR(16) NOT NULL DEFAULT 'LOW' comment '风险等级',
+                                                  settlement_status VARCHAR(32) NOT NULL DEFAULT 'PENDING' comment '结算状态',
+                                                  review_reason VARCHAR(255) NULL comment 'REVIEW原因',
+                                                  reviewer_id BIGINT NULL comment '审核人ID',
+                                                  reviewed_at DATETIME NULL comment '审核时间',
+                                                  created_at DATETIME NOT NULL comment '记录创建时间',
+                                                  updated_at DATETIME NOT NULL comment '记录最后更新时间',
+                                                  deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                                  UNIQUE KEY uk_trip_track_summary_trip (trip_id, deleted),
+                                                  KEY idx_trip_track_summary_risk (risk_level, settlement_status, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程轨迹汇总表';
 
 CREATE TABLE IF NOT EXISTS trip_track_anomaly (
-    id BIGINT PRIMARY KEY comment '记录主键',
-    trip_id BIGINT NOT NULL comment '行程ID',
-    user_id BIGINT NOT NULL comment '平台用户ID',
-    previous_point_id BIGINT NULL comment '上一点轨迹点ID',
-    current_point_id BIGINT NULL comment '当前轨迹点ID',
-    anomaly_type VARCHAR(64) NOT NULL comment '异常类型',
-    risk_score INT NOT NULL DEFAULT 0 comment '风险评分',
-    detail_json JSON NULL comment '业务详情JSON数据',
-    occurred_at DATETIME NOT NULL comment '发生时间',
-    created_at DATETIME NOT NULL comment '记录创建时间',
-    KEY idx_trip_track_anomaly_trip_time (trip_id, occurred_at),
-    KEY idx_trip_track_anomaly_user_time (user_id, occurred_at)
+                                                  id BIGINT PRIMARY KEY comment '记录主键',
+                                                  trip_id BIGINT NOT NULL comment '行程ID',
+                                                  user_id BIGINT NOT NULL comment '平台用户ID',
+                                                  previous_point_id BIGINT NULL comment '上一点轨迹点ID',
+                                                  current_point_id BIGINT NULL comment '当前轨迹点ID',
+                                                  anomaly_type VARCHAR(64) NOT NULL comment '异常类型',
+                                                  risk_score INT NOT NULL DEFAULT 0 comment '风险评分',
+                                                  detail_json JSON NULL comment '业务详情JSON数据',
+                                                  occurred_at DATETIME NOT NULL comment '发生时间',
+                                                  created_at DATETIME NOT NULL comment '记录创建时间',
+                                                  KEY idx_trip_track_anomaly_trip_time (trip_id, occurred_at),
+                                                  KEY idx_trip_track_anomaly_user_time (user_id, occurred_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程轨迹异常表';
 
 CREATE TABLE IF NOT EXISTS trip_member_distance_alert (
-    id BIGINT PRIMARY KEY comment '记录主键',
-    trip_id BIGINT NOT NULL comment '关联行程ID',
-    captain_user_id BIGINT NOT NULL comment '行程队长用户ID',
-    member_user_id BIGINT NOT NULL comment '行程成员用户ID',
-    alert_level VARCHAR(24) NOT NULL comment '成员距离告警等级',
-    distance_m INT NOT NULL comment '成员距离，单位为米',
-    started_at DATETIME NOT NULL comment '告警开始时间',
-    notified_at DATETIME NULL comment '告警通知时间',
-    recovered_at DATETIME NULL comment '距离恢复正常时间',
-    acknowledged_at DATETIME NULL comment '告警确认时间',
-    created_at DATETIME NOT NULL comment '记录创建时间',
-    updated_at DATETIME NOT NULL comment '记录最后更新时间',
-    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-    KEY idx_trip_member_alert_active (trip_id, member_user_id, recovered_at, deleted)
+                                                          id BIGINT PRIMARY KEY comment '记录主键',
+                                                          trip_id BIGINT NOT NULL comment '关联行程ID',
+                                                          captain_user_id BIGINT NOT NULL comment '行程队长用户ID',
+                                                          member_user_id BIGINT NOT NULL comment '行程成员用户ID',
+                                                          alert_level VARCHAR(24) NOT NULL comment '成员距离告警等级',
+                                                          distance_m INT NOT NULL comment '成员距离，单位为米',
+                                                          started_at DATETIME NOT NULL comment '告警开始时间',
+                                                          notified_at DATETIME NULL comment '告警通知时间',
+                                                          recovered_at DATETIME NULL comment '距离恢复正常时间',
+                                                          acknowledged_at DATETIME NULL comment '告警确认时间',
+                                                          created_at DATETIME NOT NULL comment '记录创建时间',
+                                                          updated_at DATETIME NOT NULL comment '记录最后更新时间',
+                                                          deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                                          KEY idx_trip_member_alert_active (trip_id, member_user_id, recovered_at, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='trip_member_distance_alert业务表';
 
 CREATE TABLE IF NOT EXISTS trip_execution (
-    id BIGINT PRIMARY KEY comment '记录主键',
-    trip_id BIGINT NOT NULL comment '行程ID',
-    captain_user_id BIGINT NOT NULL comment 'CAPTAIN用户ID',
-    status VARCHAR(32) NOT NULL comment '业务状态',
-    planned_distance_m INT NOT NULL DEFAULT 0 comment 'PLANNED距离，单位为米',
-    raw_gps_distance_m INT NOT NULL DEFAULT 0 comment '原始GPS距离，单位为米',
-    matched_road_distance_m INT NOT NULL DEFAULT 0 comment '命中道路距离，单位为米',
-    estimated_gap_distance_m INT NOT NULL DEFAULT 0 comment '估算差值距离，单位为米',
-    settlement_distance_m INT NOT NULL DEFAULT 0 comment '结算距离，单位为米',
-    started_at DATETIME NULL comment 'STARTED时间',
-    ended_at DATETIME NULL comment 'ENDED时间',
-    created_at DATETIME NOT NULL comment '记录创建时间',
-    updated_at DATETIME NOT NULL comment '记录最后更新时间',
-    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-    UNIQUE KEY uk_trip_execution_trip (trip_id, deleted)
+                                              id BIGINT PRIMARY KEY comment '记录主键',
+                                              trip_id BIGINT NOT NULL comment '行程ID',
+                                              captain_user_id BIGINT NOT NULL comment 'CAPTAIN用户ID',
+                                              status VARCHAR(32) NOT NULL comment '业务状态',
+                                              planned_distance_m INT NOT NULL DEFAULT 0 comment 'PLANNED距离，单位为米',
+                                              raw_gps_distance_m INT NOT NULL DEFAULT 0 comment '原始GPS距离，单位为米',
+                                              matched_road_distance_m INT NOT NULL DEFAULT 0 comment '命中道路距离，单位为米',
+                                              estimated_gap_distance_m INT NOT NULL DEFAULT 0 comment '估算差值距离，单位为米',
+                                              settlement_distance_m INT NOT NULL DEFAULT 0 comment '结算距离，单位为米',
+                                              started_at DATETIME NULL comment 'STARTED时间',
+                                              ended_at DATETIME NULL comment 'ENDED时间',
+                                              created_at DATETIME NOT NULL comment '记录创建时间',
+                                              updated_at DATETIME NOT NULL comment '记录最后更新时间',
+                                              deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                              UNIQUE KEY uk_trip_execution_trip (trip_id, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程EXECUTION表';
 
 CREATE TABLE IF NOT EXISTS trip_execution_member (
-    id BIGINT PRIMARY KEY comment '记录主键',
-    execution_id BIGINT NOT NULL comment 'EXECUTIONID',
-    trip_id BIGINT NOT NULL comment '行程ID',
-    user_id BIGINT NOT NULL comment '平台用户ID',
-    member_role VARCHAR(24) NOT NULL comment '成员角色',
-    member_status VARCHAR(32) NOT NULL comment '成员状态',
-    ready_at DATETIME NULL comment '准备时间',
-    joined_execution_at DATETIME NULL comment '加入EXECUTION时间',
-    left_at DATETIME NULL comment '离开时间',
-    eligible_flag TINYINT NOT NULL DEFAULT 0 comment '是否符合条件：0否、1是',
-    ineligible_reason VARCHAR(128) NULL comment '不符合条件原因',
-    created_at DATETIME NOT NULL comment '记录创建时间',
-    updated_at DATETIME NOT NULL comment '记录最后更新时间',
-    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-    UNIQUE KEY uk_execution_member (execution_id, user_id, deleted)
+                                                     id BIGINT PRIMARY KEY comment '记录主键',
+                                                     execution_id BIGINT NOT NULL comment 'EXECUTIONID',
+                                                     trip_id BIGINT NOT NULL comment '行程ID',
+                                                     user_id BIGINT NOT NULL comment '平台用户ID',
+                                                     member_role VARCHAR(24) NOT NULL comment '成员角色',
+                                                     member_status VARCHAR(32) NOT NULL comment '成员状态',
+                                                     ready_at DATETIME NULL comment '准备时间',
+                                                     joined_execution_at DATETIME NULL comment '加入EXECUTION时间',
+                                                     left_at DATETIME NULL comment '离开时间',
+                                                     eligible_flag TINYINT NOT NULL DEFAULT 0 comment '是否符合条件：0否、1是',
+                                                     ineligible_reason VARCHAR(128) NULL comment '不符合条件原因',
+                                                     created_at DATETIME NOT NULL comment '记录创建时间',
+                                                     updated_at DATETIME NOT NULL comment '记录最后更新时间',
+                                                     deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                                     UNIQUE KEY uk_execution_member (execution_id, user_id, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程EXECUTION成员表';
 
 CREATE TABLE IF NOT EXISTS trip_track_point (
-    id BIGINT PRIMARY KEY comment '记录主键',
-    execution_id BIGINT NOT NULL comment 'EXECUTIONID',
-    trip_id BIGINT NOT NULL comment '行程ID',
-    user_id BIGINT NOT NULL comment '平台用户ID',
-    device_id VARCHAR(128) NULL comment '设备ID',
-    sequence_no BIGINT NULL comment '序号编号',
-    longitude DECIMAL(10,6) NOT NULL comment '经度坐标',
-    latitude DECIMAL(10,6) NOT NULL comment '纬度坐标',
-    altitude DECIMAL(10,2) NULL comment '海拔',
-    accuracy DECIMAL(10,2) NULL comment '定位精度',
-    speed DECIMAL(10,2) NULL comment '速度',
-    bearing DECIMAL(10,2) NULL comment '方向角',
-    provider VARCHAR(16) NOT NULL DEFAULT 'fused' comment '数据或服务提供方',
-    app_state VARCHAR(16) NOT NULL DEFAULT 'foreground' comment '应用状态',
-    battery_level INT NULL comment '电量等级',
-    located_at DATETIME NOT NULL comment '定位时间',
-    client_send_time DATETIME NULL comment '客户端发送时间',
-    server_receive_time DATETIME NULL comment 'SERVERRECEIVE时间',
-    mock_location TINYINT NOT NULL DEFAULT 0 comment '是否疑似模拟定位：0否、1是',
-    point_status VARCHAR(32) NOT NULL comment '轨迹点状态',
-    valid_point TINYINT NOT NULL DEFAULT 1 comment '是否为有效轨迹点：0否、1是',
-    risk_score INT NOT NULL DEFAULT 0 comment '风险评分',
-    risk_flags VARCHAR(255) NULL comment '风险标记集合',
-    reject_reason VARCHAR(255) NULL comment '驳回原因',
-    calculated_speed_kmh DECIMAL(10,2) NOT NULL DEFAULT 0 comment '计算完成速度公里每小时',
-    raw_distance_from_previous_m INT NOT NULL DEFAULT 0 comment '原始距离FROM上一点，单位为米',
-    distance_from_previous_m INT NOT NULL DEFAULT 0 comment '距离FROM上一点，单位为米',
-    created_at DATETIME NOT NULL comment '记录创建时间',
-    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-    UNIQUE KEY uk_track_device_sequence (execution_id, user_id, device_id, sequence_no),
-    KEY idx_track_execution_time (execution_id, located_at)
+                                                id BIGINT PRIMARY KEY comment '记录主键',
+                                                execution_id BIGINT NOT NULL comment 'EXECUTIONID',
+                                                trip_id BIGINT NOT NULL comment '行程ID',
+                                                user_id BIGINT NOT NULL comment '平台用户ID',
+                                                device_id VARCHAR(128) NULL comment '设备ID',
+                                                sequence_no BIGINT NULL comment '序号编号',
+                                                longitude DECIMAL(10,6) NOT NULL comment '经度坐标',
+                                                latitude DECIMAL(10,6) NOT NULL comment '纬度坐标',
+                                                altitude DECIMAL(10,2) NULL comment '海拔',
+                                                accuracy DECIMAL(10,2) NULL comment '定位精度',
+                                                speed DECIMAL(10,2) NULL comment '速度',
+                                                bearing DECIMAL(10,2) NULL comment '方向角',
+                                                provider VARCHAR(16) NOT NULL DEFAULT 'fused' comment '数据或服务提供方',
+                                                app_state VARCHAR(16) NOT NULL DEFAULT 'foreground' comment '应用状态',
+                                                battery_level INT NULL comment '电量等级',
+                                                located_at DATETIME NOT NULL comment '定位时间',
+                                                client_send_time DATETIME NULL comment '客户端发送时间',
+                                                server_receive_time DATETIME NULL comment 'SERVERRECEIVE时间',
+                                                mock_location TINYINT NOT NULL DEFAULT 0 comment '是否疑似模拟定位：0否、1是',
+                                                point_status VARCHAR(32) NOT NULL comment '轨迹点状态',
+                                                valid_point TINYINT NOT NULL DEFAULT 1 comment '是否为有效轨迹点：0否、1是',
+                                                risk_score INT NOT NULL DEFAULT 0 comment '风险评分',
+                                                risk_flags VARCHAR(255) NULL comment '风险标记集合',
+                                                reject_reason VARCHAR(255) NULL comment '驳回原因',
+                                                calculated_speed_kmh DECIMAL(10,2) NOT NULL DEFAULT 0 comment '计算完成速度公里每小时',
+                                                raw_distance_from_previous_m INT NOT NULL DEFAULT 0 comment '原始距离FROM上一点，单位为米',
+                                                distance_from_previous_m INT NOT NULL DEFAULT 0 comment '距离FROM上一点，单位为米',
+                                                created_at DATETIME NOT NULL comment '记录创建时间',
+                                                deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                                UNIQUE KEY uk_track_device_sequence (execution_id, user_id, device_id, sequence_no),
+                                                KEY idx_track_execution_time (execution_id, located_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程轨迹轨迹点表';
 
 CREATE TABLE IF NOT EXISTS trip_route_plan_version (
-    id BIGINT NOT NULL PRIMARY KEY comment '记录主键',
-    execution_id BIGINT NOT NULL comment '行程执行记录ID',
-    trip_id BIGINT NOT NULL comment '关联行程ID',
-    version_no INT NOT NULL comment '路线规划版本号',
-    route_polyline LONGTEXT NOT NULL comment '路线折线编码数据',
-    planned_distance_m INT NOT NULL DEFAULT 0 comment '计划路线距离，单位为米',
-    required_waypoints_json JSON NULL comment '必须经过的途经点列表JSON数据',
-    effective_at DATETIME NOT NULL comment '路线版本生效时间',
-    created_by BIGINT NOT NULL comment '路线版本创建人用户ID',
-    created_at DATETIME NOT NULL comment '记录创建时间',
-    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-    UNIQUE KEY uk_execution_route_version (execution_id, version_no, deleted)
+                                                       id BIGINT NOT NULL PRIMARY KEY comment '记录主键',
+                                                       execution_id BIGINT NOT NULL comment '行程执行记录ID',
+                                                       trip_id BIGINT NOT NULL comment '关联行程ID',
+                                                       version_no INT NOT NULL comment '路线规划版本号',
+                                                       route_polyline LONGTEXT NOT NULL comment '路线折线编码数据',
+                                                       planned_distance_m INT NOT NULL DEFAULT 0 comment '计划路线距离，单位为米',
+                                                       required_waypoints_json JSON NULL comment '必须经过的途经点列表JSON数据',
+                                                       effective_at DATETIME NOT NULL comment '路线版本生效时间',
+                                                       created_by BIGINT NOT NULL comment '路线版本创建人用户ID',
+                                                       created_at DATETIME NOT NULL comment '记录创建时间',
+                                                       deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                                       UNIQUE KEY uk_execution_route_version (execution_id, version_no, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='trip_route_plan_version业务表';
 
 CREATE TABLE IF NOT EXISTS trip_waypoint_arrival (
-    id BIGINT PRIMARY KEY comment '记录主键',
-    execution_id BIGINT NOT NULL comment 'EXECUTIONID',
-    trip_id BIGINT NOT NULL comment '行程ID',
-    waypoint_id BIGINT NULL comment '途经点ID',
-    arrival_type VARCHAR(24) NOT NULL DEFAULT 'WAYPOINT' comment 'ARRIVAL类型',
-    user_id BIGINT NOT NULL comment '平台用户ID',
-    first_inside_at DATETIME NOT NULL comment 'FIRST进入范围时间',
-    confirmed_at DATETIME NOT NULL comment 'CONFIRMED时间',
-    evidence_point_count INT NOT NULL comment '证据轨迹点数量',
-    distance_m INT NOT NULL comment '距离，单位为米',
-    created_at DATETIME NOT NULL comment '记录创建时间',
-    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-    UNIQUE KEY uk_execution_waypoint_arrival (execution_id, waypoint_id, arrival_type, deleted)
+                                                     id BIGINT PRIMARY KEY comment '记录主键',
+                                                     execution_id BIGINT NOT NULL comment 'EXECUTIONID',
+                                                     trip_id BIGINT NOT NULL comment '行程ID',
+                                                     waypoint_id BIGINT NULL comment '途经点ID',
+                                                     arrival_type VARCHAR(24) NOT NULL DEFAULT 'WAYPOINT' comment 'ARRIVAL类型',
+                                                     user_id BIGINT NOT NULL comment '平台用户ID',
+                                                     first_inside_at DATETIME NOT NULL comment 'FIRST进入范围时间',
+                                                     confirmed_at DATETIME NOT NULL comment 'CONFIRMED时间',
+                                                     evidence_point_count INT NOT NULL comment '证据轨迹点数量',
+                                                     distance_m INT NOT NULL comment '距离，单位为米',
+                                                     created_at DATETIME NOT NULL comment '记录创建时间',
+                                                     deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                                     UNIQUE KEY uk_execution_waypoint_arrival (execution_id, waypoint_id, arrival_type, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程途经点ARRIVAL表';
 
 CREATE TABLE IF NOT EXISTS trip_track_source_switch (
-    id BIGINT NOT NULL PRIMARY KEY comment '记录主键',
-    execution_id BIGINT NOT NULL comment '行程执行记录ID',
-    from_user_id BIGINT NULL comment '切换前轨迹来源用户ID',
-    to_user_id BIGINT NOT NULL comment '切换后轨迹来源用户ID',
-    switch_reason VARCHAR(64) NOT NULL comment '轨迹来源切换原因',
-    switched_at DATETIME NOT NULL comment '轨迹来源切换时间',
-    created_at DATETIME NOT NULL comment '记录创建时间',
-    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-    KEY idx_track_source_execution (execution_id, switched_at)
+                                                        id BIGINT NOT NULL PRIMARY KEY comment '记录主键',
+                                                        execution_id BIGINT NOT NULL comment '行程执行记录ID',
+                                                        from_user_id BIGINT NULL comment '切换前轨迹来源用户ID',
+                                                        to_user_id BIGINT NOT NULL comment '切换后轨迹来源用户ID',
+                                                        switch_reason VARCHAR(64) NOT NULL comment '轨迹来源切换原因',
+                                                        switched_at DATETIME NOT NULL comment '轨迹来源切换时间',
+                                                        created_at DATETIME NOT NULL comment '记录创建时间',
+                                                        deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                                        KEY idx_track_source_execution (execution_id, switched_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='trip_track_source_switch业务表';
 
 CREATE TABLE IF NOT EXISTS trip_mileage_settlement (
-    id BIGINT PRIMARY KEY comment '记录主键',
-    trip_id BIGINT NOT NULL comment '行程ID',
-    raw_gps_distance_m INT NOT NULL DEFAULT 0 comment '原始GPS距离，单位为米',
-    matched_road_distance_m INT NOT NULL DEFAULT 0 comment '命中道路距离，单位为米',
-    estimated_gap_distance_m INT NOT NULL DEFAULT 0 comment '估算差值距离，单位为米',
-    settlement_distance_m INT NOT NULL DEFAULT 0 comment '结算距离，单位为米',
-    track_coverage_rate INT NOT NULL DEFAULT 0 comment '轨迹覆盖率比例',
-    estimated_ratio INT NOT NULL DEFAULT 0 comment '估算比例',
-    quality_status VARCHAR(32) NOT NULL comment '质量状态',
-    settlement_status VARCHAR(32) NOT NULL comment '结算状态',
-    growth_value INT NOT NULL DEFAULT 0 comment '成长值值',
-    reason VARCHAR(255) NULL comment '原因说明',
-    settled_at DATETIME NULL comment 'SETTLED时间',
-    created_at DATETIME NOT NULL comment '记录创建时间',
-    updated_at DATETIME NOT NULL comment '记录最后更新时间',
-    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-    UNIQUE KEY uk_trip_mileage_settlement (trip_id, deleted)
+                                                       id BIGINT PRIMARY KEY comment '记录主键',
+                                                       trip_id BIGINT NOT NULL comment '行程ID',
+                                                       raw_gps_distance_m INT NOT NULL DEFAULT 0 comment '原始GPS距离，单位为米',
+                                                       matched_road_distance_m INT NOT NULL DEFAULT 0 comment '命中道路距离，单位为米',
+                                                       estimated_gap_distance_m INT NOT NULL DEFAULT 0 comment '估算差值距离，单位为米',
+                                                       settlement_distance_m INT NOT NULL DEFAULT 0 comment '结算距离，单位为米',
+                                                       track_coverage_rate INT NOT NULL DEFAULT 0 comment '轨迹覆盖率比例',
+                                                       estimated_ratio INT NOT NULL DEFAULT 0 comment '估算比例',
+                                                       quality_status VARCHAR(32) NOT NULL comment '质量状态',
+                                                       settlement_status VARCHAR(32) NOT NULL comment '结算状态',
+                                                       growth_value INT NOT NULL DEFAULT 0 comment '成长值值',
+                                                       reason VARCHAR(255) NULL comment '原因说明',
+                                                       settled_at DATETIME NULL comment 'SETTLED时间',
+                                                       created_at DATETIME NOT NULL comment '记录创建时间',
+                                                       updated_at DATETIME NOT NULL comment '记录最后更新时间',
+                                                       deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
+                                                       UNIQUE KEY uk_trip_mileage_settlement (trip_id, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程里程结算表';
 
 
@@ -2250,6 +2300,42 @@ create table if not exists notify_delivery_log (
                                                    key idx_notify_delivery_retry (delivery_status, next_retry_at)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci comment='通知投递日志表';
 
+create table if not exists app_push_device (
+                                               id bigint primary key comment '记录主键',
+                                               user_id bigint not null comment '平台用户ID',
+                                               device_id varchar(128) not null comment '设备唯一标识',
+                                               platform varchar(16) not null comment 'ANDROID、IOS',
+                                               vendor varchar(32) not null default 'GENERIC' comment '推送厂商：FCM、HUAWEI、XIAOMI、OPPO、VIVO、APNS、GENERIC',
+                                               push_token varchar(512) not null comment '系统推送设备Token',
+                                               app_version varchar(32) null comment 'App版本',
+                                               enabled tinyint(1) not null default 1 comment '是否启用',
+                                               last_seen_at datetime not null comment '最近活跃时间',
+                                               created_at datetime not null comment '创建时间',
+                                               updated_at datetime not null comment '更新时间',
+                                               deleted tinyint(1) not null default 0 comment '逻辑删除',
+                                               unique key uk_push_device (user_id, device_id, deleted),
+                                               key idx_push_device_user_enabled (user_id, enabled, updated_at)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci comment='App系统推送设备表';
+
+create table if not exists app_push_task (
+                                             id bigint primary key comment '记录主键',
+                                             user_id bigint not null comment '接收用户ID',
+                                             event_type varchar(64) not null comment '事件类型',
+                                             title varchar(128) not null comment '推送标题',
+                                             content varchar(512) not null comment '推送内容',
+                                             payload_json json null comment '客户端跳转参数',
+                                             idempotency_key varchar(128) not null comment '幂等键',
+                                             delivery_status varchar(24) not null default 'PENDING' comment 'PENDING、SENT、FAILED、SKIPPED',
+                                             retry_count int not null default 0 comment '重试次数',
+                                             next_retry_at datetime null comment '下次重试时间',
+                                             last_error varchar(512) null comment '最后错误',
+                                             created_at datetime not null comment '创建时间',
+                                             updated_at datetime not null comment '更新时间',
+                                             deleted tinyint(1) not null default 0 comment '逻辑删除',
+                                             unique key uk_push_task_idempotency (idempotency_key, deleted),
+                                             key idx_push_task_delivery (delivery_status, next_retry_at, created_at)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci comment='App系统推送任务表';
+
 -- ============================================================================
 -- admin-module
 -- source: admin-module/src/main/resources/db/admin-schema.sql
@@ -2431,14 +2517,14 @@ create table if not exists sos_event
 -- 行程推荐队长评分汇总
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS trip_leader_rating_summary (
-  leader_user_id BIGINT NOT NULL comment '队长用户ID',
-  rating DECIMAL(3,2) NOT NULL DEFAULT 5.00 comment '队长综合评分，范围0~5',
-  positive_rate DECIMAL(5,4) NOT NULL DEFAULT 1.0000 comment '好评率，范围0~1',
-  rating_count INT NOT NULL DEFAULT 0 comment '有效评价数量',
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '汇总更新时间',
-  deleted TINYINT(1) NOT NULL DEFAULT 0 comment '逻辑删除标记',
-  PRIMARY KEY (leader_user_id),
-  KEY idx_trip_leader_rating (rating, positive_rate)
+                                                          leader_user_id BIGINT NOT NULL comment '队长用户ID',
+                                                          rating DECIMAL(3,2) NOT NULL DEFAULT 5.00 comment '队长综合评分，范围0~5',
+                                                          positive_rate DECIMAL(5,4) NOT NULL DEFAULT 1.0000 comment '好评率，范围0~1',
+                                                          rating_count INT NOT NULL DEFAULT 0 comment '有效评价数量',
+                                                          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '汇总更新时间',
+                                                          deleted TINYINT(1) NOT NULL DEFAULT 0 comment '逻辑删除标记',
+                                                          PRIMARY KEY (leader_user_id),
+                                                          KEY idx_trip_leader_rating (rating, positive_rate)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程队长评分汇总表';
 
 

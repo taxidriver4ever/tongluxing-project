@@ -1,5 +1,89 @@
 -- 同路行 MVP v3 自升级脚本：由 Spring SQL init 每次启动幂等执行。
 
+-- P0 行程状态机字段。trip-schema.sql 只能保证新库结构；旧库必须在启动时幂等补列。
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip' AND column_name='trip_type')=0,
+  'ALTER TABLE trip ADD COLUMN trip_type VARCHAR(24) NOT NULL DEFAULT ''DRIVER_TRIP'' COMMENT ''行程类型：DRIVER_TRIP、PASSENGER_DEMAND'' AFTER user_id', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip' AND column_name='publisher_role')=0,
+  'ALTER TABLE trip ADD COLUMN publisher_role VARCHAR(16) NOT NULL DEFAULT ''DRIVER'' COMMENT ''发布身份：DRIVER、PASSENGER'' AFTER trip_type', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip' AND column_name='captain_user_id')=0,
+  'ALTER TABLE trip ADD COLUMN captain_user_id BIGINT NULL COMMENT ''当前队长用户ID'' AFTER publisher_role', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip' AND column_name='auto_start_enabled')=0,
+  'ALTER TABLE trip ADD COLUMN auto_start_enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''是否到点自动出发'' AFTER status', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip' AND column_name='arrival_status')=0,
+  'ALTER TABLE trip ADD COLUMN arrival_status VARCHAR(24) NOT NULL DEFAULT ''NOT_ARRIVED'' COMMENT ''到达状态'' AFTER auto_start_enabled', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip' AND column_name='arrival_entered_at')=0,
+  'ALTER TABLE trip ADD COLUMN arrival_entered_at DATETIME NULL COMMENT ''首次进入终点范围时间'' AFTER arrival_status', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip' AND column_name='arrival_decision_deadline')=0,
+  'ALTER TABLE trip ADD COLUMN arrival_decision_deadline DATETIME NULL COMMENT ''到达后最迟处理时间'' AFTER arrival_entered_at', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip' AND column_name='continue_count')=0,
+  'ALTER TABLE trip ADD COLUMN continue_count INT NOT NULL DEFAULT 0 COMMENT ''继续行程次数'' AFTER arrival_decision_deadline', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='trip' AND column_name='vehicle_id' AND is_nullable='NO')=1,
+  'ALTER TABLE trip MODIFY COLUMN vehicle_id BIGINT NULL COMMENT ''发布者车辆ID；乘客需求为空''', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 仅修正迁移前的旧数据，不在每次启动时覆盖已经形成的乘客需求/队长关系。
+UPDATE trip
+SET trip_type = CASE
+        WHEN (trip_type IS NULL OR trip_type = '' OR (trip_type = 'DRIVER_TRIP' AND vehicle_id IS NULL AND captain_user_id IS NULL))
+            THEN CASE WHEN vehicle_id IS NULL THEN 'PASSENGER_DEMAND' ELSE 'DRIVER_TRIP' END
+        ELSE trip_type
+    END,
+    publisher_role = CASE
+        WHEN publisher_role IS NULL OR publisher_role = ''
+             OR (publisher_role = 'DRIVER' AND vehicle_id IS NULL AND captain_user_id IS NULL)
+            THEN CASE WHEN vehicle_id IS NULL THEN 'PASSENGER' ELSE 'DRIVER' END
+        ELSE publisher_role
+    END,
+    captain_user_id = CASE
+        WHEN vehicle_id IS NOT NULL AND captain_user_id IS NULL THEN user_id
+        ELSE captain_user_id
+    END,
+    auto_start_enabled = CASE
+        WHEN vehicle_id IS NULL AND captain_user_id IS NULL THEN 0
+        ELSE COALESCE(auto_start_enabled, 1)
+    END,
+    arrival_status = COALESCE(NULLIF(arrival_status, ''), 'NOT_ARRIVED'),
+    continue_count = COALESCE(continue_count, 0)
+WHERE deleted = 0
+  AND (
+      trip_type IS NULL OR trip_type = ''
+      OR publisher_role IS NULL OR publisher_role = ''
+      OR (trip_type = 'DRIVER_TRIP' AND vehicle_id IS NULL AND captain_user_id IS NULL)
+      OR (publisher_role = 'DRIVER' AND vehicle_id IS NULL AND captain_user_id IS NULL)
+      OR (vehicle_id IS NOT NULL AND captain_user_id IS NULL)
+      OR arrival_status IS NULL OR arrival_status = ''
+      OR continue_count IS NULL
+      OR (vehicle_id IS NULL AND captain_user_id IS NULL AND auto_start_enabled <> 0)
+  );
+
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='trip' AND index_name='idx_trip_captain_status')=0,
+  'CREATE INDEX idx_trip_captain_status ON trip(captain_user_id, status, departure_time)', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='trip' AND index_name='idx_trip_auto_start')=0,
+  'CREATE INDEX idx_trip_auto_start ON trip(auto_start_enabled, status, departure_time)', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF((SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='trip' AND index_name='idx_trip_arrival_deadline')=0,
+  'CREATE INDEX idx_trip_arrival_deadline ON trip(arrival_status, arrival_decision_deadline)', 'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 CREATE TABLE IF NOT EXISTS trip_execution (
   id BIGINT PRIMARY KEY comment '记录主键',
   trip_id BIGINT NOT NULL comment '行程ID',

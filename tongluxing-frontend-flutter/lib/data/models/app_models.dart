@@ -264,6 +264,11 @@ class TripModel {
     this.vehicleRequirements = const ['不限'],
     this.budgetDescription = '',
     this.notes = '',
+    this.tripType = '',
+    this.publisherRole = '',
+    this.captainUserId,
+    this.passengerDemand = false,
+    this.hasCaptain = false,
   });
   final String id;
   final String title;
@@ -284,6 +289,16 @@ class TripModel {
   final List<String> vehicleRequirements;
   final String budgetDescription;
   final String notes;
+  final String tripType;
+  final String publisherRole;
+  final String? captainUserId;
+  final bool passengerDemand;
+  final bool hasCaptain;
+
+  /// 只有司机行程且后端已经确定队长时，才展示队长管理入口。
+  /// 页面还会继续比对当前登录用户与 [captainUserId]，避免普通成员误操作。
+  bool get canManageTeam =>
+      tripType == 'DRIVER_TRIP' && captainUserId?.isNotEmpty == true;
 
   List<LocationSelection> get routePoints {
     final parsed = parseRoutePolyline(routePolyline);
@@ -330,6 +345,11 @@ class TripModel {
         .toList(),
     budgetDescription: json['budgetDescription']?.toString() ?? '',
     notes: json['remark']?.toString() ?? '',
+    tripType: json['tripType']?.toString() ?? '',
+    publisherRole: json['publisherRole']?.toString() ?? '',
+    captainUserId: json['captainUserId']?.toString(),
+    passengerDemand: json['passengerDemand'] == true,
+    hasCaptain: json['hasCaptain'] == true,
   );
 }
 
@@ -683,6 +703,10 @@ class TripDiscoverModel {
     this.tags = const [],
     this.coverImageKey = '',
     this.relationshipStatus = 'NONE',
+    this.tripType = '',
+    this.publisherRole = '',
+    this.passengerDemand = false,
+    this.hasCaptain = false,
   });
 
   final String tripId;
@@ -704,6 +728,10 @@ class TripDiscoverModel {
   final List<String> tags;
   final String coverImageKey;
   final String relationshipStatus;
+  final String tripType;
+  final String publisherRole;
+  final bool passengerDemand;
+  final bool hasCaptain;
   final DiscoverOwnerModel owner;
 
   factory TripDiscoverModel.fromJson(Map<String, dynamic> json) =>
@@ -731,6 +759,10 @@ class TripDiscoverModel {
             .toList(),
         coverImageKey: json['coverImageKey']?.toString() ?? '',
         relationshipStatus: json['relationshipStatus']?.toString() ?? 'NONE',
+        tripType: json['tripType']?.toString() ?? '',
+        publisherRole: json['publisherRole']?.toString() ?? '',
+        passengerDemand: json['passengerDemand'] == true,
+        hasCaptain: json['hasCaptain'] == true,
         owner: DiscoverOwnerModel.fromJson(
           Map<String, dynamic>.from(json['owner'] as Map? ?? const {}),
         ),
@@ -746,6 +778,9 @@ class TripPublicMemberModel {
     this.certificationStatus = 'UNVERIFIED',
     this.totalTripCount = 0,
     this.totalDistanceMeters = 0,
+    this.vehicleId,
+    this.vehicleSummary = '',
+    this.plateMask = '',
   });
   final String userId;
   final String nickname;
@@ -754,6 +789,9 @@ class TripPublicMemberModel {
   final String certificationStatus;
   final int totalTripCount;
   final int totalDistanceMeters;
+  final String? vehicleId;
+  final String vehicleSummary;
+  final String plateMask;
 
   factory TripPublicMemberModel.fromJson(Map<String, dynamic> json) =>
       TripPublicMemberModel(
@@ -765,6 +803,9 @@ class TripPublicMemberModel {
             json['certificationStatus']?.toString() ?? 'UNVERIFIED',
         totalTripCount: _int(json['totalTripCount']) ?? 0,
         totalDistanceMeters: _int(json['totalDistanceMeters']) ?? 0,
+        vehicleId: json['vehicleId']?.toString(),
+        vehicleSummary: json['vehicleSummary']?.toString() ?? '',
+        plateMask: json['plateMask']?.toString() ?? '',
       );
 }
 
@@ -978,7 +1019,7 @@ class ConversationModel {
   /// 群聊调用 SDK 时使用原始 GroupId，而不是带 group_ 前缀的会话 ID。
   String get imGroupId => isPrivate ? '' : providerConversationKey;
 
-  /// 单聊调用 SDK 时使用 u_<userId>，优先从后端返回的会话 ID 中提取。
+  /// 单聊调用 SDK 时使用 `u_<userId>`，优先从后端返回的会话 ID 中提取。
   String get imPeerUserId {
     if (!isPrivate) return '';
     if (imConversationId.startsWith('c2c_')) {

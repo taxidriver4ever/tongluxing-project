@@ -826,6 +826,12 @@ class TripDiscoveryService {
     required String message,
     required bool selfDrive,
     String? vehicleId,
+    String? linkedOwnerUserId,
+    String? linkedVehicleId,
+    String? plateNumber,
+    String applicationType = 'JOIN',
+    double? currentLatitude,
+    double? currentLongitude,
   }) async {
     final data = Map<String, dynamic>.from(
       await api.post(
@@ -834,6 +840,13 @@ class TripDiscoveryService {
               'message': message,
               'selfDrive': selfDrive,
               'applicantVehicleId': int.tryParse(vehicleId ?? ''),
+              'joinRole': selfDrive ? 'DRIVER' : 'PASSENGER',
+              'linkedOwnerUserId': int.tryParse(linkedOwnerUserId ?? ''),
+              'linkedVehicleId': int.tryParse(linkedVehicleId ?? ''),
+              'plateNumber': plateNumber?.trim(),
+              'applicationType': applicationType,
+              'currentLatitude': currentLatitude,
+              'currentLongitude': currentLongitude,
             },
           )
           as Map,
@@ -1192,6 +1205,75 @@ class ChatService {
 
   Future<void> exitGroup(String id) =>
       api.delete('/v1/chats/groups/$id/members/me');
+}
+
+
+/// P0 车队管理接口封装。页面只处理展示状态，所有成员权限仍由后端校验。
+class TeamP0Service {
+  const TeamP0Service(this.api);
+  final ApiClient api;
+
+  Future<Map<String, dynamic>?> current() async {
+    final data = await api.get('/v1/teams/me/current');
+    return data is Map ? Map<String, dynamic>.from(data) : null;
+  }
+
+  Future<List<Map<String, dynamic>>> members(String teamId) async {
+    final data = await api.get('/v1/teams/$teamId/members');
+    final rows = data is Map ? data['members'] : null;
+    return (rows as List? ?? const [])
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> updateSettings(
+    String teamId,
+    Map<String, dynamic> values,
+  ) async => Map<String, dynamic>.from(
+    await api.patch('/v1/teams/$teamId/settings', body: values) as Map,
+  );
+
+  Future<void> removeMember(String teamId, String userId) => api.post(
+    '/v1/teams/$teamId/members/$userId/remove',
+    body: const {'reason': '队长主动移除'},
+  );
+
+  Future<void> confirmPassengerVehicle(
+    String teamId,
+    String passengerUserId,
+    bool approved,
+  ) => api.post(
+    '/v1/teams/$teamId/members/$passengerUserId/vehicle-confirmation',
+    body: {'approved': approved},
+  );
+
+  Future<void> exit(String teamId) => api.post('/v1/teams/$teamId/exit');
+}
+
+/// 地图三态和队伍异常处理接口封装。
+class P0TripStateService {
+  const P0TripStateService(this.api);
+  final ApiClient api;
+
+  Future<List<Map<String, dynamic>>> teamAlerts(String tripId) async {
+    final data = await api.get('/v1/p0/trips/$tripId/team-alerts');
+    return (data as List? ?? const [])
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> handleTeamAlert(
+    String alertId,
+    String action,
+  ) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/p0/team-alerts/$alertId/action',
+          body: {'action': action},
+        )
+        as Map,
+  );
 }
 
 class ChatAttachmentService {

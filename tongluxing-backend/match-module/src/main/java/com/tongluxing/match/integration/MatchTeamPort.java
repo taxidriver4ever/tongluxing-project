@@ -69,6 +69,18 @@ public interface MatchTeamPort {
             String applicationType, BigDecimal currentLatitude, BigDecimal currentLongitude);
 
     /**
+     * 兼容普通入队申请的旧调用方式。
+     *
+     * <p>P0 扩展了归队、乘客关联车辆和当前位置等字段，但普通推荐、附近行程和
+     * 搜索申请仍只需要原来的四个参数。统一在端口层补齐默认值，避免所有调用方
+     * 重复传递一组 {@code null}，也保证旧代码升级后能够继续编译。</p>
+     */
+    default Long apply(Long teamId, String message, Long applicantVehicleId, String joinQuestionJson) {
+        return apply(teamId, message, applicantVehicleId, joinQuestionJson,
+                null, null, null, null, "JOIN", null, null);
+    }
+
+    /**
      * 车队匹配所需的最小字段集合。
      *
      * @param teamId 车队 ID

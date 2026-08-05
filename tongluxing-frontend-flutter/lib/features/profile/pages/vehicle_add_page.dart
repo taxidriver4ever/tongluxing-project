@@ -133,6 +133,8 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
           uploadedKeys['行驶证主页']!,
           ?uploadedKeys['行驶证副页'],
         ],
+        // P0 认证流程只要求行驶证；车辆外观图为兼容字段，可为空。
+        vehicleImages: const [],
       );
       if (mounted) {
         ScaffoldMessenger.of(

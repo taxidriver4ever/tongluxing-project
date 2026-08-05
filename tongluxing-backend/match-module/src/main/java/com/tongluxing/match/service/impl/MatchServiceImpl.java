@@ -638,7 +638,9 @@ public class MatchServiceImpl implements MatchService {
                 : teamPort.listPublicMembers(team.teamId(), 50).stream()
                     .map(member -> new TripPublicMemberResponse(String.valueOf(member.userId()), member.nickname(),
                             member.avatarImageKey(), member.role(), member.certificationStatus(),
-                            member.totalTripCount(), member.totalDistanceMeters()))
+                            member.totalTripCount(), member.totalDistanceMeters(),
+                            member.vehicleId() == null ? null : String.valueOf(member.vehicleId()),
+                            member.vehicleSummary(), member.plateMask()))
                     .toList();
         boolean joinable = current < max && isJoinable(trip);
         // 申请要求非本人、有活跃车队、有容量且当前关系允许重新申请。
@@ -658,7 +660,8 @@ public class MatchServiceImpl implements MatchService {
                  team == null ? null : team.notice(), team == null ? null : team.teamDesc(),
                  discoverTags(trip), discoverOwner(trip, followed), members,
                 relationship, ownerTrip, allowConsultation, allowApply, joinable,
-                tripFavoriteMapper.exists(userId, tripId) > 0);
+                tripFavoriteMapper.exists(userId, tripId) > 0,
+                tripType(trip), publisherRole(trip), passengerDemand(trip), hasCaptain(trip));
     }
 
     @Override
@@ -799,7 +802,32 @@ public class MatchServiceImpl implements MatchService {
                 Math.max(0, max - current), exposeRouteMatch ? score : null,
                 distance < 0 ? null : distance,
                 discoverTags(trip), trip.coverImageKey(),
-                relationship, discoverOwner(trip, currentUserId, enrichRelationship));
+                relationship, discoverOwner(trip, currentUserId, enrichRelationship),
+                tripType(trip), publisherRole(trip), passengerDemand(trip), hasCaptain(trip));
+    }
+
+    /** 兼容历史行程空字段，保证发现页拿到稳定的 P0 行程类型。 */
+    private String tripType(MatchTripDTO trip) {
+        if (StringUtils.hasText(trip.tripType())) {
+            return trip.tripType();
+        }
+        return trip.vehicleId() == null ? "PASSENGER_DEMAND" : "DRIVER_TRIP";
+    }
+
+    /** 发布身份与行程类型保持一致。 */
+    private String publisherRole(MatchTripDTO trip) {
+        if (StringUtils.hasText(trip.publisherRole())) {
+            return trip.publisherRole();
+        }
+        return passengerDemand(trip) ? "PASSENGER" : "DRIVER";
+    }
+
+    private boolean passengerDemand(MatchTripDTO trip) {
+        return "PASSENGER_DEMAND".equals(tripType(trip));
+    }
+
+    private boolean hasCaptain(MatchTripDTO trip) {
+        return trip.captainUserId() != null;
     }
 
     /** 优先读取车队实时人数；未建队时回退到行程已加入车辆数，且至少包含发起人。 */

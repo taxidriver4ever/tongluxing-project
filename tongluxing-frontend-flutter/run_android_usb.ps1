@@ -4,10 +4,86 @@
     [switch]$ConfigureOnly,
     [switch]$ForceClean,
     [switch]$ForcePubGet,
-    [switch]$SkipPrebuild
+    [switch]$SkipPrebuild,
+    [switch]$SkipAnalyze
 )
 
 $ErrorActionPreference = 'Stop'
+
+
+function Invoke-FlutterCommand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments,
+        [Parameter(Mandatory = $true)]
+        [string]$LogPath
+    )
+
+    $parent = Split-Path -Parent $LogPath
+    if ($parent) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    if (Test-Path -LiteralPath $LogPath) {
+        Remove-Item -LiteralPath $LogPath -Force
+    }
+
+    # Windows PowerShell 5.1 会把原生命令写入 stderr 的普通提示包装成
+    # ErrorRecord；在全局 ErrorActionPreference=Stop 时会误判成脚本异常。
+    # Flutter 的 analyzer/Gradle 经常把 info、warning 写到 stderr，因此此处
+    # 临时允许这些输出继续流动，最终只根据 Flutter 进程退出码判断成败。
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+
+        & flutter @Arguments 2>&1 | ForEach-Object {
+            $line = $_.ToString()
+            Write-Host $line
+            Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
+        }
+
+        $exitCode = $LASTEXITCODE
+        return $exitCode
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+}
+
+function Write-FlutterFailureSummary {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LogPath,
+        [Parameter(Mandatory = $true)]
+        [string]$Stage
+    )
+
+    [Console]::Error.WriteLine('')
+    [Console]::Error.WriteLine("$Stage failed.")
+
+    if (Test-Path -LiteralPath $LogPath) {
+        $important = @(
+            Get-Content -LiteralPath $LogPath |
+                Where-Object {
+                    $_ -match '^lib[/\\].*:\d+:\d+:\s+Error:' -or
+                    $_ -match '^\s*error\b' -or
+                    $_ -match '^FAILURE:' -or
+                    $_ -match '^\* What went wrong:' -or
+                    $_ -match '^Execution failed for task'
+                } |
+                Select-Object -Unique -First 30
+        )
+
+        if ($important.Count -gt 0) {
+            [Console]::Error.WriteLine('Key errors:')
+            foreach ($line in $important) {
+                [Console]::Error.WriteLine("  $line")
+            }
+        }
+
+        [Console]::Error.WriteLine("Full log: $LogPath")
+    }
+}
 
 # Android build-tools 在部分 Windows 环境中无法正确处理中文项目路径。
 # 如果脚本从中文真实目录启动，则自动转到磁盘根目录下的 ASCII 目录联接后重新执行。
@@ -33,6 +109,7 @@ if ($PSScriptRoot -match '[^\x00-\x7F]') {
     if ($ForceClean) { $relayArgs += '-ForceClean' }
     if ($ForcePubGet) { $relayArgs += '-ForcePubGet' }
     if ($SkipPrebuild) { $relayArgs += '-SkipPrebuild' }
+    if ($SkipAnalyze) { $relayArgs += '-SkipAnalyze' }
 
     & powershell @relayArgs
     exit $LASTEXITCODE
@@ -167,19 +244,20 @@ $minioPort = $null
 if ($minioPublicEndpoint) {
     try {
         $minioUri = [System.Uri]$minioPublicEndpoint
-        if (
-            $minioUri.Port -gt 0 -and
-            ($minioUri.Host -eq '127.0.0.1' -or $minioUri.Host -eq 'localhost')
-        ) {
-            $minioPort = $minioUri.Port
-            & $adbPath -s $DeviceId reverse "tcp:$minioPort" "tcp:$minioPort"
-            if ($LASTEXITCODE -ne 0) {
-                throw 'Failed to create MinIO adb reverse port forwarding.'
-            }
-            $minioForwarded = $true
-        }
     } catch {
         throw "MINIO_PUBLIC_ENDPOINT is invalid: $minioPublicEndpoint"
+    }
+
+    if (
+        $minioUri.Port -gt 0 -and
+        ($minioUri.Host -eq '127.0.0.1' -or $minioUri.Host -eq 'localhost')
+    ) {
+        $minioPort = $minioUri.Port
+        & $adbPath -s $DeviceId reverse "tcp:$minioPort" "tcp:$minioPort"
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Failed to create MinIO adb reverse port forwarding.'
+        }
+        $minioForwarded = $true
     }
 }
 
@@ -205,13 +283,20 @@ if (-not $flutterCommand) {
     throw 'flutter was not found in PATH.'
 }
 
+$pubspecPath = Join-Path $PSScriptRoot 'pubspec.yaml'
+if (-not (Test-Path -LiteralPath $pubspecPath)) {
+    throw "pubspec.yaml is missing. Run this script from the Flutter project root: $PSScriptRoot"
+}
+
 $manifestPath = Join-Path $PSScriptRoot 'android\app\src\main\AndroidManifest.xml'
 if (-not (Test-Path -LiteralPath $manifestPath)) {
     throw "Android manifest is really missing: $manifestPath"
 }
 
 $apkPath = Join-Path $PSScriptRoot 'build\app\outputs\flutter-apk\app-debug.apk'
-$buildRoot = Join-Path $PSScriptRoot 'build'
+$runLogRoot = Join-Path $PSScriptRoot '.run_android_usb_logs'
+$analyzeLogPath = Join-Path $runLogRoot 'flutter-analyze.log'
+$buildLogPath = Join-Path $runLogRoot 'flutter-build.log'
 
 $scriptExitCode = 1
 
@@ -227,7 +312,6 @@ try {
         }
     }
 
-    $pubspecPath = Join-Path $PSScriptRoot 'pubspec.yaml'
     $pubspecLockPath = Join-Path $PSScriptRoot 'pubspec.lock'
     $packageConfigPath = Join-Path $PSScriptRoot '.dart_tool\package_config.json'
     $pluginDependenciesPath = Join-Path $PSScriptRoot '.flutter-plugins-dependencies'
@@ -315,6 +399,22 @@ try {
         Write-Host 'Flutter dependencies are unchanged; skipping flutter pub get.'
     }
 
+    if (-not $SkipAnalyze) {
+        Write-Host 'Checking Dart source before Gradle build...'
+        $analyzeArgs = @(
+            'analyze'
+            '--no-pub'
+            '--no-fatal-infos'
+            '--no-fatal-warnings'
+        )
+        $analyzeExitCode = Invoke-FlutterCommand -Arguments $analyzeArgs -LogPath $analyzeLogPath
+        if ($analyzeExitCode -ne 0) {
+            Write-FlutterFailureSummary -LogPath $analyzeLogPath -Stage 'Flutter source analysis'
+            throw 'Dart source compilation errors were found. The USB/PowerShell setup is ready, but the app source must compile before it can be installed.'
+        }
+        Write-Host 'Dart source check passed.'
+    }
+
     if (-not $SkipPrebuild) {
         Write-Host 'Prebuilding debug APK...'
 
@@ -326,10 +426,11 @@ try {
             "--dart-define=API_BASE_URL=$apiBaseUrl"
         )
 
-        & flutter @buildArgs
+        $buildExitCode = Invoke-FlutterCommand -Arguments $buildArgs -LogPath $buildLogPath
 
-        if ($LASTEXITCODE -ne 0) {
-            throw 'Debug APK build failed. Fix the compile error printed above before running on the phone.'
+        if ($buildExitCode -ne 0) {
+            Write-FlutterFailureSummary -LogPath $buildLogPath -Stage 'Debug APK build'
+            throw 'Debug APK build failed. See the key errors and full log above.'
         }
 
         if (-not (Test-Path -LiteralPath $apkPath)) {
@@ -374,14 +475,14 @@ try {
         '-d'
         $DeviceId
         "--use-application-binary=$asciiApkPath"
-        "--dart-define=API_BASE_URL=$apiBaseUrl"
     )
 
     & flutter @flutterRunArgs
     $scriptExitCode = $LASTEXITCODE
 }
 catch {
-    Write-Error $_
+    [Console]::Error.WriteLine('')
+    [Console]::Error.WriteLine("run_android_usb.ps1 stopped: $($_.Exception.Message)")
     $scriptExitCode = 1
 }
 finally {

@@ -62,7 +62,7 @@ public class MatchTripAdapter implements MatchTripPort {
     @Override
     public List<MatchTripDTO> listPublicTrips(int limit) {
         Map<Long, OwnerSnapshot> owners = new HashMap<>();
-        return tripMapper.findPublicTrips(limit).stream()
+        return tripMapper.findPublicTrips(null, limit).stream()
                 .map(trip -> toDTO(trip, owners))
                 .toList();
     }
@@ -111,7 +111,24 @@ public class MatchTripAdapter implements MatchTripPort {
                 decimal(trip.getStartLat()), decimal(trip.getStartLng()), decimal(trip.getEndLat()), decimal(trip.getEndLng()),
                 trip.getDepartureTime(), trip.getEstimatedDays(), trip.getRouteDistance(), trip.getRouteDuration(),
                 trip.getRoutePolyline(), trip.getWaypointsJson(), trip.getRemark(), trip.getTravelDepth(), trip.getExpectedPeople(),
-                trip.getMaxVehicleCount(), trip.getJoinedVehicleCount(), trip.getStatus(), trip.getPublicFlag());
+                trip.getMaxVehicleCount(), trip.getJoinedVehicleCount(), trip.getStatus(), trip.getPublicFlag(),
+                normalizeTripType(trip), normalizePublisherRole(trip), trip.getCaptainUserId());
+    }
+
+    /** 兼容迁移前的历史数据：旧行程没有 P0 类型字段时按车辆信息推导。 */
+    private String normalizeTripType(Trip trip) {
+        if (trip.getTripType() != null && !trip.getTripType().isBlank()) {
+            return trip.getTripType();
+        }
+        return trip.getVehicleId() == null ? "PASSENGER_DEMAND" : "DRIVER_TRIP";
+    }
+
+    /** 发布身份与行程类型保持一致，避免历史空值传到发现页。 */
+    private String normalizePublisherRole(Trip trip) {
+        if (trip.getPublisherRole() != null && !trip.getPublisherRole().isBlank()) {
+            return trip.getPublisherRole();
+        }
+        return "PASSENGER_DEMAND".equals(normalizeTripType(trip)) ? "PASSENGER" : "DRIVER";
     }
 
     private Double decimal(java.math.BigDecimal value) {

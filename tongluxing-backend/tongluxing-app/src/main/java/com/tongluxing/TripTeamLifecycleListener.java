@@ -19,7 +19,7 @@ public class TripTeamLifecycleListener {
 
     @EventListener
     public void onTripPublished(TripPublishedEvent event) {
-        if (!Boolean.TRUE.equals(event.publicFlag())) {
+        if (!Boolean.TRUE.equals(event.publicFlag()) || !event.hasCaptain()) {
             return;
         }
         teamService.ensurePublishedTripTeam(

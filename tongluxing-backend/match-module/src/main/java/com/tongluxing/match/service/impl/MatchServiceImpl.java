@@ -31,6 +31,8 @@ import com.tongluxing.match.mapper.MatchRecommendLogMapper;
 import com.tongluxing.match.mapper.MatchResultMapper;
 import com.tongluxing.match.mapper.TripFavoriteMapper;
 import com.tongluxing.match.mapper.TripConsultationMapper;
+import com.tongluxing.match.mapper.TripRecommendationMetricsMapper;
+import com.tongluxing.match.mapper.TripRecommendationMetricsMapper.TripRecommendationMetricRow;
 import com.tongluxing.match.service.MatchService;
 import com.tongluxing.match.vo.*;
 import com.tongluxing.user.support.CurrentUserContext;
@@ -56,6 +58,14 @@ public class MatchServiceImpl implements MatchService {
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     /** 预计算推荐允许的最大出发时间差：24 小时。 */
     private static final int MAX_TIME_GAP_MINUTES = 24 * 60;
+    /** 推荐页统一否决条件：起点距离不能超过 100km。 */
+    private static final int RECOMMEND_MAX_DISTANCE_METERS = 100_000;
+    /** 推荐页统一否决条件：出发时间差不能超过 3 天。 */
+    private static final long RECOMMEND_MAX_TIME_GAP_MINUTES = 3L * 24 * 60;
+    /** 有基准行程时，综合顺路率低于 20% 的候选直接淘汰。 */
+    private static final int RECOMMEND_MIN_MATCH_RATE = 20;
+    /** 队长评分低于 3.0 的行程不进入推荐列表。 */
+    private static final double RECOMMEND_MIN_LEADER_RATING = 3.0D;
     /** 行程领域只读端口。 */
     private final MatchTripPort tripPort;
     /** 车队领域查询与申请端口。 */
@@ -74,6 +84,8 @@ public class MatchServiceImpl implements MatchService {
     private final TripFavoriteMapper tripFavoriteMapper;
     /** 受控咨询请求数据访问。 */
     private final TripConsultationMapper tripConsultationMapper;
+    /** 批量读取报名、收藏、评分和好评率，供推荐过滤与热度计算。 */
+    private final TripRecommendationMetricsMapper recommendationMetricsMapper;
 
     /**
      * 为一条公开可匹配行程重新生成推荐。
@@ -342,6 +354,119 @@ public class MatchServiceImpl implements MatchService {
     }
 
     @Override
+    public TripRecommendPageResponse recommendTrips(
+            String sortBy, Boolean requestedUserHasTrip, Double latitude, Double longitude,
+            Integer page, Integer pageSize) {
+        Long userId = currentUserContext.requireUserId();
+        int safePage = page == null ? 1 : Math.max(1, page);
+        int safePageSize = pageSize == null ? 10 : Math.max(1, Math.min(pageSize, 30));
+
+        // 是否有行程必须以数据库真值为准，不能由前端布尔参数决定算法分支。
+        MatchTripDTO reference = tripPort.findRecommendationReferenceTrip(userId);
+        boolean userHasTrip = reference != null;
+        if (requestedUserHasTrip != null && requestedUserHasTrip != userHasTrip) {
+            log.debug("recommend_user_trip_state_mismatch userId={} requested={} actual={}",
+                    userId, requestedUserHasTrip, userHasTrip);
+        }
+
+        // 无自有行程时，距离基准必须使用用户当前定位。缺少定位无法严格执行 100km 否决规则。
+        if (!userHasTrip && (latitude == null || longitude == null)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "请先开启定位，再查看附近推荐行程");
+        }
+
+        String effectiveSort = normalizeRecommendSort(sortBy, userHasTrip);
+        LocalDateTime now = LocalDateTime.now();
+        List<MatchTripDTO> candidates = tripPort.listPublicTrips(1000).stream()
+                .filter(trip -> !userId.equals(trip.userId()))
+                .filter(trip -> isRecruiting(trip.status()))
+                .filter(trip -> trip.departureTime() != null && trip.departureTime().isAfter(now))
+                .toList();
+
+        if (candidates.isEmpty()) {
+            return new TripRecommendPageResponse(0L, List.of(), userHasTrip, effectiveSort,
+                    reference == null ? null : String.valueOf(reference.tripId()));
+        }
+
+        // 一次批量查询推荐指标，避免候选池逐条读取报名、收藏和评分。
+        Map<Long, TripRecommendationMetricRow> metrics = recommendationMetricsMapper
+                .findByTripIds(candidates.stream().map(MatchTripDTO::tripId).toList())
+                .stream().collect(java.util.stream.Collectors.toMap(
+                        TripRecommendationMetricRow::tripId, row -> row));
+
+        List<RecommendationCandidate> accepted = new ArrayList<>();
+        for (MatchTripDTO trip : candidates) {
+            MatchTeamDTO team = teamPort.findActiveTeamByTripId(trip.tripId());
+            // 推荐卡片必须支持申请入队，因此没有活跃车队的行程不进入推荐列表。
+            if (team == null) continue;
+
+            int currentVehicles = Math.max(0, trip.joinedVehicleCount() == null ? 0 : trip.joinedVehicleCount());
+            int vehicleLimit = Math.max(0, trip.maxVehicleCount() == null ? 0 : trip.maxVehicleCount());
+            boolean vehicleFull = vehicleLimit <= 0 || currentVehicles >= vehicleLimit;
+            boolean memberFull = team.currentMemberCount() != null && team.maxMemberCount() != null
+                    && team.currentMemberCount() >= team.maxMemberCount();
+            if (vehicleFull || memberFull) continue;
+
+            TripRecommendationMetricRow metric = metrics.getOrDefault(trip.tripId(),
+                    new TripRecommendationMetricRow(trip.tripId(), 0, 0, 5.0D, 1.0D));
+            double leaderRating = metric.leaderRating() == null ? 5.0D : metric.leaderRating();
+            if (leaderRating < RECOMMEND_MIN_LEADER_RATING) continue;
+
+            double baseLatitude = userHasTrip ? value(reference.startLatitude(), Double.NaN) : latitude;
+            double baseLongitude = userHasTrip ? value(reference.startLongitude(), Double.NaN) : longitude;
+            if (!Double.isFinite(baseLatitude) || !Double.isFinite(baseLongitude)
+                    || trip.startLatitude() == null || trip.startLongitude() == null) {
+                // 无法计算起点距离时不能绕过“超过 100km”否决条件。
+                continue;
+            }
+            int distanceMeters = meters(baseLatitude, baseLongitude,
+                    trip.startLatitude(), trip.startLongitude());
+            if (distanceMeters > RECOMMEND_MAX_DISTANCE_METERS) continue;
+
+            LocalDateTime timeBase = userHasTrip ? reference.departureTime() : now;
+            if (timeBase == null) continue;
+            long timeGapMinutes = Math.abs(Duration.between(timeBase, trip.departureTime()).toMinutes());
+            if (timeGapMinutes > RECOMMEND_MAX_TIME_GAP_MINUTES) continue;
+
+            Integer matchRate = userHasTrip ? recommendationMatchRate(reference, trip) : null;
+            if (userHasTrip && (matchRate == null || matchRate < RECOMMEND_MIN_MATCH_RATE)) continue;
+
+            int applications = Math.max(0, metric.applicationCount() == null ? 0 : metric.applicationCount());
+            int favorites = Math.max(0, metric.favoriteCount() == null ? 0 : metric.favoriteCount());
+            double positiveRate = Math.max(0D, Math.min(1D,
+                    metric.positiveRate() == null ? 1D : metric.positiveRate()));
+            // 严格使用：报名人数×40 + 收藏数×30 + 好评率×30。好评率按 0~1 存储。
+            int heat = applications * 40 + favorites * 30 + (int) Math.round(positiveRate * 30D);
+
+            String relationship = teamPort.relationshipStatus(team.teamId(), userId);
+            boolean allowApply = List.of("NONE", "REJECTED").contains(relationship);
+            accepted.add(new RecommendationCandidate(trip, team, matchRate, heat, distanceMeters,
+                    timeGapMinutes, leaderRating, relationship, allowApply));
+        }
+
+        Comparator<RecommendationCandidate> comparator = switch (effectiveSort) {
+            case "DISTANCE" -> Comparator.comparingInt(RecommendationCandidate::distanceMeters);
+            case "TIME" -> Comparator.comparingLong(RecommendationCandidate::timeGapMinutes);
+            case "HEAT" -> Comparator.comparingInt(RecommendationCandidate::heat).reversed();
+            default -> Comparator.comparingInt((RecommendationCandidate value) ->
+                    value.matchRate() == null ? 0 : value.matchRate()).reversed();
+        };
+        accepted.sort(comparator
+                .thenComparing(candidate -> candidate.trip().departureTime())
+                .thenComparing(candidate -> candidate.trip().tripId()));
+
+        int fromIndex = Math.min(accepted.size(), (safePage - 1) * safePageSize);
+        int toIndex = Math.min(accepted.size(), fromIndex + safePageSize);
+        List<TripRecommendCardResponse> list = accepted.subList(fromIndex, toIndex).stream()
+                .map(this::toRecommendCard)
+                .toList();
+        // 只有实际返回到当前页的行程记录曝光，避免重复分页请求放大统计。
+        list.forEach(card -> log(userId, reference == null ? Long.valueOf(card.tripId()) : reference.tripId(),
+                Long.valueOf(card.tripId()), value(card.teamId()), "IMPRESSION", "RECOMMEND:" + effectiveSort));
+        return new TripRecommendPageResponse((long) accepted.size(), list, userHasTrip, effectiveSort,
+                reference == null ? null : String.valueOf(reference.tripId()));
+    }
+
+    @Override
     public TripDiscoverPageResponse discoverTrips(
             String keyword, String searchType, String sort, Double latitude, Double longitude, Long referenceTripId,
             String startCity, String destination, String departureDateFrom, String departureDateTo,
@@ -558,6 +683,24 @@ public class MatchServiceImpl implements MatchService {
 
     @Override
     @Transactional
+    public TripConsultationResponse greetTrip(Long tripId) {
+        Long userId = currentUserContext.requireUserId();
+        MatchTripDTO trip = requireRecruitingTrip(tripId);
+        if (userId.equals(trip.userId())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "不能向自己发布的行程打招呼");
+        }
+        if (tripConsultationMapper.pendingExists(tripId, userId) > 0) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "已经打过招呼，请等待队长回复");
+        }
+        // 推荐页问候使用固定、克制的文案，避免开放自由文本形成骚扰入口。
+        tripConsultationMapper.insert(SnowflakeIdGenerator.nextId(), tripId, trip.title(), userId, trip.userId(),
+                "你好，我对你的行程很感兴趣，想一起出发。");
+        return new TripConsultationResponse(String.valueOf(tripId), trip.title(), String.valueOf(userId),
+                String.valueOf(trip.userId()), "PENDING");
+    }
+
+    @Override
+    @Transactional
     public TripConsultationResponse consultTrip(Long tripId, String content) {
         Long userId = currentUserContext.requireUserId();
         MatchTripDTO trip = requireRecruitingTrip(tripId);
@@ -729,6 +872,116 @@ public class MatchServiceImpl implements MatchService {
     private String discoverText(MatchTripDTO trip, List<String> waypoints) {
         return normalizeLocation(String.join(" ", valueOrEmpty(trip.title()), valueOrEmpty(trip.startName()),
                 valueOrEmpty(trip.endName()), valueOrEmpty(trip.ownerNickname()), String.join(" ", waypoints)));
+    }
+
+    /** 将推荐候选转换为前端卡片。 */
+    private TripRecommendCardResponse toRecommendCard(RecommendationCandidate candidate) {
+        MatchTripDTO trip = candidate.trip();
+        MatchTeamDTO team = candidate.team();
+        int currentVehicles = Math.max(0, trip.joinedVehicleCount() == null ? 0 : trip.joinedVehicleCount());
+        int vehicleLimit = Math.max(currentVehicles, trip.maxVehicleCount() == null ? currentVehicles : trip.maxVehicleCount());
+        return new TripRecommendCardResponse(
+                String.valueOf(trip.tripId()), String.valueOf(team.teamId()),
+                StringUtils.hasText(team.teamName()) ? team.teamName() : trip.title(),
+                trip.startName(), trip.endName(), format(trip.departureTime()),
+                currentVehicles, vehicleLimit, candidate.matchRate(), candidate.heat(),
+                candidate.distanceMeters(), Math.round(candidate.distanceMeters() / 100D) / 10D,
+                candidate.timeGapMinutes(), Math.round(candidate.leaderRating() * 10D) / 10D,
+                String.valueOf(trip.userId()), trip.ownerNickname(), trip.ownerAvatarImageKey(),
+                candidate.relationshipStatus(), true, candidate.allowApply(), trip.status());
+    }
+
+    /**
+     * 严格按需求权重计算综合顺路率：空间 50%、时间 25%、节奏 15%、站点 10%。
+     */
+    private int recommendationMatchRate(MatchTripDTO source, MatchTripDTO target) {
+        int spatial = spatialMatchScore(source, target);
+        int time = timeMatchScore(source.departureTime(), target.departureTime());
+        int pace = paceMatchScore(source, target);
+        int stops = stationMatchScore(waypointNames(source.waypointsJson()), waypointNames(target.waypointsJson()));
+        return Math.max(0, Math.min(100, (int) Math.round(
+                spatial * 0.50D + time * 0.25D + pace * 0.15D + stops * 0.10D)));
+    }
+
+    /** 空间匹配综合真实路线重合和起终点接近度，结果统一为 0~100。 */
+    private int spatialMatchScore(MatchTripDTO source, MatchTripDTO target) {
+        int routeOverlap = routeOverlapRate(source.routePolyline(), target.routePolyline());
+        int start = proximityScore(distanceKm(source.startLatitude(), source.startLongitude(),
+                target.startLatitude(), target.startLongitude()), 100, 100);
+        int end = proximityScore(distanceKm(source.endLatitude(), source.endLongitude(),
+                target.endLatitude(), target.endLongitude()), 100, 150);
+        // 有真实路线时以路线重合为主；路线缺失时由起终点接近度安全补足。
+        if (routeOverlap <= 0) return (start + end) / 2;
+        return (int) Math.round(routeOverlap * 0.60D + start * 0.20D + end * 0.20D);
+    }
+
+    /** 3 天时间窗口内线性衰减，时间完全一致为 100。 */
+    private int timeMatchScore(LocalDateTime source, LocalDateTime target) {
+        if (source == null || target == null) return 0;
+        long gap = Math.abs(Duration.between(source, target).toMinutes());
+        return (int) Math.round(100D * Math.max(0D,
+                1D - (double) gap / RECOMMEND_MAX_TIME_GAP_MINUTES));
+    }
+
+    /**
+     * 行程节奏由旅行深度标签与日均里程共同判断。两者各占该维度的一半，避免只比较
+     * 一个文本标签或只比较路线长度。
+     */
+    private int paceMatchScore(MatchTripDTO source, MatchTripDTO target) {
+        int depthScore;
+        if (!StringUtils.hasText(source.travelDepth()) || !StringUtils.hasText(target.travelDepth())) {
+            depthScore = 70;
+        } else {
+            depthScore = source.travelDepth().equalsIgnoreCase(target.travelDepth()) ? 100 : 40;
+        }
+        double sourceDaily = dailyDistance(source);
+        double targetDaily = dailyDistance(target);
+        int distanceScore = sourceDaily <= 0 || targetDaily <= 0 ? 70
+                : (int) Math.round(Math.min(sourceDaily, targetDaily) / Math.max(sourceDaily, targetDaily) * 100D);
+        return (depthScore + distanceScore) / 2;
+    }
+
+    private double dailyDistance(MatchTripDTO trip) {
+        if (trip.routeDistance() == null || trip.routeDistance() <= 0) return 0D;
+        return (double) trip.routeDistance() / Math.max(1, trip.estimatedDays() == null ? 1 : trip.estimatedDays());
+    }
+
+    /** 途经站点使用 Jaccard 相似度；两边都无途经点视为同样的直达节奏。 */
+    private int stationMatchScore(List<String> source, List<String> target) {
+        Set<String> left = source.stream().map(this::normalizeLocation).filter(StringUtils::hasText)
+                .collect(java.util.stream.Collectors.toSet());
+        Set<String> right = target.stream().map(this::normalizeLocation).filter(StringUtils::hasText)
+                .collect(java.util.stream.Collectors.toSet());
+        if (left.isEmpty() && right.isEmpty()) return 100;
+        Set<String> union = new HashSet<>(left);
+        union.addAll(right);
+        Set<String> intersection = new HashSet<>(left);
+        intersection.retainAll(right);
+        return union.isEmpty() ? 0 : (int) Math.round(intersection.size() * 100D / union.size());
+    }
+
+    /** 规范化推荐排序，并在无行程时把 match_rate 自动切换为 heat。 */
+    private String normalizeRecommendSort(String sortBy, boolean userHasTrip) {
+        String normalized = StringUtils.hasText(sortBy)
+                ? sortBy.trim().toLowerCase(Locale.ROOT) : "match_rate";
+        return switch (normalized) {
+            case "distance" -> "DISTANCE";
+            case "time" -> "TIME";
+            case "match_rate", "heat" -> userHasTrip ? "MATCH_RATE" : "HEAT";
+            default -> userHasTrip ? "MATCH_RATE" : "HEAT";
+        };
+    }
+
+    /** 为可空 Double 提供原始类型默认值。 */
+    private double value(Double value, double fallback) {
+        return value == null ? fallback : value;
+    }
+
+    /** 推荐页内部候选，先统一过滤再排序分页。 */
+    private record RecommendationCandidate(
+            MatchTripDTO trip, MatchTeamDTO team, Integer matchRate, int heat, int distanceMeters,
+            long timeGapMinutes, double leaderRating, String relationshipStatus, boolean allowApply
+    ) {
     }
 
     /**

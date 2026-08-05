@@ -23,12 +23,23 @@ public interface TeamTripPort {
     /** 车队模块依赖的行程最小字段集合。 */
     record TeamTripDTO(
             Long tripId,
-            Long ownerUserId,
+            Long publisherUserId,
+            Long captainUserId,
+            Long vehicleId,
+            String tripType,
             String startName,
             String endName,
             LocalDateTime departureTime,
             String status
     ) {
+        /** 只有已认证车主发布的司机行程才能创建车队。 */
+        public boolean driverLedBy(Long userId) {
+            return "DRIVER_TRIP".equals(tripType)
+                    && userId != null
+                    && userId.equals(captainUserId)
+                    && vehicleId != null;
+        }
+
         public boolean running() {
             return "RUNNING".equals(status) || "ONGOING".equals(status);
         }

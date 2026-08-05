@@ -103,4 +103,25 @@ public interface DriverTrackRecordMapper {
     int countRecentHardAnomalies(@Param("tripId") Long tripId,
                                  @Param("driverId") Long driverId,
                                  @Param("since") LocalDateTime since);
+
+    /** 查询行程内每位成员最近一个有效位置，用于地图三态和失联巡检。 */
+    @Select("""
+            select r.id, r.trip_id, r.driver_id, r.longitude, r.latitude, r.altitude, r.speed,
+                   r.direction, r.accuracy, r.raw_distance_from_prev, r.distance_from_prev,
+                   r.calculated_speed_kmh, r.provider, r.app_state, r.battery_level, r.device_id,
+                   r.sequence_no, r.mock_location, r.point_status, r.valid_point, r.risk_score,
+                   r.risk_flags, r.reject_reason, r.record_time, r.client_send_time,
+                   r.server_receive_time, r.created_at, r.deleted
+            from driver_track_record r
+            join (
+                select driver_id, max(record_time) as max_record_time
+                from driver_track_record
+                where trip_id = #{tripId} and valid_point = 1 and deleted = 0
+                group by driver_id
+            ) latest on latest.driver_id = r.driver_id and latest.max_record_time = r.record_time
+            where r.trip_id = #{tripId} and r.valid_point = 1 and r.deleted = 0
+            order by r.driver_id asc
+            """)
+    List<DriverTrackRecord> findLatestValidByTripId(@Param("tripId") Long tripId);
+
 }

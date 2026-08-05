@@ -12,6 +12,7 @@ import '../../../data/services/app_services.dart';
 import '../../profile/widgets/user_avatar.dart';
 import 'trip_create_page.dart';
 import 'trip_detail_page.dart';
+import 'trip_discovery_detail_page.dart';
 import 'trip_discovery_page.dart';
 import 'trip_drafts_page.dart';
 import 'trip_overview_page.dart';
@@ -26,12 +27,69 @@ class TripHomePage extends StatefulWidget {
 
 class _TripHomePageState extends State<TripHomePage> {
   int section = 0;
+  int refreshVersion = 0;
+  TripModel? pinnedTrip;
+  bool loadingPinned = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadPinnedTrip());
+  }
+
+  /// 查询当前行程置顶区。优先展示正在进行的行程，没有时展示最近一条
+  /// 待出发行程；推荐接口仍会在后端独立判断“是否有自己的基准行程”。
+  Future<void> _loadPinnedTrip() async {
+    try {
+      final dashboard = Map<String, dynamic>.from(
+        await TripService(context.read<AppSession>().api).dashboard(),
+      );
+      TripModel? next;
+      if (dashboard['currentTrip'] is Map) {
+        next = TripModel.fromJson(
+          Map<String, dynamic>.from(dashboard['currentTrip'] as Map),
+        );
+      } else {
+        final upcoming = (dashboard['upcomingTrips'] as List? ?? const [])
+            .whereType<Map>();
+        if (upcoming.isNotEmpty) {
+          next = TripModel.fromJson(
+            Map<String, dynamic>.from(upcoming.first),
+          );
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        pinnedTrip = next;
+        loadingPinned = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => loadingPinned = false);
+    }
+  }
 
   Future<void> _openCreateTrip() async {
-    await Navigator.push<bool>(
+    final created = await Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (_) => const TripCreatePage()),
     );
+    if (!mounted || created != true) return;
+    setState(() => refreshVersion++);
+    await _loadPinnedTrip();
+  }
+
+  Future<void> _openPinnedTrip() async {
+    final trip = pinnedTrip;
+    if (trip == null) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TripDetailPage(tripId: trip.id, initial: trip),
+      ),
+    );
+    if (!mounted) return;
+    setState(() => refreshVersion++);
+    await _loadPinnedTrip();
   }
 
   @override
@@ -51,51 +109,74 @@ class _TripHomePageState extends State<TripHomePage> {
           child: SafeArea(
             bottom: false,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 7),
-              child: Stack(
-                alignment: Alignment.center,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Row(
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _TopTab(
-                        label: '发现行程',
-                        active: section == 0,
-                        onTap: () => setState(() => section = 0),
+                  const Expanded(
+                    child: Text(
+                      '行程',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 21,
+                        fontWeight: FontWeight.w900,
                       ),
-                      const SizedBox(width: 42),
-                      _TopTab(
-                        label: '我的行程',
-                        active: section == 1,
-                        onTap: () => setState(() => section = 1),
-                      ),
-                    ],
-                  ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: IconButton(
-                      tooltip: '创建行程',
-                      onPressed: _openCreateTrip,
-                      style: IconButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        backgroundColor: const Color(0x33FFFFFF),
-                      ),
-                      icon: const Icon(LucideIcons.plus, size: 25),
                     ),
+                  ),
+                  IconButton(
+                    tooltip: '发布新行程',
+                    onPressed: _openCreateTrip,
+                    style: IconButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: const Color(0x33FFFFFF),
+                    ),
+                    icon: const Icon(LucideIcons.plus, size: 24),
                   ),
                 ],
               ),
             ),
           ),
         ),
+        // 当前行程始终位于一级切换入口上方，符合“当前行程置顶区”的页面结构。
+        if (loadingPinned)
+          const LinearProgressIndicator(minHeight: 2)
+        else if (pinnedTrip != null)
+          _PinnedCurrentTripCard(
+            trip: pinnedTrip!,
+            onTap: _openPinnedTrip,
+          ),
+        Container(
+          height: 50,
+          color: Colors.white,
+          child: Row(
+            children: [
+              _TopTab(
+                label: '推荐',
+                active: section == 0,
+                onTap: () => setState(() => section = 0),
+              ),
+              _TopTab(
+                label: '我的行程',
+                active: section == 1,
+                onTap: () => setState(() => section = 1),
+              ),
+            ],
+          ),
+        ),
         Expanded(
           child: ColoredBox(
             color: TripDiscoveryColors.pageBackground,
-            // 只挂载当前页，避免“我的行程”在隐藏状态加载数据并触发布局断言。
             child: KeyedSubtree(
-              key: ValueKey<int>(section),
+              key: ValueKey<String>('$section-$refreshVersion'),
               child: section == 0
-                  ? const TripDiscoveryPage()
+                  ? TripDiscoveryPage(
+                      userHasTrip: pinnedTrip != null,
+                      onTripCreated: () {
+                        setState(() => refreshVersion++);
+                        _loadPinnedTrip();
+                      },
+                      onApplicationSubmitted: () =>
+                          setState(() => refreshVersion++),
+                    )
                   : const _MyTripsPage(),
             ),
           ),
@@ -117,32 +198,107 @@ class _TopTab extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(12),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+  Widget build(BuildContext context) => Expanded(
+    child: InkWell(
+      onTap: onTap,
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.end,
         children: [
           Text(
             label,
             style: TextStyle(
-              color: active ? Colors.white : Colors.white70,
-              fontSize: 16,
+              color: active ? AppColors.primary : AppColors.secondaryText,
+              fontSize: 15,
               fontWeight: active ? FontWeight.w900 : FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 9),
           Container(
-            width: 27,
+            width: 42,
             height: 3,
             decoration: BoxDecoration(
-              color: active ? Colors.white : Colors.transparent,
+              color: active ? AppColors.primary : Colors.transparent,
               borderRadius: BorderRadius.circular(99),
             ),
           ),
         ],
+      ),
+    ),
+  );
+}
+
+class _PinnedCurrentTripCard extends StatelessWidget {
+  const _PinnedCurrentTripCard({required this.trip, required this.onTap});
+
+  final TripModel trip;
+  final VoidCallback onTap;
+
+  String get departureLabel {
+    final value = DateTime.tryParse(
+      (trip.departureTime ?? '').replaceFirst(' ', 'T'),
+    );
+    if (value == null) return '时间待定';
+    return '${value.month}月${value.day}日 '
+        '${value.hour.toString().padLeft(2, '0')}:'
+        '${value.minute.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) => Container(
+    color: Colors.white,
+    padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+    child: Material(
+      color: const Color(0xFFF5F9FF),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(13),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  LucideIcons.navigation,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '当前行程',
+                      style: TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${trip.startName} → ${trip.endName} · $departureLabel',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                LucideIcons.chevronRight,
+                color: AppColors.muted,
+              ),
+            ],
+          ),
+        ),
       ),
     ),
   );
@@ -159,6 +315,7 @@ class _MyTripsPageState extends State<_MyTripsPage> {
   TripModel? current;
   List<TripModel> upcoming = const [];
   List<TripModel> recent = const [];
+  List<TripApplicationModel> pendingApplications = const [];
   Map<String, dynamic> profile = const {};
   bool loading = true;
   String? error;
@@ -180,6 +337,9 @@ class _MyTripsPageState extends State<_MyTripsPage> {
     final profileFuture = UserProfileService(
       api,
     ).me().catchError((_) => <String, dynamic>{});
+    final applicationsFuture = TripDiscoveryService(api)
+        .myApplications()
+        .catchError((_) => <TripApplicationModel>[]);
     try {
       final dashboard = Map<String, dynamic>.from(
         await TripService(api).dashboard(),
@@ -193,11 +353,15 @@ class _MyTripsPageState extends State<_MyTripsPage> {
       final nextUpcoming = _tripList(dashboard['upcomingTrips']);
       final nextRecent = _tripList(dashboard['recentTrips']);
       final loadedProfile = await profileFuture;
+      final loadedApplications = await applicationsFuture;
       if (mounted) {
         setState(() {
           current = nextCurrent;
           upcoming = nextUpcoming;
           recent = nextRecent;
+          pendingApplications = loadedApplications
+              .where((application) => application.status == 'PENDING')
+              .toList();
           profile = Map<String, dynamic>.from(loadedProfile);
         });
       }
@@ -217,11 +381,15 @@ class _MyTripsPageState extends State<_MyTripsPage> {
           TripService(api).mine(scope: 'history'),
         ]);
         final loadedProfile = await profileFuture;
+        final loadedApplications = await applicationsFuture;
         if (mounted) {
           setState(() {
             current = values[0] as TripModel?;
             upcoming = List<TripModel>.from(values[1] as List);
             recent = List<TripModel>.from(values[2] as List);
+            pendingApplications = loadedApplications
+                .where((application) => application.status == 'PENDING')
+                .toList();
             profile = Map<String, dynamic>.from(loadedProfile);
           });
         }
@@ -276,6 +444,50 @@ class _MyTripsPageState extends State<_MyTripsPage> {
             onHistory: () => open(const TripOverviewPage(historyMode: true)),
             onCreate: () => open(const TripCreatePage()),
           ),
+          if (pendingApplications.isNotEmpty) ...[
+            const SizedBox(height: 22),
+            const Row(
+              children: [
+                Text(
+                  '待出发 · 待审批',
+                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ...pendingApplications.map(
+              (application) => Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: const CircleAvatar(
+                    child: Icon(LucideIcons.clock3, size: 19),
+                  ),
+                  title: Text(
+                    application.conversationName.isEmpty
+                        ? '行程入队申请'
+                        : application.conversationName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: const Text('申请已提交，等待队长审批'),
+                  trailing: const Text(
+                    '待审批',
+                    style: TextStyle(
+                      color: Color(0xFFF59E0B),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  onTap: application.tripId.isEmpty
+                      ? null
+                      : () => open(
+                          TripDiscoveryDetailPage(
+                            tripId: application.tripId,
+                          ),
+                        ),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 22),
           Row(
             children: [

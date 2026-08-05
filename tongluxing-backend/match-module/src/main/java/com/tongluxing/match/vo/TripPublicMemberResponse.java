@@ -13,6 +13,7 @@ package com.tongluxing.match.vo;
  */
 public record TripPublicMemberResponse(
         String userId, String nickname, String avatarImageKey, String role,
-        String certificationStatus, Integer totalTripCount, Long totalDistanceMeters
+        String certificationStatus, Integer totalTripCount, Long totalDistanceMeters,
+        String vehicleId, String vehicleSummary, String plateMask
 ) {
 }

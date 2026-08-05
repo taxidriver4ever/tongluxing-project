@@ -21,6 +21,18 @@ public class Team {
     private Integer maxMemberCount;
     private Integer currentMemberCount;
     private String joinMode;
+    /** OPEN、PAUSED、CLOSED。 */
+    private String recruitmentStatus;
+    /** 行程进行中是否允许继续申请。 */
+    private Integer allowMidwayJoin;
+    private Integer deviationWarningDistanceM;
+    private Integer deviationWarningMinutes;
+    private Integer severeDeviationDistanceM;
+    private Integer severeDeviationMinutes;
+    private Integer missingLocationMinutes;
+    private Integer joinRadiusM;
+    /** OPEN、STANDARD、PRIVATE。 */
+    private String privacyLevel;
     private String teamStatus;
     private Integer publicFlag;
     private Long chatConversationId;

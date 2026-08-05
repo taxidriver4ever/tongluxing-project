@@ -50,3 +50,40 @@ create table if not exists notify_delivery_log (
     key idx_notify_delivery_message (message_id, channel),
     key idx_notify_delivery_retry (delivery_status, next_retry_at)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci comment='通知投递日志表';
+
+
+create table if not exists app_push_device (
+    id bigint primary key comment '记录主键',
+    user_id bigint not null comment '平台用户ID',
+    device_id varchar(128) not null comment '设备唯一标识',
+    platform varchar(16) not null comment 'ANDROID、IOS',
+    vendor varchar(32) not null default 'GENERIC' comment '推送厂商',
+    push_token varchar(512) not null comment '系统推送Token',
+    app_version varchar(32) null comment 'App版本',
+    enabled tinyint(1) not null default 1 comment '是否启用',
+    last_seen_at datetime not null comment '最近活跃时间',
+    created_at datetime not null comment '创建时间',
+    updated_at datetime not null comment '更新时间',
+    deleted tinyint(1) not null default 0 comment '逻辑删除',
+    unique key uk_push_device (user_id, device_id, deleted),
+    key idx_push_device_user_enabled (user_id, enabled, updated_at)
+) engine=InnoDB default charset=utf8mb4 comment='App系统推送设备表';
+
+create table if not exists app_push_task (
+    id bigint primary key comment '记录主键',
+    user_id bigint not null comment '接收用户ID',
+    event_type varchar(64) not null comment '事件类型',
+    title varchar(128) not null comment '推送标题',
+    content varchar(512) not null comment '推送内容',
+    payload_json json null comment '客户端跳转参数',
+    idempotency_key varchar(128) not null comment '幂等键',
+    delivery_status varchar(24) not null default 'PENDING' comment 'PENDING、SENT、FAILED、SKIPPED',
+    retry_count int not null default 0 comment '重试次数',
+    next_retry_at datetime null comment '下次重试时间',
+    last_error varchar(512) null comment '最后错误',
+    created_at datetime not null comment '创建时间',
+    updated_at datetime not null comment '更新时间',
+    deleted tinyint(1) not null default 0 comment '逻辑删除',
+    unique key uk_push_task_idempotency (idempotency_key, deleted),
+    key idx_push_task_delivery (delivery_status, next_retry_at, created_at)
+) engine=InnoDB default charset=utf8mb4 comment='App系统推送任务表';

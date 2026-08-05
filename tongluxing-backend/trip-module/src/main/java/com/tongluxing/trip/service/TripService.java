@@ -4,9 +4,11 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import com.tongluxing.trip.dto.CreateTripRequest;
+import com.tongluxing.trip.dto.ContinueTripRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
 import com.tongluxing.trip.dto.TripTimeConflictRequest;
 import com.tongluxing.trip.vo.ActiveTripStateResponse;
+import com.tongluxing.trip.vo.ArrivalDecisionResponse;
 import com.tongluxing.trip.vo.MyTripDashboardResponse;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
@@ -64,6 +66,28 @@ public interface TripService {
      * 结束行程。
      */
     TripResponse endTrip(Long tripId);
+
+
+    /** 查询到达终点后的结束/继续选择状态。 */
+    ArrivalDecisionResponse getArrivalDecision(Long tripId);
+
+    /** 队长确认结束已到达的行程。 */
+    TripResponse finishArrival(Long tripId);
+
+    /** 队长选择继续行程，并设置新的终点重新规划路线。 */
+    TripResponse continueTrip(Long tripId, ContinueTripRequest request);
+
+    /**
+     * 系统自动出发入口。
+     *
+     * <p>仅供生命周期协调器调用；成员范围检测完成后，按幂等方式创建执行记录并推进状态。</p>
+     */
+    TripResponse autoStartTrip(Long tripId, List<Long> participantUserIds);
+
+    /**
+     * 到达终点后超过决策时限的系统自动结束入口。
+     */
+    TripResponse autoFinishArrival(Long tripId);
 
     /**
      * 取消行程。

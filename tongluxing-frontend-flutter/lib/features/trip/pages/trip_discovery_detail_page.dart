@@ -9,6 +9,7 @@ import '../../../common/utils/display_text.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/app_services.dart';
 import '../../../data/services/follow_service.dart';
+import '../../../data/services/location_snapshot.dart';
 import '../../chat/pages/chat_session_page.dart';
 import '../../profile/pages/profile_system_pages.dart';
 import '../../profile/widgets/user_avatar.dart';
@@ -121,21 +122,41 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _ApplySheet(trip: detail!.trip),
+      builder: (_) => _ApplySheet(trip: detail!.trip, members: detail!.members),
     );
     if (request == null || !mounted) return;
     setState(() => actionBusy = true);
     try {
+      final returning = [
+        'EXITED',
+        'REMOVED',
+      ].contains(detail!.trip.relationshipStatus);
+      final location = returning ? LocationSnapshot.current : null;
+      if (returning && location == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('申请归队前请先在地图页完成一次真实定位')));
+        return;
+      }
       await TripDiscoveryService(context.read<AppSession>().api).apply(
         widget.tripId,
         message: request.message,
         selfDrive: request.selfDrive,
         vehicleId: request.vehicleId,
+        linkedOwnerUserId: request.linkedOwnerUserId,
+        linkedVehicleId: request.linkedVehicleId,
+        plateNumber: request.plateNumber,
+        applicationType: returning ? 'RETURN' : 'JOIN',
+        currentLatitude: location?.latitude,
+        currentLongitude: location?.longitude,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('申请已提交，请等待队长审核')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(returning ? '归队申请已提交，请等待队长审核' : '申请已提交，请等待队长审核'),
+        ),
+      );
       await load();
     } catch (e) {
       if (mounted) {
@@ -369,6 +390,7 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
 
   VoidCallback? _primaryAction(TripPublicDetailModel value) {
     if (value.ownerTrip) {
+      // 乘客发布的是出行需求，不具备队长/车队管理权限，只能查看和编辑自己的需求。
       return _openOwnerManagement;
     }
     if (value.trip.relationshipStatus == 'JOINED') return openChat;
@@ -386,7 +408,9 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
   }
 
   String _primaryLabel(TripPublicDetailModel value) {
-    if (value.ownerTrip) return '进入行程管理';
+    if (value.ownerTrip) {
+      return value.trip.passengerDemand ? '查看出行需求' : '进入行程管理';
+    }
     return switch (value.trip.relationshipStatus) {
       'JOINED' => '进入群聊',
       'PENDING' => '审核中',
@@ -404,7 +428,7 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
       value.trip.relationshipStatus == 'JOINED'
       ? LucideIcons.messageCircle
       : value.ownerTrip
-      ? LucideIcons.settings
+      ? (value.trip.passengerDemand ? LucideIcons.eye : LucideIcons.settings)
       : LucideIcons.send;
 }
 
@@ -1324,46 +1348,65 @@ class _BottomAction extends StatelessWidget {
 }
 
 class _ApplyRequest {
-  const _ApplyRequest(this.message, this.selfDrive, this.vehicleId);
+  const _ApplyRequest({
+    required this.message,
+    required this.selfDrive,
+    this.vehicleId,
+    this.linkedOwnerUserId,
+    this.linkedVehicleId,
+    this.plateNumber,
+  });
+
   final String message;
   final bool selfDrive;
   final String? vehicleId;
+  final String? linkedOwnerUserId;
+  final String? linkedVehicleId;
+  final String? plateNumber;
 }
 
 class _ApplySheet extends StatefulWidget {
-  const _ApplySheet({required this.trip});
+  const _ApplySheet({required this.trip, required this.members});
   final TripDiscoverModel trip;
+  final List<TripPublicMemberModel> members;
+
   @override
   State<_ApplySheet> createState() => _ApplySheetState();
 }
 
 class _ApplySheetState extends State<_ApplySheet> {
-  final message = TextEditingController(text: '路线很合适，希望能一起出发');
+  late final message = TextEditingController(
+    text: returning ? '希望申请归队，当前位置已随申请提交' : '路线很合适，希望能一起出发',
+  );
+  final plateNumber = TextEditingController();
   bool selfDrive = false;
-  bool eligibilityLoading = true;
-  bool drivingLicenseApproved = false;
+  bool vehicleLoading = true;
   VehicleModel? primaryVehicle;
+  String passengerLinkMode = 'NONE';
+  TripPublicMemberModel? linkedMember;
+
+  bool get returning =>
+      ['EXITED', 'REMOVED'].contains(widget.trip.relationshipStatus);
 
   bool get canDrive =>
-      drivingLicenseApproved &&
-      primaryVehicle != null &&
-      primaryVehicle!.status == 'APPROVED';
+      primaryVehicle != null && primaryVehicle!.status == 'APPROVED';
+
+  List<TripPublicMemberModel> get vehicleMembers => widget.members
+      .where((member) => member.vehicleId?.isNotEmpty == true)
+      .toList(growable: false);
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(_loadDrivingEligibility);
+    Future.microtask(_loadPrimaryVehicle);
   }
 
-  Future<void> _loadDrivingEligibility() async {
+  /// P0 只要求行驶证认证；申请自驾时不再检查驾驶证状态。
+  Future<void> _loadPrimaryVehicle() async {
     try {
-      final api = context.read<AppSession>().api;
-      final values = await Future.wait<dynamic>([
-        UserProfileService(api).me(),
-        VehicleService(api).mine(),
-      ]);
-      final profile = Map<String, dynamic>.from(values[0] as Map);
-      final vehicles = values[1] as List<VehicleModel>;
+      final vehicles = await VehicleService(
+        context.read<AppSession>().api,
+      ).mine();
       VehicleModel? selected;
       for (final vehicle in vehicles) {
         if (vehicle.isDefault && vehicle.status == 'APPROVED') {
@@ -1373,32 +1416,33 @@ class _ApplySheetState extends State<_ApplySheet> {
       }
       if (!mounted) return;
       setState(() {
-        drivingLicenseApproved =
-            profile['drivingLicenseCertificationStatus'] == 'APPROVED';
         primaryVehicle = selected;
-        eligibilityLoading = false;
+        vehicleLoading = false;
         if (!canDrive) selfDrive = false;
       });
     } catch (_) {
-      if (mounted) {
-        setState(() {
-          eligibilityLoading = false;
-          selfDrive = false;
-        });
-      }
+      if (mounted) setState(() => vehicleLoading = false);
     }
   }
 
   String get drivingEligibilityText {
-    if (eligibilityLoading) return '正在检查驾驶证、行驶证和主要车辆';
-    if (!drivingLicenseApproved) return '驾驶证认证通过后可选择';
-    if (primaryVehicle == null) return '请先设置一辆已通过行驶证认证的主要车辆';
+    if (vehicleLoading) return '正在检查主要车辆的行驶证认证状态';
+    if (primaryVehicle == null) return '请先添加并认证一辆主要车辆';
     return '主要车辆：${primaryVehicle!.brand} ${primaryVehicle!.model} · ${primaryVehicle!.plate}';
+  }
+
+  bool get canSubmit {
+    if (message.text.trim().isEmpty) return false;
+    if (selfDrive) return canDrive;
+    if (passengerLinkMode == 'TEAM_VEHICLE') return linkedMember != null;
+    if (passengerLinkMode == 'PLATE') return plateNumber.text.trim().isNotEmpty;
+    return true;
   }
 
   @override
   void dispose() {
     message.dispose();
+    plateNumber.dispose();
     super.dispose();
   }
 
@@ -1421,9 +1465,12 @@ class _ApplySheetState extends State<_ApplySheet> {
                 child: SizedBox(width: 40, child: Divider(thickness: 4)),
               ),
               const SizedBox(height: 12),
-              const Text(
-                '申请加入行程',
-                style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+              Text(
+                returning ? '申请归队' : '申请加入行程',
+                style: const TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const SizedBox(height: 6),
               Text(
@@ -1433,39 +1480,119 @@ class _ApplySheetState extends State<_ApplySheet> {
               const SizedBox(height: 16),
               TextField(
                 controller: message,
+                onChanged: (_) => setState(() {}),
                 minLines: 3,
                 maxLines: 5,
-                decoration: const InputDecoration(
-                  labelText: '申请说明',
+                decoration: InputDecoration(
+                  labelText: returning ? '归队备注' : '申请说明',
                   alignLabelWithHint: true,
-                  contentPadding: EdgeInsets.fromLTRB(16, 20, 16, 14),
+                  contentPadding: const EdgeInsets.fromLTRB(16, 20, 16, 14),
                 ),
               ),
               const SizedBox(height: 12),
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('我会开车'),
+                title: const Text('我作为车主自驾加入'),
                 subtitle: Text(drivingEligibilityText),
                 value: selfDrive,
                 onChanged: canDrive
-                    ? (value) => setState(() => selfDrive = value)
+                    ? (value) => setState(() {
+                        selfDrive = value;
+                        if (value) passengerLinkMode = 'NONE';
+                      })
                     : null,
               ),
+              if (!selfDrive) ...[
+                const SizedBox(height: 6),
+                const Text(
+                  '乘客关联车辆',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  initialValue: passengerLinkMode,
+                  decoration: const InputDecoration(labelText: '关联方式'),
+                  items: const [
+                    DropdownMenuItem(value: 'NONE', child: Text('暂不关联车辆')),
+                    DropdownMenuItem(
+                      value: 'TEAM_VEHICLE',
+                      child: Text('选择队内车辆'),
+                    ),
+                    DropdownMenuItem(value: 'PLATE', child: Text('输入车牌关联车主')),
+                  ],
+                  onChanged: (value) => setState(() {
+                    passengerLinkMode = value ?? 'NONE';
+                    linkedMember = null;
+                    plateNumber.clear();
+                  }),
+                ),
+                if (passengerLinkMode == 'TEAM_VEHICLE') ...[
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: linkedMember?.userId,
+                    decoration: const InputDecoration(labelText: '队内车辆'),
+                    hint: Text(vehicleMembers.isEmpty ? '暂无可选队内车辆' : '请选择车主车辆'),
+                    items: vehicleMembers
+                        .map(
+                          (member) => DropdownMenuItem(
+                            value: member.userId,
+                            child: Text(
+                              '${member.nickname} · ${member.vehicleSummary.isEmpty ? member.plateMask : member.vehicleSummary}',
+                            ),
+                          ),
+                        )
+                        .toList(growable: false),
+                    onChanged: (userId) {
+                      TripPublicMemberModel? selected;
+                      for (final member in vehicleMembers) {
+                        if (member.userId == userId) {
+                          selected = member;
+                          break;
+                        }
+                      }
+                      setState(() => linkedMember = selected);
+                    },
+                  ),
+                ],
+                if (passengerLinkMode == 'PLATE') ...[
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: plateNumber,
+                    onChanged: (_) => setState(() {}),
+                    textCapitalization: TextCapitalization.characters,
+                    maxLength: 12,
+                    decoration: const InputDecoration(
+                      labelText: '车牌号',
+                      helperText: '提交后仅保存脱敏车牌，由车主确认关联',
+                    ),
+                  ),
+                ],
+              ],
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: message.text.trim().isEmpty
-                      ? null
-                      : () => Navigator.pop(
+                  onPressed: canSubmit
+                      ? () => Navigator.pop(
                           context,
                           _ApplyRequest(
-                            message.text.trim(),
-                            selfDrive,
-                            selfDrive ? primaryVehicle?.id : null,
+                            message: message.text.trim(),
+                            selfDrive: selfDrive,
+                            vehicleId: selfDrive ? primaryVehicle?.id : null,
+                            linkedOwnerUserId: selfDrive
+                                ? null
+                                : linkedMember?.userId,
+                            linkedVehicleId: selfDrive
+                                ? null
+                                : linkedMember?.vehicleId,
+                            plateNumber:
+                                selfDrive || passengerLinkMode != 'PLATE'
+                                ? null
+                                : plateNumber.text.trim(),
                           ),
-                        ),
-                  child: const Text('提交申请'),
+                        )
+                      : null,
+                  child: Text(returning ? '提交归队申请' : '提交申请'),
                 ),
               ),
             ],

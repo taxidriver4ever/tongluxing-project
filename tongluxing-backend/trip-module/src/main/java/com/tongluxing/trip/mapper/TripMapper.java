@@ -70,6 +70,34 @@ public interface TripMapper {
             """)
     List<Trip> findActiveByUserId(@Param("userId") Long userId);
 
+    /**
+     * 查询推荐模块使用的自有基准行程。
+     *
+     * <p>进行中优先，其次按计划出发时间选择最近一条待出发行程。只读取用户自己
+     * 发布的行程，保证距离和时间基准符合推荐规则。</p>
+     */
+    @Select("""
+            select id, trip_number, user_id, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+                   start_location_name, start_location_address, start_latitude, start_longitude,
+                   end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
+                   route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                   departure_time, estimated_days, total_distance_meters,
+                   max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, remark,
+                   actual_start_time, actual_end_time, created_at, updated_at, deleted
+            from trip
+            where user_id = #{userId}
+              and deleted = 0
+              and departure_time is not null
+              and status in ('PUBLISHED', 'RECRUITING', 'READY', 'CONFIRMING', 'RUNNING', 'ONGOING')
+              and (status in ('RUNNING', 'ONGOING') or departure_time >= now())
+            order by case when status in ('RUNNING', 'ONGOING') then 0 else 1 end,
+                     case when departure_time >= now() then 0 else 1 end,
+                     abs(timestampdiff(second, now(), departure_time)),
+                     created_at desc
+            limit 1
+            """)
+    Trip findRecommendationReferenceByUserId(@Param("userId") Long userId);
+
     /** 查询用户作为发布者拥有的进行中行程 ID。 */
     @Select("""
             select id

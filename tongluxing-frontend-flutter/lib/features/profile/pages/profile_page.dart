@@ -10,6 +10,7 @@ import '../../../common/utils/display_text.dart';
 import '../../../data/services/app_services.dart';
 import '../../invite/pages/invite_bind_page.dart';
 import '../../invite/services/invite_service.dart';
+import '../../team/pages/team_page.dart';
 import 'customer_support_page.dart';
 import 'driving_license_page.dart';
 import 'invite_page.dart';
@@ -32,6 +33,7 @@ class ProfilePageState extends State<ProfilePage> {
   Map<String, dynamic>? merchantApplication;
   String inviteBindSubtitle = '注册 7 天内可填写';
   String avatarUrl = '';
+  bool hasApprovedVehicle = false;
   bool loading = false;
 
   @override
@@ -52,6 +54,14 @@ class ProfilePageState extends State<ProfilePage> {
         MerchantOnboardingService(api).latest(),
       ]);
       final nextProfile = Map<String, dynamic>.from(values[0] as Map);
+      var nextHasApprovedVehicle = false;
+      try {
+        // P0 身份不由用户手选：存在已通过行驶证认证的车辆即识别为车主。
+        final vehicles = await VehicleService(api).mine();
+        nextHasApprovedVehicle = vehicles.any((vehicle) => vehicle.status == 'APPROVED');
+      } catch (_) {
+        // 身份补充信息失败时不阻断个人中心主体资料。
+      }
       var nextInviteBindSubtitle = inviteBindSubtitle;
       try {
         final status = await InviteBindingService(api).bindStatus();
@@ -76,6 +86,7 @@ class ProfilePageState extends State<ProfilePage> {
           merchantApplication = values[1] as Map<String, dynamic>?;
           inviteBindSubtitle = nextInviteBindSubtitle;
           avatarUrl = nextAvatarUrl;
+          hasApprovedVehicle = nextHasApprovedVehicle;
         });
       }
     } catch (_) {
@@ -247,6 +258,19 @@ class ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
               ],
+              const SizedBox(height: 10),
+              Center(
+                child: Chip(
+                  avatar: Icon(
+                    hasApprovedVehicle ? LucideIcons.carFront : LucideIcons.userRound,
+                    size: 16,
+                    color: AppColors.primary,
+                  ),
+                  label: Text(hasApprovedVehicle ? '当前身份：车主' : '当前身份：乘客'),
+                  backgroundColor: AppColors.primarySoft,
+                  side: BorderSide.none,
+                ),
+              ),
               const SizedBox(height: 24),
               _MenuGroup(
                 items: [
@@ -259,11 +283,19 @@ class ProfilePageState extends State<ProfilePage> {
                     LucideIcons.contact,
                     '驾驶证认证',
                     () => _open(const DrivingLicensePage(), refreshAfter: true),
+                    subtitle: '不作为车主身份识别前置条件',
                   ),
                   _Menu(
                     LucideIcons.carFront,
                     '我的车辆',
                     () => _open(const VehicleListPage()),
+                    subtitle: hasApprovedVehicle ? '已识别为车主' : '上传行驶证后自动成为车主',
+                  ),
+                  _Menu(
+                    LucideIcons.users,
+                    '我的车队',
+                    () => _open(const TeamPage()),
+                    subtitle: '成员、招募、途中加入与脱队管理',
                   ),
                   _Menu(
                     LucideIcons.trendingUp,

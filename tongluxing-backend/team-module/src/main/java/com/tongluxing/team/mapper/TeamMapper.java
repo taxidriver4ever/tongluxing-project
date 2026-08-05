@@ -23,7 +23,9 @@ public interface TeamMapper {
     @Select("""
             select id, trip_id, owner_user_id, owner_vehicle_id, team_name, team_desc,
                    start_name, end_name, departure_time, max_member_count, current_member_count,
-                   join_mode, team_status, public_flag, chat_conversation_id, notice,
+                   join_mode, recruitment_status, allow_midway_join, deviation_warning_distance_m, deviation_warning_minutes,
+                   severe_deviation_distance_m, severe_deviation_minutes, missing_location_minutes, join_radius_m, privacy_level,
+                   team_status, public_flag, chat_conversation_id, notice,
                    created_at, updated_at, deleted
             from team
             where id = #{teamId} and deleted = 0
@@ -35,7 +37,9 @@ public interface TeamMapper {
     @Select("""
             select id, trip_id, owner_user_id, owner_vehicle_id, team_name, team_desc,
                    start_name, end_name, departure_time, max_member_count, current_member_count,
-                   join_mode, team_status, public_flag, chat_conversation_id, notice,
+                   join_mode, recruitment_status, allow_midway_join, deviation_warning_distance_m, deviation_warning_minutes,
+                   severe_deviation_distance_m, severe_deviation_minutes, missing_location_minutes, join_radius_m, privacy_level,
+                   team_status, public_flag, chat_conversation_id, notice,
                    created_at, updated_at, deleted
             from team
             where trip_id = #{tripId} and team_status = 'ACTIVE' and public_flag = 1 and deleted = 0
@@ -47,7 +51,9 @@ public interface TeamMapper {
     @Select("""
             select id, trip_id, owner_user_id, owner_vehicle_id, team_name, team_desc,
                    start_name, end_name, departure_time, max_member_count, current_member_count,
-                   join_mode, team_status, public_flag, chat_conversation_id, notice,
+                   join_mode, recruitment_status, allow_midway_join, deviation_warning_distance_m, deviation_warning_minutes,
+                   severe_deviation_distance_m, severe_deviation_minutes, missing_location_minutes, join_radius_m, privacy_level,
+                   team_status, public_flag, chat_conversation_id, notice,
                    created_at, updated_at, deleted
             from team
             where trip_id = #{tripId} and team_status = 'ACTIVE' and deleted = 0
@@ -61,10 +67,12 @@ public interface TeamMapper {
     @Select("""
             select id, trip_id, owner_user_id, owner_vehicle_id, team_name, team_desc,
                    start_name, end_name, departure_time, max_member_count, current_member_count,
-                   join_mode, team_status, public_flag, chat_conversation_id, notice,
+                   join_mode, recruitment_status, allow_midway_join, deviation_warning_distance_m, deviation_warning_minutes,
+                   severe_deviation_distance_m, severe_deviation_minutes, missing_location_minutes, join_radius_m, privacy_level,
+                   team_status, public_flag, chat_conversation_id, notice,
                    created_at, updated_at, deleted
             from team
-            where public_flag = 1 and team_status = 'ACTIVE' and deleted = 0
+            where public_flag = 1 and team_status = 'ACTIVE' and recruitment_status = 'OPEN' and deleted = 0
               and current_member_count < max_member_count
             order by departure_time asc
             limit #{limit}
@@ -77,7 +85,9 @@ public interface TeamMapper {
     @Select("""
             select id, trip_id, owner_user_id, owner_vehicle_id, team_name, team_desc,
                    start_name, end_name, departure_time, max_member_count, current_member_count,
-                   join_mode, team_status, public_flag, chat_conversation_id, notice,
+                   join_mode, recruitment_status, allow_midway_join, deviation_warning_distance_m, deviation_warning_minutes,
+                   severe_deviation_distance_m, severe_deviation_minutes, missing_location_minutes, join_radius_m, privacy_level,
+                   team_status, public_flag, chat_conversation_id, notice,
                    created_at, updated_at, deleted
             from team
             where owner_user_id = #{userId} and team_status = 'ACTIVE' and deleted = 0
@@ -92,12 +102,16 @@ public interface TeamMapper {
             insert into team
                 (id, trip_id, owner_user_id, owner_vehicle_id, team_name, team_desc,
                  start_name, end_name, departure_time, max_member_count, current_member_count,
-                 join_mode, team_status, public_flag, chat_conversation_id, notice,
+                 join_mode, recruitment_status, allow_midway_join, deviation_warning_distance_m, deviation_warning_minutes,
+                   severe_deviation_distance_m, severe_deviation_minutes, missing_location_minutes, join_radius_m, privacy_level,
+                   team_status, public_flag, chat_conversation_id, notice,
                  created_at, updated_at, deleted)
             values
                 (#{id}, #{tripId}, #{ownerUserId}, #{ownerVehicleId}, #{teamName}, #{teamDesc},
                  #{startName}, #{endName}, #{departureTime}, #{maxMemberCount}, #{currentMemberCount},
-                 #{joinMode}, #{teamStatus}, #{publicFlag}, #{chatConversationId}, #{notice},
+                 #{joinMode}, #{recruitmentStatus}, #{allowMidwayJoin}, #{deviationWarningDistanceM}, #{deviationWarningMinutes},
+                 #{severeDeviationDistanceM}, #{severeDeviationMinutes}, #{missingLocationMinutes}, #{joinRadiusM}, #{privacyLevel},
+                 #{teamStatus}, #{publicFlag}, #{chatConversationId}, #{notice},
                  #{createdAt}, #{updatedAt}, 0)
             """)
     void insert(Team team);
@@ -133,4 +147,49 @@ public interface TeamMapper {
             where id = #{teamId} and team_status = 'ACTIVE' and deleted = 0
             """)
     int dissolve(@Param("teamId") Long teamId, @Param("now") LocalDateTime now);
+
+    /** 队长更新招募状态、途中加入、脱队阈值和隐私级别。 */
+    @Update("""
+            update team
+            set recruitment_status = coalesce(#{recruitmentStatus}, recruitment_status),
+                allow_midway_join = coalesce(#{allowMidwayJoin}, allow_midway_join),
+                deviation_warning_distance_m = coalesce(#{deviationWarningDistanceM}, deviation_warning_distance_m),
+                deviation_warning_minutes = coalesce(#{deviationWarningMinutes}, deviation_warning_minutes),
+                severe_deviation_distance_m = coalesce(#{severeDeviationDistanceM}, severe_deviation_distance_m),
+                severe_deviation_minutes = coalesce(#{severeDeviationMinutes}, severe_deviation_minutes),
+                missing_location_minutes = coalesce(#{missingLocationMinutes}, missing_location_minutes),
+                join_radius_m = coalesce(#{joinRadiusM}, join_radius_m),
+                privacy_level = coalesce(#{privacyLevel}, privacy_level),
+                updated_at = #{now}
+            where id = #{teamId} and owner_user_id = #{ownerUserId}
+              and team_status = 'ACTIVE' and deleted = 0
+            """)
+    int updateSettings(@Param("teamId") Long teamId,
+                       @Param("ownerUserId") Long ownerUserId,
+                       @Param("recruitmentStatus") String recruitmentStatus,
+                       @Param("allowMidwayJoin") Integer allowMidwayJoin,
+                       @Param("deviationWarningDistanceM") Integer deviationWarningDistanceM,
+                       @Param("deviationWarningMinutes") Integer deviationWarningMinutes,
+                       @Param("severeDeviationDistanceM") Integer severeDeviationDistanceM,
+                       @Param("severeDeviationMinutes") Integer severeDeviationMinutes,
+                       @Param("missingLocationMinutes") Integer missingLocationMinutes,
+                       @Param("joinRadiusM") Integer joinRadiusM,
+                       @Param("privacyLevel") String privacyLevel,
+                       @Param("now") LocalDateTime now);
+
+    /** 更新车队名称和公告。 */
+    @Update("""
+            update team
+            set team_name = coalesce(#{teamName}, team_name),
+                notice = coalesce(#{notice}, notice),
+                updated_at = #{now}
+            where id = #{teamId} and owner_user_id = #{ownerUserId}
+              and team_status = 'ACTIVE' and deleted = 0
+            """)
+    int updateProfile(@Param("teamId") Long teamId,
+                      @Param("ownerUserId") Long ownerUserId,
+                      @Param("teamName") String teamName,
+                      @Param("notice") String notice,
+                      @Param("now") LocalDateTime now);
+
 }

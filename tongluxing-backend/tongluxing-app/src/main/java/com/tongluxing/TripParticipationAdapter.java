@@ -35,6 +35,26 @@ public class TripParticipationAdapter implements TripParticipationPort {
     }
 
     @Override
+    public Long findCurrentParticipatingTripId(Long userId) {
+        for (TeamMember membership : teamMemberMapper.findActiveListByUserId(userId)) {
+            // P0 允许用户保留自己发布的行程，同时只加入一个其他人的有效队伍。
+            if ("OWNER".equals(membership.getMemberRole())) {
+                continue;
+            }
+            Team team = teamMapper.findById(membership.getTeamId());
+            if (team == null || !"ACTIVE".equals(team.getTeamStatus()) || team.getOwnerUserId().equals(userId)) {
+                continue;
+            }
+            Trip trip = tripMapper.findById(team.getTripId());
+            if (trip != null && List.of("PUBLISHED", "READY", "CONFIRMING", "RUNNING", "ONGOING")
+                    .contains(trip.getStatus())) {
+                return trip.getId();
+            }
+        }
+        return null;
+    }
+
+    @Override
     public List<Long> findActiveParticipantUserIds(Long tripId) {
         Team team = teamMapper.findAnyActiveByTripId(tripId);
         if (team == null) {

@@ -1,5 +1,6 @@
 package com.tongluxing.match.integration;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -63,7 +64,9 @@ public interface MatchTeamPort {
      * @param joinQuestionJson 结构化申请补充信息
      * @return 新建或幂等取得的申请 ID
      */
-    Long apply(Long teamId, String message, Long applicantVehicleId, String joinQuestionJson);
+    Long apply(Long teamId, String message, Long applicantVehicleId, String joinQuestionJson,
+            String joinRole, Long linkedOwnerUserId, Long linkedVehicleId, String plateNumber,
+            String applicationType, BigDecimal currentLatitude, BigDecimal currentLongitude);
 
     /**
      * 车队匹配所需的最小字段集合。
@@ -91,7 +94,9 @@ public interface MatchTeamPort {
             String endName,
             LocalDateTime departureTime,
             Integer currentMemberCount,
-            Integer maxMemberCount
+            Integer maxMemberCount,
+            String recruitmentStatus,
+            Boolean allowMidwayJoin
     ) {
     }
 
@@ -108,7 +113,8 @@ public interface MatchTeamPort {
      */
     record MatchMemberDTO(
             Long userId, String nickname, String avatarImageKey, String role,
-            String certificationStatus, Integer totalTripCount, Long totalDistanceMeters
+            String certificationStatus, Integer totalTripCount, Long totalDistanceMeters,
+            Long vehicleId, String vehicleSummary, String plateMask
     ) {
     }
 }

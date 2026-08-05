@@ -1,8 +1,11 @@
 create table if not exists trip (
     id bigint primary key comment '记录主键',
     trip_number varchar(20) not null comment '对外展示的行程编号',
-    user_id bigint not null comment '平台用户ID',
-    vehicle_id bigint not null comment '车辆ID',
+    user_id bigint not null comment '发布者用户ID',
+    trip_type varchar(24) not null default 'DRIVER_TRIP' comment '行程类型：DRIVER_TRIP车主行程、PASSENGER_DEMAND乘客需求',
+    publisher_role varchar(16) not null default 'DRIVER' comment '发布者身份：DRIVER、PASSENGER',
+    captain_user_id bigint null comment '当前队长用户ID；乘客需求未匹配时为空',
+    vehicle_id bigint null comment '发布者车辆ID；乘客需求为空',
     title varchar(128) not null default '' comment '展示标题',
     description varchar(1000) not null default '' comment '详细说明',
     cover_image_key varchar(512) null comment '封面图在对象存储中的文件Key',
@@ -37,6 +40,11 @@ create table if not exists trip (
     travel_depth varchar(16) not null comment '出行深度',
     public_flag tinyint(1) not null default 1 comment '是否公开：0否、1是',
     status varchar(20) not null comment '业务状态',
+    auto_start_enabled tinyint(1) not null default 1 comment '是否到点自动出发',
+    arrival_status varchar(24) not null default 'NOT_ARRIVED' comment '到达状态',
+    arrival_entered_at datetime null comment '首次进入终点范围时间',
+    arrival_decision_deadline datetime null comment '到达后最迟处理时间',
+    continue_count int not null default 0 comment '继续行程次数',
     remark varchar(255) null comment '业务备注',
     actual_start_time datetime null comment '实际起点时间',
     actual_end_time datetime null comment '实际终点时间',
@@ -45,7 +53,10 @@ create table if not exists trip (
     deleted tinyint(1) not null default 0 comment '逻辑删除标记：0未删除、1已删除',
     unique key uk_trip_number (trip_number),
     key idx_trip_user_status_time (user_id, status, departure_time),
+    key idx_trip_captain_status (captain_user_id, status, departure_time),
     key idx_trip_public_status_time (public_flag, status, departure_time),
+    key idx_trip_auto_start (auto_start_enabled, status, departure_time),
+    key idx_trip_arrival_deadline (arrival_status, arrival_decision_deadline),
     key idx_trip_vehicle (vehicle_id)
 ) comment='行程表';
 
@@ -142,3 +153,40 @@ create table if not exists trip_draft (
     key idx_trip_draft_user_status (user_id, draft_status, updated_at),
     unique key uk_trip_draft_publish_key (publish_idempotency_key, deleted)
 ) comment='行程草稿表';
+
+
+
+create table if not exists trip_departure_exception (
+    id bigint primary key comment '记录主键',
+    trip_id bigint not null comment '行程ID',
+    member_user_id bigint not null comment '异常成员用户ID',
+    distance_m int null comment '成员与队长距离，米',
+    exception_type varchar(32) not null comment '异常类型',
+    exception_status varchar(20) not null default 'PENDING' comment '处理状态',
+    handled_action varchar(20) null comment 'WAIT或CONTINUE',
+    detected_at datetime not null comment '检测时间',
+    handled_at datetime null comment '处理时间',
+    created_at datetime not null comment '创建时间',
+    updated_at datetime not null comment '更新时间',
+    deleted tinyint(1) not null default 0 comment '逻辑删除',
+    unique key uk_trip_departure_exception (trip_id, member_user_id, deleted),
+    key idx_trip_departure_pending (trip_id, exception_status, detected_at)
+) comment='自动出发成员范围异常表';
+
+create table if not exists trip_arrival_state (
+    id bigint primary key comment '记录主键',
+    trip_id bigint not null comment '行程ID',
+    captain_user_id bigint not null comment '队长用户ID',
+    state varchar(24) not null default 'NOT_ARRIVED' comment '到达状态',
+    first_entered_at datetime null comment '首次进入终点范围时间',
+    prompted_at datetime null comment '提示时间',
+    decision_deadline datetime null comment '超时自动结束时间',
+    last_distance_m int null comment '最近一次到终点距离',
+    decision_action varchar(20) null comment 'END、CONTINUE、AUTO_END',
+    decided_at datetime null comment '决策时间',
+    created_at datetime not null comment '创建时间',
+    updated_at datetime not null comment '更新时间',
+    deleted tinyint(1) not null default 0 comment '逻辑删除',
+    unique key uk_trip_arrival_state (trip_id, deleted),
+    key idx_trip_arrival_deadline (state, decision_deadline)
+) comment='行程到达停留与开放式结束状态表';

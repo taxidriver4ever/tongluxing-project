@@ -5,6 +5,7 @@ import java.util.Map;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,6 +25,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(prefix = "tongluxing.chat.reminder", name = "enabled", havingValue = "true")
 @RequiredArgsConstructor
 public class ChatReminderScheduler {
     private final ChatGroupMapper mapper;

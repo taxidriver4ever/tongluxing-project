@@ -296,10 +296,13 @@ class _TripDetailPageState extends State<TripDetailPage> {
     final currentUserId = context.watch<AppSession>().userId;
     final isOwner =
         trip?.ownerUserId != null && trip!.ownerUserId == currentUserId;
+    final isCaptain = trip?.canManageTeam == true &&
+        trip!.captainUserId != null &&
+        trip!.captainUserId == currentUserId;
     return Scaffold(
       backgroundColor: Colors.white,
       bottomNavigationBar:
-          isOwner &&
+          isCaptain &&
               !widget.exitedView &&
               trip != null &&
               const ['PUBLISHED', 'READY', 'CONFIRMING'].contains(trip!.status)

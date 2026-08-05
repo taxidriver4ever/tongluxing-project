@@ -43,9 +43,12 @@ import com.tongluxing.drivertrack.vo.DriverTrackPointVO;
 import com.tongluxing.drivertrack.vo.DriverTrackUploadResponse;
 import com.tongluxing.drivertrack.vo.MileageSettlementResponse;
 import com.tongluxing.map.dto.LocationDto;
+import com.tongluxing.notify.service.AppPushService;
 import com.tongluxing.trip.entity.Trip;
 import com.tongluxing.trip.entity.TripRoute;
 import com.tongluxing.trip.mapper.TripMapper;
+import com.tongluxing.team.entity.Team;
+import com.tongluxing.team.mapper.TeamMapper;
 import com.tongluxing.trip.mapper.TripRouteMapper;
 import com.tongluxing.trip.mapper.TripWaypointMapper;
 import com.tongluxing.trip.mapper.TripMemberSnapshotMapper;
@@ -63,9 +66,6 @@ public class DriverTrackServiceImpl implements DriverTrackService {
 
     /** 与 trip-module 的“行驶中”持久状态保持一致。 */
     private static final String STATUS_RUNNING = "RUNNING";
-    private static final int FAR_MEMBER_METERS = 500;
-    private static final int SEVERE_MEMBER_METERS = 1_000;
-    private static final int RECOVERY_MEMBER_METERS = 300;
     private static final int MILD_DEVIATION_METERS = 100;
     private static final int SEVERE_DEVIATION_METERS = 500;
     private static final int RECOVERY_DEVIATION_METERS = 60;
@@ -73,6 +73,7 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     private final CurrentUserContext currentUserContext;
     private final ObjectMapper objectMapper;
     private final TripMapper tripMapper;
+    private final TeamMapper teamMapper;
     private final TripRouteMapper tripRouteMapper;
     private final TripWaypointMapper tripWaypointMapper;
     private final TripMemberSnapshotMapper tripMemberSnapshotMapper;
@@ -85,6 +86,7 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     private final TrajectoryProperties trajectoryProperties;
     private final TripTrackRiskMapper riskMapper;
     private final TripTrackSecurityAuditService securityAuditService;
+    private final AppPushService appPushService;
 
     @Override
     @Transactional
@@ -620,16 +622,27 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     }
 
     /**
-     * 队友偏离按“与队长的实时距离”判断，不再混用道路偏航。
-     * 500m 持续 60 秒为远离，1000m 持续 120 秒为严重，回到 300m 内恢复。
+     * 队伍脱队和导航偏航完全分离：这里按成员与队长的实时直线距离判断。
+     * 默认 50km/30 分钟为一级提醒，100km/60 分钟为严重提醒；具体阈值读取车队设置。
      */
     private void saveMemberDistanceState(
             Trip trip, DriverTrackPointRequest request, Long driverId, LocalDateTime now) {
-        DriverTrackRecord captain = trackMapper.findLastValid(
-                trip.getId(), trip.getUserId());
-        if (captain == null || driverId.equals(trip.getUserId())) {
+        Long captainUserId = trip.getCaptainUserId() == null ? trip.getUserId() : trip.getCaptainUserId();
+        DriverTrackRecord captain = trackMapper.findLastValid(trip.getId(), captainUserId);
+        if (captain == null || driverId.equals(captainUserId)) {
             return;
         }
+        Team team = teamMapper.findAnyActiveByTripId(trip.getId());
+        int warningDistance = team == null || team.getDeviationWarningDistanceM() == null
+                ? 50_000 : team.getDeviationWarningDistanceM();
+        int warningMinutes = team == null || team.getDeviationWarningMinutes() == null
+                ? 30 : team.getDeviationWarningMinutes();
+        int severeDistance = team == null || team.getSevereDeviationDistanceM() == null
+                ? 100_000 : team.getSevereDeviationDistanceM();
+        int severeMinutes = team == null || team.getSevereDeviationMinutes() == null
+                ? 60 : team.getSevereDeviationMinutes();
+        int recoveryDistance = Math.max(1_000, warningDistance / 2);
+
         int distance = haversineMeters(
                 request.latitude(), request.longitude(), captain.getLatitude(), captain.getLongitude());
         java.util.Map<String, Object> active = memberAlertMapper.findActive(trip.getId(), driverId);
@@ -638,21 +651,23 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         Long alertId = active == null ? null : ((Number) active.get("id")).longValue();
         String level = active == null ? "" : String.valueOf(active.get("alertLevel"));
         LocalDateTime startedAt = active == null ? null : (LocalDateTime) active.get("startedAt");
-        if (distance >= SEVERE_MEMBER_METERS) {
+        if (distance >= severeDistance) {
             if (active == null || !level.contains("SEVERE")) {
                 nextLevel = "OBSERVING_SEVERE";
-            } else if (startedAt != null && !startedAt.isAfter(request.recordTime().minusSeconds(120))) {
+            } else if (startedAt != null
+                    && !startedAt.isAfter(request.recordTime().minusMinutes(severeMinutes))) {
                 nextLevel = "SEVERE";
                 status = 2;
             }
-        } else if (distance >= FAR_MEMBER_METERS) {
+        } else if (distance >= warningDistance) {
             if (active == null || level.contains("SEVERE")) {
                 nextLevel = "OBSERVING_FAR";
-            } else if (startedAt != null && !startedAt.isAfter(request.recordTime().minusSeconds(60))) {
+            } else if (startedAt != null
+                    && !startedAt.isAfter(request.recordTime().minusMinutes(warningMinutes))) {
                 nextLevel = "FAR";
                 status = 1;
             }
-        } else if (distance < RECOVERY_MEMBER_METERS && alertId != null) {
+        } else if (distance < recoveryDistance && alertId != null) {
             memberAlertMapper.recover(alertId, now);
         } else if ("SEVERE".equals(level)) {
             status = 2;
@@ -664,11 +679,20 @@ public class DriverTrackServiceImpl implements DriverTrackService {
                     && nextLevel.startsWith("OBSERVING")) {
                 if (alertId != null) memberAlertMapper.recover(alertId, now);
                 alertId = SnowflakeIdGenerator.nextId();
-                memberAlertMapper.insert(alertId, trip.getId(), trip.getUserId(),
+                memberAlertMapper.insert(alertId, trip.getId(), captainUserId,
                         driverId, nextLevel, distance, request.recordTime());
             } else {
                 memberAlertMapper.update(alertId, nextLevel, distance,
                         "FAR".equals(nextLevel) || "SEVERE".equals(nextLevel) ? 1 : 0, now);
+            }
+            if ("FAR".equals(nextLevel) || "SEVERE".equals(nextLevel)) {
+                // 达到持续时间后才推送；观察阶段只落库，不打扰队长。
+                String title = "SEVERE".equals(nextLevel) ? "成员严重脱队" : "成员疑似脱队";
+                String content = "成员与队长距离约 " + Math.max(1, distance / 1000)
+                        + " 公里，请进入队长管理页处理";
+                appPushService.enqueue(captainUserId, "TEAM_MEMBER_" + nextLevel, title, content,
+                        "TRIP", String.valueOf(trip.getId()),
+                        "member-distance-alert:" + alertId + ":" + nextLevel);
             }
         }
         DriverDeviationRecord record = new DriverDeviationRecord();

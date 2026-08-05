@@ -3,9 +3,7 @@ package com.tongluxing.trip.vo;
 import java.math.BigDecimal;
 import java.util.List;
 
-/**
- * TripResponse 响应数据对象。
- */
+/** 行程详情响应。P0 新增字段均放在尾部，旧客户端可安全忽略。 */
 public record TripResponse(
         String tripId,
         String tripNumber,
@@ -43,6 +41,16 @@ public record TripResponse(
         String actualEndTime,
         List<WaypointLocationResponse> waypoints,
         String createdAt,
-        String updatedAt
+        String updatedAt,
+        String tripType,
+        String publisherRole,
+        String captainUserId,
+        Boolean autoStartEnabled,
+        String arrivalStatus,
+        String arrivalEnteredAt,
+        String arrivalDecisionDeadline,
+        Integer continueCount,
+        Boolean passengerDemand,
+        Boolean hasCaptain
 ) {
 }

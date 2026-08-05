@@ -33,6 +33,7 @@ import com.tongluxing.map.dto.RoutePlanRequest;
 import com.tongluxing.map.service.MapService;
 import com.tongluxing.map.vo.RoutePlanResponse;
 import com.tongluxing.trip.dto.CreateTripRequest;
+import com.tongluxing.trip.dto.ContinueTripRequest;
 import com.tongluxing.trip.dto.LocationRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
 import com.tongluxing.trip.dto.TripTimeConflictRequest;
@@ -57,6 +58,7 @@ import com.tongluxing.trip.service.TripPublishedEvent;
 import com.tongluxing.trip.service.TripStartedEvent;
 import com.tongluxing.trip.service.TripUpdatedEvent;
 import com.tongluxing.trip.vo.ActiveTripStateResponse;
+import com.tongluxing.trip.vo.ArrivalDecisionResponse;
 import com.tongluxing.trip.vo.MyTripDashboardResponse;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
@@ -85,10 +87,16 @@ public class TripServiceImpl implements TripService {
     private static final String STATUS_LEGACY_ONGOING = "ONGOING";
     private static final String STATUS_CANCELLED = "CANCELLED";
     private static final String CERT_APPROVED = "APPROVED";
+    private static final String TRIP_TYPE_DRIVER = "DRIVER_TRIP";
+    private static final String TRIP_TYPE_PASSENGER = "PASSENGER_DEMAND";
+    private static final String PUBLISHER_DRIVER = "DRIVER";
+    private static final String PUBLISHER_PASSENGER = "PASSENGER";
 
     private static final String DETAIL_CACHE_KEY = "trip:cache:detail:%d";
     private static final String MINE_CACHE_KEY = "trip:cache:mine:%d:%s";
-    private static final String PUBLIC_CACHE_KEY = "trip:cache:public:list:%d";
+    private static final String PUBLIC_CACHE_KEY = "trip:cache:public:list:%d:%d";
+    /** 升级前公开列表缓存不区分观察者，清理时仍需兼容删除。 */
+    private static final String LEGACY_PUBLIC_CACHE_KEY = "trip:cache:public:list:%d";
     private static final String PUBLIC_CACHE_KEYS = "trip:cache:public:keys";
     private static final String PUBLISH_RL_KEY = "trip:rl:publish:%d";
     private static final String START_LOCK_KEY = "trip:lock:start:user:%d";
@@ -122,14 +130,24 @@ public class TripServiceImpl implements TripService {
         Long userId = currentUserContext.requireUserId();
         checkRateLimit(PUBLISH_RL_KEY.formatted(userId), PUBLISH_LIMIT, Duration.ofHours(1), "行程发布太频繁，请稍后再试");
         validateRequest(request.startLocation(), request.endLocation(), request.travelDepth(), request.waypoints());
-        TripVehicleDTO vehicle = requireCertifiedVehicle(request.vehicleId(), userId);
+        // 身份由认证状态动态推导：有认证车辆就是车主，否则就是乘客需求发布者。
+        // 前端传入的 tripType 只用于兼容展示，不能绕过后端身份判断。
+        TripVehicleDTO vehicle = resolvePublisherVehicle(request.vehicleId(), userId);
+        boolean driverTrip = vehicle != null;
 
         LocalDateTime now = LocalDateTime.now();
         Trip trip = new Trip();
         trip.setId(SnowflakeIdGenerator.nextId());
         trip.setTripNumber(toTripNumber(trip.getId()));
         trip.setUserId(userId);
-        trip.setJoinedVehicleCount(1);
+        trip.setVehicleId(driverTrip ? vehicle.vehicleId() : null);
+        trip.setTripType(driverTrip ? TRIP_TYPE_DRIVER : TRIP_TYPE_PASSENGER);
+        trip.setPublisherRole(driverTrip ? PUBLISHER_DRIVER : PUBLISHER_PASSENGER);
+        trip.setCaptainUserId(driverTrip ? userId : null);
+        trip.setAutoStartEnabled(driverTrip && !Boolean.FALSE.equals(request.autoStartEnabled()) ? 1 : 0);
+        trip.setArrivalStatus("NOT_ARRIVED");
+        trip.setContinueCount(0);
+        trip.setJoinedVehicleCount(driverTrip ? 1 : 0);
         trip.setStatus(STATUS_PUBLISHED);
         trip.setCreatedAt(now);
         trip.setUpdatedAt(now);
@@ -143,17 +161,19 @@ public class TripServiceImpl implements TripService {
         applyRouteToTrip(trip, route);
         tripMapper.insert(trip);
         routeMapper.insert(route);
-        insertOwnerSnapshot(trip, vehicle, now);
+        insertPublisherSnapshot(trip, vehicle, now);
         insertAuditLog(trip.getId(), userId, "PUBLISH", null, trip, "发布行程");
         clearListCaches(userId);
         eventPublisher.publishEvent(new TripPublishedEvent(
                 trip.getId(),
                 StringUtils.hasText(trip.getTitle()) ? trip.getTitle() : "行程车队群",
                 userId,
-                vehicle.vehicleId(),
+                trip.getVehicleId(),
                 trip.getMaxVehicleCount(),
                 trip.getPublicFlag() != null && trip.getPublicFlag() == 1,
-                List.of(userId)
+                List.of(userId),
+                trip.getTripType(),
+                trip.getCaptainUserId()
         ));
         return buildResponse(trip.getId());
     }
@@ -197,9 +217,24 @@ public class TripServiceImpl implements TripService {
         List<Trip> history = tripMapper.findHistoryByUserId(userId, 12);
         long databaseFinished = System.nanoTime();
         TripResponse current = getCurrentDrivingTrip();
+        TripResponse publishedCurrent = active.stream()
+                .findFirst()
+                .map(this::toResponseWithoutChildren)
+                .orElse(null);
+        Long joinedTripId = participationPort.findCurrentParticipatingTripId(userId);
+        Trip joinedTrip = joinedTripId == null ? null : tripMapper.findById(joinedTripId);
+        TripResponse joinedCurrent = joinedTrip == null ? null : toResponseWithoutChildren(joinedTrip);
         String currentId = current == null ? null : current.tripId();
+        String publishedId = publishedCurrent == null ? null : publishedCurrent.tripId();
+        String joinedId = joinedCurrent == null ? null : joinedCurrent.tripId();
         List<TripResponse> upcoming = active.stream()
-                .filter(trip -> currentId == null || !currentId.equals(String.valueOf(trip.getId())))
+                // P0：双当前行程已经固定置顶，不能再混入普通即将出发列表。
+                .filter(trip -> {
+                    String tripId = String.valueOf(trip.getId());
+                    return !tripId.equals(currentId)
+                            && !tripId.equals(publishedId)
+                            && !tripId.equals(joinedId);
+                })
                 .limit(8)
                 .map(this::toResponseWithoutChildren)
                 .toList();
@@ -207,7 +242,8 @@ public class TripServiceImpl implements TripService {
                 .limit(6)
                 .map(this::toResponseWithoutChildren)
                 .toList();
-        MyTripDashboardResponse response = new MyTripDashboardResponse(current, upcoming, recent, active.size(), history.size());
+        MyTripDashboardResponse response = new MyTripDashboardResponse(
+                current, upcoming, recent, active.size(), history.size(), publishedCurrent, joinedCurrent);
         long finished = System.nanoTime();
         log.info("my_trip_dashboard_timing userId={} databaseMs={} assembleMs={} totalMs={}", userId,
                 (databaseFinished - started) / 1_000_000L, (finished - databaseFinished) / 1_000_000L,
@@ -278,12 +314,25 @@ public class TripServiceImpl implements TripService {
     public TripResponse updateTrip(Long tripId, UpdateTripRequest request) {
         Long userId = currentUserContext.requireUserId();
         validateRequest(request.startLocation(), request.endLocation(), request.travelDepth(), request.waypoints());
-        requireCertifiedVehicle(request.vehicleId(), userId);
         Trip before = requireOwnerTrip(tripId, userId);
+        TripVehicleDTO vehicle = null;
+        if (TRIP_TYPE_DRIVER.equals(before.getTripType())) {
+            vehicle = requireCertifiedVehicle(request.vehicleId() == null ? before.getVehicleId() : request.vehicleId(), userId);
+        }
         ensureMutable(before);
 
         Trip trip = copyTrip(before);
         fillTrip(trip, request);
+        if (TRIP_TYPE_DRIVER.equals(before.getTripType())) {
+            trip.setVehicleId(vehicle.vehicleId());
+            trip.setCaptainUserId(before.getCaptainUserId() == null ? userId : before.getCaptainUserId());
+        } else {
+            trip.setVehicleId(null);
+            trip.setCaptainUserId(null);
+        }
+        if (request.autoStartEnabled() != null && TRIP_TYPE_DRIVER.equals(before.getTripType())) {
+            trip.setAutoStartEnabled(Boolean.TRUE.equals(request.autoStartEnabled()) ? 1 : 0);
+        }
         boolean routeChanged = routeChanged(before, request);
         TripRoute route = routeChanged
                 ? buildRouteSnapshot(trip.getId(), request.startLocation(), request.endLocation(), request.waypoints(), LocalDateTime.now())
@@ -311,7 +360,7 @@ public class TripServiceImpl implements TripService {
     public TripResponse startTrip(
             Long tripId, BigDecimal latitude, BigDecimal longitude, BigDecimal accuracy) {
         Long userId = currentUserContext.requireUserId();
-        Trip trip = requireOwnerTrip(tripId, userId);
+        Trip trip = requireCaptainTrip(tripId, userId);
         BigDecimal startLatitude = trip.getStartLatitude() != null
                 ? trip.getStartLatitude() : trip.getStartLat();
         BigDecimal startLongitude = trip.getStartLongitude() != null
@@ -339,7 +388,7 @@ public class TripServiceImpl implements TripService {
     @Transactional
     public TripResponse startTrip(Long tripId, List<Long> confirmedParticipantUserIds) {
         Long userId = currentUserContext.requireUserId();
-        Trip before = requireOwnerTrip(tripId, userId);
+        Trip before = requireCaptainTrip(tripId, userId);
         if (!STATUS_PUBLISHED.equals(before.getStatus())
                 && !STATUS_READY.equals(before.getStatus())
                 && !STATUS_CONFIRMING.equals(before.getStatus())) {
@@ -421,7 +470,7 @@ public class TripServiceImpl implements TripService {
     @Transactional
     public TripResponse endTrip(Long tripId) {
         Long userId = currentUserContext.requireUserId();
-        Trip before = requireOwnerTrip(tripId, userId);
+        Trip before = requireCaptainTrip(tripId, userId);
         if (!STATUS_RUNNING.equals(before.getStatus()) && !STATUS_LEGACY_ONGOING.equals(before.getStatus())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "只有行驶中行程可以结束");
         }
@@ -437,6 +486,94 @@ public class TripServiceImpl implements TripService {
         return toResponse(after);
     }
 
+    /** 查询到达终点后的开放式结束状态。 */
+    @Override
+    public ArrivalDecisionResponse getArrivalDecision(Long tripId) {
+        Trip trip = requireReadableTrip(tripId);
+        boolean pending = "AWAITING_DECISION".equals(trip.getArrivalStatus());
+        return new ArrivalDecisionResponse(
+                String.valueOf(trip.getId()),
+                trip.getArrivalStatus() == null ? "NOT_ARRIVED" : trip.getArrivalStatus(),
+                formatTime(trip.getArrivalEnteredAt()),
+                formatTime(trip.getArrivalDecisionDeadline()),
+                pending,
+                pending
+        );
+    }
+
+    /** 队长在到达提示中确认结束；重复请求会返回当前最终状态。 */
+    @Override
+    @Transactional
+    public TripResponse finishArrival(Long tripId) {
+        Long userId = currentUserContext.requireUserId();
+        Trip before = requireCaptainTrip(tripId, userId);
+        if ("FINISHED".equals(before.getStatus()) || "SETTLED".equals(before.getStatus())) {
+            return toResponse(before);
+        }
+        if (!"AWAITING_DECISION".equals(before.getArrivalStatus())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "尚未满足终点停留条件，暂不能结束行程");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (tripMapper.finishArrivedTrip(tripId, now) == 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "当前状态不允许结束行程");
+        }
+        Trip after = tripMapper.findById(tripId);
+        insertAuditLog(tripId, userId, "ARRIVAL_END", before, after, "到达后确认结束行程");
+        eventPublisher.publishEvent(new TripFinishedEvent(tripId));
+        clearTripCaches(userId, tripId);
+        return toResponse(after);
+    }
+
+    /**
+     * 队长选择继续行程：清除本次到达状态，替换终点并重新生成下一段真实路线。
+     */
+    @Override
+    @Transactional
+    public TripResponse continueTrip(Long tripId, ContinueTripRequest request) {
+        Long userId = currentUserContext.requireUserId();
+        Trip before = requireCaptainTrip(tripId, userId);
+        if (!"AWAITING_DECISION".equals(before.getArrivalStatus())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "只有到达待确认状态可以继续行程");
+        }
+
+        LocationRequest oldDestination = new LocationRequest(
+                before.getEndLocationName(), before.getEndLocationAddress(),
+                before.getEndLatitude(), before.getEndLongitude());
+        LocationRequest newDestination = request.endLocation();
+        validateContinueDestination(oldDestination, newDestination);
+
+        LocalDateTime now = LocalDateTime.now();
+        int rows = tripMapper.continueTrip(
+                tripId, userId,
+                displayName(newDestination.name(), newDestination.address()),
+                normalize(newDestination.address()),
+                newDestination.latitude(), newDestination.longitude(), now);
+        if (rows == 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "当前状态不允许继续行程");
+        }
+
+        TripRoute nextRoute = buildRouteSnapshot(tripId, oldDestination, newDestination, List.of(), now);
+        upsertRoute(nextRoute);
+        Trip after = tripMapper.findById(tripId);
+        applyRouteToTrip(after, nextRoute);
+        after.setUpdatedAt(now);
+        tripMapper.update(after);
+        insertAuditLog(tripId, userId, "CONTINUE", before, after, "到达后继续行程并更新终点");
+        clearTripCaches(userId, tripId);
+        eventPublisher.publishEvent(new TripUpdatedEvent(tripId, userId));
+        return buildResponse(tripId);
+    }
+
+    private void validateContinueDestination(LocationRequest oldDestination, LocationRequest newDestination) {
+        if (newDestination == null || newDestination.latitude() == null || newDestination.longitude() == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "新的终点和坐标必填");
+        }
+        if (Objects.equals(oldDestination.latitude(), newDestination.latitude())
+                && Objects.equals(oldDestination.longitude(), newDestination.longitude())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "新的终点不能与当前终点相同");
+        }
+    }
+
     /**
      * 取消本人可变更状态下的行程。
      */
@@ -446,18 +583,79 @@ public class TripServiceImpl implements TripService {
         return changeStatus(tripId, STATUS_CANCELLED, "CANCEL", "取消行程");
     }
 
+    /** 系统自动出发入口，前置成员范围检测由生命周期协调器完成。 */
+    @Override
+    @Transactional
+    public TripResponse autoStartTrip(Long tripId, List<Long> participantUserIds) {
+        Trip before = tripMapper.findById(tripId);
+        if (before == null || before.getCaptainUserId() == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "自动出发行程不存在或尚无队长");
+        }
+        if (!List.of(STATUS_PUBLISHED, STATUS_READY, STATUS_CONFIRMING).contains(before.getStatus())) {
+            return toResponse(before);
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (tripMapper.autoStartTrip(tripId, now) == 0) {
+            return buildResponse(tripId);
+        }
+        LinkedHashSet<Long> participants = new LinkedHashSet<>();
+        participants.add(before.getCaptainUserId());
+        if (participantUserIds != null) participants.addAll(participantUserIds);
+        int plannedDistance = before.getTotalDistanceMeters() != null
+                ? before.getTotalDistanceMeters() : before.getRouteDistance() == null ? 0 : before.getRouteDistance();
+        executionSettlementMapper.createExecution(
+                SnowflakeIdGenerator.nextId(), tripId, before.getCaptainUserId(), plannedDistance, now);
+        Long executionId = executionSettlementMapper.executionId(tripId);
+        for (Long participantId : participants) {
+            executionSettlementMapper.createExecutionMember(
+                    SnowflakeIdGenerator.nextId(), executionId, tripId, participantId,
+                    participantId.equals(before.getCaptainUserId()) ? "CAPTAIN" : "MEMBER", now);
+        }
+        Trip after = tripMapper.findById(tripId);
+        insertAuditLog(tripId, before.getCaptainUserId(), "AUTO_START", before, after, "到达出发时间后自动出发");
+        eventPublisher.publishEvent(new TripStartedEvent(
+                tripId, StringUtils.hasText(after.getTitle()) ? after.getTitle() : "行程车队群",
+                before.getCaptainUserId(), List.copyOf(participants)));
+        participants.forEach(this::clearListCaches);
+        redisTemplate.delete(DETAIL_CACHE_KEY.formatted(tripId));
+        return toResponse(after);
+    }
+
+    /** 到达待确认超过 24 小时后的系统幂等结束入口。 */
+    @Override
+    @Transactional
+    public TripResponse autoFinishArrival(Long tripId) {
+        Trip before = tripMapper.findById(tripId);
+        if (before == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "行程不存在");
+        }
+        if (!"AWAITING_DECISION".equals(before.getArrivalStatus())) {
+            return toResponse(before);
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (tripMapper.finishArrivedTrip(tripId, now) == 0) {
+            return buildResponse(tripId);
+        }
+        Trip after = tripMapper.findById(tripId);
+        insertAuditLog(tripId, before.getCaptainUserId(), "AUTO_END", before, after, "到达后超时自动结束");
+        eventPublisher.publishEvent(new TripFinishedEvent(tripId));
+        clearTripCaches(before.getUserId(), tripId);
+        return toResponse(after);
+    }
+
     /**
      * 查询公开行程列表，限制最大返回数量并使用短期缓存。
      */
     @Override
     public TripListResponse getPublicTrips(Integer limit) {
+        Long userId = currentUserContext.requireUserId();
         int size = limit == null ? 20 : Math.max(1, Math.min(limit, 50));
-        String cacheKey = PUBLIC_CACHE_KEY.formatted(size);
+        String cacheKey = PUBLIC_CACHE_KEY.formatted(userId, size);
         TripListResponse cached = readJson(cacheKey, TripListResponse.class);
         if (cached != null) {
             return cached;
         }
-        TripListResponse response = new TripListResponse(tripMapper.findPublicTrips(size).stream().map(this::toResponseWithoutChildren).toList());
+        TripListResponse response = new TripListResponse(tripMapper.findPublicTrips(userId, size).stream().map(this::toResponseWithoutChildren).toList());
         writeJson(cacheKey, response, Duration.ofMinutes(3));
         redisTemplate.opsForSet().add(PUBLIC_CACHE_KEYS, cacheKey);
         return response;
@@ -504,13 +702,12 @@ public class TripServiceImpl implements TripService {
      * 根据创建请求填充行程主表字段。
      */
     private void fillTrip(Trip trip, CreateTripRequest request) {
-        trip.setVehicleId(request.vehicleId());
         trip.setTitle(StringUtils.hasText(request.title()) ? normalize(request.title())
                 : displayName(request.startLocation().name(), request.startLocation().address()) + "到"
                 + displayName(request.endLocation().name(), request.endLocation().address()));
         trip.setDescription(StringUtils.hasText(request.description()) ? normalize(request.description()) : normalize(request.remark()));
         trip.setCoverImageKey(normalize(request.coverImageKey()));
-        trip.setExpectedPeople(request.expectedPeople() == null ? request.maxVehicleCount() : request.expectedPeople());
+        trip.setExpectedPeople(request.expectedPeople() == null ? defaultCapacity(request.maxVehicleCount()) : request.expectedPeople());
         fillLocations(trip, request.startLocation(), request.endLocation());
         trip.setRouteSummary(normalize(request.routeSummary()));
         trip.setRoutePolylineKey("");
@@ -521,7 +718,7 @@ public class TripServiceImpl implements TripService {
         trip.setDepartureTime(parseFutureTime(request.departureTime()));
         trip.setEstimatedDays(request.estimatedDays());
         trip.setTotalDistanceMeters(request.routeDistance());
-        trip.setMaxVehicleCount(request.maxVehicleCount());
+        trip.setMaxVehicleCount(defaultCapacity(request.maxVehicleCount()));
         trip.setVehicleRequirements(vehicleRequirements(request.vehicleRequirements()));
         trip.setBudgetDescription(normalize(request.budgetDescription()));
         trip.setTravelDepth(normalize(request.travelDepth()));
@@ -533,13 +730,12 @@ public class TripServiceImpl implements TripService {
      * 根据更新请求填充行程主表字段。
      */
     private void fillTrip(Trip trip, UpdateTripRequest request) {
-        trip.setVehicleId(request.vehicleId());
         trip.setTitle(StringUtils.hasText(request.title()) ? normalize(request.title())
                 : displayName(request.startLocation().name(), request.startLocation().address()) + "到"
                 + displayName(request.endLocation().name(), request.endLocation().address()));
         trip.setDescription(StringUtils.hasText(request.description()) ? normalize(request.description()) : normalize(request.remark()));
         trip.setCoverImageKey(normalize(request.coverImageKey()));
-        trip.setExpectedPeople(request.expectedPeople() == null ? request.maxVehicleCount() : request.expectedPeople());
+        trip.setExpectedPeople(request.expectedPeople() == null ? defaultCapacity(request.maxVehicleCount()) : request.expectedPeople());
         fillLocations(trip, request.startLocation(), request.endLocation());
         trip.setRouteSummary(normalize(request.routeSummary()));
         trip.setRoutePolylineKey("");
@@ -550,7 +746,7 @@ public class TripServiceImpl implements TripService {
         trip.setDepartureTime(parseFutureTime(request.departureTime()));
         trip.setEstimatedDays(request.estimatedDays());
         trip.setTotalDistanceMeters(request.routeDistance());
-        trip.setMaxVehicleCount(request.maxVehicleCount());
+        trip.setMaxVehicleCount(defaultCapacity(request.maxVehicleCount()));
         trip.setVehicleRequirements(vehicleRequirements(request.vehicleRequirements()));
         trip.setBudgetDescription(normalize(request.budgetDescription()));
         trip.setTravelDepth(normalize(request.travelDepth()));
@@ -666,17 +862,17 @@ public class TripServiceImpl implements TripService {
     /**
      * 发布行程时写入车主成员快照，保留昵称和车辆展示信息。
      */
-    private void insertOwnerSnapshot(Trip trip, TripVehicleDTO vehicle, LocalDateTime now) {
+    private void insertPublisherSnapshot(Trip trip, TripVehicleDTO vehicle, LocalDateTime now) {
         TripUserProfileDTO profile = userProfilePort.getCurrentProfile();
         TripMemberSnapshot member = new TripMemberSnapshot();
         member.setId(SnowflakeIdGenerator.nextId());
         member.setTripId(trip.getId());
         member.setUserId(trip.getUserId());
-        member.setVehicleId(trip.getVehicleId());
-        member.setMemberRole("OWNER");
-        member.setJoinStatus("OWNER");
+        member.setVehicleId(vehicle == null ? null : trip.getVehicleId());
+        member.setMemberRole(vehicle == null ? "REQUESTER" : "OWNER");
+        member.setJoinStatus(vehicle == null ? "REQUESTED" : "OWNER");
         member.setNicknameSnapshot(profile == null ? "同路行车友" : profile.nickname());
-        member.setVehicleSnapshot((vehicle.brand() + " " + vehicle.model()).trim());
+        member.setVehicleSnapshot(vehicle == null ? "乘客出行需求" : (vehicle.brand() + " " + vehicle.model()).trim());
         member.setJoinedAt(now);
         member.setCreatedAt(now);
         member.setUpdatedAt(now);
@@ -723,6 +919,25 @@ public class TripServiceImpl implements TripService {
     }
 
     /**
+     * 根据认证状态确定发布身份。优先使用用户显式选择的车辆；未选择时自动取默认认证车辆。
+     * 没有任何认证车辆时返回 null，调用方据此创建乘客出行需求。
+     */
+    private TripVehicleDTO resolvePublisherVehicle(Long requestedVehicleId, Long userId) {
+        if (requestedVehicleId != null) {
+            // P0 要求所有用户都可发布：显式选择了未认证车辆时不再硬拦截，
+            // 而是按乘客出行需求发布；只有已通过行驶证认证的车辆才赋予队长身份。
+            TripVehicleDTO selected = vehiclePort.getCertifiedVehicle(requestedVehicleId, userId);
+            return selected != null && CERT_APPROVED.equals(selected.certificationStatus()) ? selected : null;
+        }
+        TripVehicleDTO vehicle = vehiclePort.getDefaultCertifiedVehicle(userId);
+        return vehicle != null && CERT_APPROVED.equals(vehicle.certificationStatus()) ? vehicle : null;
+    }
+
+    private int defaultCapacity(Integer value) {
+        return value == null ? 4 : Math.max(1, Math.min(value, 50));
+    }
+
+    /**
      * 校验车辆属于当前用户且认证状态通过。
      */
     private TripVehicleDTO requireCertifiedVehicle(Long vehicleId, Long userId) {
@@ -737,7 +952,10 @@ public class TripServiceImpl implements TripService {
     }
 
     /**
-     * 查询可读行程；本人行程或公开行程才允许查看。
+     * 查询可读行程。
+     *
+     * <p>除发布者和公开行程外，已加入该行程队伍的有效成员也必须能够读取详情，
+     * 否则首页地图和队员行程状态会因为行程设为非公开而失效。</p>
      */
     private Trip requireReadableTrip(Long tripId) {
         Long userId = currentUserContext.requireUserId();
@@ -745,7 +963,8 @@ public class TripServiceImpl implements TripService {
         if (trip == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "行程不存在");
         }
-        if (!trip.getUserId().equals(userId) && trip.getPublicFlag() != 1) {
+        boolean participant = participationPort.findActiveParticipantUserIds(tripId).contains(userId);
+        if (!trip.getUserId().equals(userId) && trip.getPublicFlag() != 1 && !participant) {
             throw new BusinessException(ResultCode.FORBIDDEN, "无权查看该行程");
         }
         return trip;
@@ -761,6 +980,19 @@ public class TripServiceImpl implements TripService {
         }
         if (!trip.getUserId().equals(userId)) {
             throw new BusinessException(ResultCode.FORBIDDEN, "无权操作该行程");
+        }
+        return trip;
+    }
+
+
+    /** 队长专属操作校验；乘客需求发布者不能开始、结束或管理队伍。 */
+    private Trip requireCaptainTrip(Long tripId, Long userId) {
+        Trip trip = tripMapper.findById(tripId);
+        if (trip == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "行程不存在");
+        }
+        if (trip.getCaptainUserId() == null || !trip.getCaptainUserId().equals(userId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "只有当前行程队长可以执行此操作");
         }
         return trip;
     }
@@ -845,7 +1077,7 @@ public class TripServiceImpl implements TripService {
                 String.valueOf(trip.getId()),
                 trip.getTripNumber(),
                 String.valueOf(trip.getUserId()),
-                String.valueOf(trip.getVehicleId()),
+                trip.getVehicleId() == null ? null : String.valueOf(trip.getVehicleId()),
                 trip.getTitle(),
                 trip.getDescription(),
                 trip.getCoverImageKey(),
@@ -878,7 +1110,17 @@ public class TripServiceImpl implements TripService {
                 formatTime(trip.getActualEndTime()),
                 waypoints,
                 formatTime(trip.getCreatedAt()),
-                formatTime(trip.getUpdatedAt())
+                formatTime(trip.getUpdatedAt()),
+                trip.getTripType(),
+                trip.getPublisherRole(),
+                trip.getCaptainUserId() == null ? null : String.valueOf(trip.getCaptainUserId()),
+                trip.getAutoStartEnabled() != null && trip.getAutoStartEnabled() == 1,
+                trip.getArrivalStatus(),
+                formatTime(trip.getArrivalEnteredAt()),
+                formatTime(trip.getArrivalDecisionDeadline()),
+                trip.getContinueCount(),
+                TRIP_TYPE_PASSENGER.equals(trip.getTripType()),
+                trip.getCaptainUserId() != null
         );
     }
 
@@ -928,6 +1170,14 @@ public class TripServiceImpl implements TripService {
         trip.setTripNumber(source.getTripNumber());
         trip.setUserId(source.getUserId());
         trip.setVehicleId(source.getVehicleId());
+        trip.setTripType(source.getTripType());
+        trip.setPublisherRole(source.getPublisherRole());
+        trip.setCaptainUserId(source.getCaptainUserId());
+        trip.setAutoStartEnabled(source.getAutoStartEnabled());
+        trip.setArrivalStatus(source.getArrivalStatus());
+        trip.setArrivalEnteredAt(source.getArrivalEnteredAt());
+        trip.setArrivalDecisionDeadline(source.getArrivalDecisionDeadline());
+        trip.setContinueCount(source.getContinueCount());
         trip.setTitle(source.getTitle());
         trip.setDescription(source.getDescription());
         trip.setExpectedPeople(source.getExpectedPeople());
@@ -1018,7 +1268,7 @@ public class TripServiceImpl implements TripService {
         // 兼容升级前已写入但尚未登记到 registry 的 1~50 条公开列表缓存，
         // 避免部署后的第一条新行程仍被旧缓存遮挡三分钟。
         for (int size = 1; size <= 50; size++) {
-            keysToDelete.add(PUBLIC_CACHE_KEY.formatted(size));
+            keysToDelete.add(LEGACY_PUBLIC_CACHE_KEY.formatted(size));
         }
         redisTemplate.delete(keysToDelete);
         redisTemplate.delete(PUBLIC_CACHE_KEYS);

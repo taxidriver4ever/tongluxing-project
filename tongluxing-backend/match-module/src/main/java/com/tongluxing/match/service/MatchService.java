@@ -12,6 +12,7 @@ import com.tongluxing.match.vo.TripSearchPageResponse;
 import com.tongluxing.match.vo.TripDiscoverPageResponse;
 import com.tongluxing.match.vo.TripPublicDetailResponse;
 import com.tongluxing.match.vo.TripConsultationResponse;
+import com.tongluxing.match.vo.TripRecommendPageResponse;
 
 /**
  * 匹配模块业务服务接口。
@@ -115,6 +116,24 @@ public interface MatchService {
             String keyword, String searchType, String sort, Double latitude, Double longitude, Long referenceTripId,
             String startCity, String destination, String departureDateFrom, String departureDateTo,
             String vehicleType, Integer minimumRemainingSeats, Integer page, Integer size, Long refreshSeed);
+
+    /**
+     * 查询 App「行程-推荐」列表。
+     *
+     * <p>服务端自行判断用户是否存在自有基准行程；userHasTrip 只用于前后端状态
+     * 对齐，不作为算法真值。有行程时第一排序为顺路率，无行程时自动切换热度。</p>
+     */
+    TripRecommendPageResponse recommendTrips(
+            String sortBy, Boolean userHasTrip, Double latitude, Double longitude,
+            Integer page, Integer pageSize);
+
+    /**
+     * 向推荐行程队长发送一次固定问候。
+     *
+     * @param tripId 目标行程 ID
+     * @return 问候请求状态
+     */
+    TripConsultationResponse greetTrip(Long tripId);
 
     /**
      * 查询某位用户仍在公开招募且未过期的行程，供公开资料页使用。

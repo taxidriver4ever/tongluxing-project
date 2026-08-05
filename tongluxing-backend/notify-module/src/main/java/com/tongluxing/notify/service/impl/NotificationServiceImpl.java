@@ -17,6 +17,7 @@ import com.tongluxing.notify.dto.CreateNotificationEventRequest;
 import com.tongluxing.notify.dto.NotifyMessageQueryDTO;
 import com.tongluxing.notify.mapper.NotifyMessageMapper;
 import com.tongluxing.notify.service.NotificationService;
+import com.tongluxing.notify.service.AppPushService;
 import com.tongluxing.notify.vo.NotificationVO;
 import com.tongluxing.notify.vo.PageResult;
 import com.tongluxing.notify.vo.UnreadCountVO;
@@ -42,6 +43,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final NotifyMessageMapper messageMapper;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
+    private final AppPushService appPushService;
 
     @Override
     @Transactional
@@ -72,6 +74,12 @@ public class NotificationServiceImpl implements NotificationService {
                 trimToEmpty(request.targetId()),
                 requestId,
                 now);
+        // P0：站内记录只作为审计/历史，关键提醒同时进入 APP 系统推送任务。
+        if (RECEIVER_USER.equals(normalize(request.receiverType()))) {
+            appPushService.enqueue(
+                    request.receiverId(), normalize(request.eventType()), request.title(), request.content(),
+                    request.targetType(), request.targetId(), "notify:" + requestId);
+        }
         deleteUnreadCache(normalize(request.receiverType()), request.receiverId());
         NotifyMessageQueryDTO created = messageMapper.findByRequestId(requestId);
         NotificationVO result = toVO(created);

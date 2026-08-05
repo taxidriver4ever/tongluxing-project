@@ -9,6 +9,41 @@
 
 $ErrorActionPreference = 'Stop'
 
+# Android build-tools 在部分 Windows 环境中无法正确处理中文项目路径。
+# 如果脚本从中文真实目录启动，则自动转到磁盘根目录下的 ASCII 目录联接后重新执行。
+if ($PSScriptRoot -match '[^\x00-\x7F]') {
+    $sourceRoot = [System.IO.Path]::GetFullPath($PSScriptRoot)
+    $driveRoot = [System.IO.Path]::GetPathRoot($sourceRoot)
+    $asciiProjectRoot = Join-Path $driveRoot 'tlx-flutter-app'
+
+    if (Test-Path -LiteralPath $asciiProjectRoot) {
+        $existingRoot = [System.IO.Path]::GetFullPath((Get-Item -LiteralPath $asciiProjectRoot).Target)
+        if ($existingRoot.TrimEnd('\') -ne $sourceRoot.TrimEnd('\')) {
+            throw "ASCII project path already points elsewhere: $asciiProjectRoot -> $existingRoot"
+        }
+    } else {
+        New-Item -ItemType Junction -Path $asciiProjectRoot -Target $sourceRoot | Out-Null
+    }
+
+    $asciiScript = Join-Path $asciiProjectRoot 'run_android_usb.ps1'
+    $relayArgs = @('-ExecutionPolicy', 'Bypass', '-File', $asciiScript)
+    if ($DeviceId) { $relayArgs += @('-DeviceId', $DeviceId) }
+    if ($BackendRoot) { $relayArgs += @('-BackendRoot', $BackendRoot) }
+    if ($ConfigureOnly) { $relayArgs += '-ConfigureOnly' }
+    if ($ForceClean) { $relayArgs += '-ForceClean' }
+    if ($ForcePubGet) { $relayArgs += '-ForcePubGet' }
+    if ($SkipPrebuild) { $relayArgs += '-SkipPrebuild' }
+
+    & powershell @relayArgs
+    exit $LASTEXITCODE
+}
+
+# Gradle 缓存也固定到纯英文路径，避免插件或 aapt2 在解析用户目录时再次遇到编码问题。
+$projectDriveRoot = [System.IO.Path]::GetPathRoot($PSScriptRoot)
+$asciiGradleHome = Join-Path $projectDriveRoot 'tlx_gradle_cache'
+New-Item -ItemType Directory -Path $asciiGradleHome -Force | Out-Null
+$env:GRADLE_USER_HOME = $asciiGradleHome
+
 if (-not $BackendRoot) {
     $scriptRootItem = Get-Item -LiteralPath $PSScriptRoot
     $resolvedScriptRoot = if ($scriptRootItem.LinkType -and $scriptRootItem.Target) {

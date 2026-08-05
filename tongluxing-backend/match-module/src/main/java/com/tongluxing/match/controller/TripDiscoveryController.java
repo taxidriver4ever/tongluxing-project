@@ -21,6 +21,7 @@ import com.tongluxing.match.vo.TripSearchPageResponse;
 import com.tongluxing.match.vo.TripDiscoverPageResponse;
 import com.tongluxing.match.vo.TripPublicDetailResponse;
 import com.tongluxing.match.vo.TripConsultationResponse;
+import com.tongluxing.match.vo.TripRecommendPageResponse;
 import com.tongluxing.team.dto.ReviewTeamApplicationRequest;
 import com.tongluxing.team.service.TeamService;
 import com.tongluxing.team.vo.TeamApplicationResponse;
@@ -78,6 +79,25 @@ public class TripDiscoveryController {
      * @param refreshSeed 推荐轮换种子
      * @return 公共发现分页结果
      */
+    /**
+     * 查询 App「行程-推荐」分页列表。
+     *
+     * <p>sort_by 支持 match_rate、distance、time。用户没有自有行程时，
+     * match_rate 会由服务端自动切换为 heat。user_has_trip 仅用于前端状态对齐，
+     * 服务端仍以数据库中的真实自有行程为准。</p>
+     */
+    @GetMapping("/recommend")
+    public Result<TripRecommendPageResponse> recommend(
+            @RequestParam(name = "sort_by", defaultValue = "match_rate") String sortBy,
+            @RequestParam(name = "user_has_trip", required = false) Boolean userHasTrip,
+            @RequestParam(required = false) Double latitude,
+            @RequestParam(required = false) Double longitude,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(name = "page_size", defaultValue = "10") Integer pageSize) {
+        return Result.success(matchService.recommendTrips(
+                sortBy, userHasTrip, latitude, longitude, page, pageSize));
+    }
+
     @GetMapping("/discover")
     public Result<TripDiscoverPageResponse> discover(
             @RequestParam(required = false) String keyword,
@@ -143,6 +163,17 @@ public class TripDiscoveryController {
     public Result<TripConsultationResponse> consult(@PathVariable Long tripId,
                                                     @RequestBody(required = false) ConsultationBody body) {
         return Result.success(matchService.consultTrip(tripId, body == null ? null : body.content()));
+    }
+
+    /**
+     * 从推荐卡片向队长发送固定问候。
+     *
+     * <p>该接口不要求先关注队长，但同一用户针对同一行程只能存在一条待处理问候，
+     * 防止推荐列表被用于重复骚扰。</p>
+     */
+    @PostMapping("/{tripId}/greetings")
+    public Result<TripConsultationResponse> greet(@PathVariable Long tripId) {
+        return Result.success(matchService.greetTrip(tripId));
     }
 
     /**

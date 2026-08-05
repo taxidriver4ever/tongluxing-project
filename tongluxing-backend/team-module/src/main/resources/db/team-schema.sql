@@ -11,6 +11,15 @@ CREATE TABLE IF NOT EXISTS team (
   max_member_count INT NOT NULL comment '最高成员数量',
   current_member_count INT NOT NULL DEFAULT 1 comment '当前成员数量',
   join_mode VARCHAR(20) NOT NULL DEFAULT 'APPROVAL' comment '加入模式',
+  recruitment_status VARCHAR(16) NOT NULL DEFAULT 'OPEN' comment '招募状态：OPEN、PAUSED、CLOSED',
+  allow_midway_join TINYINT(1) NOT NULL DEFAULT 0 comment '行进中是否允许申请加入',
+  deviation_warning_distance_m INT NOT NULL DEFAULT 50000 comment '一级脱队距离阈值，米',
+  deviation_warning_minutes INT NOT NULL DEFAULT 30 comment '一级脱队持续时间，分钟',
+  severe_deviation_distance_m INT NOT NULL DEFAULT 100000 comment '严重脱队距离阈值，米',
+  severe_deviation_minutes INT NOT NULL DEFAULT 60 comment '严重脱队持续时间，分钟',
+  missing_location_minutes INT NOT NULL DEFAULT 720 comment '失联阈值，分钟',
+  join_radius_m INT NOT NULL DEFAULT 100000 comment '出发/途中加入范围，米',
+  privacy_level VARCHAR(24) NOT NULL DEFAULT 'STANDARD' comment '成员资料公开级别',
   team_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' comment '队伍状态',
   public_flag TINYINT(1) NOT NULL DEFAULT 1 comment '是否公开：0否、1是',
   chat_conversation_id BIGINT NULL comment '聊天会话ID',
@@ -21,14 +30,21 @@ CREATE TABLE IF NOT EXISTS team (
   PRIMARY KEY (id),
   KEY idx_team_trip (trip_id, team_status),
   KEY idx_team_owner (owner_user_id, team_status),
-  KEY idx_team_public_time (public_flag, team_status, departure_time)
+  KEY idx_team_public_time (public_flag, team_status, departure_time),
+  KEY idx_team_recruitment (team_status, recruitment_status, allow_midway_join)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='队伍表';
 
 CREATE TABLE IF NOT EXISTS team_member (
   id BIGINT NOT NULL comment '记录主键',
   team_id BIGINT NOT NULL comment '队伍ID',
   user_id BIGINT NOT NULL comment '平台用户ID',
-  vehicle_id BIGINT NULL comment '车辆ID',
+  vehicle_id BIGINT NULL comment '成员本人驾驶的车辆ID',
+  linked_owner_user_id BIGINT NULL comment '同车关联车主用户ID',
+  linked_vehicle_id BIGINT NULL comment '同车关联车辆ID',
+  plate_reference VARCHAR(24) NULL comment '手动车牌关联脱敏值',
+  owner_confirm_status VARCHAR(20) NOT NULL DEFAULT 'NOT_REQUIRED' comment '车主确认状态',
+  removed_by_user_id BIGINT NULL comment '移除操作人',
+  removed_reason VARCHAR(255) NULL comment '移除原因',
   member_role VARCHAR(20) NOT NULL DEFAULT 'MEMBER' comment '成员角色',
   member_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' comment '成员状态',
   joined_at DATETIME NOT NULL comment '加入时间',
@@ -41,7 +57,9 @@ CREATE TABLE IF NOT EXISTS team_member (
   PRIMARY KEY (id),
   UNIQUE KEY uk_team_member_user (team_id, user_id, deleted),
   KEY idx_team_member_team (team_id, member_status),
-  KEY idx_team_member_user_status (user_id, member_status)
+  KEY idx_team_member_user_status (user_id, member_status),
+  KEY idx_team_member_linked_vehicle (team_id, linked_vehicle_id, member_status),
+  KEY idx_team_member_external_active (user_id, member_role, member_status, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='队伍成员表';
 
 CREATE TABLE IF NOT EXISTS team_join_application (
@@ -49,7 +67,15 @@ CREATE TABLE IF NOT EXISTS team_join_application (
   team_id BIGINT NOT NULL comment '队伍ID',
   trip_id BIGINT NULL comment '行程ID',
   applicant_user_id BIGINT NOT NULL comment '申请人用户ID',
-  applicant_vehicle_id BIGINT NULL comment '申请人车辆ID',
+  applicant_vehicle_id BIGINT NULL comment '申请人本人车辆ID',
+  application_type VARCHAR(16) NOT NULL DEFAULT 'JOIN' comment '申请类型：JOIN、RETURN',
+  join_role VARCHAR(16) NOT NULL DEFAULT 'PASSENGER' comment '申请身份：DRIVER、PASSENGER',
+  linked_owner_user_id BIGINT NULL comment '希望关联的车主用户ID',
+  linked_vehicle_id BIGINT NULL comment '希望关联的队内车辆ID',
+  plate_reference VARCHAR(24) NULL comment '手动车牌关联脱敏值',
+  current_latitude DECIMAL(10,6) NULL comment '归队申请当前位置纬度',
+  current_longitude DECIMAL(10,6) NULL comment '归队申请当前位置经度',
+  owner_confirm_status VARCHAR(20) NOT NULL DEFAULT 'NOT_REQUIRED' comment '车主确认状态',
   reviewer_user_id BIGINT NULL comment '审核人用户ID',
   application_status VARCHAR(20) NOT NULL DEFAULT 'PENDING' comment '申请状态',
   apply_message VARCHAR(255) NULL comment '申请说明',
@@ -61,7 +87,8 @@ CREATE TABLE IF NOT EXISTS team_join_application (
   deleted TINYINT(1) NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
   PRIMARY KEY (id),
   KEY idx_team_apply_applicant (applicant_user_id, application_status, created_at),
-  KEY idx_team_apply_team (team_id, application_status, created_at)
+  KEY idx_team_apply_team (team_id, application_status, created_at),
+  KEY idx_team_apply_type (team_id, application_type, application_status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='队伍加入申请表';
 
 CREATE TABLE IF NOT EXISTS team_audit_log (

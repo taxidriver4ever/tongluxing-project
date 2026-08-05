@@ -1,8 +1,6 @@
 package com.tongluxing.team.vo;
 
-/**
- * TeamMemberResponse 响应数据对象。
- */
+/** 车队成员；隐私字段由服务层按队伍设置脱敏。 */
 public record TeamMemberResponse(
         String memberId,
         String teamId,
@@ -12,6 +10,12 @@ public record TeamMemberResponse(
         String memberStatus,
         String nicknameSnapshot,
         String vehicleSnapshot,
-        String joinedAt
+        String joinedAt,
+        String linkedOwnerUserId,
+        String linkedVehicleId,
+        String plateReference,
+        String ownerConfirmStatus,
+        Boolean canRemove,
+        Boolean self
 ) {
 }

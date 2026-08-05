@@ -1,5 +1,6 @@
 package com.tongluxing;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 import org.springframework.stereotype.Component;
@@ -66,6 +67,13 @@ public class MatchTeamAdapter implements MatchTeamPort {
             return "JOINED";
         }
         var application = applicationMapper.findLatest(teamId, userId);
+        if (application != null && "PENDING".equals(application.getApplicationStatus())) {
+            return "PENDING";
+        }
+        // 退出或被移除的历史成员需要显示“申请归队”，不能被旧 APPROVED 申请覆盖。
+        if (member != null && List.of("EXITED", "REMOVED").contains(member.getMemberStatus())) {
+            return member.getMemberStatus();
+        }
         return application == null ? "NONE" : application.getApplicationStatus();
     }
 
@@ -80,14 +88,20 @@ public class MatchTeamAdapter implements MatchTeamPort {
                             profile == null ? null : profile.getAvatarImageKey(), member.getMemberRole(),
                             profile == null ? "UNSUBMITTED" : profile.getCertificationStatus(),
                             profile == null ? 0 : profile.getTotalTripCount(),
-                            profile == null ? 0L : profile.getTotalDistanceMeters());
+                            profile == null ? 0L : profile.getTotalDistanceMeters(),
+                            member.getVehicleId(), member.getVehicleSnapshot(), member.getPlateReference());
                 }).toList();
     }
 
     @Override
-    public Long apply(Long teamId, String message, Long applicantVehicleId, String joinQuestionJson) {
+    public Long apply(Long teamId, String message, Long applicantVehicleId, String joinQuestionJson,
+            String joinRole, Long linkedOwnerUserId, Long linkedVehicleId, String plateNumber,
+            String applicationType, BigDecimal currentLatitude, BigDecimal currentLongitude) {
         return Long.valueOf(teamService.apply(teamId,
-                new JoinTeamApplicationRequest(applicantVehicleId, message, joinQuestionJson)).applicationId());
+                new JoinTeamApplicationRequest(applicantVehicleId, message, joinQuestionJson,
+                        "RETURN".equalsIgnoreCase(applicationType) ? "RETURN" : "JOIN", joinRole,
+                        linkedOwnerUserId, linkedVehicleId, plateNumber, currentLatitude, currentLongitude))
+                .applicationId());
     }
 
     /**
@@ -101,6 +115,7 @@ public class MatchTeamAdapter implements MatchTeamPort {
         return new MatchTeamDTO(team.getId(), team.getTripId(), team.getOwnerUserId(), team.getTeamName(),
                 team.getTeamDesc(), team.getNotice(),
                 team.getStartName(), team.getEndName(), team.getDepartureTime(), activeMemberCount,
-                team.getMaxMemberCount());
+                team.getMaxMemberCount(), team.getRecruitmentStatus(), team.getAllowMidwayJoin() != null
+                        && team.getAllowMidwayJoin() == 1);
     }
 }

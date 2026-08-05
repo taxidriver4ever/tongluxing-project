@@ -46,6 +46,10 @@ tongluxing:
   user:
     data-encryption-key: ${USER_DATA_ENCRYPTION_KEY}
   merchant:
+  # P0：群系统提醒停用，关键事件统一走手机系统推送。
+  chat:
+    reminder:
+      enabled: false
     data-encryption-key: ${MERCHANT_DATA_ENCRYPTION_KEY}
 
 admin:
@@ -76,6 +80,11 @@ storage:
 app:
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://43.138.233.211}
+  # P0：指向实际厂商或聚合推送网关；为空时任务保留待重试。
+  push:
+    gateway-url: ${APP_PUSH_GATEWAY_URL:}
+    api-key: ${APP_PUSH_API_KEY:}
+    dispatch-delay-ms: ${APP_PUSH_DISPATCH_DELAY_MS:5000}
 
 logging:
   level:

@@ -67,6 +67,13 @@ public class MatchTripAdapter implements MatchTripPort {
                 .toList();
     }
 
+    @Override
+    public MatchTripDTO findRecommendationReferenceTrip(Long userId) {
+        // 推荐基准必须是用户自己发布的行程，不能使用加入他人队伍的行程替代。
+        Trip trip = tripMapper.findRecommendationReferenceByUserId(userId);
+        return trip == null ? null : toDTO(trip, new HashMap<>());
+    }
+
     /**
      * 将行程实体转换为匹配模块所需的最小字段集合。
      *

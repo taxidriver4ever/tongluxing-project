@@ -75,6 +75,7 @@ DROP TABLE IF EXISTS `driver_track_record`;
 DROP TABLE IF EXISTS `file_storage`;
 DROP TABLE IF EXISTS `trip_consultation_request`;
 DROP TABLE IF EXISTS `trip_favorite`;
+DROP TABLE IF EXISTS `trip_leader_rating_summary`;
 DROP TABLE IF EXISTS `match_recommend_log`;
 DROP TABLE IF EXISTS `match_result`;
 DROP TABLE IF EXISTS `match_route_snapshot`;
@@ -2425,6 +2426,21 @@ create table if not exists sos_event
   default charset = utf8mb4
   collate = utf8mb4_unicode_ci
     comment = '用户SOS平台内上报与运营处置表';
+
+-- ============================================================================
+-- 行程推荐队长评分汇总
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS trip_leader_rating_summary (
+  leader_user_id BIGINT NOT NULL comment '队长用户ID',
+  rating DECIMAL(3,2) NOT NULL DEFAULT 5.00 comment '队长综合评分，范围0~5',
+  positive_rate DECIMAL(5,4) NOT NULL DEFAULT 1.0000 comment '好评率，范围0~1',
+  rating_count INT NOT NULL DEFAULT 0 comment '有效评价数量',
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '汇总更新时间',
+  deleted TINYINT(1) NOT NULL DEFAULT 0 comment '逻辑删除标记',
+  PRIMARY KEY (leader_user_id),
+  KEY idx_trip_leader_rating (rating, positive_rate)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程队长评分汇总表';
+
 
 SET FOREIGN_KEY_CHECKS = 1;
 -- 建表完成。

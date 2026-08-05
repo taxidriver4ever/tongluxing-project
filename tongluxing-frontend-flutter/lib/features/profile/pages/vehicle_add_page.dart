@@ -10,7 +10,6 @@ import '../../../app/theme.dart';
 import '../../../common/widgets/app_widgets.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
-import 'driving_license_page.dart';
 
 class VehicleAddPage extends StatefulWidget {
   const VehicleAddPage({super.key});
@@ -32,12 +31,9 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
   static const materialBizTypes = <String, String>{
     '行驶证主页': 'VEHICLE_LICENSE_FRONT',
     '行驶证副页': 'VEHICLE_LICENSE_BACK',
-    '车辆正面照': 'VEHICLE_PHOTO_FRONT',
-    '车辆侧面照': 'VEHICLE_PHOTO_SIDE',
-    '车辆后方照': 'VEHICLE_PHOTO_REAR',
   };
 
-  static const requiredMaterials = <String>{'行驶证主页', '行驶证副页', '车辆正面照'};
+  static const requiredMaterials = <String>{'行驶证主页'};
 
   bool get materialsComplete =>
       requiredMaterials.every(selectedMaterials.containsKey);
@@ -83,53 +79,12 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
   }
 
   Future<void> submit() async {
-    // 先检查驾驶证认证，避免用户选择并上传完多张图片后才被后端拒绝。
-    try {
-      final profile = await UserProfileService(
-        context.read<AppSession>().api,
-      ).me();
-      if (profile['drivingLicenseCertificationStatus'] != 'APPROVED') {
-        if (!mounted) return;
-        final goAuthenticate = await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            title: const Text('请先完成驾驶证认证'),
-            content: const Text('驾驶证认证通过后，才能提交行驶证和车辆认证资料。'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('稍后再说'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('去认证'),
-              ),
-            ],
-          ),
-        );
-        if (goAuthenticate == true) {
-          if (!mounted) return;
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const DrivingLicensePage()),
-          );
-        }
-        return;
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('无法校验驾驶证认证状态：$error')));
-      }
-      return;
-    }
     if (!mounted) return;
     if (!formKey.currentState!.validate()) return;
     if (!materialsComplete) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请先从相册上传全部 3 项认证材料')));
+      ).showSnackBar(const SnackBar(content: Text('请至少上传一张清晰的行驶证图片')));
       return;
     }
     FocusScope.of(context).unfocus();
@@ -176,18 +131,13 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
         vehicleColor: color.text.trim(),
         registrationLicenseImages: [
           uploadedKeys['行驶证主页']!,
-          uploadedKeys['行驶证副页']!,
-        ],
-        vehicleImages: [
-          uploadedKeys['车辆正面照']!,
-          ?uploadedKeys['车辆侧面照'],
-          ?uploadedKeys['车辆后方照'],
+          ?uploadedKeys['行驶证副页'],
         ],
       );
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('图片已上传，认证材料已提交')));
+        ).showSnackBar(const SnackBar(content: Text('行驶证已提交并自动完成车主认证')));
         Navigator.pop(context, true);
       }
     } catch (e) {
@@ -216,12 +166,12 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
         padding: const EdgeInsets.all(22),
         children: [
           const Text(
-            '提交车辆与证件材料',
+            '上传行驶证完成车主认证',
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 7),
           const Text(
-            '从手机相册选择真实图片，App 会先向后端获取 MinIO 上传签名，再直传图片并提交审核。',
+            '只需上传清晰行驶证即可自动认证；驾驶证和车辆外观照片不再作为前置材料。',
             style: TextStyle(color: AppColors.muted, height: 1.5),
           ),
           const SizedBox(height: 22),
@@ -229,24 +179,18 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
             color: const Color(0xFFF8FAFD),
             child: Column(
               children: [
-                _field(plate, '车牌号', LucideIcons.badge),
+                _field(plate, '车牌号', LucideIcons.badge, isRequired: true),
                 const SizedBox(height: 13),
-                _field(brand, '车辆品牌', LucideIcons.tags),
+                _field(brand, '车辆品牌（可选）', LucideIcons.tags),
                 const SizedBox(height: 13),
-                _field(model, '车型名称', LucideIcons.car),
+                _field(model, '车型名称（可选）', LucideIcons.car),
                 const SizedBox(height: 13),
-                _field(color, '车辆颜色', LucideIcons.palette),
+                _field(color, '车辆颜色（可选）', LucideIcons.palette),
               ],
             ),
           ),
           const SizedBox(height: 18),
-          _materials('车辆行驶证', '主页与副页均需清晰完整', ['行驶证主页', '行驶证副页']),
-          const SizedBox(height: 14),
-          _materials('车辆照片', '正面照必传，侧面和后方照片可选，需能清楚识别车辆', [
-            '车辆正面照',
-            '车辆侧面照',
-            '车辆后方照',
-          ]),
+          _materials('车辆行驶证', '主页必传，副页可选；图片需清晰完整', ['行驶证主页', '行驶证副页']),
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: saving ? null : submit,
@@ -260,12 +204,12 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
                     ),
                   )
                 : const Icon(LucideIcons.shieldCheck),
-            label: Text(saving ? savingLabel : '上传并提交认证'),
+            label: Text(saving ? savingLabel : '上传行驶证并自动认证'),
           ),
           const SizedBox(height: 14),
           Center(
             child: Text(
-              '已选择 ${selectedMaterials.length} 项图片 · 必传材料 ${materialsComplete ? '已完整' : '未完整'}',
+              '已选择 ${selectedMaterials.length} 张行驶证图片 · ${materialsComplete ? '可以提交' : '请上传主页'}',
               style: TextStyle(
                 color: materialsComplete ? AppColors.success : AppColors.muted,
                 fontSize: 12,
@@ -391,12 +335,13 @@ class _VehicleAddPageState extends State<VehicleAddPage> {
   TextFormField _field(
     TextEditingController controller,
     String label,
-    IconData icon,
-  ) => TextFormField(
+    IconData icon, {
+    bool isRequired = false,
+  }) => TextFormField(
     controller: controller,
     decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
     validator: (value) =>
-        value == null || value.trim().isEmpty ? '请填写$label' : null,
+        isRequired && (value == null || value.trim().isEmpty) ? '请填写车牌号' : null,
   );
 }
 

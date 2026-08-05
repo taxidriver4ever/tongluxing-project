@@ -1,5 +1,8 @@
 package com.tongluxing.match.dto;
 
+import java.math.BigDecimal;
+
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -12,6 +15,13 @@ import jakarta.validation.constraints.Size;
 public record TripApplicationRequest(
         @Size(max = 255) String message,
         Boolean selfDrive,
-        Long applicantVehicleId
+        Long applicantVehicleId,
+        String joinRole,
+        Long linkedOwnerUserId,
+        Long linkedVehicleId,
+        @Size(max = 24) String plateNumber,
+        @Pattern(regexp = "JOIN|RETURN") String applicationType,
+        BigDecimal currentLatitude,
+        BigDecimal currentLongitude
 ) {
 }

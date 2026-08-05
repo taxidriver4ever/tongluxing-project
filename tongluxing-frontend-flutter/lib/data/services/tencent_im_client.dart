@@ -9,6 +9,7 @@ import 'package:tencent_cloud_chat_sdk/enum/group_member_filter_enum.dart';
 import 'package:tencent_cloud_chat_sdk/enum/log_level_enum.dart';
 import 'package:tencent_cloud_chat_sdk/enum/message_elem_type.dart';
 import 'package:tencent_cloud_chat_sdk/enum/receive_message_opt_enum.dart';
+import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart';
 import 'package:tencent_cloud_chat_sdk/tencent_im_sdk_plugin.dart';
 
 import '../models/app_models.dart';
@@ -142,8 +143,7 @@ class TencentImClient {
       onSyncServerFinish: () => _conversationEvents.add(null),
       onNewConversation: (_) => _conversationEvents.add(null),
       onConversationChanged: (_) => _conversationEvents.add(null),
-      onTotalUnreadMessageCountChanged: (_) =>
-          _conversationEvents.add(null),
+      onTotalUnreadMessageCountChanged: (_) => _conversationEvents.add(null),
     );
     await TencentImSDKPlugin.v2TIMManager
         .getConversationManager()
@@ -230,7 +230,9 @@ class TencentImClient {
     if (data is List) {
       for (final dynamic message in data) {
         if (message == null) continue;
-        rows.add(_messageToMap(Map<String, dynamic>.from(message.toJson() as Map)));
+        rows.add(
+          _messageToMap(Map<String, dynamic>.from(message.toJson() as Map)),
+        );
       }
     }
     // SDK 默认从新到旧返回；聊天页面需要从旧到新排列。
@@ -244,12 +246,11 @@ class TencentImClient {
     await _requireConnected();
     final manager = TencentImSDKPlugin.v2TIMManager.getMessageManager();
     final created = await manager.createTextMessage(text: content);
-    final dynamic createData = created.data;
-    final id = createData?.id?.toString() ?? '';
-    if (created.code != 0 || id.isEmpty) {
+    final message = created.data?.messageInfo;
+    if (created.code != 0 || message == null) {
       throw StateError('创建腾讯 IM 文本消息失败：${created.desc}');
     }
-    await _sendCreatedMessage(conversation, id);
+    await _sendCreatedMessage(conversation, message);
   }
 
   /// 发送同路行自定义消息，例如 MinIO 图片、文件、位置和业务卡片。
@@ -266,23 +267,22 @@ class TencentImClient {
       desc: description,
       extension: extension,
     );
-    final dynamic createData = created.data;
-    final id = createData?.id?.toString() ?? '';
-    if (created.code != 0 || id.isEmpty) {
+    final message = created.data?.messageInfo;
+    if (created.code != 0 || message == null) {
       throw StateError('创建腾讯 IM 自定义消息失败：${created.desc}');
     }
-    await _sendCreatedMessage(conversation, id);
+    await _sendCreatedMessage(conversation, message);
   }
 
   /// 发送已经由 createTextMessage/createCustomMessage 创建的消息。
   Future<void> _sendCreatedMessage(
     ConversationModel conversation,
-    String id,
+    V2TimMessage message,
   ) async {
     final result = await TencentImSDKPlugin.v2TIMManager
         .getMessageManager()
         .sendMessage(
-          id: id,
+          message: message,
           receiver: conversation.isPrivate ? conversation.imPeerUserId : '',
           groupID: conversation.isPrivate ? '' : conversation.imGroupId,
           onlineUserOnly: false,
@@ -336,11 +336,16 @@ class TencentImClient {
   /// 打开会话后清除腾讯 IM 未读数。
   Future<void> markRead(ConversationModel conversation) async {
     if (!connected) return;
-    final manager = TencentImSDKPlugin.v2TIMManager.getMessageManager();
-    if (conversation.isPrivate) {
-      await manager.markC2CMessageAsRead(userID: conversation.imPeerUserId);
-    } else {
-      await manager.markGroupMessageAsRead(groupID: conversation.imGroupId);
+    final result = await TencentImSDKPlugin.v2TIMManager
+        .getConversationManager()
+        .cleanConversationUnreadMessageCount(
+          conversationID: conversation.imConversationId,
+          // timestamp 和 sequence 同时为 0 表示清除该会话当前全部未读数。
+          cleanTimestamp: 0,
+          cleanSequence: 0,
+        );
+    if (result.code != 0) {
+      throw StateError('清除腾讯 IM 未读数失败：${result.code} ${result.desc}');
     }
     _conversationEvents.add(null);
   }
@@ -472,7 +477,8 @@ class TencentImClient {
       if (payload['mediaId'] != null && payload['fileId'] == null) {
         payload['fileId'] = payload['mediaId'];
       }
-      content = payload['content']?.toString() ??
+      content =
+          payload['content']?.toString() ??
           payload['fileName']?.toString() ??
           custom['desc']?.toString() ??
           _customPreview(type);
@@ -482,10 +488,7 @@ class TencentImClient {
           : <String, dynamic>{};
       type = 'LOCATION';
       content = location['desc']?.toString() ?? '位置';
-      payload = {
-        ...location,
-        'address': location['desc']?.toString() ?? '位置',
-      };
+      payload = {...location, 'address': location['desc']?.toString() ?? '位置'};
     } else if (elemType == MessageElemType.V2TIM_ELEM_TYPE_IMAGE) {
       // 兼容历史上直接通过腾讯 IM 上传的原生图片消息。
       type = 'IMAGE';
@@ -578,9 +581,9 @@ class TencentImClient {
   String _timestampText(Object? value) {
     final seconds = _asInt(value);
     if (seconds == null || seconds <= 0) return '';
-    return DateTime.fromMillisecondsSinceEpoch(seconds * 1000)
-        .toLocal()
-        .toIso8601String();
+    return DateTime.fromMillisecondsSinceEpoch(
+      seconds * 1000,
+    ).toLocal().toIso8601String();
   }
 
   Future<void> disconnect() async {

@@ -15,7 +15,6 @@ import '../../../data/models/app_models.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import '../../home/pages/search_location_page.dart';
-import '../../profile/pages/vehicle_auth_status_page.dart';
 import '../widgets/trip_route_preview.dart';
 
 /// 三步式行程创建：路线、基本信息和同行要求彼此分开，避免表单拥挤。
@@ -628,33 +627,9 @@ class _TripCreatePageState extends State<TripCreatePage> {
   }
 
   Future<void> _handlePublishError(Object error) async {
-    if (!'$error'.contains('车辆认证') || !mounted) {
-      _showMessage('$error');
-      return;
-    }
-    final go = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('发布前需要车辆认证'),
-        content: const Text('内测阶段提交完整车辆资料后会自动通过，认证完成可直接返回继续发布。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('稍后处理'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('去认证'),
-          ),
-        ],
-      ),
-    );
-    if (go == true && mounted) {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const VehicleAuthStatusPage()),
-      );
-    }
+    // P0：所有用户都能发布。这里不再把“无认证车辆”解释为错误，
+    // 后端会自动把无车用户的发布识别为乘客出行需求。
+    _showMessage('$error');
   }
 
   Future<void> _next() async {
@@ -727,9 +702,14 @@ class _TripCreatePageState extends State<TripCreatePage> {
       final id = await _ensureDraft();
       if (!await _persistRoute(plan: true, showError: true)) return;
       if (!await _confirmTimeConflict()) return;
-      await _tripService.publishDraft(id);
+      final tripId = await _tripService.publishDraft(id);
+      final published = await _tripService.detail(tripId);
       if (!mounted) return;
-      _showMessage('行程发布成功，群聊已创建');
+      _showMessage(
+        published.passengerDemand
+            ? '出行需求发布成功，已进入匹配池'
+            : '车主行程发布成功，已自动成为队长',
+      );
       Navigator.pushNamedAndRemoveUntil(context, AppRoutes.home, (_) => false);
     } catch (error) {
       await _handlePublishError(error);

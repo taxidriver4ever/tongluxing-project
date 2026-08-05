@@ -19,12 +19,18 @@ class _MainShellPageState extends State<MainShellPage> {
   final Set<int> loadedTabs = {0};
   final profileKey = GlobalKey<ProfilePageState>();
 
-  late final List<Widget> pages = [
-    const MapHomePage(),
-    const TripHomePage(),
-    const ChatIndexPage(),
-    ProfilePage(key: profileKey),
-  ];
+  late final List<Widget> pages;
+
+  @override
+  void initState() {
+    super.initState();
+    pages = [
+      MapHomePage(onOpenTripRecommendations: () => selectTab(1)),
+      const TripHomePage(),
+      const ChatIndexPage(),
+      ProfilePage(key: profileKey),
+    ];
+  }
 
   void selectTab(int value) {
     setState(() {

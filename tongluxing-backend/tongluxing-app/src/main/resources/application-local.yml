@@ -47,6 +47,10 @@ tongluxing:
     data-encryption-key: ${USER_DATA_ENCRYPTION_KEY:${AUTH_JWT_SECRET:local-dev-jwt-secret-change-before-production-2026}}
   merchant:
     data-encryption-key: ${MERCHANT_DATA_ENCRYPTION_KEY:${AUTH_JWT_SECRET:local-dev-jwt-secret-change-before-production-2026}}
+  # P0：群系统提醒停用，关键事件统一走手机系统推送。
+  chat:
+    reminder:
+      enabled: false
 
 admin:
   auth:
@@ -64,7 +68,8 @@ tencent:
     sdk-app-id: ${TENCENT_IM_SDK_APP_ID}
     secret-key: ${TENCENT_IM_SECRET_KEY}
     admin-user-id: ${TENCENT_IM_ADMIN_USER_ID}
-    callback-token: ${TENCENT_IM_CALLBACK_TOKEN}
+    # 本地只验证后端主动调用腾讯 IM；未配置控制台回调时使用不可对外复用的本地占位值。
+    callback-token: ${TENCENT_IM_CALLBACK_TOKEN:local-callback-disabled}
     expire-seconds: ${TENCENT_IM_EXPIRE_SECONDS:604800}
 
 storage:
@@ -77,6 +82,11 @@ storage:
 app:
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174}
+  # P0：指向实际厂商或聚合推送网关；为空时任务保留待重试。
+  push:
+    gateway-url: ${APP_PUSH_GATEWAY_URL:}
+    api-key: ${APP_PUSH_API_KEY:}
+    dispatch-delay-ms: ${APP_PUSH_DISPATCH_DELAY_MS:5000}
 
 logging:
   level:

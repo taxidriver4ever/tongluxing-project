@@ -12,7 +12,7 @@ const router = useRouter()
 const navGroups = [
   { label: '运营中心', items: [
     { to: '/', name: 'dashboard', label: '运营总览', icon: LayoutDashboard },
-    { to: '/certification-audit', name: 'audit', label: '认证审核', icon: ShieldCheck },
+    { to: '/certification-audit', name: 'audit', label: '自动认证记录', icon: ShieldCheck },
     { to: '/merchant-audit', name: 'merchant-audit', label: '商家入驻审核', icon: Store },
     { to: '/partner-audit', name: 'partner-audit', label: '合作商审核', icon: Handshake },
     { to: '/coupon-center', name: 'coupon-center', label: '平台合作券池', icon: TicketCheck },

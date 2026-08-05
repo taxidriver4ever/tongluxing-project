@@ -1,8 +1,6 @@
 package com.tongluxing.team.vo;
 
-/**
- * TeamApplicationResponse 响应数据对象。
- */
+/** 入队/归队申请响应。 */
 public record TeamApplicationResponse(
         String applicationId,
         String teamId,
@@ -21,6 +19,14 @@ public record TeamApplicationResponse(
         String createdAt,
         Boolean following,
         Boolean followedByTarget,
-        Boolean mutual
+        Boolean mutual,
+        String applicationType,
+        String joinRole,
+        String linkedOwnerUserId,
+        String linkedVehicleId,
+        String plateReference,
+        String ownerConfirmStatus,
+        String currentLatitude,
+        String currentLongitude
 ) {
 }

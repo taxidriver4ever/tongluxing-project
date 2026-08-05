@@ -73,7 +73,15 @@ public class TeamTripAdapter implements TeamTripPort {
         if (trip == null) {
             return null;
         }
-        return new TeamTripDTO(trip.getId(), trip.getUserId(), trip.getStartName(), trip.getEndName(),
-                trip.getDepartureTime(), trip.getStatus());
+        return new TeamTripDTO(
+                trip.getId(),
+                trip.getUserId(),
+                trip.getCaptainUserId(),
+                trip.getVehicleId(),
+                trip.getTripType(),
+                trip.getStartName(),
+                trip.getEndName(),
+                trip.getDepartureTime(),
+                trip.getStatus());
     }
 }

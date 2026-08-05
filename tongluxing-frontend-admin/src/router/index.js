@@ -9,7 +9,7 @@ const routes = [
   component: AdminLayout,
   children: [
     { path: '', name: 'dashboard', component: () => import('../views/DashboardPage.vue'), meta: { title: '运营总览' } },
-    { path: 'certification-audit', name: 'audit', component: () => import('../views/CertificationAuditPage.vue'), meta: { title: '认证审核' } },
+    { path: 'certification-audit', name: 'audit', component: () => import('../views/CertificationAuditPage.vue'), meta: { title: '自动认证记录' } },
     { path: 'merchant-audit', name: 'merchant-audit', component: () => import('../views/MerchantAuditPage.vue'), meta: { title: '商家入驻审核' } },
     { path: 'partner-audit', name: 'partner-audit', component: () => import('../views/PartnerAuditPage.vue'), meta: { title: '合作商申请审核' } },
     { path: 'coupon-center', name: 'coupon-center', component: () => import('../views/CouponCenterPage.vue'), meta: { title: '平台合作券池' } },

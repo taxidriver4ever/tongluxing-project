@@ -78,6 +78,9 @@ public interface ChatService {
     /** 行程入队申请通过后，由内部事件授予对应群聊成员权限。 */
     void addApprovedTripMember(Long tripId, Long userId);
 
+    /** 队长移除车队成员后，由内部事件同步移出腾讯 IM 群。 */
+    void removeTripMember(Long tripId, Long userId);
+
     /** 当前登录用户退出会话。 */
     void exitMe(Long conversationId);
 

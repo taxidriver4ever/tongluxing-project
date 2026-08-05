@@ -644,6 +644,38 @@ class TripDiscoveryService {
   const TripDiscoveryService(this.api);
   final ApiClient api;
 
+  /// 获取「行程-推荐」列表。
+  ///
+  /// [sortBy] 只允许 match_rate、distance、time。后端会根据真实的
+  /// 用户行程状态，把无行程用户的 match_rate 自动切换为 heat。
+  Future<Map<String, dynamic>> recommend({
+    String sortBy = 'match_rate',
+    required bool userHasTrip,
+    double? latitude,
+    double? longitude,
+    int page = 1,
+    int pageSize = 10,
+  }) async => Map<String, dynamic>.from(
+    await api.get(
+          '/trips/recommend',
+          query: {
+            'sort_by': sortBy,
+            'user_has_trip': userHasTrip.toString(),
+            if (latitude != null) 'latitude': latitude.toString(),
+            if (longitude != null) 'longitude': longitude.toString(),
+            'page': page.toString(),
+            'page_size': pageSize.toString(),
+          },
+        )
+        as Map,
+  );
+
+  /// 推荐卡片“打招呼”使用固定礼貌文案，避免开放自由文本造成骚扰。
+  Future<Map<String, dynamic>> greet(String tripId) async =>
+      Map<String, dynamic>.from(
+        await api.post('/v1/trips/$tripId/greetings') as Map,
+      );
+
   Future<Map<String, dynamic>> discover({
     String? keyword,
     String? searchType,

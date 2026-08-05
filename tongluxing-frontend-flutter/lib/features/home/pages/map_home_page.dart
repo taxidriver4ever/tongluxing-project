@@ -15,11 +15,15 @@ import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import '../../../data/services/location_snapshot.dart';
 import '../../trip/pages/trip_create_page.dart';
+import '../../trip/pages/trip_discovery_detail_page.dart';
 import 'sos_confirm_page.dart';
 
 /// 发现页：全屏高德地图 + Apple Maps 风格可拖动搜索抽屉。
 class MapHomePage extends StatefulWidget {
-  const MapHomePage({super.key});
+  const MapHomePage({super.key, this.onOpenTripRecommendations});
+
+  /// 从首页地图直接跳转到“行程 Tab → 推荐页面”。
+  final VoidCallback? onOpenTripRecommendations;
 
   static bool get nativeAmap =>
       !kIsWeb &&
@@ -64,6 +68,9 @@ class _MapHomePageState extends State<MapHomePage> {
   LocationSelection? selectedLocation;
   List<LocationSelection> searchResults = const [];
   List<LocationSelection> recentLocations = const [];
+  bool showNoTripRecommendationEntry = false;
+  bool loadingHotTrips = false;
+  List<TripRecommendModel> hotTrips = const [];
 
   @override
   void initState() {
@@ -92,6 +99,72 @@ class _MapHomePageState extends State<MapHomePage> {
       return;
     }
     _loadHistory();
+    _loadTripRecommendationEntry();
+  }
+
+  /// 首页地图只在用户没有当前/待出发行程时显示推荐入口。推荐列表本身
+  /// 仍由行程 Tab 按当前位置和当前时间请求，地图页不复制排序算法。
+  Future<void> _loadTripRecommendationEntry() async {
+    try {
+      final dashboard = Map<String, dynamic>.from(
+        await TripService(context.read<AppSession>().api).dashboard(),
+      );
+      final hasCurrent = dashboard['currentTrip'] is Map;
+      final hasUpcoming =
+          (dashboard['upcomingTrips'] as List? ?? const []).isNotEmpty;
+      if (mounted) {
+        final showEntry = !hasCurrent && !hasUpcoming;
+        setState(() => showNoTripRecommendationEntry = showEntry);
+        final location = LocationSnapshot.current;
+        if (showEntry && location != null) {
+          unawaited(_loadHotTrips(location.latitude, location.longitude));
+        }
+      }
+    } catch (_) {
+      // 地图基础能力不应因为行程聚合接口失败而不可用。
+    }
+  }
+
+  /// 无行程时按当前位置读取前三条热度推荐，供地图入口快速展示。
+  Future<void> _loadHotTrips(double latitude, double longitude) async {
+    if (loadingHotTrips) return;
+    setState(() => loadingHotTrips = true);
+    try {
+      final result = await TripDiscoveryService(
+        context.read<AppSession>().api,
+      ).recommend(
+        sortBy: 'match_rate',
+        userHasTrip: false,
+        latitude: latitude,
+        longitude: longitude,
+        pageSize: 3,
+      );
+      final values = (result['list'] as List? ?? const [])
+          .whereType<Map>()
+          .map(
+            (value) => TripRecommendModel.fromJson(
+              Map<String, dynamic>.from(value),
+            ),
+          )
+          .toList();
+      if (mounted) setState(() => hotTrips = values);
+    } catch (_) {
+      // 热门队伍只是地图辅助入口，失败时继续显示发布和推荐按钮。
+    } finally {
+      if (mounted) setState(() => loadingHotTrips = false);
+    }
+  }
+
+  Future<void> _openHotTrip(TripRecommendModel trip) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TripDiscoveryDetailPage(
+          tripId: trip.tripId,
+          initial: trip.toDiscoverModel(),
+        ),
+      ),
+    );
   }
 
   @override
@@ -470,7 +543,7 @@ class _MapHomePageState extends State<MapHomePage> {
     LocationSelection? initialEnd,
     LocationSelection? initialWaypoint,
   }) async {
-    await Navigator.push<bool>(
+    final created = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => TripCreatePage(
@@ -480,6 +553,7 @@ class _MapHomePageState extends State<MapHomePage> {
         ),
       ),
     );
+    if (created == true) await _loadTripRecommendationEntry();
   }
 
   @override
@@ -503,9 +577,30 @@ class _MapHomePageState extends State<MapHomePage> {
                 location.latLng.longitude,
               );
               if (centerOnNextLocation) _moveToLocation(location.latLng);
+              if (showNoTripRecommendationEntry && hotTrips.isEmpty) {
+                unawaited(
+                  _loadHotTrips(
+                    location.latLng.latitude,
+                    location.latLng.longitude,
+                  ),
+                );
+              }
             },
           ),
         ),
+        if (showNoTripRecommendationEntry)
+          Positioned(
+            left: 14,
+            right: 82,
+            top: MediaQuery.paddingOf(context).top + 18,
+            child: _MapTripRecommendEntry(
+              hotTrips: hotTrips,
+              loading: loadingHotTrips,
+              onOpenTrip: _openHotTrip,
+              onOpenRecommendations: widget.onOpenTripRecommendations,
+              onPublish: () => _createTrip(),
+            ),
+          ),
         Positioned(
           right: 16,
           top: MediaQuery.paddingOf(context).top + 18,
@@ -603,6 +698,122 @@ class _MapHomePageState extends State<MapHomePage> {
       ],
     );
   }
+}
+
+class _MapTripRecommendEntry extends StatelessWidget {
+  const _MapTripRecommendEntry({
+    required this.hotTrips,
+    required this.loading,
+    required this.onOpenTrip,
+    required this.onOpenRecommendations,
+    required this.onPublish,
+  });
+
+  final List<TripRecommendModel> hotTrips;
+  final bool loading;
+  final ValueChanged<TripRecommendModel> onOpenTrip;
+  final VoidCallback? onOpenRecommendations;
+  final VoidCallback onPublish;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.white.withValues(alpha: .96),
+    borderRadius: BorderRadius.circular(14),
+    elevation: 4,
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(LucideIcons.flame, size: 17, color: Color(0xFFF59E0B)),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '附近热门队伍',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            '按当前位置发现近期出发的队伍',
+            style: TextStyle(fontSize: 12, color: AppColors.secondaryText),
+          ),
+          if (loading) ...[
+            const SizedBox(height: 8),
+            const LinearProgressIndicator(minHeight: 2),
+          ] else if (hotTrips.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            ...hotTrips.take(2).map(
+              (trip) => InkWell(
+                onTap: () => onOpenTrip(trip),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        LucideIcons.mapPinned,
+                        size: 13,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          '${trip.tripName} · ${trip.endLocation}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '热度 ${trip.heat ?? 0}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFFF59E0B),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 9),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onPublish,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 34),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  child: const Text('发布新行程'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton(
+                  onPressed: onOpenRecommendations,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 34),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  child: const Text('去看看推荐'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _SearchSheet extends StatelessWidget {

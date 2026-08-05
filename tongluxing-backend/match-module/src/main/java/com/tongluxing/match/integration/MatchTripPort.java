@@ -36,6 +36,17 @@ public interface MatchTripPort {
     List<MatchTripDTO> listPublicTrips(int limit);
 
     /**
+     * 查询当前用户可作为推荐基准的自有行程。
+     *
+     * <p>优先进行中的行程，其次选择最近待出发的公开行程。该方法只查询用户自己
+     * 发布的行程，不把用户加入的其他队伍当作“我的行程”推荐基准。</p>
+     *
+     * @param userId 当前登录用户 ID
+     * @return 没有可用自有行程时返回 null
+     */
+    MatchTripDTO findRecommendationReferenceTrip(Long userId);
+
+    /**
      * 行程匹配所需的最小字段集合。
      *
      * <p>owner、vehicle 和 route 字段已经由端口实现完成跨表聚合；字段为空表示上游

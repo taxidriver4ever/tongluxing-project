@@ -13,6 +13,13 @@ public class TeamMember {
     private Long teamId;
     private Long userId;
     private Long vehicleId;
+    private Long linkedOwnerUserId;
+    private Long linkedVehicleId;
+    /** 只保存脱敏车牌，不保存用户输入的完整车牌。 */
+    private String plateReference;
+    private String ownerConfirmStatus;
+    private Long removedByUserId;
+    private String removedReason;
     private String memberRole;
     private String memberStatus;
     private LocalDateTime joinedAt;

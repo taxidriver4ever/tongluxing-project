@@ -21,13 +21,17 @@ public class TripChatLifecycleListener {
 
     @EventListener
     public void onTripPublished(TripPublishedEvent event) {
-        // 发布即准备群聊，让成员能在正式出发前沟通并完成参加确认。
+        // 乘客发布的只是出行需求，在匹配到车主前没有队长，也不创建群聊。
+        if (!event.hasCaptain()) {
+            return;
+        }
+        // 车主发布后准备群聊，让成员能在正式出发前沟通。
         chatService.prepareTripConversation(event.tripId(), event.tripName(), event.ownerUserId(), event.memberUserIds());
     }
 
     @EventListener
     public void onTripStarted(TripStartedEvent event) {
-        // 开始事件会同步最终成员名单，并写入行程开启系统消息。
+        // 仅同步群成员与状态；业务提醒由 APP 系统推送承担，不再依赖群系统消息。
         chatService.openTripConversation(event.tripId(), event.tripName(), event.ownerUserId(), event.memberUserIds());
     }
 
@@ -39,7 +43,7 @@ public class TripChatLifecycleListener {
 
     @EventListener
     public void onTripUpdated(TripUpdatedEvent event) {
-        // 只发送轻量系统提示，行程详情仍以 trip-module 最新数据为准。
-        chatService.notifyTripUpdated(event.tripId(), event.operatorUserId());
+        // P0 最终方案取消群系统提醒。行程更新通过系统推送通知，群聊只承载用户消息。
+        // 这里故意不调用 notifyTripUpdated。
     }
 }

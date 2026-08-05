@@ -264,11 +264,12 @@ public class TripCreationServiceImpl implements TripCreationService {
         validatePublish(draft);
         TripRoute route = routeMapper.findByDraftId(draftId);
         List<TripWaypoint> waypoints = waypointMapper.findByDraftId(draftId);
+        // P0：车辆认证不再是发布前置条件。存在默认认证车辆时发布车主行程，
+        // 否则由 TripService 自动识别为乘客出行需求，不创建队长、车队和群聊。
         TripVehicleDTO vehicle = vehiclePort.getDefaultCertifiedVehicle(userId);
-        if (vehicle == null) throw new BusinessException(ResultCode.FORBIDDEN, "请先完成车辆认证");
         LocationRequest start = location(draft.getStartLocationJson());
         LocationRequest end = location(draft.getEndLocationJson());
-        TripResponse trip = tripService.createTrip(new CreateTripRequest(vehicle.vehicleId(), draft.getTitle(),
+        TripResponse trip = tripService.createTrip(new CreateTripRequest(vehicle == null ? null : vehicle.vehicleId(), draft.getTitle(),
                 draft.getDescription(), draft.getCoverImageKey(), draft.getPeopleCount(), start, end,
                 start.name() + " - " + end.name(), formatTime(draft.getDepartureTime()), draft.getDurationDays(),
                 route.getPlanDistance(), route.getPlanDuration(), route.getPolyline(), draft.getPeopleCount(),

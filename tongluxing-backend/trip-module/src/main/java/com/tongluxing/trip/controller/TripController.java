@@ -16,12 +16,14 @@ import org.springframework.web.bind.annotation.RestController;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.trip.dto.CreateTripRequest;
+import com.tongluxing.trip.dto.ContinueTripRequest;
 import com.tongluxing.trip.dto.StartTripRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
 import com.tongluxing.trip.dto.TripTimeConflictRequest;
 import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.service.TripSettlementService;
 import com.tongluxing.trip.vo.ActiveTripStateResponse;
+import com.tongluxing.trip.vo.ArrivalDecisionResponse;
 import com.tongluxing.trip.vo.MyTripDashboardResponse;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
@@ -136,6 +138,26 @@ public class TripController {
     @PostMapping("/{tripId}/end")
     public Result<TripResponse> endTrip(@PathVariable Long tripId) {
         return Result.success(tripService.endTrip(tripId));
+    }
+
+
+    /** 查询到达终点后的开放式结束状态。 */
+    @GetMapping("/{tripId}/arrival")
+    public Result<ArrivalDecisionResponse> getArrivalDecision(@PathVariable Long tripId) {
+        return Result.success(tripService.getArrivalDecision(tripId));
+    }
+
+    /** 队长确认结束已经到达终点的行程。 */
+    @PostMapping("/{tripId}/arrival/end")
+    public Result<TripResponse> finishArrival(@PathVariable Long tripId) {
+        return Result.success(tripService.finishArrival(tripId));
+    }
+
+    /** 队长选择继续行程，并提交新的终点。 */
+    @PostMapping("/{tripId}/arrival/continue")
+    public Result<TripResponse> continueTrip(@PathVariable Long tripId,
+                                             @Valid @RequestBody ContinueTripRequest request) {
+        return Result.success(tripService.continueTrip(tripId, request));
     }
 
     /** 对已结束行程执行幂等成长值结算，并推进到 SETTLED。 */

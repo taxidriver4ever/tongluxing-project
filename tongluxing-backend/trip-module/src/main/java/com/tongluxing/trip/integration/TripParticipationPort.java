@@ -14,6 +14,9 @@ public interface TripParticipationPort {
      */
     Long findRunningParticipatingTripId(Long userId);
 
+    /** 查询用户当前作为普通队员加入的唯一外部行程，不包含自己担任队长的车队。 */
+    Long findCurrentParticipatingTripId(Long userId);
+
     /** 查询指定行程当前全部有效参与者，用于开启前并发校验。 */
     List<Long> findActiveParticipantUserIds(Long tripId);
 }

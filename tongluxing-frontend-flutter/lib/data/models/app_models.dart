@@ -531,6 +531,136 @@ class DiscoverOwnerModel {
       );
 }
 
+
+
+/// 「行程」Tab 推荐列表专用模型。
+///
+/// 推荐接口已经完成统一过滤和排序，前端只负责根据 [userHasTrip] 在
+/// “顺路率”和“热度”之间切换展示，不再自行计算或修正推荐分数。
+class TripRecommendModel {
+  const TripRecommendModel({
+    required this.tripId,
+    required this.teamId,
+    required this.tripName,
+    required this.startLocation,
+    required this.endLocation,
+    required this.departureTime,
+    required this.currentVehicleCount,
+    required this.vehicleLimit,
+    required this.distanceMeters,
+    required this.distance,
+    required this.timeGapMinutes,
+    required this.leaderRating,
+    required this.ownerUserId,
+    required this.ownerNickname,
+    required this.ownerAvatarImageKey,
+    required this.relationshipStatus,
+    required this.allowGreeting,
+    required this.allowApply,
+    required this.status,
+    this.matchRate,
+    this.heat,
+  });
+
+  final String tripId;
+  final String teamId;
+  final String tripName;
+  final String startLocation;
+  final String endLocation;
+  final String departureTime;
+  final int currentVehicleCount;
+  final int vehicleLimit;
+  final int? matchRate;
+  final int? heat;
+  final int distanceMeters;
+  final double distance;
+  final int timeGapMinutes;
+  final double leaderRating;
+  final String ownerUserId;
+  final String ownerNickname;
+  final String ownerAvatarImageKey;
+  final String relationshipStatus;
+  final bool allowGreeting;
+  final bool allowApply;
+  final String status;
+
+  factory TripRecommendModel.fromJson(Map<String, dynamic> json) =>
+      TripRecommendModel(
+        tripId: json['tripId']?.toString() ?? '',
+        teamId: json['teamId']?.toString() ?? '',
+        tripName: json['tripName']?.toString() ?? '同行行程',
+        startLocation: json['startLocation']?.toString() ?? '起点',
+        endLocation: json['endLocation']?.toString() ?? '终点',
+        departureTime: json['departureTime']?.toString() ?? '',
+        currentVehicleCount: _int(json['currentVehicleCount']) ?? 0,
+        vehicleLimit: _int(json['vehicleLimit']) ?? 0,
+        matchRate: _int(json['matchRate']),
+        heat: _int(json['heat']),
+        distanceMeters: _int(json['distanceMeters']) ?? 0,
+        distance: (json['distance'] as num?)?.toDouble() ?? 0,
+        timeGapMinutes: _int(json['timeGapMinutes']) ?? 0,
+        leaderRating: (json['leaderRating'] as num?)?.toDouble() ?? 0,
+        ownerUserId: json['ownerUserId']?.toString() ?? '',
+        ownerNickname: json['ownerNickname']?.toString() ?? '同路行车友',
+        ownerAvatarImageKey: json['ownerAvatarImageKey']?.toString() ?? '',
+        relationshipStatus:
+            json['relationshipStatus']?.toString() ?? 'NONE',
+        allowGreeting: json['allowGreeting'] != false,
+        allowApply: json['allowApply'] == true,
+        status: json['status']?.toString() ?? 'PUBLISHED',
+      );
+
+  TripRecommendModel copyWith({
+    String? relationshipStatus,
+    bool? allowGreeting,
+    bool? allowApply,
+  }) => TripRecommendModel(
+    tripId: tripId,
+    teamId: teamId,
+    tripName: tripName,
+    startLocation: startLocation,
+    endLocation: endLocation,
+    departureTime: departureTime,
+    currentVehicleCount: currentVehicleCount,
+    vehicleLimit: vehicleLimit,
+    matchRate: matchRate,
+    heat: heat,
+    distanceMeters: distanceMeters,
+    distance: distance,
+    timeGapMinutes: timeGapMinutes,
+    leaderRating: leaderRating,
+    ownerUserId: ownerUserId,
+    ownerNickname: ownerNickname,
+    ownerAvatarImageKey: ownerAvatarImageKey,
+    relationshipStatus: relationshipStatus ?? this.relationshipStatus,
+    allowGreeting: allowGreeting ?? this.allowGreeting,
+    allowApply: allowApply ?? this.allowApply,
+    status: status,
+  );
+
+  /// 进入现有公开行程详情页时提供足够的首屏占位数据，详情页随后会
+  /// 继续请求后端的 public-detail 接口取得完整路线、成员和申请权限。
+  TripDiscoverModel toDiscoverModel() => TripDiscoverModel(
+    tripId: tripId,
+    title: tripName,
+    status: status,
+    startName: startLocation,
+    endName: endLocation,
+    departureTime: departureTime,
+    joinedVehicleCount: currentVehicleCount,
+    maxVehicleCount: vehicleLimit,
+    matchScore: matchRate,
+    distanceMeters: distanceMeters,
+    relationshipStatus: relationshipStatus,
+    owner: DiscoverOwnerModel(
+      userId: ownerUserId,
+      nickname: ownerNickname,
+      avatarImageKey: ownerAvatarImageKey,
+      rating: leaderRating,
+    ),
+  );
+}
+
 class TripDiscoverModel {
   const TripDiscoverModel({
     required this.tripId,
@@ -762,6 +892,7 @@ class TripApplicationModel {
     this.reviewMessage,
     this.vehicleId,
     this.createdAt = '',
+    this.conversationName = '',
   });
   final String applicationId;
   final String tripId;
@@ -771,6 +902,7 @@ class TripApplicationModel {
   final String? reviewMessage;
   final String? vehicleId;
   final String createdAt;
+  final String conversationName;
 
   factory TripApplicationModel.fromJson(Map<String, dynamic> json) =>
       TripApplicationModel(
@@ -782,6 +914,7 @@ class TripApplicationModel {
         reviewMessage: json['reviewMessage']?.toString(),
         vehicleId: json['applicantVehicleId']?.toString(),
         createdAt: json['createdAt']?.toString() ?? '',
+        conversationName: json['conversationName']?.toString() ?? '待审批行程',
       );
 }
 

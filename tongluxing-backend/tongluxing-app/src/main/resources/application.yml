@@ -124,3 +124,16 @@ trajectory:
   round-trip-window-seconds: ${TRAJECTORY_ROUND_TRIP_WINDOW_SECONDS:60}
   round-trip-far-distance-meters: ${TRAJECTORY_ROUND_TRIP_FAR_DISTANCE_METERS:300}
   round-trip-return-radius-meters: ${TRAJECTORY_ROUND_TRIP_RETURN_RADIUS_METERS:100}
+
+# P0 最终方案：业务提醒走 APP 系统推送，不写群系统消息。
+tongluxing:
+  chat:
+    reminder:
+      enabled: false
+
+# P0 APP 系统推送。gateway-url 指向实际厂商/聚合推送服务。
+app:
+  push:
+    gateway-url: ${APP_PUSH_GATEWAY_URL:}
+    api-key: ${APP_PUSH_API_KEY:}
+    dispatch-delay-ms: ${APP_PUSH_DISPATCH_DELAY_MS:5000}

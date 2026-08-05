@@ -5,6 +5,9 @@ import java.util.List;
 import com.tongluxing.team.dto.CreateTeamRequest;
 import com.tongluxing.team.dto.JoinTeamApplicationRequest;
 import com.tongluxing.team.dto.ReviewTeamApplicationRequest;
+import com.tongluxing.team.dto.UpdateTeamSettingsRequest;
+import com.tongluxing.team.dto.RemoveTeamMemberRequest;
+import com.tongluxing.team.dto.ConfirmPassengerVehicleRequest;
 import com.tongluxing.team.vo.TeamApplicationResponse;
 import com.tongluxing.team.vo.TeamMemberListResponse;
 import com.tongluxing.team.vo.TeamResponse;
@@ -60,6 +63,19 @@ public interface TeamService {
 
     /** 队长查询自己收到的全部入队申请。 */
     List<TeamApplicationResponse> getReceivedApplications(String status);
+
+    /** 队长更新招募、途中加入、脱队阈值和隐私设置。 */
+    TeamResponse updateSettings(Long teamId, UpdateTeamSettingsRequest request);
+
+    /** 队长移除指定成员，并同步行程和群聊。 */
+    TeamResponse removeMember(Long teamId, Long memberUserId, RemoveTeamMemberRequest request);
+
+    /** 被关联车主确认或拒绝乘客同车关系。 */
+    TeamMemberListResponse confirmPassengerVehicle(Long teamId, Long passengerUserId,
+                                                    ConfirmPassengerVehicleRequest request);
+
+    /** 查询当前用户作为队长或队员所在的当前车队。 */
+    TeamResponse getMyCurrentTeam();
 
     /**
      * 成员退出车队。

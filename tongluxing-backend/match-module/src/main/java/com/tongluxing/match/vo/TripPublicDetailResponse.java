@@ -83,6 +83,10 @@ public record TripPublicDetailResponse(
         Boolean allowConsultation,
         Boolean allowApply,
         Boolean joinable,
-        Boolean favorited
+        Boolean favorited,
+        String tripType,
+        String publisherRole,
+        Boolean passengerDemand,
+        Boolean hasCaptain
 ) {
 }

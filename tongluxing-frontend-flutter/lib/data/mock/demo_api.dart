@@ -33,6 +33,39 @@ class DemoApi {
       };
     }
     if (path == '/v1/trips/me') return {'trips': _trips};
+    if (path == '/trips/recommend') {
+      return {
+        'total': 2,
+        'userHasTrip': true,
+        'effectiveSort': 'MATCH_RATE',
+        'referenceTripId': 'trip-318',
+        'list': [
+          {
+            'tripId': 'trip-northwest',
+            'teamId': 'team-northwest',
+            'tripName': '青甘大环线车队',
+            'startLocation': '西宁',
+            'endLocation': '青海湖',
+            'departureTime': '2026-10-01 08:00:00',
+            'currentVehicleCount': 2,
+            'vehicleLimit': 4,
+            'matchRate': 92,
+            'heat': 91,
+            'distanceMeters': 3000,
+            'distance': 3.0,
+            'timeGapMinutes': 120,
+            'leaderRating': 4.9,
+            'ownerUserId': '20001',
+            'ownerNickname': '西北领队',
+            'ownerAvatarImageKey': '',
+            'relationshipStatus': 'NONE',
+            'allowGreeting': true,
+            'allowApply': true,
+            'status': 'PUBLISHED',
+          },
+        ],
+      };
+    }
     if (path == '/v1/trips/public') return {'trips': _trips};
     if (path == '/v1/trips/driving/current') return null;
     if (path == '/v1/trip/draft' && method == 'GET') {

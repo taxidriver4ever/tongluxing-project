@@ -21,7 +21,7 @@ public interface TeamJoinApplicationMapper {
      * 根据申请 ID 查询入队申请。
      */
     @Select("""
-            select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, reviewer_user_id,
+            select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, application_type, join_role, linked_owner_user_id, linked_vehicle_id, plate_reference, current_latitude, current_longitude, owner_confirm_status, reviewer_user_id,
                    application_status, apply_message, join_question_json, review_message, reviewed_at,
                    created_at, updated_at, deleted
             from team_join_application
@@ -34,7 +34,7 @@ public interface TeamJoinApplicationMapper {
      * 查询指定用户在指定车队下是否已有待审批申请。
      */
     @Select("""
-            select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, reviewer_user_id,
+            select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, application_type, join_role, linked_owner_user_id, linked_vehicle_id, plate_reference, current_latitude, current_longitude, owner_confirm_status, reviewer_user_id,
                    application_status, apply_message, join_question_json, review_message, reviewed_at,
                    created_at, updated_at, deleted
             from team_join_application
@@ -45,7 +45,7 @@ public interface TeamJoinApplicationMapper {
     TeamJoinApplication findPending(@Param("teamId") Long teamId, @Param("userId") Long userId);
 
     @Select("""
-            select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, reviewer_user_id,
+            select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, application_type, join_role, linked_owner_user_id, linked_vehicle_id, plate_reference, current_latitude, current_longitude, owner_confirm_status, reviewer_user_id,
                    application_status, apply_message, join_question_json, review_message, reviewed_at,
                    created_at, updated_at, deleted
             from team_join_application
@@ -56,7 +56,7 @@ public interface TeamJoinApplicationMapper {
 
     /** 查询当前用户提交的申请，最新优先。 */
     @Select("""
-            select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, reviewer_user_id,
+            select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, application_type, join_role, linked_owner_user_id, linked_vehicle_id, plate_reference, current_latitude, current_longitude, owner_confirm_status, reviewer_user_id,
                    application_status, apply_message, join_question_json, review_message, reviewed_at,
                    created_at, updated_at, deleted
             from team_join_application
@@ -68,7 +68,7 @@ public interface TeamJoinApplicationMapper {
 
     /** 查询某行程全部申请，由服务层校验队长权限。 */
     @Select("""
-            select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, reviewer_user_id,
+            select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, application_type, join_role, linked_owner_user_id, linked_vehicle_id, plate_reference, current_latitude, current_longitude, owner_confirm_status, reviewer_user_id,
                    application_status, apply_message, join_question_json, review_message, reviewed_at,
                    created_at, updated_at, deleted
             from team_join_application
@@ -81,8 +81,9 @@ public interface TeamJoinApplicationMapper {
     /** 查询当前队长收到的全部车队申请，供互动消息和队长申请列表使用。 */
     @Select("""
             <script>
-            select a.id, a.team_id, a.trip_id, a.applicant_user_id, a.applicant_vehicle_id,
-                   a.reviewer_user_id, a.application_status, a.apply_message, a.join_question_json,
+            select a.id, a.team_id, a.trip_id, a.applicant_user_id, a.applicant_vehicle_id, a.application_type, a.join_role,
+                   a.linked_owner_user_id, a.linked_vehicle_id, a.plate_reference, a.current_latitude,
+                   a.current_longitude, a.owner_confirm_status, a.reviewer_user_id, a.application_status, a.apply_message, a.join_question_json,
                    a.review_message, a.reviewed_at, a.created_at, a.updated_at, a.deleted
             from team_join_application a
             join team t on t.id = a.team_id and t.deleted = 0
@@ -102,11 +103,11 @@ public interface TeamJoinApplicationMapper {
      */
     @Insert("""
             insert into team_join_application
-                (id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, reviewer_user_id,
+                (id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, application_type, join_role, linked_owner_user_id, linked_vehicle_id, plate_reference, current_latitude, current_longitude, owner_confirm_status, reviewer_user_id,
                  application_status, apply_message, join_question_json, review_message, reviewed_at,
                  created_at, updated_at, deleted)
             values
-                (#{id}, #{teamId}, #{tripId}, #{applicantUserId}, #{applicantVehicleId}, #{reviewerUserId},
+                (#{id}, #{teamId}, #{tripId}, #{applicantUserId}, #{applicantVehicleId}, #{applicationType}, #{joinRole}, #{linkedOwnerUserId}, #{linkedVehicleId}, #{plateReference}, #{currentLatitude}, #{currentLongitude}, #{ownerConfirmStatus}, #{reviewerUserId},
                  #{applicationStatus}, #{applyMessage}, #{joinQuestionJson}, #{reviewMessage}, #{reviewedAt},
                  #{createdAt}, #{updatedAt}, 0)
             """)

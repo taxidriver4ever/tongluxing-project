@@ -56,7 +56,9 @@ class TripDiscoveryCard extends StatelessWidget {
                   const SizedBox(width: 4),
                 ],
                 Text(
-                  const ['RUNNING', 'ONGOING'].contains(trip.status)
+                  trip.passengerDemand
+                      ? '出行需求'
+                      : const ['RUNNING', 'ONGOING'].contains(trip.status)
                       ? '进行中'
                       : showMatchScore && (trip.matchScore ?? 0) >= 90
                       ? '热门招募中'

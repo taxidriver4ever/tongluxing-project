@@ -2,6 +2,7 @@ package com.tongluxing.drivertrack.mapper;
 
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.List;
 
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
@@ -53,4 +54,41 @@ public interface DriverMemberDistanceAlertMapper {
             where id=#{id} and recovered_at is null and deleted=0
             """)
     int recover(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    /** 查询队长尚未处理的脱队或失联异常。 */
+    @Select("""
+            select id, trip_id as tripId, captain_user_id as captainUserId,
+                   member_user_id as memberUserId, alert_level as alertLevel,
+                   distance_m as distanceM, started_at as startedAt, notified_at as notifiedAt,
+                   handled_action as handledAction, handled_at as handledAt
+            from trip_member_distance_alert
+            where trip_id = #{tripId} and recovered_at is null and handled_at is null and deleted = 0
+            order by case alert_level when 'MISSING' then 0 when 'SEVERE' then 1 else 2 end,
+                     started_at asc
+            """)
+    List<Map<String, Object>> findPendingByTrip(@Param("tripId") Long tripId);
+
+    /** 根据预警 ID 查询完整处理上下文，供队长处理接口做权限和成员校验。 */
+    @Select("""
+            select id, trip_id as tripId, captain_user_id as captainUserId,
+                   member_user_id as memberUserId, alert_level as alertLevel,
+                   distance_m as distanceM, started_at as startedAt, notified_at as notifiedAt,
+                   handled_action as handledAction, handled_at as handledAt
+            from trip_member_distance_alert
+            where id = #{alertId} and deleted = 0
+            limit 1
+            """)
+    Map<String, Object> findById(@Param("alertId") Long alertId);
+
+    /** 队长忽略或移除成员后关闭异常处理闭环。 */
+    @Update("""
+            update trip_member_distance_alert
+            set handled_action = #{action}, handled_by_user_id = #{operatorUserId},
+                handled_at = #{now}, acknowledged_at = coalesce(acknowledged_at, #{now}), updated_at = #{now}
+            where id = #{alertId} and captain_user_id = #{operatorUserId}
+              and recovered_at is null and handled_at is null and deleted = 0
+            """)
+    int handle(@Param("alertId") Long alertId, @Param("operatorUserId") Long operatorUserId,
+               @Param("action") String action, @Param("now") LocalDateTime now);
+
 }

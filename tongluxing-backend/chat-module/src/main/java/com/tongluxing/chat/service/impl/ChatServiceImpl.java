@@ -548,6 +548,29 @@ public class ChatServiceImpl implements ChatService {
         persistSystemMessage(conversation.getId(), publicName(userId) + " 已通过行程申请并加入群聊");
     }
 
+    /** 队长踢人后的内部同步入口，不依赖被移除用户的登录上下文。 */
+    @Override
+    @Transactional
+    public void removeTripMember(Long tripId, Long userId) {
+        ChatConversation conversation = conversationMapper.findByBiz("TRIP", tripId);
+        if (conversation == null) {
+            return;
+        }
+        ChatConversationMember member = memberMapper.findByConversationAndUser(conversation.getId(), userId);
+        if (member == null || !"ACTIVE".equals(member.getMemberStatus())) {
+            return;
+        }
+        conversation = ensureTencentProvider(conversation);
+        try {
+            tencentImService.removeGroupMember(requireGroupProviderKey(conversation),
+                    TencentImServiceImpl.toImUserId(userId));
+        } catch (RuntimeException ex) {
+            log.warn("队长踢人后同步腾讯 IM 失败，tripId={}, userId={}", tripId, userId, ex);
+            throw ex;
+        }
+        memberMapper.exit(conversation.getId(), userId, LocalDateTime.now());
+    }
+
     /** 当前用户退出会话，并同步移除腾讯云 IM 群成员。 */
     @Override
     @Transactional

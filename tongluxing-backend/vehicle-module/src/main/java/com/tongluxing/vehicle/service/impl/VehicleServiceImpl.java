@@ -16,7 +16,6 @@ import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.user.support.CurrentUserContext;
-import com.tongluxing.user.service.UserService;
 import com.tongluxing.vehicle.dto.CreateVehicleRequest;
 import com.tongluxing.vehicle.dto.SubmitVehicleCertificationRequest;
 import com.tongluxing.vehicle.dto.UpdateVehicleRequest;
@@ -78,7 +77,6 @@ public class VehicleServiceImpl implements VehicleService {
     /** 当前登录用户上下文。 */
     private final CurrentUserContext currentUserContext;
     /** 用户服务，用于校验车辆认证前必须完成驾驶证认证。 */
-    private final UserService userService;
     /** Redis 用于缓存车辆查询结果和简单限流计数。 */
     private final StringRedisTemplate redisTemplate;
     /** JSON 工具，用于缓存和审计快照序列化。 */
@@ -265,9 +263,8 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     @Transactional
     public VehicleCertificationResponse submitCertification(Long vehicleId, SubmitVehicleCertificationRequest request) {
-        // 阶段一：身份、认证顺序、提交频率和车辆归属四项前置校验。
+        // 阶段一：校验登录身份、提交频率和车辆归属；P0 不再检查驾驶证前置。
         Long userId = currentUserContext.requireUserId();
-        requireApprovedDrivingLicense();
         checkRateLimit(CERTIFICATION_RL_KEY.formatted(userId), CERTIFICATION_SUBMIT_LIMIT, Duration.ofHours(24), "车辆认证提交太频繁，请明天再试");
         requireOwnedVehicle(vehicleId, userId);
 
@@ -288,14 +285,14 @@ public class VehicleServiceImpl implements VehicleService {
         certification.setId(SnowflakeIdGenerator.nextId());
         certification.setVehicleId(vehicleId);
         certification.setUserId(userId);
-        certification.setOwnerName(normalize(request.ownerName()));
+        certification.setOwnerName(defaultText(request.ownerName(), "未识别"));
         certification.setPlateNoCipher(cipher(normalizedPlateNo));
         certification.setPlateNoMask(maskPlateNo(normalizedPlateNo));
-        certification.setVehicleType(normalize(request.vehicleType()));
-        certification.setVinCipher(cipher(request.vin()));
-        certification.setVinMask(maskVin(request.vin()));
-        certification.setEngineNoCipher(cipher(request.engineNo()));
-        certification.setEngineNoMask(maskEngineNo(request.engineNo()));
+        certification.setVehicleType(defaultText(request.vehicleType(), "小型汽车"));
+        certification.setVinCipher(cipher(defaultText(request.vin(), "UNKNOWN")));
+        certification.setVinMask(StringUtils.hasText(request.vin()) ? maskVin(request.vin()) : "未识别");
+        certification.setEngineNoCipher(cipher(defaultText(request.engineNo(), "UNKNOWN")));
+        certification.setEngineNoMask(StringUtils.hasText(request.engineNo()) ? maskEngineNo(request.engineNo()) : "未识别");
         certification.setRegisterDate(request.registerDate());
         certification.setIssueDate(request.issueDate());
         certification.setIssuingAuthority(normalize(request.issuingAuthority()));
@@ -309,7 +306,7 @@ public class VehicleServiceImpl implements VehicleService {
 
         // 阶段四：车辆照片按请求顺序逐条入库。sortNo 从 0 递增，保证展示顺序稳定。
         int sortNo = 0;
-        for (SubmitVehicleCertificationRequest.VehicleImageRequest item : request.vehicleImages()) {
+        for (SubmitVehicleCertificationRequest.VehicleImageRequest item : request.vehicleImages() == null ? List.<SubmitVehicleCertificationRequest.VehicleImageRequest>of() : request.vehicleImages()) {
             VehicleCertificationImage image = new VehicleCertificationImage();
             image.setId(SnowflakeIdGenerator.nextId());
             image.setCertificationId(certification.getId());
@@ -354,11 +351,7 @@ public class VehicleServiceImpl implements VehicleService {
         // requireUserId 同时承担接口鉴权作用；此接口不接受用户 ID 参数。
         currentUserContext.requireUserId();
 
-        // 产品要求驾驶证认证先于车辆认证，未满足时返回不可提交及明确引导语。
-        if (!CERTIFICATION_APPROVED.equals(userService.getLatestCertification().status())) {
-            return new VehicleAuthEligibilityResponse(false, CERTIFICATION_UNSUBMITTED,
-                    "请先完成驾驶证认证，再提交行驶证和车辆认证资料");
-        }
+        // P0 不再要求驾驶证前置；这里只检查车牌是否已经被认证占用。
         String normalizedPlateNo = normalizePlateNo(plateNumber);
 
         // 查询时同时兼容 v2 密文与历史 Base64 值，避免升级后重复认证老车辆。
@@ -373,9 +366,8 @@ public class VehicleServiceImpl implements VehicleService {
     @Override
     @Transactional
     public VehicleAuthStatusResponse submitVehicleAuth(VehicleAuthSubmitRequest request) {
-        // 阶段一：校验登录用户已通过驾驶证认证，并确保车牌尚未被其他通过记录占用。
+        // 阶段一：校验登录身份，并确保车牌尚未被其他通过记录占用。
         Long userId = currentUserContext.requireUserId();
-        requireApprovedDrivingLicense();
         String normalizedPlateNo = normalizePlateNo(request.plateNumber());
         ensurePlateNotApproved(normalizedPlateNo);
 
@@ -387,18 +379,20 @@ public class VehicleServiceImpl implements VehicleService {
                     userId, vehicleDataCipher.legacyEncoded(normalizedPlateNo));
         }
         if (vehicle == null) {
-            // 用户名下没有同车牌档案时创建一辆基础车辆，首张车辆图片作为封面。
+            // 用户名下没有同车牌档案时创建基础车辆；未上传外观图时以行驶证正页作为临时封面。
+            String coverImage = firstVehicleImageOrRegistration(request);
             VehicleResponse created = createVehicle(new CreateVehicleRequest(
-                    normalizedPlateNo, request.vehicleBrand(), request.vehicleModel(), "轿车",
-                    request.vehicleColor(), 5, "", request.vehicleImages().get(0)));
+                    normalizedPlateNo, defaultText(request.vehicleBrand(), "待补充"),
+                    defaultText(request.vehicleModel(), "待补充"), "轿车",
+                    defaultText(request.vehicleColor(), "未填写"), 5, "", coverImage));
             vehicle = vehicleProfileMapper.findByIdAndUserId(created.vehicleId(), userId);
         } else {
             // 已有档案只同步品牌、车型、颜色和封面，不改变车辆归属及认证主键。
             VehicleProfile before = copyVehicle(vehicle);
-            vehicle.setBrand(normalize(request.vehicleBrand()));
-            vehicle.setModel(normalize(request.vehicleModel()));
-            vehicle.setColor(normalize(request.vehicleColor()));
-            vehicle.setVehiclePhotoImageKey(normalize(request.vehicleImages().get(0)));
+            vehicle.setBrand(defaultText(request.vehicleBrand(), vehicle.getBrand()));
+            vehicle.setModel(defaultText(request.vehicleModel(), vehicle.getModel()));
+            vehicle.setColor(defaultText(request.vehicleColor(), vehicle.getColor()));
+            vehicle.setVehiclePhotoImageKey(firstVehicleImageOrRegistration(request));
             vehicle.setUpdatedAt(LocalDateTime.now());
             vehicleProfileMapper.update(vehicle);
             clearVehicleCaches(userId, vehicle.getId());
@@ -409,29 +403,31 @@ public class VehicleServiceImpl implements VehicleService {
         List<SubmitVehicleCertificationRequest.VehicleImageRequest> images = new java.util.ArrayList<>();
         request.registrationLicenseImages().forEach(url -> images.add(
                 new SubmitVehicleCertificationRequest.VehicleImageRequest("REGISTRATION_LICENSE", url)));
-        request.vehicleImages().forEach(url -> images.add(
-                new SubmitVehicleCertificationRequest.VehicleImageRequest("VEHICLE", url)));
+        if (request.vehicleImages() != null) {
+            request.vehicleImages().forEach(url -> images.add(
+                    new SubmitVehicleCertificationRequest.VehicleImageRequest("VEHICLE", url)));
+        }
 
         // 阶段四：复用标准认证提交入口，确保限流、重复校验、加密、审计及自动审核规则一致。
         submitCertification(vehicle.getId(), new SubmitVehicleCertificationRequest(
                 "", normalizedPlateNo, "轿车", "", "", null, null, "",
-                request.registrationLicenseImages().get(0), request.registrationLicenseImages().get(1),
+                request.registrationLicenseImages().get(0),
+                request.registrationLicenseImages().size() > 1 ? request.registrationLicenseImages().get(1) : null,
                 images, "MANUAL_UPLOAD"));
         // 重新查询最新记录，因为内测自动审核已可能把 PENDING 更新为 APPROVED。
         return toVehicleAuthStatus(certificationMapper.findLatestByVehicleId(vehicle.getId()));
     }
 
-    /**
-     * 车辆认证的前置条件校验。
-     *
-     * <p>前端会先展示引导，但后端仍必须执行同样的硬校验，防止旧版本客户端或
-     * 直接调用接口绕过认证顺序。只有最新驾驶证认证状态为 APPROVED 时才放行。</p>
-     */
-    private void requireApprovedDrivingLicense() {
-        // getLatestCertification 返回用户模块定义的最新驾驶证认证结果。
-        if (!CERTIFICATION_APPROVED.equals(userService.getLatestCertification().status())) {
-            throw new BusinessException(409, "请先完成驾驶证认证，再提交行驶证和车辆认证资料");
+    /** 返回外观图首图；没有外观图时复用行驶证正页作为临时车辆封面。 */
+    private String firstVehicleImageOrRegistration(VehicleAuthSubmitRequest request) {
+        if (request.vehicleImages() != null && !request.vehicleImages().isEmpty()) {
+            return normalize(request.vehicleImages().get(0));
         }
+        return normalize(request.registrationLicenseImages().get(0));
+    }
+
+    private String defaultText(String value, String fallback) {
+        return StringUtils.hasText(value) ? value.trim() : fallback;
     }
 
     /** 查询当前用户最近一次车辆认证申请，并转换为产品约定状态。 */

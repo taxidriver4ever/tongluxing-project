@@ -14,10 +14,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import com.tongluxing.common.result.Result;
 import com.tongluxing.match.dto.TripApplicationRequest;
 import com.tongluxing.match.dto.TripSearchRequest;
+import com.tongluxing.match.dto.TripSearchHistoryRequest;
 import com.tongluxing.match.service.MatchService;
 import com.tongluxing.match.vo.MatchApplyResponse;
 import com.tongluxing.match.vo.TripSearchDetailResponse;
 import com.tongluxing.match.vo.TripSearchPageResponse;
+import com.tongluxing.match.vo.TripSearchHistoryResponse;
 import com.tongluxing.match.vo.TripDiscoverPageResponse;
 import com.tongluxing.match.vo.TripPublicDetailResponse;
 import com.tongluxing.match.vo.TripConsultationResponse;
@@ -54,6 +56,34 @@ public class TripDiscoveryController {
     public Result<TripSearchPageResponse> search(@Valid @RequestBody TripSearchRequest request) {
         // @Valid 校验单字段边界，跨字段时间顺序和地点重复由 MatchService 校验。
         return Result.success(matchService.searchTrips(request));
+    }
+
+    /** 查询行程搜索页历史记录。 */
+    @GetMapping("/search-history")
+    public Result<List<TripSearchHistoryResponse>> searchHistory(
+            @RequestParam(defaultValue = "12") Integer limit) {
+        return Result.success(matchService.getTripSearchHistory(limit));
+    }
+
+    /** 记录一次有效行程搜索；相同关键词和类型会更新时间而不会重复堆积。 */
+    @PostMapping("/search-history")
+    public Result<TripSearchHistoryResponse> recordSearchHistory(
+            @RequestBody TripSearchHistoryRequest request) {
+        return Result.success(matchService.recordTripSearchHistory(
+                request == null ? null : request.keyword(),
+                request == null ? null : request.searchType()));
+    }
+
+    /** 删除单条行程搜索历史。 */
+    @DeleteMapping("/search-history/{historyId}")
+    public Result<Boolean> deleteSearchHistory(@PathVariable Long historyId) {
+        return Result.success(matchService.deleteTripSearchHistory(historyId));
+    }
+
+    /** 清空当前用户全部行程搜索历史。 */
+    @DeleteMapping("/search-history")
+    public Result<Integer> clearSearchHistory() {
+        return Result.success(matchService.clearTripSearchHistory());
     }
 
     /**
@@ -140,6 +170,14 @@ public class TripDiscoveryController {
     @GetMapping("/{tripId}/public-detail")
     public Result<TripPublicDetailResponse> publicDetail(@PathVariable Long tripId) {
         return Result.success(matchService.getPublicTripDetail(tripId));
+    }
+
+    /** 查询当前用户收藏的行程。 */
+    @GetMapping("/favorites")
+    public Result<TripDiscoverPageResponse> favorites(
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer size) {
+        return Result.success(matchService.getFavoriteTrips(page, size));
     }
 
     /** 收藏一条仍在公开招募的行程；重复收藏按幂等成功处理。 */

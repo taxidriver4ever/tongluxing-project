@@ -13,6 +13,9 @@ import com.tongluxing.match.vo.TripDiscoverPageResponse;
 import com.tongluxing.match.vo.TripPublicDetailResponse;
 import com.tongluxing.match.vo.TripConsultationResponse;
 import com.tongluxing.match.vo.TripRecommendPageResponse;
+import com.tongluxing.match.vo.TripSearchHistoryResponse;
+
+import java.util.List;
 
 /**
  * 匹配模块业务服务接口。
@@ -153,6 +156,10 @@ public interface MatchService {
      */
     TripPublicDetailResponse getPublicTripDetail(Long tripId);
 
+
+    /** 查询当前用户收藏的行程分页。 */
+    TripDiscoverPageResponse getFavoriteTrips(Integer page, Integer size);
+
     /**
      * 收藏公开招募行程；重复调用保持已收藏状态。
      *
@@ -177,6 +184,19 @@ public interface MatchService {
      * @return 待处理或允许直接沟通的状态
      */
     TripConsultationResponse consultTrip(Long tripId, String content);
+
+
+    /** 查询当前用户最近的行程搜索历史。 */
+    List<TripSearchHistoryResponse> getTripSearchHistory(Integer limit);
+
+    /** 按关键词与搜索类型幂等记录搜索历史。 */
+    TripSearchHistoryResponse recordTripSearchHistory(String keyword, String searchType);
+
+    /** 删除一条属于当前用户的搜索历史。 */
+    Boolean deleteTripSearchHistory(Long historyId);
+
+    /** 清空当前用户全部行程搜索历史。 */
+    Integer clearTripSearchHistory();
 
     /**
      * 记录推荐关联行程的 START/FINISH 事件，其他动作类型会被忽略。

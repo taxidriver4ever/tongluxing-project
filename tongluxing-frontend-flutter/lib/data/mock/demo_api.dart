@@ -5,6 +5,20 @@ class DemoApi {
   DemoApi._();
 
   static int _draftSeed = 3;
+  static final List<Map<String, dynamic>> _tripSearchHistory = [
+    {
+      'historyId': 'history-1',
+      'keyword': '大理',
+      'searchType': 'DESTINATION',
+      'updatedAt': '2026-08-05 17:30:00',
+    },
+    {
+      'historyId': 'history-2',
+      'keyword': '广州',
+      'searchType': 'ORIGIN',
+      'updatedAt': '2026-08-05 16:30:00',
+    },
+  ];
 
   static Future<dynamic> request(
     String method,
@@ -30,6 +44,17 @@ class DemoApi {
         'active': active.isNotEmpty,
         'tripId': active.isEmpty ? null : active.first['tripId'],
         'message': active.isEmpty ? '' : '你已有一个未结束的行程，请先处理当前行程',
+      };
+    }
+    if (path == '/v1/trips/me/dashboard') {
+      return {
+        'currentTrip': _trips.first,
+        'publishedCurrentTrip': _trips.first,
+        'joinedCurrentTrip': null,
+        'upcomingTrips': [_trips.first],
+        'recentTrips': [_trips.last],
+        'activeCount': 1,
+        'historyCount': 1,
       };
     }
     if (path == '/v1/trips/me') return {'trips': _trips};
@@ -62,6 +87,77 @@ class DemoApi {
             'allowGreeting': true,
             'allowApply': true,
             'status': 'PUBLISHED',
+          },
+        ],
+      };
+    }
+    if (path == '/v1/trips/search-history' && method == 'GET') {
+      return List<Map<String, dynamic>>.from(_tripSearchHistory);
+    }
+    if (path == '/v1/trips/search-history' && method == 'POST') {
+      final keyword = _value(body, 'keyword')?.toString() ?? '';
+      final searchType = _value(body, 'searchType')?.toString() ?? 'DESTINATION';
+      _tripSearchHistory.removeWhere(
+        (item) => item['keyword'] == keyword && item['searchType'] == searchType,
+      );
+      final row = {
+        'historyId': 'history-${DateTime.now().microsecondsSinceEpoch}',
+        'keyword': keyword,
+        'searchType': searchType,
+        'updatedAt': DateTime.now().toIso8601String(),
+      };
+      _tripSearchHistory.insert(0, row);
+      return row;
+    }
+    if (path == '/v1/trips/search-history' && method == 'DELETE') {
+      final count = _tripSearchHistory.length;
+      _tripSearchHistory.clear();
+      return count;
+    }
+    if (path.startsWith('/v1/trips/search-history/') && method == 'DELETE') {
+      final id = path.split('/').last;
+      final before = _tripSearchHistory.length;
+      _tripSearchHistory.removeWhere((item) => item['historyId'] == id);
+      return _tripSearchHistory.length < before;
+    }
+    if (path == '/v1/trips/favorites') {
+      return {
+        'page': 1,
+        'size': 20,
+        'total': 1,
+        'records': [
+          {
+            ..._trips.first,
+            'owner': {
+              'userId': '20001',
+              'nickname': '越野阿杰',
+              'levelCode': 'LV5',
+            },
+            'joinedVehicleCount': 2,
+            'maxVehicleCount': 4,
+            'remainingSeats': 2,
+            'favorited': true,
+          },
+        ],
+      };
+    }
+    if (path == '/v1/trips/applications/my') return <dynamic>[];
+    if (path == '/v1/trips/discover') {
+      return {
+        'page': 1,
+        'size': 10,
+        'total': 1,
+        'records': [
+          {
+            ..._trips.first,
+            'owner': {
+              'userId': '20001',
+              'nickname': '越野阿杰',
+              'levelCode': 'LV5',
+            },
+            'joinedVehicleCount': 2,
+            'maxVehicleCount': 4,
+            'remainingSeats': 2,
           },
         ],
       };
@@ -103,6 +199,16 @@ class DemoApi {
       return found;
     }
 
+    if (path.startsWith('/v1/chats/trips/') &&
+        path.endsWith('/conversation')) {
+      return {
+        'conversationId': 'chat-318',
+        'conversationName': '318 川藏线行程群',
+        'bizType': 'TRIP',
+        'bizId': 'trip-318',
+        'status': 'ACTIVE',
+      };
+    }
     if (path == '/v1/chats/conversations') {
       return {'conversations': _conversations};
     }

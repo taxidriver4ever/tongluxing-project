@@ -60,3 +60,5 @@ JOIN user_profile p ON p.user_id = a.user_id AND p.deleted = 0
 WHERE a.phone BETWEEN '13888888881' AND '13888888888'
 ORDER BY a.phone;
 ```
+
+- `14_trip_search_history.sql`：为已有数据库新增行程搜索历史表，支持新行程搜索页的跨设备历史记录。

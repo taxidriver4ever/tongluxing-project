@@ -76,6 +76,7 @@ DROP TABLE IF EXISTS `driver_track_distance_record`;
 DROP TABLE IF EXISTS `driver_track_record`;
 DROP TABLE IF EXISTS `file_storage`;
 DROP TABLE IF EXISTS `trip_consultation_request`;
+DROP TABLE IF EXISTS `trip_search_history`;
 DROP TABLE IF EXISTS `trip_favorite`;
 DROP TABLE IF EXISTS `trip_leader_rating_summary`;
 DROP TABLE IF EXISTS `match_recommend_log`;
@@ -902,13 +903,22 @@ CREATE TABLE IF NOT EXISTS team (
                                     owner_user_id BIGINT NOT NULL comment '队长用户ID',
                                     owner_vehicle_id BIGINT NOT NULL comment '队长车辆ID',
                                     team_name VARCHAR(64) NOT NULL comment '队伍名称',
-                                    team_desc VARCHAR(255) NULL comment '队伍DESC',
+                                    team_desc VARCHAR(255) NULL comment '队伍说明',
                                     start_name VARCHAR(128) NOT NULL comment '起点名称',
                                     end_name VARCHAR(128) NOT NULL comment '终点名称',
                                     departure_time DATETIME NOT NULL comment '出发时间',
                                     max_member_count INT NOT NULL comment '最高成员数量',
                                     current_member_count INT NOT NULL DEFAULT 1 comment '当前成员数量',
                                     join_mode VARCHAR(20) NOT NULL DEFAULT 'APPROVAL' comment '加入模式',
+                                    recruitment_status VARCHAR(16) NOT NULL DEFAULT 'OPEN' comment '招募状态：OPEN、PAUSED、CLOSED',
+                                    allow_midway_join TINYINT(1) NOT NULL DEFAULT 0 comment '行进中是否允许申请加入',
+                                    deviation_warning_distance_m INT NOT NULL DEFAULT 50000 comment '一级脱队距离阈值，米',
+                                    deviation_warning_minutes INT NOT NULL DEFAULT 30 comment '一级脱队持续时间，分钟',
+                                    severe_deviation_distance_m INT NOT NULL DEFAULT 100000 comment '严重脱队距离阈值，米',
+                                    severe_deviation_minutes INT NOT NULL DEFAULT 60 comment '严重脱队持续时间，分钟',
+                                    missing_location_minutes INT NOT NULL DEFAULT 720 comment '失联阈值，分钟',
+                                    join_radius_m INT NOT NULL DEFAULT 100000 comment '出发/途中加入范围，米',
+                                    privacy_level VARCHAR(24) NOT NULL DEFAULT 'STANDARD' comment '成员资料公开级别',
                                     team_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' comment '队伍状态',
                                     public_flag TINYINT(1) NOT NULL DEFAULT 1 comment '是否公开：0否、1是',
                                     chat_conversation_id BIGINT NULL comment '聊天会话ID',
@@ -919,14 +929,21 @@ CREATE TABLE IF NOT EXISTS team (
                                     PRIMARY KEY (id),
                                     KEY idx_team_trip (trip_id, team_status),
                                     KEY idx_team_owner (owner_user_id, team_status),
-                                    KEY idx_team_public_time (public_flag, team_status, departure_time)
+                                    KEY idx_team_public_time (public_flag, team_status, departure_time),
+                                    KEY idx_team_recruitment (team_status, recruitment_status, allow_midway_join)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='队伍表';
 
 CREATE TABLE IF NOT EXISTS team_member (
                                            id BIGINT NOT NULL comment '记录主键',
                                            team_id BIGINT NOT NULL comment '队伍ID',
                                            user_id BIGINT NOT NULL comment '平台用户ID',
-                                           vehicle_id BIGINT NULL comment '车辆ID',
+                                           vehicle_id BIGINT NULL comment '成员本人驾驶的车辆ID',
+                                           linked_owner_user_id BIGINT NULL comment '同车关联车主用户ID',
+                                           linked_vehicle_id BIGINT NULL comment '同车关联车辆ID',
+                                           plate_reference VARCHAR(24) NULL comment '手动车牌关联脱敏值',
+                                           owner_confirm_status VARCHAR(20) NOT NULL DEFAULT 'NOT_REQUIRED' comment '车主确认状态',
+                                           removed_by_user_id BIGINT NULL comment '移除操作人',
+                                           removed_reason VARCHAR(255) NULL comment '移除原因',
                                            member_role VARCHAR(20) NOT NULL DEFAULT 'MEMBER' comment '成员角色',
                                            member_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' comment '成员状态',
                                            joined_at DATETIME NOT NULL comment '加入时间',
@@ -939,7 +956,9 @@ CREATE TABLE IF NOT EXISTS team_member (
                                            PRIMARY KEY (id),
                                            UNIQUE KEY uk_team_member_user (team_id, user_id, deleted),
                                            KEY idx_team_member_team (team_id, member_status),
-                                           KEY idx_team_member_user_status (user_id, member_status)
+                                           KEY idx_team_member_user_status (user_id, member_status),
+                                           KEY idx_team_member_linked_vehicle (team_id, linked_vehicle_id, member_status),
+                                           KEY idx_team_member_external_active (user_id, member_role, member_status, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='队伍成员表';
 
 CREATE TABLE IF NOT EXISTS team_join_application (
@@ -947,19 +966,28 @@ CREATE TABLE IF NOT EXISTS team_join_application (
                                                      team_id BIGINT NOT NULL comment '队伍ID',
                                                      trip_id BIGINT NULL comment '行程ID',
                                                      applicant_user_id BIGINT NOT NULL comment '申请人用户ID',
-                                                     applicant_vehicle_id BIGINT NULL comment '申请人车辆ID',
+                                                     applicant_vehicle_id BIGINT NULL comment '申请人本人车辆ID',
+                                                     application_type VARCHAR(16) NOT NULL DEFAULT 'JOIN' comment '申请类型：JOIN、RETURN',
+                                                     join_role VARCHAR(16) NOT NULL DEFAULT 'PASSENGER' comment '申请身份：DRIVER、PASSENGER',
+                                                     linked_owner_user_id BIGINT NULL comment '希望关联的车主用户ID',
+                                                     linked_vehicle_id BIGINT NULL comment '希望关联的队内车辆ID',
+                                                     plate_reference VARCHAR(24) NULL comment '手动车牌关联脱敏值',
+                                                     current_latitude DECIMAL(10,6) NULL comment '归队申请当前位置纬度',
+                                                     current_longitude DECIMAL(10,6) NULL comment '归队申请当前位置经度',
+                                                     owner_confirm_status VARCHAR(20) NOT NULL DEFAULT 'NOT_REQUIRED' comment '车主确认状态',
                                                      reviewer_user_id BIGINT NULL comment '审核人用户ID',
                                                      application_status VARCHAR(20) NOT NULL DEFAULT 'PENDING' comment '申请状态',
-                                                     apply_message VARCHAR(255) NULL comment 'APPLY说明',
+                                                     apply_message VARCHAR(255) NULL comment '申请说明',
                                                      join_question_json JSON NULL comment '加入问题JSON数据',
-                                                     review_message VARCHAR(255) NULL comment 'REVIEW说明',
+                                                     review_message VARCHAR(255) NULL comment '审核说明',
                                                      reviewed_at DATETIME NULL comment '审核时间',
                                                      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP comment '记录创建时间',
                                                      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '记录最后更新时间',
                                                      deleted TINYINT(1) NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
                                                      PRIMARY KEY (id),
                                                      KEY idx_team_apply_applicant (applicant_user_id, application_status, created_at),
-                                                     KEY idx_team_apply_team (team_id, application_status, created_at)
+                                                     KEY idx_team_apply_team (team_id, application_status, created_at),
+                                                     KEY idx_team_apply_type (team_id, application_type, application_status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='队伍加入申请表';
 
 CREATE TABLE IF NOT EXISTS team_audit_log (
@@ -976,7 +1004,7 @@ CREATE TABLE IF NOT EXISTS team_audit_log (
                                               PRIMARY KEY (id),
                                               KEY idx_team_audit_team_time (team_id, created_at),
                                               KEY idx_team_audit_operator_time (operator_user_id, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='队伍审核LOG表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='队伍审核日志表';
 
 -- ============================================================================
 -- chat-module
@@ -1250,6 +1278,19 @@ CREATE TABLE IF NOT EXISTS trip_favorite (
                                              UNIQUE KEY uk_trip_favorite_user_trip (user_id, trip_id),
                                              KEY idx_trip_favorite_user_time (user_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程收藏表';
+
+-- App 行程搜索历史：同一用户、关键词和搜索类型只保留一条。
+CREATE TABLE IF NOT EXISTS trip_search_history (
+                                                   id BIGINT NOT NULL,
+                                                   user_id BIGINT NOT NULL,
+                                                   keyword VARCHAR(80) NOT NULL,
+                                                   search_type VARCHAR(24) NOT NULL DEFAULT 'DESTINATION',
+                                                   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                                   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                                                   PRIMARY KEY (id),
+                                                   UNIQUE KEY uk_trip_search_history_user_keyword_type (user_id, keyword, search_type),
+                                                   KEY idx_trip_search_history_user_updated (user_id, updated_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='行程搜索历史';
 
 CREATE TABLE IF NOT EXISTS trip_consultation_request (
                                                          id BIGINT NOT NULL comment '记录主键',

@@ -11,19 +11,28 @@ import 'package:x_amap_base/x_amap_base.dart';
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
-import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import '../../../data/services/location_snapshot.dart';
+import '../../chat/pages/chat_session_page.dart';
 import '../../trip/pages/trip_create_page.dart';
 import '../../trip/pages/trip_discovery_detail_page.dart';
+import '../../trip/pages/trip_navigation_page.dart';
+import '../../trip/pages/trip_search_results_page.dart';
 import 'sos_confirm_page.dart';
 
-/// 发现页：全屏高德地图 + Apple Maps 风格可拖动搜索抽屉。
+/// 地图首页严格对应新 UI 的普通、行进中、已结束三种状态。
+///
+/// 旧版右上角“定位 / 路况 / SOS”悬浮工具已移除；定位在页面加载后自动请求，
+/// SOS 只在行程进行中的底部操作区出现。
 class MapHomePage extends StatefulWidget {
-  const MapHomePage({super.key, this.onOpenTripRecommendations});
+  const MapHomePage({
+    super.key,
+    this.onOpenTripRecommendations,
+    this.onOpenMessages,
+  });
 
-  /// 从首页地图直接跳转到“行程 Tab → 推荐页面”。
   final VoidCallback? onOpenTripRecommendations;
+  final VoidCallback? onOpenMessages;
 
   static bool get nativeAmap =>
       !kIsWeb &&
@@ -36,123 +45,185 @@ class MapHomePage extends StatefulWidget {
 
 class _MapHomePageState extends State<MapHomePage> {
   static const _permissionChannel = MethodChannel('com.tongluxing/permissions');
-  // 初始只露出一小段白色面板和灰色把手；点击或上滑后才显示搜索框。
-  static const double _collapsedSheetSize = .04;
-  static const double _contentRevealSheetSize = .14;
-  // 展开档位需容纳把手、搜索框和至少一屏历史记录；低于 .54 时小屏设备
-  // 在展开动画末尾可能出现内容溢出。
-  static const double _halfSheetSize = .56;
-  static const double _expandedSheetSize = .76;
-
-  final searchController = TextEditingController();
-  final searchFocus = FocusNode();
-  final searchSheetController = DraggableScrollableController();
-  ScrollController? searchSheetScrollController;
-  Timer? debounce;
-  LocationService? locationService;
 
   AMapController? mapController;
   LatLng? lastLocation;
+  bool checkingAmapSupport = true;
+  bool amapRuntimeSupported = false;
   bool locationEnabled = false;
   bool centerOnNextLocation = false;
-  bool trafficEnabled = false;
-  bool amapRuntimeSupported = false;
-  bool checkingAmapSupport = true;
-  bool searchLoading = false;
-  bool searchContentVisible = false;
-  bool searchOriginWarmupStarted = false;
-  int searchGeneration = 0;
-  int sheetMoveGeneration = 0;
-  double searchSheetSize = _collapsedSheetSize;
-  String? searchError;
-  LocationSelection? selectedLocation;
-  List<LocationSelection> searchResults = const [];
-  List<LocationSelection> recentLocations = const [];
-  bool showNoTripRecommendationEntry = false;
+  bool loading = true;
   bool loadingHotTrips = false;
+  String? error;
+  TripModel? currentTrip;
+  TripModel? completedTrip;
   List<TripRecommendModel> hotTrips = const [];
+
+  _MapMode get mode {
+    final trip = currentTrip;
+    if (trip != null && _isRunning(trip.status)) return _MapMode.tracking;
+    if (trip != null && _isCompleted(trip.status)) return _MapMode.ended;
+    if (completedTrip != null && _isCompleted(completedTrip!.status)) {
+      return _MapMode.ended;
+    }
+    return _MapMode.normal;
+  }
+
+  TripModel? get visibleTrip => currentTrip ?? completedTrip;
 
   @override
   void initState() {
     super.initState();
     _checkAmapSupport();
-    searchFocus.addListener(() {
-      if (!mounted) return;
-      if (searchFocus.hasFocus) {
-        setState(() => searchContentVisible = true);
-        unawaited(_moveSearchSheet(_expandedSheetSize));
-      } else {
-        setState(() {});
-      }
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadState());
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (locationService != null) return;
-    // 独立组件预览和 Widget 测试可能没有注入会话；正式 App 始终由根节点注入。
-    // 缺少会话时跳过服务端历史记录，不影响地图、定位与底部面板本身。
-    try {
-      locationService = LocationService(context.read<AppSession>().api);
-    } on ProviderNotFoundException {
+  Future<void> _checkAmapSupport() async {
+    if (!MapHomePage.nativeAmap) {
+      if (mounted) setState(() => checkingAmapSupport = false);
       return;
     }
-    _loadHistory();
-    _loadTripRecommendationEntry();
-  }
-
-  /// 首页地图只在用户没有当前/待出发行程时显示推荐入口。推荐列表本身
-  /// 仍由行程 Tab 按当前位置和当前时间请求，地图页不复制排序算法。
-  Future<void> _loadTripRecommendationEntry() async {
     try {
-      final dashboard = Map<String, dynamic>.from(
-        await TripService(context.read<AppSession>().api).dashboard(),
-      );
-      final hasCurrent = dashboard['currentTrip'] is Map;
-      final hasUpcoming =
-          (dashboard['upcomingTrips'] as List? ?? const []).isNotEmpty;
-      if (mounted) {
-        final showEntry = !hasCurrent && !hasUpcoming;
-        setState(() => showNoTripRecommendationEntry = showEntry);
-        final location = LocationSnapshot.current;
-        if (showEntry && location != null) {
-          unawaited(_loadHotTrips(location.latitude, location.longitude));
-        }
-      }
-    } catch (_) {
-      // 地图基础能力不应因为行程聚合接口失败而不可用。
+      final supported =
+          await _permissionChannel.invokeMethod<bool>('isAmapSupported') ?? false;
+      if (!mounted) return;
+      setState(() {
+        amapRuntimeSupported = supported;
+        checkingAmapSupport = false;
+      });
+      if (supported) unawaited(_locateSilently());
+    } on PlatformException {
+      if (mounted) setState(() => checkingAmapSupport = false);
+    } on MissingPluginException {
+      if (mounted) setState(() => checkingAmapSupport = false);
     }
   }
 
-  /// 无行程时按当前位置读取前三条热度推荐，供地图入口快速展示。
-  Future<void> _loadHotTrips(double latitude, double longitude) async {
-    if (loadingHotTrips) return;
-    setState(() => loadingHotTrips = true);
+  Future<void> _loadState() async {
+    if (mounted) {
+      setState(() {
+        loading = true;
+        error = null;
+      });
+    }
     try {
+      final dashboard = await TripService(
+        context.read<AppSession>().api,
+      ).dashboard();
+      TripModel? active;
+      TripModel? justCompleted;
+      for (final key in const [
+        'joinedCurrentTrip',
+        'currentTrip',
+        'publishedCurrentTrip',
+      ]) {
+        final raw = dashboard[key];
+        if (raw is! Map) continue;
+        final candidate = TripModel.fromJson(Map<String, dynamic>.from(raw));
+        if (candidate.id.isEmpty) continue;
+        if (_isRunning(candidate.status)) {
+          active = candidate;
+          break;
+        }
+        if (_isCompleted(candidate.status)) justCompleted ??= candidate;
+      }
+      if (!mounted) return;
+      setState(() {
+        currentTrip = active;
+        completedTrip = justCompleted;
+      });
+      if (active == null && justCompleted == null) await _loadHotTrips();
+      _fitTripRoute();
+    } catch (caught) {
+      if (mounted) setState(() => error = caught.toString());
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> _loadHotTrips() async {
+    if (loadingHotTrips) return;
+    if (mounted) setState(() => loadingHotTrips = true);
+    try {
+      final location = LocationSnapshot.current;
       final result = await TripDiscoveryService(
         context.read<AppSession>().api,
       ).recommend(
         sortBy: 'match_rate',
         userHasTrip: false,
-        latitude: latitude,
-        longitude: longitude,
+        latitude: location?.latitude,
+        longitude: location?.longitude,
         pageSize: 3,
       );
-      final values = (result['list'] as List? ?? const [])
-          .whereType<Map>()
-          .map(
-            (value) => TripRecommendModel.fromJson(
-              Map<String, dynamic>.from(value),
-            ),
-          )
-          .toList();
-      if (mounted) setState(() => hotTrips = values);
+      final rows = (result['list'] ?? result['records']) as List? ?? const [];
+      if (!mounted) return;
+      setState(() {
+        hotTrips = rows
+            .whereType<Map>()
+            .map((item) => TripRecommendModel.fromJson(
+                  Map<String, dynamic>.from(item),
+                ))
+            .toList();
+      });
     } catch (_) {
-      // 热门队伍只是地图辅助入口，失败时继续显示发布和推荐按钮。
+      // 热门推荐是普通地图状态的辅助内容，失败不阻断地图主体。
     } finally {
       if (mounted) setState(() => loadingHotTrips = false);
     }
+  }
+
+  Future<void> _locateSilently() async {
+    if (!MapHomePage.nativeAmap || !amapRuntimeSupported) return;
+    try {
+      final granted =
+          await _permissionChannel.invokeMethod<bool>('requestLocation') ?? false;
+      if (!mounted || !granted) return;
+      setState(() {
+        locationEnabled = true;
+        centerOnNextLocation = true;
+      });
+      if (lastLocation != null) _moveToLocation(lastLocation!);
+    } on PlatformException {
+      // 首页不弹权限错误，地图仍可按路线或默认城市展示。
+    } on MissingPluginException {
+      // 非原生预览环境使用静态地图背景。
+    }
+  }
+
+  void _moveToLocation(LatLng location) {
+    mapController?.moveCamera(CameraUpdate.newLatLngZoom(location, 15));
+    centerOnNextLocation = false;
+  }
+
+  void _fitTripRoute() {
+    final points = visibleTrip?.routePoints ?? const <LocationSelection>[];
+    if (points.isEmpty) return;
+    final center = points[points.length ~/ 2];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      mapController?.moveCamera(
+        CameraUpdate.newLatLngZoom(
+          LatLng(center.latitude, center.longitude),
+          points.length > 2 ? 9.5 : 11.5,
+        ),
+      );
+    });
+  }
+
+  Future<void> _createTrip() async {
+    final created = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const TripCreatePage()),
+    );
+    if (created == true && mounted) await _loadState();
+  }
+
+  Future<void> _openSearch() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const TripSearchResultsPage(initialKeyword: ''),
+      ),
+    );
   }
 
   Future<void> _openHotTrip(TripRecommendModel trip) async {
@@ -167,135 +238,48 @@ class _MapHomePageState extends State<MapHomePage> {
     );
   }
 
-  @override
-  void dispose() {
-    searchGeneration++;
-    sheetMoveGeneration++;
-    debounce?.cancel();
-    searchController.dispose();
-    searchFocus.dispose();
-    searchSheetController.dispose();
-    super.dispose();
+  Future<void> _openNavigation() async {
+    final trip = visibleTrip;
+    if (trip == null) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => TripNavigationPage(trip: trip)),
+    );
+    if (mounted) await _loadState();
   }
 
-  Future<void> _checkAmapSupport() async {
-    if (!MapHomePage.nativeAmap) {
-      if (mounted) setState(() => checkingAmapSupport = false);
+  Future<void> _openChat() async {
+    final trip = visibleTrip;
+    if (trip == null) {
+      widget.onOpenMessages?.call();
       return;
     }
     try {
-      final supported =
-          await _permissionChannel.invokeMethod<bool>('isAmapSupported') ??
-          false;
+      final conversation = await ChatService(
+        context.read<AppSession>().api,
+      ).tripConversation(trip.id);
       if (!mounted) return;
-      setState(() {
-        amapRuntimeSupported = supported;
-        checkingAmapSupport = false;
-      });
-      if (supported) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _locate());
-      }
-    } on PlatformException {
-      if (mounted) setState(() => checkingAmapSupport = false);
-    } on MissingPluginException {
-      if (mounted) setState(() => checkingAmapSupport = false);
-    }
-  }
-
-  Future<void> _loadHistory() async {
-    try {
-      final rows = await locationService!.history(
-        latitude: lastLocation?.latitude,
-        longitude: lastLocation?.longitude,
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatSessionPage(conversation: conversation),
+        ),
       );
-      if (mounted) setState(() => recentLocations = rows);
-    } catch (_) {
-      // 最近搜索失败不阻断地图首页。
+    } catch (caught) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(caught.toString())));
     }
-  }
-
-  Future<void> _locate() async {
-    if (!MapHomePage.nativeAmap || !amapRuntimeSupported) {
-      _showMessage('请使用 ARM64 Android 真机体验高德定位');
-      return;
-    }
-    bool granted;
-    try {
-      granted =
-          await _permissionChannel.invokeMethod<bool>('requestLocation') ??
-          false;
-    } on PlatformException {
-      _showMessage('定位服务暂不可用，请检查系统定位设置后重试');
-      return;
-    } on MissingPluginException {
-      _showMessage('当前设备暂不支持定位，仍可使用右侧定位按钮重试');
-      return;
-    }
-    if (!mounted) return;
-    if (!granted) {
-      _showMessage('需要允许定位权限，才能显示当前位置');
-      return;
-    }
-    setState(() {
-      locationEnabled = true;
-      centerOnNextLocation = true;
-    });
-    if (lastLocation case final position?) _moveToLocation(position);
-  }
-
-  void _moveToLocation(LatLng location) {
-    mapController?.moveCamera(CameraUpdate.newLatLngZoom(location, 16));
-    centerOnNextLocation = false;
-  }
-
-  Future<void> _prepareSearchOrigin() async {
-    if (lastLocation != null || !amapRuntimeSupported) return;
-    try {
-      final granted =
-          await _permissionChannel.invokeMethod<bool>('requestLocation') ??
-          false;
-      if (!mounted || !granted) return;
-      setState(() => locationEnabled = true);
-      for (var attempt = 0; attempt < 10 && lastLocation == null; attempt++) {
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-      }
-    } on PlatformException {
-      return;
-    } on MissingPluginException {
-      return;
-    }
-  }
-
-  /// 搜索不能等待定位结果，否则首次输入可能额外卡住约两秒。
-  /// 这里只在后台预热一次；本次搜索立即使用已有坐标或无坐标搜索。
-  void _warmSearchOriginInBackground() {
-    if (searchOriginWarmupStarted || lastLocation != null) return;
-    searchOriginWarmupStarted = true;
-    unawaited(_prepareSearchOrigin());
-  }
-
-  void _toggleTraffic() {
-    if (!MapHomePage.nativeAmap || !amapRuntimeSupported) {
-      _showMessage('请使用 ARM64 Android 真机体验高德实时路况');
-      return;
-    }
-    setState(() => trafficEnabled = !trafficEnabled);
-    _showMessage(trafficEnabled ? '实时路况已开启' : '实时路况已关闭');
-  }
-
-  void _showMessage(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _openSos() async {
-    await _prepareSearchOrigin();
-    if (!mounted) return;
     final location = lastLocation;
     if (location == null) {
-      _showMessage('暂未获取当前位置，请允许定位后重试');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('正在获取当前位置，请稍后再试')),
+      );
+      unawaited(_locateSilently());
       return;
     }
     await Navigator.push(
@@ -305,977 +289,842 @@ class _MapHomePageState extends State<MapHomePage> {
           api: context.read<AppSession>().api,
           latitude: location.latitude,
           longitude: location.longitude,
-          address: selectedLocation?.address ?? '当前地图定位位置',
+          address: '当前地图定位',
         ),
       ),
     );
-  }
-
-  /// 只允许最后一次面板操作决定终点。
-  ///
-  /// 聚焦搜索框会触发展开，失焦又会触发收起。用户快速点击时，两个
-  /// animateTo 可能交叉执行，导致最终停在不稳定的中间高度。每次新操作
-  /// 先用 jumpTo 取消旧动画，再在完成后校准到统一的 snap 尺寸。
-  Future<void> _moveSearchSheet(double size) async {
-    final generation = ++sheetMoveGeneration;
-    if (!searchSheetController.isAttached) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && generation == sheetMoveGeneration) {
-          unawaited(_moveSearchSheet(size));
-        }
-      });
-      return;
-    }
-    try {
-      // jumpTo(当前位置) 不会产生视觉跳动，但会终止上一个动画。
-      searchSheetController.jumpTo(searchSheetController.size);
-      await searchSheetController.animateTo(
-        size,
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOutCubic,
-      );
-    } catch (_) {
-      // 用户在程序动画过程中直接拖动时，旧动画可能被取消；以手势位置为准。
-    } finally {
-      // animateTo 可能被 snap 或失焦过程中断。只要期间没有新操作，
-      // 仍强制落在目标尺寸，保证“初始收起”与“搜索后收起”完全一致。
-      if (mounted &&
-          generation == sheetMoveGeneration &&
-          searchSheetController.isAttached) {
-        searchSheetController.jumpTo(size);
-      }
-    }
-  }
-
-  void _collapseSearchSheet() {
-    FocusManager.instance.primaryFocus?.unfocus();
-    if (mounted) {
-      setState(() {
-        searchContentVisible = false;
-        searchSheetSize = _collapsedSheetSize;
-      });
-    }
-    final scrollController = searchSheetScrollController;
-    if (scrollController != null && scrollController.hasClients) {
-      scrollController.animateTo(
-        0,
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-      );
-    }
-    // 收起使用面板原生 reset，确保与首次进入时的
-    // initialChildSize 是同一个值，不再受键盘失焦或 snap 误差影响。
-    sheetMoveGeneration++;
-    if (searchSheetController.isAttached) {
-      searchSheetController.reset();
-    }
-  }
-
-  void _toggleSearchSheet() {
-    // 点击行为以“内容是否可见”为准，不依赖动画中瞬时高度。
-    // 否则聚焦展开尚未结束时点击把手，会被误判为再次展开。
-    if (searchContentVisible) {
-      _collapseSearchSheet();
-      return;
-    }
-    setState(() => searchContentVisible = true);
-    unawaited(_moveSearchSheet(_halfSheetSize));
-  }
-
-  void _dragSearchHandle(DragUpdateDetails details) {
-    if (!searchSheetController.isAttached) return;
-    sheetMoveGeneration++;
-    final delta = details.primaryDelta ?? 0;
-    final screenHeight = MediaQuery.sizeOf(context).height;
-    final next = (searchSheetController.size - delta / screenHeight)
-        .clamp(_collapsedSheetSize, _expandedSheetSize)
-        .toDouble();
-    final showContent = next >= _contentRevealSheetSize;
-    if (showContent != searchContentVisible) {
-      setState(() => searchContentVisible = showContent);
-    }
-    searchSheetController.jumpTo(next);
-  }
-
-  void _startSearchHandleDrag(DragStartDetails details) {
-    sheetMoveGeneration++;
-    if (!searchContentVisible) {
-      setState(() => searchContentVisible = true);
-    }
-  }
-
-  void _endSearchHandleDrag(DragEndDetails details) {
-    if (!searchSheetController.isAttached) return;
-    final velocity = details.primaryVelocity ?? 0;
-    final current = searchSheetController.size;
-    final target = velocity < -450
-        ? (current >= _halfSheetSize ? _expandedSheetSize : _halfSheetSize)
-        : velocity > 450
-        ? _collapsedSheetSize
-        : current < (_collapsedSheetSize + _halfSheetSize) / 2
-        ? _collapsedSheetSize
-        : current < (_halfSheetSize + _expandedSheetSize) / 2
-        ? _halfSheetSize
-        : _expandedSheetSize;
-    if (target == _collapsedSheetSize) {
-      _collapseSearchSheet();
-    } else {
-      setState(() => searchContentVisible = true);
-      unawaited(_moveSearchSheet(target));
-    }
-  }
-
-  void _onKeywordChanged(String value) {
-    debounce?.cancel();
-    final query = value.trim();
-    final generation = ++searchGeneration;
-    setState(() {
-      searchError = null;
-      selectedLocation = null;
-      searchResults = const [];
-      searchLoading = query.isNotEmpty;
-    });
-    if (query.isEmpty) return;
-    debounce = Timer(
-      const Duration(milliseconds: 250),
-      () => _search(query, generation: generation),
-    );
-  }
-
-  void _submitSearch(String keyword) {
-    debounce?.cancel();
-    final generation = ++searchGeneration;
-    unawaited(_search(keyword, generation: generation));
-  }
-
-  Future<void> _search(String keyword, {required int generation}) async {
-    final query = keyword.trim();
-    if (query.isEmpty || generation != searchGeneration) return;
-    _warmSearchOriginInBackground();
-    final service = locationService;
-    if (service == null) {
-      if (mounted && generation == searchGeneration) {
-        setState(() {
-          searchError = '搜索服务尚未准备好，请稍后重试';
-          searchLoading = false;
-        });
-      }
-      return;
-    }
-    setState(() {
-      searchLoading = true;
-      searchError = null;
-    });
-    try {
-      final rows = await service
-          .search(
-            query,
-            latitude: lastLocation?.latitude,
-            longitude: lastLocation?.longitude,
-          )
-          .timeout(const Duration(seconds: 8));
-      if (!mounted ||
-          generation != searchGeneration ||
-          query != searchController.text.trim()) {
-        return;
-      }
-      setState(() {
-        searchResults = rows;
-        searchLoading = false;
-      });
-    } on ApiException catch (error) {
-      if (!mounted || generation != searchGeneration) return;
-      setState(() {
-        searchError = error.message;
-        searchLoading = false;
-      });
-    } catch (_) {
-      if (!mounted || generation != searchGeneration) return;
-      setState(() {
-        searchError = '搜索暂时不可用，请稍后重试';
-        searchLoading = false;
-      });
-    }
-  }
-
-  Future<void> _selectLocation(LocationSelection location) async {
-    debounce?.cancel();
-    searchGeneration++;
-    FocusScope.of(context).unfocus();
-    try {
-      final saved = await locationService!.select(location);
-      if (!mounted) return;
-      setState(() {
-        selectedLocation = saved;
-        searchController.text = saved.name;
-        searchResults = const [];
-        searchLoading = false;
-        searchError = null;
-      });
-      LocationSnapshot.current = LocationSnapshot(
-        saved.latitude,
-        saved.longitude,
-      );
-      _moveToLocation(LatLng(saved.latitude, saved.longitude));
-      await _loadHistory();
-      await _moveSearchSheet(_halfSheetSize);
-    } on ApiException catch (error) {
-      _showMessage(error.message);
-    }
-  }
-
-  void _clearSearch() {
-    debounce?.cancel();
-    searchGeneration++;
-    searchController.clear();
-    setState(() {
-      selectedLocation = null;
-      searchResults = const [];
-      searchError = null;
-      searchLoading = false;
-    });
-    searchFocus.requestFocus();
-    unawaited(_moveSearchSheet(_expandedSheetSize));
-  }
-
-  Future<void> _createTrip({
-    LocationSelection? initialStart,
-    LocationSelection? initialEnd,
-    LocationSelection? initialWaypoint,
-  }) async {
-    final created = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => TripCreatePage(
-          initialStart: initialStart,
-          initialEnd: initialEnd,
-          initialWaypoint: initialWaypoint,
-        ),
-      ),
-    );
-    if (created == true) await _loadTripRecommendationEntry();
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: _MapSurface(
-            nativeEnabled: amapRuntimeSupported,
-            checkingSupport: checkingAmapSupport,
-            trafficEnabled: trafficEnabled,
-            locationEnabled: locationEnabled,
-            selectedLocation: selectedLocation,
-            onMapCreated: (controller) => mapController = controller,
-            onMapTap: _collapseSearchSheet,
-            onLocationChanged: (location) {
-              if (!isLocationValid(location)) return;
-              lastLocation = location.latLng;
-              LocationSnapshot.current = LocationSnapshot(
-                location.latLng.latitude,
-                location.latLng.longitude,
-              );
-              if (centerOnNextLocation) _moveToLocation(location.latLng);
-              if (showNoTripRecommendationEntry && hotTrips.isEmpty) {
-                unawaited(
-                  _loadHotTrips(
-                    location.latLng.latitude,
-                    location.latLng.longitude,
-                  ),
-                );
-              }
-            },
-          ),
-        ),
-        if (showNoTripRecommendationEntry)
-          Positioned(
-            left: 14,
-            right: 82,
-            top: MediaQuery.paddingOf(context).top + 18,
-            child: _MapTripRecommendEntry(
-              hotTrips: hotTrips,
-              loading: loadingHotTrips,
-              onOpenTrip: _openHotTrip,
-              onOpenRecommendations: widget.onOpenTripRecommendations,
-              onPublish: () => _createTrip(),
-            ),
-          ),
-        Positioned(
-          right: 16,
-          top: MediaQuery.paddingOf(context).top + 18,
-          child: Column(
-            children: [
-              _MapTool(
-                icon: LucideIcons.locateFixed,
-                label: '定位',
-                active: locationEnabled,
-                onTap: _locate,
-              ),
-              const SizedBox(height: 10),
-              _MapTool(
-                icon: LucideIcons.layers3,
-                label: '路况',
-                active: trafficEnabled,
-                onTap: _toggleTraffic,
-              ),
-              const SizedBox(height: 10),
-              _MapTool(
-                icon: LucideIcons.siren,
-                label: 'SOS',
-                danger: true,
-                onTap: _openSos,
-              ),
-            ],
-          ),
-        ),
-        NotificationListener<DraggableScrollableNotification>(
-          onNotification: (notification) {
-            final nextSize = notification.extent;
-            var nextContentVisible = searchContentVisible;
-            if (nextSize >= _contentRevealSheetSize) {
-              nextContentVisible = true;
-            } else if (nextSize <= _collapsedSheetSize + .015) {
-              nextContentVisible = false;
-            }
-            if ((searchSheetSize - nextSize).abs() > .005 ||
-                nextContentVisible != searchContentVisible) {
-              setState(() {
-                searchSheetSize = nextSize;
-                searchContentVisible = nextContentVisible;
-              });
-            }
-            if (nextSize <= _collapsedSheetSize + .015 &&
-                searchFocus.hasFocus) {
-              searchFocus.unfocus();
-            }
-            return false;
+  Widget build(BuildContext context) => Stack(
+    children: [
+      Positioned.fill(
+        child: _MapSurface(
+          nativeEnabled: amapRuntimeSupported,
+          checkingSupport: checkingAmapSupport,
+          locationEnabled: locationEnabled,
+          trip: visibleTrip,
+          mode: mode,
+          onMapCreated: (controller) {
+            mapController = controller;
+            _fitTripRoute();
           },
-          child: DraggableScrollableSheet(
-            controller: searchSheetController,
-            initialChildSize: _collapsedSheetSize,
-            minChildSize: _collapsedSheetSize,
-            maxChildSize: _expandedSheetSize,
-            snap: true,
-            snapSizes: const [
-              _collapsedSheetSize,
-              _halfSheetSize,
-              _expandedSheetSize,
-            ],
-            builder: (context, scrollController) {
-              searchSheetScrollController = scrollController;
-              return _SearchSheet(
-                controller: scrollController,
-                searchController: searchController,
-                focusNode: searchFocus,
-                selectedLocation: selectedLocation,
-                results: searchResults,
-                history: recentLocations,
-                loading: searchLoading,
-                error: searchError,
-                collapsed: !searchContentVisible,
-                onHandleTap: _toggleSearchSheet,
-                onHandleDragStart: _startSearchHandleDrag,
-                onHandleDragUpdate: _dragSearchHandle,
-                onHandleDragEnd: _endSearchHandleDrag,
-                onChanged: _onKeywordChanged,
-                onSubmitted: _submitSearch,
-                onClear: _clearSearch,
-                onSelect: _selectLocation,
-                onSetStart: selectedLocation == null
-                    ? null
-                    : () => _createTrip(initialStart: selectedLocation),
-                onSetWaypoint: selectedLocation == null
-                    ? null
-                    : () => _createTrip(initialWaypoint: selectedLocation),
-                onSetEnd: selectedLocation == null
-                    ? null
-                    : () => _createTrip(initialEnd: selectedLocation),
-              );
-            },
-          ),
+          onLocationChanged: (location) {
+            if (!_validLocation(location)) return;
+            lastLocation = location.latLng;
+            LocationSnapshot.current = LocationSnapshot(
+              location.latLng.latitude,
+              location.latLng.longitude,
+            );
+            if (centerOnNextLocation) _moveToLocation(location.latLng);
+            if (mode == _MapMode.normal && hotTrips.isEmpty) {
+              unawaited(_loadHotTrips());
+            }
+          },
         ),
-      ],
-    );
-  }
+      ),
+      Positioned(
+        left: 12,
+        right: 12,
+        top: MediaQuery.paddingOf(context).top + 12,
+        child: _MapTopOverlay(
+          mode: mode,
+          trip: visibleTrip,
+          hotTrips: hotTrips,
+          loading: loading || loadingHotTrips,
+          error: error,
+          onOpenTrip: _openHotTrip,
+          onOpenMessages: widget.onOpenMessages ?? _openChat,
+        ),
+      ),
+      Positioned(
+        left: 10,
+        right: 10,
+        bottom: 0,
+        child: _MapBottomPanel(
+          mode: mode,
+          trip: visibleTrip,
+          onSearch: _openSearch,
+          onPublish: _createTrip,
+          onRecommendations: widget.onOpenTripRecommendations,
+          onNavigate: _openNavigation,
+          onChat: _openChat,
+          onSos: _openSos,
+          onReportPosition: _openNavigation,
+        ),
+      ),
+    ],
+  );
 }
 
-class _MapTripRecommendEntry extends StatelessWidget {
-  const _MapTripRecommendEntry({
+enum _MapMode { normal, tracking, ended }
+
+class _MapTopOverlay extends StatelessWidget {
+  const _MapTopOverlay({
+    required this.mode,
+    required this.trip,
     required this.hotTrips,
     required this.loading,
+    required this.error,
     required this.onOpenTrip,
-    required this.onOpenRecommendations,
-    required this.onPublish,
+    required this.onOpenMessages,
   });
 
+  final _MapMode mode;
+  final TripModel? trip;
   final List<TripRecommendModel> hotTrips;
   final bool loading;
+  final String? error;
   final ValueChanged<TripRecommendModel> onOpenTrip;
-  final VoidCallback? onOpenRecommendations;
-  final VoidCallback onPublish;
+  final VoidCallback onOpenMessages;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(
+        child: mode == _MapMode.normal
+            ? _NearbyTeamsOverlay(
+                trips: hotTrips,
+                loading: loading,
+                error: error,
+                onOpen: onOpenTrip,
+              )
+            : _TripStatusOverlay(mode: mode, trip: trip),
+      ),
+      const SizedBox(width: 10),
+      Material(
+        color: Colors.white,
+        elevation: 4,
+        shadowColor: const Color(0x1F000000),
+        shape: const CircleBorder(),
+        child: InkWell(
+          onTap: onOpenMessages,
+          customBorder: const CircleBorder(),
+          child: const SizedBox(
+            width: 48,
+            height: 48,
+            child: Stack(
+              children: [
+                Center(
+                  child: Icon(
+                    LucideIcons.messageCircle,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
+                ),
+                Positioned(
+                  right: 9,
+                  top: 8,
+                  child: CircleAvatar(
+                    radius: 7,
+                    backgroundColor: AppColors.danger,
+                    child: Text(
+                      '3',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+class _NearbyTeamsOverlay extends StatelessWidget {
+  const _NearbyTeamsOverlay({
+    required this.trips,
+    required this.loading,
+    required this.error,
+    required this.onOpen,
+  });
+
+  final List<TripRecommendModel> trips;
+  final bool loading;
+  final String? error;
+  final ValueChanged<TripRecommendModel> onOpen;
 
   @override
   Widget build(BuildContext context) => Material(
-    color: Colors.white.withValues(alpha: .96),
-    borderRadius: BorderRadius.circular(14),
+    color: Colors.white.withValues(alpha: .97),
+    borderRadius: BorderRadius.circular(20),
     elevation: 4,
+    shadowColor: const Color(0x1C000000),
     child: Padding(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Row(
             children: [
-              Icon(LucideIcons.flame, size: 17, color: Color(0xFFF59E0B)),
+              Icon(LucideIcons.flame, color: AppColors.warning, size: 17),
               SizedBox(width: 6),
               Expanded(
                 child: Text(
                   '附近热门队伍',
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           const Text(
-            '按当前位置发现近期出发的队伍',
-            style: TextStyle(fontSize: 12, color: AppColors.secondaryText),
+            '按当前位置发现近期出发的同行队伍',
+            style: TextStyle(color: AppColors.muted, fontSize: 11),
           ),
           if (loading) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             const LinearProgressIndicator(minHeight: 2),
-          ] else if (hotTrips.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            ...hotTrips.take(2).map(
+          ] else if (trips.isNotEmpty) ...[
+            const SizedBox(height: 9),
+            ...trips.take(2).map(
               (trip) => InkWell(
-                onTap: () => onOpenTrip(trip),
+                onTap: () => onOpen(trip),
+                borderRadius: BorderRadius.circular(12),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Row(
                     children: [
-                      const Icon(
-                        LucideIcons.mapPinned,
-                        size: 13,
-                        color: AppColors.primary,
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: const BoxDecoration(
+                          color: AppColors.primarySoft,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          LucideIcons.carFront,
+                          size: 14,
+                          color: AppColors.primary,
+                        ),
                       ),
-                      const SizedBox(width: 5),
+                      const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          '${trip.tripName} · ${trip.endLocation}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              trip.tripName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              '${trip.currentVehicleCount}/${trip.vehicleLimit}车 · ${_distanceLabel(trip.distanceMeters)}',
+                              style: const TextStyle(
+                                color: AppColors.muted,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (trip.heat != null)
+                        Text(
+                          '热度 ${trip.heat}',
                           style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
+                            color: AppColors.warning,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                      ),
-                      Text(
-                        '热度 ${trip.heat ?? 0}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFFF59E0B),
-                        ),
-                      ),
                     ],
                   ),
                 ),
               ),
             ),
+          ] else if (error != null) ...[
+            const SizedBox(height: 8),
+            const Text(
+              '热门队伍暂时加载失败',
+              style: TextStyle(color: AppColors.muted, fontSize: 11),
+            ),
           ],
-          const SizedBox(height: 9),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: onPublish,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 34),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                  ),
-                  child: const Text('发布新行程'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton(
-                  onPressed: onOpenRecommendations,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, 34),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                  ),
-                  child: const Text('去看看推荐'),
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     ),
   );
 }
 
-class _SearchSheet extends StatelessWidget {
-  const _SearchSheet({
-    required this.controller,
-    required this.searchController,
-    required this.focusNode,
-    required this.selectedLocation,
-    required this.results,
-    required this.history,
-    required this.loading,
-    required this.error,
-    required this.collapsed,
-    required this.onHandleTap,
-    required this.onHandleDragStart,
-    required this.onHandleDragUpdate,
-    required this.onHandleDragEnd,
-    required this.onChanged,
-    required this.onSubmitted,
-    required this.onClear,
-    required this.onSelect,
-    required this.onSetStart,
-    required this.onSetWaypoint,
-    required this.onSetEnd,
-  });
+class _TripStatusOverlay extends StatelessWidget {
+  const _TripStatusOverlay({required this.mode, required this.trip});
 
-  final ScrollController controller;
-  final TextEditingController searchController;
-  final FocusNode focusNode;
-  final LocationSelection? selectedLocation;
-  final List<LocationSelection> results;
-  final List<LocationSelection> history;
-  final bool loading;
-  final String? error;
-  final bool collapsed;
-  final VoidCallback onHandleTap;
-  final GestureDragStartCallback onHandleDragStart;
-  final GestureDragUpdateCallback onHandleDragUpdate;
-  final GestureDragEndCallback onHandleDragEnd;
-  final ValueChanged<String> onChanged;
-  final ValueChanged<String> onSubmitted;
-  final VoidCallback onClear;
-  final ValueChanged<LocationSelection> onSelect;
-  final VoidCallback? onSetStart;
-  final VoidCallback? onSetWaypoint;
-  final VoidCallback? onSetEnd;
-
-  bool get hasKeyword => searchController.text.trim().isNotEmpty;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    key: const ValueKey('map-search-sheet-surface'),
-    decoration: const BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      boxShadow: [
-        BoxShadow(
-          color: Color(0x26000000),
-          blurRadius: 18,
-          offset: Offset(0, -3),
-        ),
-      ],
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: Material(
-      color: Colors.transparent,
-      child: LayoutBuilder(
-        builder: (context, constraints) => Stack(
-          children: [
-            // 头部固定，避免抽屉滚动后搜索框被带出可视区域。
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: GestureDetector(
-                key: const ValueKey('map-search-sheet-handle'),
-                behavior: HitTestBehavior.opaque,
-                onVerticalDragStart: onHandleDragStart,
-                onVerticalDragUpdate: onHandleDragUpdate,
-                onVerticalDragEnd: onHandleDragEnd,
-                child: InkWell(
-                  onTap: onHandleTap,
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 7),
-                    child: Center(
-                      child: SizedBox(
-                        width: 52,
-                        height: 6,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Color(0xFFD0D5DD),
-                            borderRadius: BorderRadius.all(Radius.circular(99)),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (!collapsed)
-              Positioned(
-                left: 12,
-                right: 12,
-                top: 20,
-                height: 50,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Container(
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF4F6F8),
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: const Color(0xFFE4E7EC)),
-                    ),
-                    child: TextField(
-                      key: const ValueKey('map-place-search-field'),
-                      controller: searchController,
-                      focusNode: focusNode,
-                      onChanged: onChanged,
-                      onSubmitted: onSubmitted,
-                      textInputAction: TextInputAction.search,
-                      style: const TextStyle(
-                        color: Color(0xFF1D2939),
-                        fontSize: 15,
-                      ),
-                      cursorColor: AppColors.primary,
-                      decoration: InputDecoration(
-                        hintText: '搜索地点或地址',
-                        hintStyle: const TextStyle(color: Color(0xFF98A2B3)),
-                        prefixIcon: const Icon(
-                          LucideIcons.search,
-                          size: 20,
-                          color: Color(0xFF344054),
-                        ),
-                        prefixIconConstraints: const BoxConstraints(
-                          minWidth: 40,
-                          minHeight: 40,
-                        ),
-                        suffixIcon: hasKeyword
-                            ? IconButton(
-                                tooltip: '清空',
-                                onPressed: onClear,
-                                icon: const Icon(
-                                  LucideIcons.x,
-                                  size: 19,
-                                  color: Color(0xFF667085),
-                                ),
-                              )
-                            : null,
-                        suffixIconConstraints: const BoxConstraints(
-                          minWidth: 42,
-                          minHeight: 42,
-                        ),
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        filled: false,
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            if (!collapsed)
-              Positioned(
-                left: 0,
-                right: 0,
-                top: 70,
-                bottom: 0,
-                child: CustomScrollView(
-                  controller: controller,
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  slivers: [
-                    if (selectedLocation != null)
-                      SliverToBoxAdapter(
-                        child: _SelectedPlaceCard(
-                          location: selectedLocation!,
-                          onSetStart: onSetStart!,
-                          onSetWaypoint: onSetWaypoint!,
-                          onSetEnd: onSetEnd!,
-                        ),
-                      ),
-                    if (loading)
-                      const SliverToBoxAdapter(
-                        child: LinearProgressIndicator(
-                          minHeight: 2,
-                          color: AppColors.primary,
-                          backgroundColor: Color(0xFFE4E7EC),
-                        ),
-                      )
-                    else if (error != null)
-                      SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Text(
-                              error!,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: Color(0xFF667085)),
-                            ),
-                          ),
-                        ),
-                      )
-                    else
-                      _PlaceListSliver(
-                        title: hasKeyword ? '猜你要找' : '最近搜索',
-                        rows: hasKeyword ? results : history,
-                        emptyText: hasKeyword ? '没有找到相关地点' : '暂无最近搜索',
-                        onSelect: onSelect,
-                      ),
-                    SliverToBoxAdapter(
-                      child: SizedBox(
-                        height: MediaQuery.viewInsetsOf(context).bottom + 20,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-class _SelectedPlaceCard extends StatelessWidget {
-  const _SelectedPlaceCard({
-    required this.location,
-    required this.onSetStart,
-    required this.onSetWaypoint,
-    required this.onSetEnd,
-  });
-
-  final LocationSelection location;
-  final VoidCallback onSetStart;
-  final VoidCallback onSetWaypoint;
-  final VoidCallback onSetEnd;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-    child: Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE4E7EC)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            location.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFF101828),
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            location.address,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Color(0xFF667085), fontSize: 13),
-          ),
-          if (location.distanceLabel != null) ...[
-            const SizedBox(height: 3),
-            Text(
-              '距当前位置约 ${location.distanceLabel}',
-              style: const TextStyle(fontSize: 12, color: AppColors.primary),
-            ),
-          ],
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 38,
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      textStyle: const TextStyle(fontSize: 13),
-                    ),
-                    onPressed: onSetStart,
-                    child: const Text('设为起点'),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 7),
-              Expanded(
-                child: SizedBox(
-                  height: 38,
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      textStyle: const TextStyle(fontSize: 13),
-                    ),
-                    onPressed: onSetWaypoint,
-                    child: const Text('设为停靠点'),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 7),
-              Expanded(
-                child: SizedBox(
-                  height: 38,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      textStyle: const TextStyle(fontSize: 13),
-                    ),
-                    onPressed: onSetEnd,
-                    child: const Text('设为目的地'),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-class _PlaceListSliver extends StatelessWidget {
-  const _PlaceListSliver({
-    required this.title,
-    required this.rows,
-    required this.emptyText,
-    required this.onSelect,
-  });
-
-  final String title;
-  final List<LocationSelection> rows;
-  final String emptyText;
-  final ValueChanged<LocationSelection> onSelect;
+  final _MapMode mode;
+  final TripModel? trip;
 
   @override
   Widget build(BuildContext context) {
-    if (rows.isEmpty) {
-      return SliverToBoxAdapter(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
-          child: Center(
-            child: Text(
-              emptyText,
-              style: const TextStyle(color: Color(0xFF98A2B3)),
-            ),
-          ),
-        ),
-      );
-    }
-    return SliverMainAxisGroup(
-      slivers: [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 5),
-            child: Text(
-              title,
-              style: const TextStyle(
-                color: Color(0xFF101828),
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          sliver: SliverList.separated(
-            itemCount: rows.length,
-            separatorBuilder: (_, _) => const Divider(
-              height: 1,
-              indent: 52,
-              endIndent: 4,
-              color: Color(0xFFEAECF0),
-            ),
-            itemBuilder: (context, index) {
-              final row = rows[index];
-              return ListTile(
-                dense: true,
-                visualDensity: const VisualDensity(vertical: -2),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                onTap: () => onSelect(row),
-                leading: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFEEF4FF),
+    final ended = mode == _MapMode.ended;
+    return Material(
+      color: Colors.white.withValues(alpha: .97),
+      borderRadius: BorderRadius.circular(20),
+      elevation: 4,
+      shadowColor: const Color(0x1C000000),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    color: ended ? AppColors.success : AppColors.primary,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
-                    LucideIcons.mapPin,
-                    size: 17,
-                    color: AppColors.primary,
-                  ),
                 ),
-                title: Text(
-                  row.name,
+                const SizedBox(width: 7),
+                Text(
+                  ended ? '行程已完成' : '${trip?.title ?? '当前行程'} · 行进中',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              ended
+                  ? '${trip?.startName ?? '起点'}至${trip?.endName ?? '终点'} · 全员已到达 · 轨迹已保存'
+                  : '${trip?.startName ?? '起点'} → ${trip?.endName ?? '终点'} · 位置持续更新',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.secondaryText,
+                fontSize: 11,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MapBottomPanel extends StatelessWidget {
+  const _MapBottomPanel({
+    required this.mode,
+    required this.trip,
+    required this.onSearch,
+    required this.onPublish,
+    required this.onRecommendations,
+    required this.onNavigate,
+    required this.onChat,
+    required this.onSos,
+    required this.onReportPosition,
+  });
+
+  final _MapMode mode;
+  final TripModel? trip;
+  final VoidCallback onSearch;
+  final VoidCallback onPublish;
+  final VoidCallback? onRecommendations;
+  final VoidCallback onNavigate;
+  final VoidCallback onChat;
+  final VoidCallback onSos;
+  final VoidCallback onReportPosition;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.white,
+    borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+    clipBehavior: Clip.antiAlias,
+    elevation: 12,
+    shadowColor: const Color(0x26000000),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 42,
+            height: 4,
+            decoration: BoxDecoration(
+              color: const Color(0xFFD5DAE3),
+              borderRadius: BorderRadius.circular(99),
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (mode == _MapMode.normal)
+            _NormalPanel(
+              onSearch: onSearch,
+              onPublish: onPublish,
+              onRecommendations: onRecommendations,
+            )
+          else if (mode == _MapMode.tracking)
+            _TrackingPanel(
+              trip: trip,
+              onNavigate: onNavigate,
+              onChat: onChat,
+              onSos: onSos,
+              onReportPosition: onReportPosition,
+            )
+          else
+            _EndedPanel(
+              trip: trip,
+              onRecommendations: onRecommendations,
+              onPublish: onPublish,
+              onChat: onChat,
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _NormalPanel extends StatelessWidget {
+  const _NormalPanel({
+    required this.onSearch,
+    required this.onPublish,
+    required this.onRecommendations,
+  });
+
+  final VoidCallback onSearch;
+  final VoidCallback onPublish;
+  final VoidCallback? onRecommendations;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Row(
+        children: [
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: AppColors.primarySoft,
+            child: Icon(LucideIcons.mapPinned, color: AppColors.primary, size: 20),
+          ),
+          SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '当前状态',
+                  style: TextStyle(color: AppColors.muted, fontSize: 11),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  '你还没有行程',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      const Text(
+        '加入别人的队伍，或自己发布一个行程。也可以直接查看附近热门队伍。',
+        style: TextStyle(
+          color: AppColors.secondaryText,
+          fontSize: 12,
+          height: 1.5,
+        ),
+      ),
+      const SizedBox(height: 13),
+      Row(
+        children: [
+          Expanded(
+            child: _PanelAction(
+              icon: LucideIcons.search,
+              title: '搜索找队伍',
+              subtitle: '发现附近同行者',
+              onTap: onSearch,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _PanelAction(
+              icon: LucideIcons.plus,
+              title: '发布新行程',
+              subtitle: '创建自己的队伍',
+              onTap: onPublish,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 11),
+      SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: onRecommendations,
+          icon: const Icon(LucideIcons.sparkles, size: 18),
+          label: const Text('去看看推荐行程'),
+        ),
+      ),
+    ],
+  );
+}
+
+class _TrackingPanel extends StatelessWidget {
+  const _TrackingPanel({
+    required this.trip,
+    required this.onNavigate,
+    required this.onChat,
+    required this.onSos,
+    required this.onReportPosition,
+  });
+
+  final TripModel? trip;
+  final VoidCallback onNavigate;
+  final VoidCallback onChat;
+  final VoidCallback onSos;
+  final VoidCallback onReportPosition;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  trip?.title ?? '当前行程',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${trip?.startName ?? '起点'} → ${trip?.endName ?? '终点'}',
                   style: const TextStyle(
-                    color: Color(0xFF101828),
-                    fontSize: 15,
+                    color: AppColors.secondaryText,
+                    fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                subtitle: Text(
-                  row.address,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF667085),
-                    fontSize: 12.5,
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF8EF),
+              borderRadius: BorderRadius.circular(99),
+            ),
+            child: const Row(
+              children: [
+                Icon(LucideIcons.radio, size: 13, color: AppColors.success),
+                SizedBox(width: 5),
+                Text(
+                  '位置共享中',
+                  style: TextStyle(
+                    color: AppColors.success,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-                trailing: row.distanceLabel == null
-                    ? null
-                    : Text(
-                        row.distanceLabel!,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF98A2B3),
-                        ),
-                      ),
-              );
-            },
+              ],
+            ),
           ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      Row(
+        children: [
+          Expanded(child: _TripMetric(label: '剩余', value: '持续计算')),
+          Expanded(child: _TripMetric(label: '预计', value: '导航更新')),
+          Expanded(
+            child: _TripMetric(label: '同行车队', value: _vehicleLabel(trip)),
+          ),
+        ],
+      ),
+      const SizedBox(height: 13),
+      Row(
+        children: [
+          Expanded(
+            child: _RoundAction(
+              icon: LucideIcons.navigation,
+              label: '共享位置',
+              onTap: onNavigate,
+            ),
+          ),
+          Expanded(
+            child: _RoundAction(
+              icon: LucideIcons.mapPinCheck,
+              label: '报位置',
+              onTap: onReportPosition,
+            ),
+          ),
+          Expanded(
+            child: _RoundAction(
+              icon: LucideIcons.siren,
+              label: 'SOS',
+              danger: true,
+              onTap: onSos,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 10),
+      SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: onChat,
+          icon: const Icon(LucideIcons.messageCircle, size: 18),
+          label: const Text('进入群聊 · 查看新消息'),
         ),
-      ],
-    );
-  }
+      ),
+    ],
+  );
+}
+
+class _EndedPanel extends StatelessWidget {
+  const _EndedPanel({
+    required this.trip,
+    required this.onRecommendations,
+    required this.onPublish,
+    required this.onChat,
+  });
+
+  final TripModel? trip;
+  final VoidCallback? onRecommendations;
+  final VoidCallback onPublish;
+  final VoidCallback onChat;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Row(
+        children: [
+          CircleAvatar(
+            radius: 21,
+            backgroundColor: Color(0xFFEAF8EF),
+            child: Icon(LucideIcons.flag, color: AppColors.success),
+          ),
+          SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '旅程完成',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  '全员顺利到达，轨迹已保存',
+                  style: TextStyle(color: AppColors.muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 11),
+      Row(
+        children: [
+          Expanded(
+            child: _TripMetric(
+              label: '总里程',
+              value: _distanceLabel(trip?.distanceMeters ?? 0),
+            ),
+          ),
+          const Expanded(child: _TripMetric(label: '总耗时', value: '已完成')),
+          Expanded(
+            child: _TripMetric(label: '同行车队', value: _vehicleLabel(trip)),
+          ),
+        ],
+      ),
+      const SizedBox(height: 13),
+      SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: onRecommendations,
+          icon: const Icon(LucideIcons.sparkles, size: 18),
+          label: const Text('去看看推荐行程'),
+        ),
+      ),
+      const SizedBox(height: 9),
+      Row(
+        children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: onPublish,
+              icon: const Icon(LucideIcons.route, size: 17),
+              label: const Text('再次出发'),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: onChat,
+              icon: const Icon(LucideIcons.messageCircle, size: 17),
+              label: const Text('回到群聊'),
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+class _PanelAction extends StatelessWidget {
+  const _PanelAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: const Color(0xFFF4F7FC),
+    borderRadius: BorderRadius.circular(18),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: const BoxDecoration(
+                color: AppColors.primarySoft,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 18, color: AppColors.primary),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.muted, fontSize: 9.5),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _RoundAction extends StatelessWidget {
+  const _RoundAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.danger = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(16),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Column(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: danger ? const Color(0xFFFFECEA) : AppColors.primarySoft,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              color: danger ? AppColors.danger : AppColors.primary,
+              size: 19,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: danger ? AppColors.danger : AppColors.secondaryText,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _TripMetric extends StatelessWidget {
+  const _TripMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Text(
+        value,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900),
+      ),
+      const SizedBox(height: 3),
+      Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 10)),
+    ],
+  );
 }
 
 class _MapSurface extends StatelessWidget {
   const _MapSurface({
     required this.nativeEnabled,
     required this.checkingSupport,
-    required this.trafficEnabled,
     required this.locationEnabled,
-    required this.selectedLocation,
+    required this.trip,
+    required this.mode,
     required this.onMapCreated,
-    required this.onMapTap,
     required this.onLocationChanged,
   });
 
   final bool nativeEnabled;
   final bool checkingSupport;
-  final bool trafficEnabled;
   final bool locationEnabled;
-  final LocationSelection? selectedLocation;
+  final TripModel? trip;
+  final _MapMode mode;
   final ValueChanged<AMapController> onMapCreated;
-  final VoidCallback onMapTap;
   final ValueChanged<AMapLocation> onLocationChanged;
 
   static const privacy = AMapPrivacyStatement(
@@ -1286,154 +1135,212 @@ class _MapSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final route = trip?.routePoints ?? const <LocationSelection>[];
     if (nativeEnabled) {
       AMapInitializer.init(context);
       AMapInitializer.updatePrivacyAgree(privacy);
+      final markers = <Marker>{};
+      if (route.isNotEmpty) {
+        markers.add(
+          Marker(
+            position: LatLng(route.first.latitude, route.first.longitude),
+            infoWindow: InfoWindow(title: trip?.startName ?? '起点'),
+          ),
+        );
+        if (route.length > 1) {
+          markers.add(
+            Marker(
+              position: LatLng(route.last.latitude, route.last.longitude),
+              infoWindow: InfoWindow(title: trip?.endName ?? '终点'),
+            ),
+          );
+        }
+      }
+      final polylines = route.length >= 2
+          ? {
+              Polyline(
+                points: route
+                    .map((point) => LatLng(point.latitude, point.longitude))
+                    .toList(growable: false),
+                width: 8,
+                color: mode == _MapMode.ended
+                    ? AppColors.success
+                    : AppColors.primary,
+                capType: CapType.round,
+                joinType: JoinType.round,
+              ),
+            }
+          : const <Polyline>{};
       return AMapWidget(
-        initialCameraPosition: const CameraPosition(
-          target: LatLng(30.2741, 120.1551),
-          zoom: 12,
+        initialCameraPosition: CameraPosition(
+          target: route.isEmpty
+              ? const LatLng(23.1291, 113.2644)
+              : LatLng(route.first.latitude, route.first.longitude),
+          zoom: route.isEmpty ? 11.5 : 10.5,
         ),
-        trafficEnabled: trafficEnabled,
+        trafficEnabled: false,
         myLocationStyleOptions: MyLocationStyleOptions(
           locationEnabled,
-          circleFillColor: const Color(0x223B82F6),
+          circleFillColor: const Color(0x223A86FF),
           circleStrokeColor: AppColors.primary,
           circleStrokeWidth: 1,
         ),
-        markers: selectedLocation == null
-            ? const <Marker>{}
-            : {
-                Marker(
-                  position: LatLng(
-                    selectedLocation!.latitude,
-                    selectedLocation!.longitude,
-                  ),
-                  infoWindow: InfoWindow(
-                    title: selectedLocation!.name,
-                    snippet: selectedLocation!.address,
-                  ),
-                ),
-              },
+        markers: markers,
+        polylines: polylines,
         onMapCreated: onMapCreated,
-        onTap: (_) => onMapTap(),
         onLocationChanged: onLocationChanged,
       );
     }
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onMapTap,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(
-            color: const Color(0xFFF2F6FC),
-            child: CustomPaint(painter: _RoadPainter()),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        CustomPaint(
+          painter: _RoadPainter(
+            routeVisible: route.length >= 2,
+            ended: mode == _MapMode.ended,
           ),
-          if (MapHomePage.nativeAmap && !checkingSupport)
-            Center(
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 68),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.92),
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: const [
-                    BoxShadow(color: Color(0x16000000), blurRadius: 16),
-                  ],
-                ),
-                child: const Text(
-                  '当前 x86_64 模拟器不支持高德原生地图\n请使用 ARM64 Android 真机预览',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: AppColors.secondaryText, height: 1.5),
-                ),
+          child: const ColoredBox(color: Color(0xFFF2F6FC)),
+        ),
+        const Positioned(left: 36, top: 150, child: _MapLabel('天河')),
+        const Positioned(right: 54, top: 208, child: _MapLabel('白云山')),
+        const Positioned(left: 62, top: 310, child: _MapLabel('珠江新城')),
+        const Positioned(right: 42, top: 385, child: _MapLabel('黄埔')),
+        if (MapHomePage.nativeAmap && !checkingSupport)
+          Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 55),
+              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .92),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Text(
+                '当前模拟器不支持高德原生地图\n请使用 ARM64 Android 真机预览',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.secondaryText, height: 1.5),
               ),
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
+}
+
+class _MapLabel extends StatelessWidget {
+  const _MapLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    label,
+    style: const TextStyle(
+      color: Color(0xFF8390A4),
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+    ),
+  );
 }
 
 class _RoadPainter extends CustomPainter {
+  const _RoadPainter({required this.routeVisible, required this.ended});
+
+  final bool routeVisible;
+  final bool ended;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final road = Paint()
-      ..color = const Color(0xFFDCEBFF)
-      ..strokeWidth = 15
+    final minorRoad = Paint()
+      ..color = const Color(0xFFDDE8F5)
+      ..strokeWidth = 13
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(
-      Offset(-20, size.height * .36),
-      Offset(size.width + 30, size.height * .20),
-      road,
+      Offset(-30, size.height * .30),
+      Offset(size.width + 40, size.height * .18),
+      minorRoad,
     );
     canvas.drawLine(
-      Offset(20, size.height * .68),
-      Offset(size.width + 10, size.height * .52),
-      road,
+      Offset(10, size.height * .60),
+      Offset(size.width + 20, size.height * .46),
+      minorRoad,
     );
     canvas.drawLine(
-      Offset(size.width * .25, -20),
+      Offset(size.width * .30, -30),
       Offset(size.width * .68, size.height),
-      road,
+      minorRoad,
     );
-    final dot = Paint()..color = AppColors.primary;
-    canvas.drawCircle(Offset(size.width * .48, size.height * .44), 12, dot);
+    if (routeVisible) {
+      final route = Paint()
+        ..color = ended ? AppColors.success : AppColors.primary
+        ..strokeWidth = 8
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+      final path = Path()
+        ..moveTo(size.width * .14, size.height * .66)
+        ..cubicTo(
+          size.width * .30,
+          size.height * .50,
+          size.width * .56,
+          size.height * .40,
+          size.width * .82,
+          size.height * .24,
+        );
+      canvas.drawPath(path, route);
+      canvas.drawCircle(
+        Offset(size.width * .14, size.height * .66),
+        10,
+        Paint()..color = AppColors.primary,
+      );
+      canvas.drawCircle(
+        Offset(size.width * .82, size.height * .24),
+        10,
+        Paint()..color = ended ? AppColors.success : AppColors.primaryDark,
+      );
+    } else {
+      canvas.drawCircle(
+        Offset(size.width * .48, size.height * .44),
+        11,
+        Paint()..color = AppColors.primary,
+      );
+    }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _RoadPainter oldDelegate) =>
+      routeVisible != oldDelegate.routeVisible || ended != oldDelegate.ended;
 }
 
-class _MapTool extends StatelessWidget {
-  const _MapTool({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.danger = false,
-    this.active = false,
-  });
+bool _validLocation(AMapLocation location) {
+  final latitude = location.latLng.latitude;
+  final longitude = location.latLng.longitude;
+  return latitude.abs() <= 90 &&
+      longitude.abs() <= 180 &&
+      latitude != 0 &&
+      longitude != 0;
+}
 
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool danger;
-  final bool active;
+bool _isRunning(String status) {
+  final value = status.toUpperCase();
+  return value == 'RUNNING' || value == 'ONGOING' || value == 'STARTED';
+}
 
-  @override
-  Widget build(BuildContext context) => Material(
-    color: active ? const Color(0xFFEAF2FF) : Colors.white,
-    borderRadius: BorderRadius.circular(18),
-    elevation: 4,
-    shadowColor: const Color(0x24000000),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: SizedBox(
-        width: 58,
-        height: 58,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 21,
-              color: danger ? AppColors.danger : AppColors.primary,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                color: danger ? AppColors.danger : AppColors.primary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
+bool _isCompleted(String status) {
+  final value = status.toUpperCase();
+  return value == 'FINISHED' ||
+      value == 'ENDED' ||
+      value == 'SETTLED' ||
+      value == 'COMPLETED';
+}
+
+String _vehicleLabel(TripModel? trip) {
+  if (trip == null) return '0/0车';
+  final max = trip.maxVehicles <= 0 ? '?' : trip.maxVehicles.toString();
+  return '${trip.joinedVehicles}/$max车';
+}
+
+String _distanceLabel(int meters) {
+  if (meters <= 0) return '距离计算中';
+  if (meters < 1000) return '${meters}m';
+  final km = meters / 1000;
+  return km >= 10 ? '${km.round()}km' : '${km.toStringAsFixed(1)}km';
 }

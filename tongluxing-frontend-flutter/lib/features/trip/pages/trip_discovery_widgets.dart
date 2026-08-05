@@ -214,23 +214,6 @@ class TripDiscoveryCard extends StatelessWidget {
                             const Color(0xFFDCEBFF),
                             TripDiscoveryColors.primary,
                           ),
-                          if (trip.owner.rating > 0) ...[
-                            const SizedBox(width: 5),
-                            const Icon(
-                              LucideIcons.star,
-                              size: 12,
-                              color: TripDiscoveryColors.primary,
-                            ),
-                            const SizedBox(width: 2),
-                            Text(
-                              trip.owner.rating.toStringAsFixed(1),
-                              style: const TextStyle(
-                                color: TripDiscoveryColors.primary,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                       const SizedBox(height: 3),

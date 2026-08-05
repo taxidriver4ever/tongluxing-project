@@ -123,3 +123,16 @@ CREATE TABLE IF NOT EXISTS trip_leader_rating_summary (
   PRIMARY KEY (leader_user_id),
   KEY idx_trip_leader_rating (rating, positive_rate)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程队长评分汇总表';
+
+-- App 行程搜索历史：同一用户、关键词和搜索类型只保留一条。
+CREATE TABLE IF NOT EXISTS trip_search_history (
+    id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    keyword VARCHAR(80) NOT NULL,
+    search_type VARCHAR(24) NOT NULL DEFAULT 'DESTINATION',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_trip_search_history_user_keyword_type (user_id, keyword, search_type),
+    KEY idx_trip_search_history_user_updated (user_id, updated_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

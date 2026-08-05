@@ -46,6 +46,8 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
   TripDiscoveryFilter filter = const TripDiscoveryFilter();
   List<TripDiscoverModel> trips = const [];
   List<Map<String, dynamic>> users = const [];
+  List<Map<String, dynamic>> history = const [];
+  bool loadingHistory = true;
   bool searched = false;
   bool loading = false;
   bool loadingMore = false;
@@ -83,9 +85,10 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
         _load(reset: false);
       }
     });
-    if (search.text.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _submitSearch());
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadHistory();
+      if (search.text.isNotEmpty) _submitSearch();
+    });
   }
 
   @override
@@ -100,6 +103,83 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
 
   void _handleSearchFocusChanged() {
     if (mounted) setState(() {});
+  }
+
+
+  Future<void> _loadHistory() async {
+    try {
+      final values = await TripDiscoveryService(
+        context.read<AppSession>().api,
+      ).searchHistory(limit: 16);
+      if (mounted) setState(() => history = values);
+    } catch (_) {
+      // 搜索页仍可正常搜索，历史记录失败不阻断主流程。
+    } finally {
+      if (mounted) setState(() => loadingHistory = false);
+    }
+  }
+
+  Future<void> _recordHistory(String keyword) async {
+    try {
+      await TripDiscoveryService(context.read<AppSession>().api)
+          .recordSearchHistory(
+            keyword: keyword,
+            searchType: tabIndex == 3 ? 'USER' : (searchType ?? 'DESTINATION'),
+          );
+      await _loadHistory();
+    } catch (_) {
+      // 搜索成功优先，历史记录写入失败不影响结果。
+    }
+  }
+
+  Future<void> _deleteHistory(String historyId) async {
+    if (historyId.isEmpty) return;
+    try {
+      await TripDiscoveryService(
+        context.read<AppSession>().api,
+      ).deleteSearchHistory(historyId);
+      if (mounted) {
+        setState(() => history = history
+            .where((item) => item['historyId']?.toString() != historyId)
+            .toList());
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  Future<void> _clearHistory() async {
+    if (history.isEmpty) return;
+    try {
+      await TripDiscoveryService(
+        context.read<AppSession>().api,
+      ).clearSearchHistory();
+      if (mounted) setState(() => history = const []);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  void _useHistory(Map<String, dynamic> item) {
+    final keyword = item['keyword']?.toString() ?? '';
+    final type = item['searchType']?.toString() ?? 'DESTINATION';
+    if (keyword.isEmpty) return;
+    final index = switch (type) {
+      'ORIGIN' => 1,
+      'ROUTE' => 2,
+      'USER' => 3,
+      'TRIP_NUMBER' => 4,
+      _ => 0,
+    };
+    setState(() {
+      tabIndex = index;
+      search.text = keyword;
+    });
+    _submitSearch();
   }
 
   Future<void> _submitSearch() async {
@@ -118,6 +198,7 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
     submittedKeyword = keyword;
     searched = true;
     await _load(reset: true);
+    await _recordHistory(keyword);
   }
 
   Future<void> _load({required bool reset}) async {
@@ -297,10 +378,14 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
 
   Widget _body() {
     if (!searched) {
-      return _SearchPrompt(
-        icon: LucideIcons.search,
-        title: '输入关键词后点击搜索',
-        subtitle: '可分别查找目的地、起点、路线、同路人和行程号',
+      if (loadingHistory) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      return _SearchHistoryPanel(
+        history: history,
+        onUse: _useHistory,
+        onDelete: _deleteHistory,
+        onClear: _clearHistory,
       );
     }
     if (loading && trips.isEmpty && users.isEmpty) {
@@ -384,6 +469,136 @@ class _TripSearchResultsPageState extends State<TripSearchResultsPage> {
       ),
     );
   }
+}
+
+
+class _SearchHistoryPanel extends StatelessWidget {
+  const _SearchHistoryPanel({
+    required this.history,
+    required this.onUse,
+    required this.onDelete,
+    required this.onClear,
+  });
+
+  final List<Map<String, dynamic>> history;
+  final ValueChanged<Map<String, dynamic>> onUse;
+  final ValueChanged<String> onDelete;
+  final VoidCallback onClear;
+
+  String _typeLabel(String? type) => switch (type) {
+    'ORIGIN' => '起点',
+    'ROUTE' => '路线',
+    'USER' => '同路人',
+    'TRIP_NUMBER' => '行程号',
+    _ => '目的地',
+  };
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+    color: AppColors.background,
+    child: ListView(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+      children: [
+        Row(
+          children: [
+            const Icon(LucideIcons.history, size: 18, color: AppColors.primary),
+            const SizedBox(width: 7),
+            const Expanded(
+              child: Text(
+                '搜索历史',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+              ),
+            ),
+            if (history.isNotEmpty)
+              TextButton.icon(
+                onPressed: onClear,
+                icon: const Icon(LucideIcons.trash2, size: 15),
+                label: const Text('清空'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (history.isEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 44, horizontal: 24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: const Column(
+              children: [
+                Icon(LucideIcons.search, size: 32, color: AppColors.muted),
+                SizedBox(height: 12),
+                Text('暂无搜索历史', style: TextStyle(fontWeight: FontWeight.w800)),
+                SizedBox(height: 5),
+                Text(
+                  '搜索目的地、起点、路线、同路人或行程号后会保存在这里',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.5),
+                ),
+              ],
+            ),
+          )
+        else
+          Wrap(
+            spacing: 9,
+            runSpacing: 9,
+            children: history.map((item) {
+              final keyword = item['keyword']?.toString() ?? '';
+              final id = item['historyId']?.toString() ?? '';
+              return Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(999),
+                child: InkWell(
+                  onTap: () => onUse(item),
+                  borderRadius: BorderRadius.circular(999),
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 7, 8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _typeLabel(item['searchType']?.toString()),
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 180),
+                          child: Text(
+                            keyword,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        InkWell(
+                          onTap: () => onDelete(id),
+                          borderRadius: BorderRadius.circular(99),
+                          child: const Padding(
+                            padding: EdgeInsets.all(3),
+                            child: Icon(LucideIcons.x, size: 14, color: AppColors.muted),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+      ],
+    ),
+  );
 }
 
 class _SearchTopBar extends StatelessWidget {

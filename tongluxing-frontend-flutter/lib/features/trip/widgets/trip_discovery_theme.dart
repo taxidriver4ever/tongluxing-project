@@ -4,13 +4,13 @@ import 'package:flutter/material.dart';
 ///
 /// 只服务于行程发现链路，避免调整全局主题后影响地图、消息、商城等既有页面。
 abstract final class TripDiscoveryColors {
-  static const primary = Color(0xFF0877E5);
-  static const primaryDark = Color(0xFF0068D8);
-  static const primaryDeep = Color(0xFF075EBE);
-  static const sky = Color(0xFF42A9F2);
-  static const softBlue = Color(0xFFDDEEFF);
-  static const tagBlue = Color(0xFFEAF2FB);
-  static const pageBackground = Color(0xFFF2F5F9);
+  static const primary = Color(0xFF3A86FF);
+  static const primaryDark = Color(0xFF246ED8);
+  static const primaryDeep = Color(0xFF1948C8);
+  static const sky = Color(0xFF62A3FF);
+  static const softBlue = Color(0xFFEAF3FF);
+  static const tagBlue = Color(0xFFEAF3FF);
+  static const pageBackground = Color(0xFFF7F9FE);
   static const card = Colors.white;
   static const text = Color(0xFF0B1B39);
   static const secondaryText = Color(0xFF31415D);
@@ -21,7 +21,7 @@ abstract final class TripDiscoveryColors {
   static const headerGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [primaryDark, primary, sky],
+    colors: [primaryDeep, primaryDark, primary],
     stops: [0, .55, 1],
   );
 

@@ -32,6 +32,7 @@ import com.tongluxing.match.mapper.MatchResultMapper;
 import com.tongluxing.match.mapper.TripFavoriteMapper;
 import com.tongluxing.match.mapper.TripConsultationMapper;
 import com.tongluxing.match.mapper.TripRecommendationMetricsMapper;
+import com.tongluxing.match.mapper.TripSearchHistoryMapper;
 import com.tongluxing.match.mapper.TripRecommendationMetricsMapper.TripRecommendationMetricRow;
 import com.tongluxing.match.service.MatchService;
 import com.tongluxing.match.vo.*;
@@ -86,6 +87,8 @@ public class MatchServiceImpl implements MatchService {
     private final TripConsultationMapper tripConsultationMapper;
     /** 批量读取报名、收藏、评分和好评率，供推荐过滤与热度计算。 */
     private final TripRecommendationMetricsMapper recommendationMetricsMapper;
+    /** 行程搜索历史数据访问。 */
+    private final TripSearchHistoryMapper tripSearchHistoryMapper;
 
     /**
      * 为一条公开可匹配行程重新生成推荐。
@@ -184,6 +187,63 @@ public class MatchServiceImpl implements MatchService {
         log(userId, tripId, tripId, team.teamId(), "APPLY", "NEARBY:" + tripId);
         return new MatchApplyResponse(null, String.valueOf(tripId), String.valueOf(team.teamId()),
                 String.valueOf(applicationId), "PENDING");
+    }
+
+    @Override
+    public List<TripSearchHistoryResponse> getTripSearchHistory(Integer limit) {
+        Long userId = currentUserContext.requireUserId();
+        int safeLimit = limit == null ? 12 : Math.max(1, Math.min(limit, 30));
+        return tripSearchHistoryMapper.findRecent(userId, safeLimit).stream()
+                .map(row -> new TripSearchHistoryResponse(
+                        String.valueOf(row.id()), row.keyword(), row.searchType(),
+                        row.updatedAt() == null ? "" : row.updatedAt().format(FORMATTER)))
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public TripSearchHistoryResponse recordTripSearchHistory(String keyword, String searchType) {
+        Long userId = currentUserContext.requireUserId();
+        String normalizedKeyword = keyword == null ? "" : keyword.trim();
+        if (!StringUtils.hasText(normalizedKeyword)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "搜索关键词不能为空");
+        }
+        if (normalizedKeyword.length() > 80) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "搜索关键词不能超过80个字符");
+        }
+        String normalizedType = normalizeSearchHistoryType(searchType);
+        LocalDateTime now = LocalDateTime.now();
+        Long id = SnowflakeIdGenerator.nextId();
+        tripSearchHistoryMapper.upsert(id, userId, normalizedKeyword, normalizedType, now);
+        TripSearchHistoryMapper.HistoryRow row = tripSearchHistoryMapper.findRecent(userId, 30).stream()
+                .filter(item -> item.keyword().equals(normalizedKeyword) && item.searchType().equals(normalizedType))
+                .findFirst()
+                .orElse(new TripSearchHistoryMapper.HistoryRow(id, normalizedKeyword, normalizedType, now));
+        return new TripSearchHistoryResponse(String.valueOf(row.id()), row.keyword(), row.searchType(),
+                row.updatedAt().format(FORMATTER));
+    }
+
+    @Override
+    @Transactional
+    public Boolean deleteTripSearchHistory(Long historyId) {
+        if (historyId == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "搜索历史ID不能为空");
+        }
+        return tripSearchHistoryMapper.deleteOne(currentUserContext.requireUserId(), historyId) > 0;
+    }
+
+    @Override
+    @Transactional
+    public Integer clearTripSearchHistory() {
+        return tripSearchHistoryMapper.deleteAll(currentUserContext.requireUserId());
+    }
+
+    private String normalizeSearchHistoryType(String searchType) {
+        String value = StringUtils.hasText(searchType)
+                ? searchType.trim().toUpperCase(Locale.ROOT)
+                : "DESTINATION";
+        return Set.of("DESTINATION", "ORIGIN", "ROUTE", "USER", "TRIP_NUMBER").contains(value)
+                ? value : "DESTINATION";
     }
 
     /** 记录行程开始/结束漏斗事件；未知动作静默忽略，避免污染统计枚举。 */
@@ -662,6 +722,26 @@ public class MatchServiceImpl implements MatchService {
                 relationship, ownerTrip, allowConsultation, allowApply, joinable,
                 tripFavoriteMapper.exists(userId, tripId) > 0,
                 tripType(trip), publisherRole(trip), passengerDemand(trip), hasCaptain(trip));
+    }
+
+    @Override
+    public TripDiscoverPageResponse getFavoriteTrips(Integer page, Integer size) {
+        Long userId = currentUserContext.requireUserId();
+        int safePage = page == null ? 1 : Math.max(1, page);
+        int safeSize = size == null ? 20 : Math.max(1, Math.min(size, 30));
+        int offset = (safePage - 1) * safeSize;
+        List<TripDiscoverCardResponse> records = tripFavoriteMapper
+                .findTripIds(userId, offset, safeSize).stream()
+                .map(tripPort::getTrip)
+                .filter(java.util.Objects::nonNull)
+                .map(trip -> {
+                    MatchTeamDTO team = teamPort.findActiveTeamByTripId(trip.tripId());
+                    return toDiscoverCard(trip, team, waypointNames(trip.waypointsJson()),
+                            0, -1, userId, false, true);
+                })
+                .toList();
+        return new TripDiscoverPageResponse(safePage, safeSize,
+                tripFavoriteMapper.countByUserId(userId), records);
     }
 
     @Override

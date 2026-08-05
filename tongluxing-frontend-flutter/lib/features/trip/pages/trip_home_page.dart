@@ -5,18 +5,16 @@ import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
-import '../../../common/utils/display_text.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
-import '../../profile/widgets/user_avatar.dart';
+import '../../chat/pages/chat_session_page.dart';
 import 'trip_create_page.dart';
 import 'trip_detail_page.dart';
 import 'trip_discovery_detail_page.dart';
 import 'trip_discovery_page.dart';
-import 'trip_drafts_page.dart';
-import 'trip_overview_page.dart';
-import '../widgets/trip_discovery_theme.dart';
+import 'trip_navigation_page.dart';
+import 'trip_search_results_page.dart';
 
 class TripHomePage extends StatefulWidget {
   const TripHomePage({super.key});
@@ -28,44 +26,60 @@ class TripHomePage extends StatefulWidget {
 class _TripHomePageState extends State<TripHomePage> {
   int section = 0;
   int refreshVersion = 0;
-  TripModel? pinnedTrip;
-  bool loadingPinned = true;
+  bool loadingDashboard = true;
+  String? dashboardError;
+  Map<String, dynamic> dashboard = const {};
+  List<TripModel> currentTrips = const [];
+  Set<String> joinedTripIds = const {};
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadPinnedTrip());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadDashboard());
   }
 
-  /// 查询当前行程置顶区。优先展示正在进行的行程，没有时展示最近一条
-  /// 待出发行程；推荐接口仍会在后端独立判断“是否有自己的基准行程”。
-  Future<void> _loadPinnedTrip() async {
+  Future<void> _loadDashboard() async {
+    if (mounted) {
+      setState(() {
+        loadingDashboard = true;
+        dashboardError = null;
+      });
+    }
     try {
-      final dashboard = Map<String, dynamic>.from(
-        await TripService(context.read<AppSession>().api).dashboard(),
-      );
-      TripModel? next;
-      if (dashboard['currentTrip'] is Map) {
-        next = TripModel.fromJson(
-          Map<String, dynamic>.from(dashboard['currentTrip'] as Map),
-        );
-      } else {
-        final upcoming = (dashboard['upcomingTrips'] as List? ?? const [])
-            .whereType<Map>();
-        if (upcoming.isNotEmpty) {
-          next = TripModel.fromJson(
-            Map<String, dynamic>.from(upcoming.first),
-          );
+      final value = await TripService(context.read<AppSession>().api).dashboard();
+      final trips = <TripModel>[];
+      final joinedIds = <String>{};
+      for (final key in const [
+        'publishedCurrentTrip',
+        'joinedCurrentTrip',
+        'currentTrip',
+      ]) {
+        final raw = value[key];
+        if (raw is! Map) continue;
+        final trip = TripModel.fromJson(Map<String, dynamic>.from(raw));
+        if (trip.id.isNotEmpty && !trips.any((item) => item.id == trip.id)) {
+          trips.add(trip);
+        }
+        if (key == 'joinedCurrentTrip' && trip.id.isNotEmpty) {
+          joinedIds.add(trip.id);
         }
       }
       if (!mounted) return;
       setState(() {
-        pinnedTrip = next;
-        loadingPinned = false;
+        dashboard = value;
+        currentTrips = trips;
+        joinedTripIds = joinedIds;
       });
-    } catch (_) {
-      if (mounted) setState(() => loadingPinned = false);
+    } catch (error) {
+      if (mounted) setState(() => dashboardError = error.toString());
+    } finally {
+      if (mounted) setState(() => loadingDashboard = false);
     }
+  }
+
+  Future<void> _refreshAll() async {
+    setState(() => refreshVersion++);
+    await _loadDashboard();
   }
 
   Future<void> _openCreateTrip() async {
@@ -73,23 +87,63 @@ class _TripHomePageState extends State<TripHomePage> {
       context,
       MaterialPageRoute(builder: (_) => const TripCreatePage()),
     );
-    if (!mounted || created != true) return;
-    setState(() => refreshVersion++);
-    await _loadPinnedTrip();
+    if (created == true && mounted) await _refreshAll();
   }
 
-  Future<void> _openPinnedTrip() async {
-    final trip = pinnedTrip;
-    if (trip == null) return;
+  Future<void> _openSearch() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const TripSearchResultsPage(initialKeyword: ''),
+      ),
+    );
+  }
+
+  Future<void> _openTrip(TripModel trip) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => TripDetailPage(tripId: trip.id, initial: trip),
       ),
     );
-    if (!mounted) return;
-    setState(() => refreshVersion++);
-    await _loadPinnedTrip();
+    if (mounted) await _refreshAll();
+  }
+
+  Future<void> _openNavigation(TripModel trip) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => TripNavigationPage(trip: trip)),
+    );
+    if (mounted) await _refreshAll();
+  }
+
+  Future<void> _openConversation(TripModel trip) async {
+    try {
+      final conversation = await ChatService(
+        context.read<AppSession>().api,
+      ).tripConversation(trip.id);
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatSessionPage(conversation: conversation),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  void _shareTrip(TripModel trip) {
+    Clipboard.setData(
+      ClipboardData(text: '${trip.title}：${trip.startName} → ${trip.endName}'),
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('行程信息已复制，可直接分享给好友')),
+    );
   }
 
   @override
@@ -101,83 +155,52 @@ class _TripHomePageState extends State<TripHomePage> {
     ),
     child: Column(
       children: [
-        Container(
-          width: double.infinity,
-          decoration: const BoxDecoration(
-            gradient: TripDiscoveryColors.headerGradient,
-          ),
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      '行程',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 21,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: '发布新行程',
-                    onPressed: _openCreateTrip,
-                    style: IconButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      backgroundColor: const Color(0x33FFFFFF),
-                    ),
-                    icon: const Icon(LucideIcons.plus, size: 24),
-                  ),
-                ],
+        _TripHeader(onSearch: _openSearch, onCreate: _openCreateTrip),
+        Expanded(
+          child: NestedScrollView(
+            key: ValueKey('trip-home-$refreshVersion'),
+            headerSliverBuilder: (context, innerBoxIsScrolled) => [
+              SliverToBoxAdapter(
+                child: _CurrentTripArea(
+                  loading: loadingDashboard,
+                  error: dashboardError,
+                  trips: currentTrips,
+                  joinedTripIds: joinedTripIds,
+                  activeCount: (dashboard['activeCount'] as num?)?.toInt() ??
+                      currentTrips.length,
+                  onRetry: _loadDashboard,
+                  onOpen: _openTrip,
+                  onNavigate: _openNavigation,
+                  onChat: _openConversation,
+                  onShare: _shareTrip,
+                ),
               ),
-            ),
-          ),
-        ),
-        // 当前行程始终位于一级切换入口上方，符合“当前行程置顶区”的页面结构。
-        if (loadingPinned)
-          const LinearProgressIndicator(minHeight: 2)
-        else if (pinnedTrip != null)
-          _PinnedCurrentTripCard(
-            trip: pinnedTrip!,
-            onTap: _openPinnedTrip,
-          ),
-        Container(
-          height: 50,
-          color: Colors.white,
-          child: Row(
-            children: [
-              _TopTab(
-                label: '推荐',
-                active: section == 0,
-                onTap: () => setState(() => section = 0),
-              ),
-              _TopTab(
-                label: '我的行程',
-                active: section == 1,
-                onTap: () => setState(() => section = 1),
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _TripTabHeaderDelegate(
+                  child: _TripPrimaryTabs(
+                    section: section,
+                    onChanged: (value) => setState(() => section = value),
+                  ),
+                ),
               ),
             ],
-          ),
-        ),
-        Expanded(
-          child: ColoredBox(
-            color: TripDiscoveryColors.pageBackground,
-            child: KeyedSubtree(
-              key: ValueKey<String>('$section-$refreshVersion'),
+            body: ColoredBox(
+              color: AppColors.background,
               child: section == 0
                   ? TripDiscoveryPage(
-                      userHasTrip: pinnedTrip != null,
-                      onTripCreated: () {
+                      userHasTrip: currentTrips.isNotEmpty,
+                      onTripCreated: _refreshAll,
+                      onApplicationSubmitted: () {
                         setState(() => refreshVersion++);
-                        _loadPinnedTrip();
                       },
-                      onApplicationSubmitted: () =>
-                          setState(() => refreshVersion++),
                     )
-                  : const _MyTripsPage(),
+                  : _MyTripsPage(
+                      key: ValueKey('my-trips-$refreshVersion'),
+                      currentTrips: currentTrips,
+                      joinedTripIds: joinedTripIds,
+                      onChanged: _refreshAll,
+                    ),
             ),
           ),
         ),
@@ -186,8 +209,344 @@ class _TripHomePageState extends State<TripHomePage> {
   );
 }
 
-class _TopTab extends StatelessWidget {
-  const _TopTab({
+class _TripHeader extends StatelessWidget {
+  const _TripHeader({required this.onSearch, required this.onCreate});
+
+  final VoidCallback onSearch;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: const BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFF1948C8), AppColors.primary],
+      ),
+    ),
+    child: SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 8, 14, 14),
+        child: Row(
+          children: [
+            const Expanded(
+              child: Text(
+                '行程',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 23,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: .2,
+                ),
+              ),
+            ),
+            _HeaderIconButton(
+              tooltip: '搜索行程',
+              icon: LucideIcons.search,
+              onTap: onSearch,
+            ),
+            const SizedBox(width: 8),
+            _HeaderIconButton(
+              tooltip: '发布新行程',
+              icon: LucideIcons.plus,
+              onTap: onCreate,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _HeaderIconButton extends StatelessWidget {
+  const _HeaderIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: Material(
+      color: const Color(0x2BFFFFFF),
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: SizedBox(
+          width: 42,
+          height: 42,
+          child: Icon(icon, size: 21, color: Colors.white),
+        ),
+      ),
+    ),
+  );
+}
+
+class _CurrentTripArea extends StatelessWidget {
+  const _CurrentTripArea({
+    required this.loading,
+    required this.error,
+    required this.trips,
+    required this.joinedTripIds,
+    required this.activeCount,
+    required this.onRetry,
+    required this.onOpen,
+    required this.onNavigate,
+    required this.onChat,
+    required this.onShare,
+  });
+
+  final bool loading;
+  final String? error;
+  final List<TripModel> trips;
+  final Set<String> joinedTripIds;
+  final int activeCount;
+  final VoidCallback onRetry;
+  final ValueChanged<TripModel> onOpen;
+  final ValueChanged<TripModel> onNavigate;
+  final ValueChanged<TripModel> onChat;
+  final ValueChanged<TripModel> onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading && trips.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 28),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (trips.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+        child: error == null
+            ? const SizedBox.shrink()
+            : _InlineNotice(
+                icon: LucideIcons.wifiOff,
+                title: '当前行程加载失败',
+                subtitle: '下拉刷新或点击重试',
+                actionLabel: '重试',
+                onAction: onRetry,
+              ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                '当前行程',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+              ),
+              const Spacer(),
+              Text(
+                '查看全部  $activeCount 条',
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...trips.map(
+            (trip) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _CurrentTripCard(
+                trip: trip,
+                joined: joinedTripIds.contains(trip.id),
+                onOpen: () => onOpen(trip),
+                onPrimary: _isRunning(trip.status)
+                    ? () => onNavigate(trip)
+                    : () => onOpen(trip),
+                onSecondary: _isRunning(trip.status)
+                    ? () => onChat(trip)
+                    : () => onShare(trip),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CurrentTripCard extends StatelessWidget {
+  const _CurrentTripCard({
+    required this.trip,
+    required this.joined,
+    required this.onOpen,
+    required this.onPrimary,
+    required this.onSecondary,
+  });
+
+  final TripModel trip;
+  final bool joined;
+  final VoidCallback onOpen;
+  final VoidCallback onPrimary;
+  final VoidCallback onSecondary;
+
+  @override
+  Widget build(BuildContext context) {
+    final running = _isRunning(trip.status);
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(22),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpen,
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0E1D3969),
+                blurRadius: 17,
+                offset: Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Stack(
+            children: [
+              const Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                child: ColoredBox(
+                  color: AppColors.primary,
+                  child: SizedBox(width: 5),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(17, 14, 14, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            trip.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.text,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        _SoftTag(label: joined ? '我加入的' : '我发布的'),
+                      ],
+                    ),
+                    const SizedBox(height: 7),
+                    Row(
+                      children: [
+                        const Icon(
+                          LucideIcons.route,
+                          size: 15,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            '${trip.startName} → ${trip.endName}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.secondaryText,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      running
+                          ? '${_statusLabel(trip.status)} · ${_vehicleLabel(trip)} · 距终点持续更新'
+                          : '${_statusLabel(trip.status)} · ${_vehicleLabel(trip)} · ${_dateLabel(trip.departureTime)}出发',
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 13),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _CompactButton(
+                            label: running ? '查看地图' : '管理行程',
+                            icon: running ? LucideIcons.map : LucideIcons.settings2,
+                            filled: true,
+                            onTap: onPrimary,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _CompactButton(
+                            label: running ? '进入群聊' : '分享邀请',
+                            icon: running
+                                ? LucideIcons.messageCircle
+                                : LucideIcons.share2,
+                            onTap: onSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TripPrimaryTabs extends StatelessWidget {
+  const _TripPrimaryTabs({required this.section, required this.onChanged});
+
+  final int section;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    color: Colors.white,
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    child: Row(
+      children: [
+        _PrimaryTab(
+          label: '推荐',
+          active: section == 0,
+          onTap: () => onChanged(0),
+        ),
+        _PrimaryTab(
+          label: '我的行程',
+          active: section == 1,
+          onTap: () => onChanged(1),
+        ),
+      ],
+    ),
+  );
+}
+
+class _PrimaryTab extends StatelessWidget {
+  const _PrimaryTab({
     required this.label,
     required this.active,
     required this.onTap,
@@ -201,124 +560,87 @@ class _TopTab extends StatelessWidget {
   Widget build(BuildContext context) => Expanded(
     child: InkWell(
       onTap: onTap,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: active ? AppColors.primary : AppColors.secondaryText,
-              fontSize: 15,
-              fontWeight: active ? FontWeight.w900 : FontWeight.w600,
+      child: SizedBox(
+        height: 52,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: active ? AppColors.primary : AppColors.secondaryText,
+                fontSize: 15,
+                fontWeight: active ? FontWeight.w900 : FontWeight.w700,
+              ),
             ),
-          ),
-          const SizedBox(height: 9),
-          Container(
-            width: 42,
-            height: 3,
-            decoration: BoxDecoration(
-              color: active ? AppColors.primary : Colors.transparent,
-              borderRadius: BorderRadius.circular(99),
+            const SizedBox(height: 11),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: active ? 32 : 0,
+              height: 3,
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(99),
+              ),
             ),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-class _PinnedCurrentTripCard extends StatelessWidget {
-  const _PinnedCurrentTripCard({required this.trip, required this.onTap});
-
-  final TripModel trip;
-  final VoidCallback onTap;
-
-  String get departureLabel {
-    final value = DateTime.tryParse(
-      (trip.departureTime ?? '').replaceFirst(' ', 'T'),
-    );
-    if (value == null) return '时间待定';
-    return '${value.month}月${value.day}日 '
-        '${value.hour.toString().padLeft(2, '0')}:'
-        '${value.minute.toString().padLeft(2, '0')}';
-  }
-
-  @override
-  Widget build(BuildContext context) => Container(
-    color: Colors.white,
-    padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-    child: Material(
-      color: const Color(0xFFF5F9FF),
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Padding(
-          padding: const EdgeInsets.all(13),
-          child: Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  LucideIcons.navigation,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '当前行程',
-                      style: TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '${trip.startName} → ${trip.endName} · $departureLabel',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(
-                LucideIcons.chevronRight,
-                color: AppColors.muted,
-              ),
-            ],
-          ),
+          ],
         ),
       ),
     ),
   );
 }
 
+class _TripTabHeaderDelegate extends SliverPersistentHeaderDelegate {
+  const _TripTabHeaderDelegate({required this.child});
+
+  final Widget child;
+
+  @override
+  double get minExtent => 52;
+
+  @override
+  double get maxExtent => 52;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) =>
+      Material(
+        elevation: overlapsContent ? 2 : 0,
+        shadowColor: const Color(0x16000000),
+        child: child,
+      );
+
+  @override
+  bool shouldRebuild(covariant _TripTabHeaderDelegate oldDelegate) =>
+      oldDelegate.child != child;
+}
+
 class _MyTripsPage extends StatefulWidget {
-  const _MyTripsPage();
+  const _MyTripsPage({
+    required this.currentTrips,
+    required this.joinedTripIds,
+    required this.onChanged,
+    super.key,
+  });
+
+  final List<TripModel> currentTrips;
+  final Set<String> joinedTripIds;
+  final Future<void> Function() onChanged;
 
   @override
   State<_MyTripsPage> createState() => _MyTripsPageState();
 }
 
 class _MyTripsPageState extends State<_MyTripsPage> {
-  TripModel? current;
-  List<TripModel> upcoming = const [];
-  List<TripModel> recent = const [];
-  List<TripApplicationModel> pendingApplications = const [];
-  Map<String, dynamic> profile = const {};
+  int category = 0;
+  int favoriteFilter = 0;
   bool loading = true;
   String? error;
+  List<TripDraftModel> drafts = const [];
+  List<TripModel> active = const [];
+  List<TripModel> history = const [];
+  List<TripModel> exited = const [];
+  List<TripApplicationModel> applications = const [];
+  List<TripDiscoverModel> favorites = const [];
 
   @override
   void initState() {
@@ -334,595 +656,922 @@ class _MyTripsPageState extends State<_MyTripsPage> {
       });
     }
     final api = context.read<AppSession>().api;
-    final profileFuture = UserProfileService(
-      api,
-    ).me().catchError((_) => <String, dynamic>{});
-    final applicationsFuture = TripDiscoveryService(api)
-        .myApplications()
-        .catchError((_) => <TripApplicationModel>[]);
     try {
-      final dashboard = Map<String, dynamic>.from(
-        await TripService(api).dashboard(),
-      );
-      TripModel? nextCurrent;
-      if (dashboard['currentTrip'] is Map) {
-        nextCurrent = TripModel.fromJson(
-          Map<String, dynamic>.from(dashboard['currentTrip'] as Map),
-        );
-      }
-      final nextUpcoming = _tripList(dashboard['upcomingTrips']);
-      final nextRecent = _tripList(dashboard['recentTrips']);
-      final loadedProfile = await profileFuture;
-      final loadedApplications = await applicationsFuture;
-      if (mounted) {
-        setState(() {
-          current = nextCurrent;
-          upcoming = nextUpcoming;
-          recent = nextRecent;
-          pendingApplications = loadedApplications
-              .where((application) => application.status == 'PENDING')
-              .toList();
-          profile = Map<String, dynamic>.from(loadedProfile);
-        });
-      }
-    } catch (e) {
-      // 仅当聚合接口尚未部署时回退；网络、鉴权或资料接口失败不能触发
-      // 整套行程接口二次请求。
-      final mayFallback =
-          e is ApiException && (e.statusCode == 404 || e.statusCode == 501);
-      if (!mayFallback) {
-        if (mounted) setState(() => error = e.toString());
-        return;
-      }
-      try {
-        final values = await Future.wait<dynamic>([
-          TripService(api).current(),
-          TripService(api).mine(),
-          TripService(api).mine(scope: 'history'),
+      final values = await Future.wait<dynamic>([
+        TripService(api).drafts().catchError((_) => <TripDraftModel>[]),
+        TripService(api).mine(scope: 'active').catchError((_) => <TripModel>[]),
+        TripService(api).mine(scope: 'history').catchError((_) => <TripModel>[]),
+        TripService(api).mine(scope: 'exited').catchError((_) => <TripModel>[]),
+        TripDiscoveryService(api)
+            .myApplications()
+            .catchError((_) => <TripApplicationModel>[]),
+        TripDiscoveryService(api).favorites().catchError(
+          (_) => <String, dynamic>{'records': <dynamic>[]},
+        ),
+      ]);
+      final favoriteRaw = Map<String, dynamic>.from(values[5] as Map);
+      final favoriteRows = (favoriteRaw['records'] ?? favoriteRaw['list']) as List? ??
+          const [];
+      if (!mounted) return;
+      setState(() {
+        drafts = List<TripDraftModel>.from(values[0] as List);
+        active = _dedupeTrips([
+          ...widget.currentTrips,
+          ...List<TripModel>.from(values[1] as List),
         ]);
-        final loadedProfile = await profileFuture;
-        final loadedApplications = await applicationsFuture;
-        if (mounted) {
-          setState(() {
-            current = values[0] as TripModel?;
-            upcoming = List<TripModel>.from(values[1] as List);
-            recent = List<TripModel>.from(values[2] as List);
-            pendingApplications = loadedApplications
-                .where((application) => application.status == 'PENDING')
-                .toList();
-            profile = Map<String, dynamic>.from(loadedProfile);
-          });
-        }
-      } catch (fallbackError) {
-        if (mounted) setState(() => error = fallbackError.toString());
-      }
+        history = List<TripModel>.from(values[2] as List);
+        exited = List<TripModel>.from(values[3] as List);
+        applications = List<TripApplicationModel>.from(values[4] as List);
+        favorites = favoriteRows
+            .whereType<Map>()
+            .map((item) => TripDiscoverModel.fromJson(
+                  Map<String, dynamic>.from(item),
+                ))
+            .toList();
+      });
+    } catch (caught) {
+      if (mounted) setState(() => error = caught.toString());
     } finally {
       if (mounted) setState(() => loading = false);
     }
   }
 
-  List<TripModel> _tripList(dynamic value) => (value as List? ?? const [])
-      .whereType<Map>()
-      .map((e) => TripModel.fromJson(Map<String, dynamic>.from(e)))
-      .toList();
-
-  Future<void> open(Widget page) async {
+  Future<void> _open(Widget page) async {
     await Navigator.push(context, MaterialPageRoute(builder: (_) => page));
-    if (mounted) await load();
+    if (!mounted) return;
+    await load();
+    await widget.onChanged();
   }
 
-  String get nickname {
-    final value = profile['nickname']?.toString().trim() ?? '';
-    return value.isEmpty ? '同路行车友' : value;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (loading && profile.isEmpty && current == null && upcoming.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+  Future<void> _openChat(TripModel trip) async {
+    try {
+      final conversation = await ChatService(
+        context.read<AppSession>().api,
+      ).tripConversation(trip.id);
+      if (!mounted) return;
+      await _open(ChatSessionPage(conversation: conversation));
+    } catch (caught) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(caught.toString())));
     }
-    return RefreshIndicator(
-      onRefresh: load,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(10, 14, 10, 28),
-        children: [
-          _DashboardHeader(profile: profile),
-          const SizedBox(height: 16),
-          _DashboardGrid(
-            current: current,
-            onCurrent: () => current == null
-                ? open(const TripCreatePage())
-                : open(TripDetailPage(tripId: current!.id, initial: current)),
-            onPlan: () => open(
-              const TripOverviewPage(
-                historyMode: false,
-                initialFilter: 'PUBLISHED',
-              ),
-            ),
-            onDrafts: () => open(const TripDraftsPage()),
-            onHistory: () => open(const TripOverviewPage(historyMode: true)),
-            onCreate: () => open(const TripCreatePage()),
-          ),
-          if (pendingApplications.isNotEmpty) ...[
-            const SizedBox(height: 22),
-            const Row(
-              children: [
-                Text(
-                  '待出发 · 待审批',
-                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ...pendingApplications.map(
-              (application) => Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  leading: const CircleAvatar(
-                    child: Icon(LucideIcons.clock3, size: 19),
-                  ),
-                  title: Text(
-                    application.conversationName.isEmpty
-                        ? '行程入队申请'
-                        : application.conversationName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: const Text('申请已提交，等待队长审批'),
-                  trailing: const Text(
-                    '待审批',
-                    style: TextStyle(
-                      color: Color(0xFFF59E0B),
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  onTap: application.tripId.isEmpty
-                      ? null
-                      : () => open(
-                          TripDiscoveryDetailPage(
-                            tripId: application.tripId,
-                          ),
-                        ),
-                ),
-              ),
-            ),
-          ],
-          const SizedBox(height: 22),
-          Row(
-            children: [
-              const Text(
-                '即将出发',
-                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
-              ),
-              const Spacer(),
-              TextButton(
-                onPressed: () => open(
-                  const TripOverviewPage(
-                    historyMode: false,
-                    initialFilter: 'READY',
-                  ),
-                ),
-                child: const Text('查看全部'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (error != null && upcoming.isEmpty)
-            _InlineError(message: error!, onRetry: load)
-          else if (upcoming.isEmpty)
-            _EmptyUpcoming(onCreate: () => open(const TripCreatePage()))
-          else
-            SizedBox(
-              height: 166,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: upcoming.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 12),
-                itemBuilder: (context, index) {
-                  final trip = upcoming[index];
-                  return _UpcomingTripCard(
-                    trip: trip,
-                    onTap: () =>
-                        open(TripDetailPage(tripId: trip.id, initial: trip)),
-                  );
-                },
-              ),
-            ),
-          if (recent.isNotEmpty) ...[
-            const SizedBox(height: 22),
-            Row(
-              children: [
-                const Text(
-                  '最近完成',
-                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
-                ),
-                const Spacer(),
-                TextButton(
-                  onPressed: () =>
-                      open(const TripOverviewPage(historyMode: true)),
-                  child: const Text('查看历史'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            ...recent
-                .take(2)
-                .map(
-                  (trip) => _RecentTripTile(
-                    trip: trip,
-                    onTap: () =>
-                        open(TripDetailPage(tripId: trip.id, initial: trip)),
-                  ),
-                ),
-          ],
-        ],
-      ),
-    );
   }
-}
 
-class _DashboardHeader extends StatelessWidget {
-  const _DashboardHeader({required this.profile});
-
-  final Map<String, dynamic> profile;
+  Future<void> _unfavorite(TripDiscoverModel trip) async {
+    try {
+      await TripDiscoveryService(
+        context.read<AppSession>().api,
+      ).unfavorite(trip.tripId);
+      if (!mounted) return;
+      setState(() {
+        favorites = favorites.where((item) => item.tripId != trip.tripId).toList();
+      });
+    } catch (caught) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(caught.toString())));
+    }
+  }
 
   @override
-  Widget build(BuildContext context) {
-    final nickname = profile['nickname']?.toString() ?? '同路行用户';
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '你好，${compactDisplayName(nickname)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.text,
-                  fontSize: 23,
+  Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: load,
+    child: CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverToBoxAdapter(
+          child: SizedBox(
+            height: 57,
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(12, 11, 12, 8),
+              scrollDirection: Axis.horizontal,
+              itemCount: _categories.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, index) => ChoiceChip(
+                label: Text(_categories[index]),
+                selected: category == index,
+                onSelected: (_) => setState(() => category = index),
+                showCheckmark: false,
+                selectedColor: AppColors.primary,
+                backgroundColor: Colors.white,
+                side: BorderSide(
+                  color: category == index
+                      ? AppColors.primary
+                      : AppColors.border,
+                ),
+                labelStyle: TextStyle(
+                  color: category == index
+                      ? Colors.white
+                      : AppColors.secondaryText,
                   fontWeight: FontWeight.w800,
                 ),
+                shape: const StadiumBorder(),
               ),
-              const SizedBox(height: 5),
-              const Text(
-                '轻松规划下一段同行旅程',
-                style: TextStyle(color: AppColors.muted, fontSize: 13),
-              ),
-            ],
+            ),
           ),
         ),
-        UserAvatar(
-          nickname: nickname,
-          avatarImageKey: profile['avatarImageKey']?.toString() ?? '',
-          radius: 21,
-        ),
+        if (loading)
+          const SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (error != null)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: _InlineNotice(
+                  icon: LucideIcons.wifiOff,
+                  title: '行程列表加载失败',
+                  subtitle: error!,
+                  actionLabel: '重试',
+                  onAction: load,
+                ),
+              ),
+            ),
+          )
+        else
+          ..._categorySlivers(),
       ],
+    ),
+  );
+
+  List<Widget> _categorySlivers() {
+    switch (category) {
+      case 0:
+        return _upcomingSlivers();
+      case 1:
+        return _tripListSlivers(
+          title: '进行中',
+          subtitle: '地图、群聊和队伍管理入口',
+          trips: active.where((trip) => _isRunning(trip.status)).toList(),
+          emptyTitle: '暂无进行中的行程',
+          emptySubtitle: '行程开始后会在这里持续显示',
+          icon: LucideIcons.navigation,
+        );
+      case 2:
+        return _tripListSlivers(
+          title: '已完成',
+          subtitle: '已完成行程与里程记录',
+          trips: history.where((trip) => !_isCancelled(trip.status)).toList(),
+          emptyTitle: '还没有完成的行程',
+          emptySubtitle: '完成一次旅程后会在这里留下记录',
+          icon: LucideIcons.circleCheck,
+        );
+      case 3:
+        final rejected = applications
+            .where((item) => item.status == 'REJECTED' || item.status == 'CANCELLED')
+            .toList();
+        return _cancelledSlivers(rejected);
+      default:
+        return _favoriteSlivers();
+    }
+  }
+
+  List<Widget> _upcomingSlivers() {
+    final upcoming = active.where((trip) => !_isRunning(trip.status)).toList();
+    final pending = applications.where((item) => item.status == 'PENDING').toList();
+    final widgets = <Widget>[
+      _SectionHeaderSliver(
+        title: '草稿',
+        suffix: '${drafts.length}条',
+        subtitle: '继续编辑或直接发布',
+      ),
+    ];
+    if (drafts.isEmpty) {
+      widgets.add(
+        _EmptySliver(
+          icon: LucideIcons.filePenLine,
+          title: '暂无草稿',
+          subtitle: '未发布的行程草稿会保存在这里',
+        ),
+      );
+    } else {
+      widgets.add(
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          sliver: SliverList.separated(
+            itemCount: drafts.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final draft = drafts[index];
+              return _DraftCard(
+                draft: draft,
+                onEdit: () => _open(TripCreatePage(draft: draft)),
+              );
+            },
+          ),
+        ),
+      );
+    }
+    widgets.add(
+      const _SectionHeaderSliver(
+        title: '正式行程',
+        subtitle: '按出发时间升序',
+      ),
     );
+    if (upcoming.isEmpty && pending.isEmpty) {
+      widgets.add(
+        _EmptySliver(
+          icon: LucideIcons.calendarPlus,
+          title: '暂无待出发行程',
+          subtitle: '发布行程或申请加入其他队伍',
+          actionLabel: '发布行程',
+          onAction: () => _open(const TripCreatePage()),
+        ),
+      );
+    } else {
+      widgets.add(
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+          sliver: SliverList.separated(
+            itemCount: upcoming.length + pending.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              if (index < upcoming.length) {
+                final trip = upcoming[index];
+                return _ManagedTripCard(
+                  trip: trip,
+                  joined: widget.joinedTripIds.contains(trip.id),
+                  category: 0,
+                  onOpen: () => _open(
+                    TripDetailPage(tripId: trip.id, initial: trip),
+                  ),
+                  onChat: () => _openChat(trip),
+                );
+              }
+              final application = pending[index - upcoming.length];
+              return _ApplicationCard(
+                application: application,
+                onOpen: application.tripId.isEmpty
+                    ? null
+                    : () => _open(
+                          TripDiscoveryDetailPage(tripId: application.tripId),
+                        ),
+              );
+            },
+          ),
+        ),
+      );
+    }
+    return widgets;
+  }
+
+  List<Widget> _tripListSlivers({
+    required String title,
+    required String subtitle,
+    required List<TripModel> trips,
+    required String emptyTitle,
+    required String emptySubtitle,
+    required IconData icon,
+  }) => [
+    _SectionHeaderSliver(title: title, subtitle: subtitle),
+    if (trips.isEmpty)
+      _EmptySliver(icon: icon, title: emptyTitle, subtitle: emptySubtitle)
+    else
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+        sliver: SliverList.separated(
+          itemCount: trips.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final trip = trips[index];
+            return _ManagedTripCard(
+              trip: trip,
+              joined: widget.joinedTripIds.contains(trip.id),
+              category: category,
+              onOpen: () => _open(
+                category == 1
+                    ? TripNavigationPage(trip: trip)
+                    : TripDetailPage(tripId: trip.id, initial: trip),
+              ),
+              onChat: () => _openChat(trip),
+            );
+          },
+        ),
+      ),
+  ];
+
+  List<Widget> _cancelledSlivers(List<TripApplicationModel> rejected) {
+    final cancelledTrips = _dedupeTrips([
+      ...history.where((trip) => _isCancelled(trip.status)),
+      ...exited,
+    ]);
+    final count = cancelledTrips.length + rejected.length;
+    return [
+      _SectionHeaderSliver(
+        title: '已取消',
+        subtitle: '取消发布、退出和被拒记录',
+        suffix: '$count条',
+      ),
+      if (count == 0)
+        const _EmptySliver(
+          icon: LucideIcons.circleX,
+          title: '暂无取消记录',
+          subtitle: '取消或退出的行程会保留在这里',
+        )
+      else
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+          sliver: SliverList.separated(
+            itemCount: count,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              if (index < cancelledTrips.length) {
+                final trip = cancelledTrips[index];
+                return _ManagedTripCard(
+                  trip: trip,
+                  joined: widget.joinedTripIds.contains(trip.id) ||
+                      exited.any((item) => item.id == trip.id),
+                  category: 3,
+                  onOpen: () => _open(
+                    TripDetailPage(tripId: trip.id, initial: trip),
+                  ),
+                  onChat: () => _openChat(trip),
+                );
+              }
+              return _ApplicationCard(
+                application: rejected[index - cancelledTrips.length],
+                onOpen: null,
+              );
+            },
+          ),
+        ),
+    ];
+  }
+
+  List<Widget> _favoriteSlivers() {
+    final visibleFavorites = favorites.where((trip) {
+      if (favoriteFilter == 1) return trip.hasCaptain;
+      if (favoriteFilter == 2) return !trip.hasCaptain || trip.passengerDemand;
+      return true;
+    }).toList();
+    return [
+      _SectionHeaderSliver(
+        title: '收藏',
+        subtitle: '收藏的队伍与目的地',
+        suffix: '${visibleFavorites.length}条',
+      ),
+      SliverToBoxAdapter(
+        child: _FavoriteFilterBar(
+          selected: favoriteFilter,
+          onSelected: (value) => setState(() => favoriteFilter = value),
+        ),
+      ),
+      if (visibleFavorites.isEmpty)
+        _EmptySliver(
+          icon: LucideIcons.heart,
+          title: favoriteFilter == 0 ? '还没有收藏行程' : '该分类暂无收藏',
+          subtitle: '在推荐列表中收藏喜欢的队伍或目的地',
+        )
+      else
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+          sliver: SliverList.separated(
+            itemCount: visibleFavorites.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final trip = visibleFavorites[index];
+              return _FavoriteTripCard(
+                trip: trip,
+                onOpen: () => _open(
+                  TripDiscoveryDetailPage(tripId: trip.tripId, initial: trip),
+                ),
+                onRemove: () => _unfavorite(trip),
+              );
+            },
+          ),
+        ),
+    ];
   }
 }
 
-class _DashboardGrid extends StatelessWidget {
-  const _DashboardGrid({
-    required this.current,
-    required this.onCurrent,
-    required this.onPlan,
-    required this.onDrafts,
-    required this.onHistory,
-    required this.onCreate,
+
+class _FavoriteFilterBar extends StatelessWidget {
+  const _FavoriteFilterBar({
+    required this.selected,
+    required this.onSelected,
   });
 
-  final TripModel? current;
-  final VoidCallback onCurrent;
-  final VoidCallback onPlan;
-  final VoidCallback onDrafts;
-  final VoidCallback onHistory;
-  final VoidCallback onCreate;
+  final int selected;
+  final ValueChanged<int> onSelected;
 
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      AspectRatio(
-        // 高 / 宽约为 0.618，保持横向黄金矩形。
-        aspectRatio: 1 / 0.618,
-        child: _CurrentJourneyCard(trip: current, onTap: onCurrent),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(12, 0, 12, 11),
+    child: Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF3F9),
+        borderRadius: BorderRadius.circular(999),
       ),
-      const SizedBox(height: 10),
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 9),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(17),
-          border: Border.all(color: const Color(0xFFE4EBF4)),
-        ),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: _QuickAction(
-                    icon: LucideIcons.calendarDays,
-                    label: '行程计划',
-                    onTap: onPlan,
+      child: Row(
+        children: [
+          for (var index = 0; index < 3; index++)
+            Expanded(
+              child: Material(
+                color: selected == index ? Colors.white : Colors.transparent,
+                borderRadius: BorderRadius.circular(999),
+                child: InkWell(
+                  onTap: () => onSelected(index),
+                  borderRadius: BorderRadius.circular(999),
+                  child: SizedBox(
+                    height: 34,
+                    child: Center(
+                      child: Text(
+                        const ['全部', '队伍', '目的地'][index],
+                        style: TextStyle(
+                          color: selected == index
+                              ? AppColors.primary
+                              : AppColors.secondaryText,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: _QuickAction(
-                    icon: LucideIcons.filePenLine,
-                    label: '行程草稿',
-                    onTap: onDrafts,
-                  ),
-                ),
-                Expanded(
-                  child: _QuickAction(
-                    icon: LucideIcons.history,
-                    label: '历史行程',
-                    onTap: onHistory,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: FilledButton.icon(
-                onPressed: onCreate,
-                icon: const Icon(LucideIcons.plus, size: 23),
-                label: const Text(
-                  '创建行程',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                 ),
               ),
             ),
-          ],
-        ),
-      ),
-    ],
-  );
-}
-
-class _CurrentJourneyCard extends StatelessWidget {
-  const _CurrentJourneyCard({required this.trip, required this.onTap});
-
-  final TripModel? trip;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    borderRadius: BorderRadius.circular(18),
-    clipBehavior: Clip.antiAlias,
-    child: InkWell(
-      onTap: onTap,
-      child: Ink(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF70B5F4), Color(0xFF1761C8)],
-          ),
-        ),
-        child: Stack(
-          children: [
-            const Positioned(
-              right: -12,
-              bottom: -30,
-              child: Icon(
-                LucideIcons.mountainSnow,
-                size: 128,
-                color: Color(0x2EFFFFFF),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(15, 13, 14, 13),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0x2EFFFFFF),
-                            borderRadius: BorderRadius.circular(99),
-                          ),
-                          child: Text(
-                            trip == null ? '下一段旅程' : '当前行程',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          trip?.title ?? '规划下一段旅程',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 23,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          trip == null
-                              ? '点击发布新行程，寻找同路伙伴'
-                              : '${trip!.startName} → ${trip!.endName} · ${_dateLabel(trip!.departureTime)}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        if (trip != null) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            '车型要求：${trip!.vehicleRequirements.join(' / ')}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: const BoxDecoration(
-                      color: Color(0xDFFFFFFF),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      LucideIcons.chevronRight,
-                      color: AppColors.primaryDark,
-                      size: 20,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+        ],
       ),
     ),
   );
 }
 
-class _QuickAction extends StatelessWidget {
-  const _QuickAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
+class _DraftCard extends StatelessWidget {
+  const _DraftCard({required this.draft, required this.onEdit});
 
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
+  final TripDraftModel draft;
+  final VoidCallback onEdit;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(12),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: AppColors.primarySoft,
-              shape: BoxShape.circle,
+  Widget build(BuildContext context) => _WhiteCard(
+    accentColor: const Color(0xFF9B6DFF),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                draft.title.trim().isEmpty
+                    ? '${draft.startLocation?.name ?? '未设置起点'}至${draft.destination?.name ?? '未设置终点'}'
+                    : draft.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+              ),
             ),
-            child: Icon(icon, size: 17, color: AppColors.primary),
+            const _SoftTag(label: '草稿'),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          draft.startTime == null ? '未设定出发时间' : _dateTimeLabel(draft.startTime),
+          style: const TextStyle(color: AppColors.secondaryText),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          '途经点 ${draft.waypoints.length}个 · 保存于 ${_relativeTime(draft.updatedAt)}',
+          style: const TextStyle(color: AppColors.muted, fontSize: 12),
+        ),
+        const SizedBox(height: 13),
+        Row(
+          children: [
+            Expanded(
+              child: _CompactButton(
+                label: '编辑草稿',
+                icon: LucideIcons.filePenLine,
+                onTap: onEdit,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _CompactButton(
+                label: '继续发布',
+                icon: LucideIcons.send,
+                filled: true,
+                onTap: onEdit,
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+class _ManagedTripCard extends StatelessWidget {
+  const _ManagedTripCard({
+    required this.trip,
+    required this.joined,
+    required this.category,
+    required this.onOpen,
+    required this.onChat,
+  });
+
+  final TripModel trip;
+  final bool joined;
+  final int category;
+  final VoidCallback onOpen;
+  final VoidCallback onChat;
+
+  @override
+  Widget build(BuildContext context) {
+    return _WhiteCard(
+      onTap: onOpen,
+      accentColor: _managedTripAccent(category, trip.status),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  trip.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                ),
+              ),
+              _SoftTag(label: _statusLabel(trip.status)),
+            ],
           ),
-          const SizedBox(height: 7),
+          const SizedBox(height: 8),
           Text(
-            label,
+            '${trip.startName} → ${trip.endName}',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              color: AppColors.text,
-              fontSize: 11.5,
+              color: AppColors.secondaryText,
               fontWeight: FontWeight.w700,
             ),
           ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 7,
+            children: [
+              _MetaPill(
+                icon: LucideIcons.calendarDays,
+                label: _dateLabel(trip.departureTime),
+              ),
+              _MetaPill(
+                icon: LucideIcons.carFront,
+                label: _vehicleLabel(trip),
+              ),
+              _MetaPill(
+                icon: joined ? LucideIcons.userRoundCheck : LucideIcons.crown,
+                label: joined ? '已加入' : '我发布的',
+              ),
+            ],
+          ),
+          const SizedBox(height: 13),
+          Row(
+            children: [
+              Expanded(
+                child: _CompactButton(
+                  label: category == 1
+                      ? '查看地图'
+                      : category == 2
+                          ? '查看记录'
+                          : '查看详情',
+                  icon: category == 1
+                      ? LucideIcons.map
+                      : LucideIcons.chevronRight,
+                  filled: true,
+                  onTap: onOpen,
+                ),
+              ),
+              if (category == 1 || joined) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _CompactButton(
+                    label: '进入群聊',
+                    icon: LucideIcons.messageCircle,
+                    onTap: onChat,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ApplicationCard extends StatelessWidget {
+  const _ApplicationCard({required this.application, required this.onOpen});
+
+  final TripApplicationModel application;
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) => _WhiteCard(
+    onTap: onOpen,
+    accentColor: application.status == 'PENDING'
+        ? AppColors.warning
+        : const Color(0xFF98A2B3),
+    child: Row(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: const BoxDecoration(
+            color: AppColors.primarySoft,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            application.status == 'PENDING'
+                ? LucideIcons.clock3
+                : LucideIcons.circleX,
+            color: application.status == 'PENDING'
+                ? AppColors.warning
+                : AppColors.muted,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                application.conversationName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                application.status == 'PENDING'
+                    ? '申请已提交，等待队长审批'
+                    : '申请未通过或已取消',
+                style: const TextStyle(color: AppColors.muted, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        _SoftTag(
+          label: application.status == 'PENDING' ? '待审批' : '已结束',
+        ),
+      ],
+    ),
+  );
+}
+
+class _FavoriteTripCard extends StatelessWidget {
+  const _FavoriteTripCard({
+    required this.trip,
+    required this.onOpen,
+    required this.onRemove,
+  });
+
+  final TripDiscoverModel trip;
+  final VoidCallback onOpen;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) => _WhiteCard(
+    onTap: onOpen,
+    accentColor: const Color(0xFFFF6B9D),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                trip.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+              ),
+            ),
+            IconButton(
+              tooltip: '取消收藏',
+              onPressed: onRemove,
+              icon: const Icon(
+                LucideIcons.heartOff,
+                size: 19,
+                color: AppColors.primary,
+              ),
+            ),
+          ],
+        ),
+        Text(
+          '${trip.startName} → ${trip.endName}',
+          style: const TextStyle(
+            color: AppColors.secondaryText,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          children: [
+            _MetaPill(
+              icon: LucideIcons.calendarDays,
+              label: _dateLabel(trip.departureTime),
+            ),
+            _MetaPill(
+              icon: LucideIcons.carFront,
+              label: '${trip.joinedVehicleCount}/${trip.maxVehicleCount}车',
+            ),
+          ],
+        ),
+        const SizedBox(height: 13),
+        _CompactButton(
+          label: '查看行程',
+          icon: LucideIcons.chevronRight,
+          filled: true,
+          onTap: onOpen,
+        ),
+      ],
+    ),
+  );
+}
+
+class _SectionHeaderSliver extends StatelessWidget {
+  const _SectionHeaderSliver({
+    required this.title,
+    required this.subtitle,
+    this.suffix,
+  });
+
+  final String title;
+  final String subtitle;
+  final String? suffix;
+
+  @override
+  Widget build(BuildContext context) => SliverToBoxAdapter(
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(14, 18, 14, 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          if (suffix != null)
+            Text(
+              suffix!,
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
         ],
       ),
     ),
   );
 }
 
-class _UpcomingTripCard extends StatelessWidget {
-  const _UpcomingTripCard({required this.trip, required this.onTap});
+class _EmptySliver extends StatelessWidget {
+  const _EmptySliver({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.actionLabel,
+    this.onAction,
+  });
 
-  final TripModel trip;
-  final VoidCallback onTap;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 156,
-    child: Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(BuildContext context) => SliverToBoxAdapter(
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+      child: _InlineNotice(
+        icon: icon,
+        title: title,
+        subtitle: subtitle,
+        actionLabel: actionLabel,
+        onAction: onAction,
+      ),
+    ),
+  );
+}
+
+class _InlineNotice extends StatelessWidget {
+  const _InlineNotice({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) => _WhiteCard(
+    child: Row(
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: const BoxDecoration(
+            color: AppColors.primarySoft,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: AppColors.primary),
+        ),
+        const SizedBox(width: 13),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.muted, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        if (actionLabel != null && onAction != null)
+          TextButton(onPressed: onAction, child: Text(actionLabel!)),
+      ],
+    ),
+  );
+}
+
+class _WhiteCard extends StatelessWidget {
+  const _WhiteCard({required this.child, this.onTap, this.accentColor});
+
+  final Widget child;
+  final VoidCallback? onTap;
+  final Color? accentColor;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(22),
+    clipBehavior: Clip.antiAlias,
+    child: InkWell(
+      onTap: onTap,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x0D1D3969),
+              blurRadius: 16,
+              offset: Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Stack(
           children: [
-            Container(
-              height: 88,
-              width: double.infinity,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFFB8D9FF), Color(0xFF4D91DE)],
+            if (accentColor != null)
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                child: ColoredBox(
+                  color: accentColor!,
+                  child: const SizedBox(width: 4),
                 ),
               ),
-              child: const Icon(
-                LucideIcons.mountain,
-                color: Colors.white70,
-                size: 40,
-              ),
-            ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(10, 7, 10, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    trip.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    _dateLabel(trip.departureTime),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 10.5,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    '车型：${trip.vehicleRequirements.join(' / ')}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
+              padding: EdgeInsets.fromLTRB(
+                accentColor == null ? 15 : 17,
+                15,
+                15,
+                15,
               ),
+              child: child,
             ),
           ],
         ),
@@ -931,106 +1580,171 @@ class _UpcomingTripCard extends StatelessWidget {
   );
 }
 
-class _RecentTripTile extends StatelessWidget {
-  const _RecentTripTile({required this.trip, required this.onTap});
+class _CompactButton extends StatelessWidget {
+  const _CompactButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    this.filled = false,
+  });
 
-  final TripModel trip;
+  final String label;
+  final IconData icon;
   final VoidCallback onTap;
+  final bool filled;
 
   @override
-  Widget build(BuildContext context) => Card(
-    margin: const EdgeInsets.only(bottom: 10),
-    child: ListTile(
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-      leading: const CircleAvatar(
-        backgroundColor: AppColors.primarySoft,
-        child: Icon(LucideIcons.flag, color: AppColors.primary),
+  Widget build(BuildContext context) => SizedBox(
+    height: 40,
+    child: filled
+        ? FilledButton.icon(
+            onPressed: onTap,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(0, 40),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+            icon: Icon(icon, size: 16),
+            label: Text(label, maxLines: 1),
+          )
+        : OutlinedButton.icon(
+            onPressed: onTap,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              side: const BorderSide(color: Color(0xFFBFD7FF)),
+              shape: const StadiumBorder(),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+            icon: Icon(icon, size: 16),
+            label: Text(label, maxLines: 1),
+          ),
+  );
+}
+
+class _SoftTag extends StatelessWidget {
+  const _SoftTag({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+    decoration: BoxDecoration(
+      color: AppColors.primarySoft,
+      borderRadius: BorderRadius.circular(99),
+    ),
+    child: Text(
+      label,
+      style: const TextStyle(
+        color: AppColors.primaryDark,
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
       ),
-      title: Text(
-        trip.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontWeight: FontWeight.w800),
-      ),
-      subtitle: Text('${trip.startName} → ${trip.endName}'),
-      trailing: const Icon(LucideIcons.chevronRight, size: 19),
     ),
   );
 }
 
-class _EmptyUpcoming extends StatelessWidget {
-  const _EmptyUpcoming({required this.onCreate});
+class _MetaPill extends StatelessWidget {
+  const _MetaPill({required this.icon, required this.label});
 
-  final VoidCallback onCreate;
+  final IconData icon;
+  final String label;
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(17),
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
     decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
+      color: const Color(0xFFF3F6FB),
+      borderRadius: BorderRadius.circular(99),
     ),
     child: Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        const CircleAvatar(
-          radius: 22,
-          backgroundColor: AppColors.primarySoft,
-          child: Icon(LucideIcons.calendarPlus, color: AppColors.primary),
-        ),
-        const SizedBox(width: 11),
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('还没有即将出发的行程', style: TextStyle(fontWeight: FontWeight.w800)),
-              SizedBox(height: 3),
-              Text(
-                '发布新行程后会在这里展示',
-                style: TextStyle(color: AppColors.muted, fontSize: 12),
-              ),
-            ],
+        Icon(icon, size: 13, color: AppColors.secondaryText),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(
+            color: AppColors.secondaryText,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
           ),
         ),
-        TextButton(onPressed: onCreate, child: const Text('去创建')),
       ],
     ),
   );
 }
 
-class _InlineError extends StatelessWidget {
-  const _InlineError({required this.message, required this.onRetry});
+Color _managedTripAccent(int category, String status) {
+  if (_isRunning(status) || category == 1) return const Color(0xFF22C55E);
+  if (_isCancelled(status) || category == 3) return const Color(0xFF98A2B3);
+  if (category == 2) return const Color(0xFF7C8AA5);
+  return AppColors.primary;
+}
 
-  final String message;
-  final VoidCallback onRetry;
+const _categories = ['待出发', '进行中', '已完成', '已取消', '收藏'];
 
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(15),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(17),
-    ),
-    child: Row(
-      children: [
-        const Icon(LucideIcons.wifiOff, color: AppColors.muted),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            message,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: AppColors.muted),
-          ),
-        ),
-        TextButton(onPressed: onRetry, child: const Text('重试')),
-      ],
-    ),
-  );
+List<TripModel> _dedupeTrips(Iterable<TripModel> values) {
+  final seen = <String>{};
+  return values.where((trip) => trip.id.isNotEmpty && seen.add(trip.id)).toList();
+}
+
+bool _isRunning(String status) {
+  final value = status.toUpperCase();
+  return value == 'RUNNING' || value == 'ONGOING' || value == 'STARTED';
+}
+
+bool _isCancelled(String status) {
+  final value = status.toUpperCase();
+  return value == 'CANCELLED' || value == 'CANCELED' || value == 'EXITED';
+}
+
+String _statusLabel(String status) {
+  switch (status.toUpperCase()) {
+    case 'RUNNING':
+    case 'ONGOING':
+    case 'STARTED':
+      return '行进中';
+    case 'FINISHED':
+    case 'ENDED':
+    case 'SETTLED':
+    case 'COMPLETED':
+      return '已完成';
+    case 'CANCELLED':
+    case 'CANCELED':
+    case 'EXITED':
+      return '已取消';
+    case 'DRAFT':
+      return '草稿';
+    case 'PUBLISHED':
+    case 'RECRUITING':
+      return '招募中';
+    default:
+      return '待出发';
+  }
+}
+
+String _vehicleLabel(TripModel trip) {
+  final max = trip.maxVehicles <= 0 ? '?' : trip.maxVehicles.toString();
+  return '${trip.joinedVehicles}/$max车';
 }
 
 String _dateLabel(String? raw) {
   final value = DateTime.tryParse(raw ?? '');
   if (value == null) return '时间待定';
-  return '${value.month.toString().padLeft(2, '0')}月${value.day.toString().padLeft(2, '0')}日';
+  return '${value.month}月${value.day}日';
+}
+
+String _dateTimeLabel(String? raw) {
+  final value = DateTime.tryParse(raw ?? '');
+  if (value == null) return '时间待定';
+  return '${value.month}月${value.day}日 ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+}
+
+String _relativeTime(String? raw) {
+  final value = DateTime.tryParse(raw ?? '');
+  if (value == null) return '最近';
+  final days = DateTime.now().difference(value).inDays;
+  if (days <= 0) return '今天';
+  if (days == 1) return '1天前';
+  return '$days天前';
 }

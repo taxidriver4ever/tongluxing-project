@@ -678,14 +678,6 @@ class _OwnerCard extends StatelessWidget {
                           const Color(0xFFFFEFD9),
                           const Color(0xFF7A4C22),
                         ),
-                        if (owner.rating > 0) ...[
-                          const SizedBox(width: 5),
-                          _SmallLabel(
-                            '★ ${owner.rating.toStringAsFixed(1)}',
-                            const Color(0xFFE5F4FF),
-                            TripDiscoveryColors.primary,
-                          ),
-                        ],
                       ],
                     ),
                     if (owner.certificationStatus == 'APPROVED') ...[

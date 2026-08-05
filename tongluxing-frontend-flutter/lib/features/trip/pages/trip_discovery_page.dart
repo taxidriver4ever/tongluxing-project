@@ -271,7 +271,7 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
       return _RecommendState(
         icon: LucideIcons.routeOff,
         title: '暂无符合条件的推荐行程',
-        subtitle: '系统已过滤距离超过100km、时间差超过3天、满员或低评分队伍',
+        subtitle: '系统已过滤距离超过100km、时间差超过3天或已满员队伍',
         actionText: _userHasTrip ? '刷新推荐' : '立即发布',
         onAction: _userHasTrip
             ? () => _load(reset: true)
@@ -286,21 +286,23 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
-        itemCount: _trips.length + (_loadingMore ? 1 : 0),
+        itemCount: 1 + _trips.length + (_loadingMore ? 1 : 0),
         separatorBuilder: (_, _) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
-          if (index == _trips.length) {
+          if (index == 0) {
+            return _RecommendContentTitle(userHasTrip: _userHasTrip);
+          }
+          final tripIndex = index - 1;
+          if (tripIndex == _trips.length) {
             return const Padding(
               padding: EdgeInsets.all(16),
               child: Center(child: CircularProgressIndicator()),
             );
           }
-          final trip = _trips[index];
+          final trip = _trips[tripIndex];
           return _RecommendTripCard(
             trip: trip,
-            rank: !_userHasTrip && _recommendSort == 'match_rate'
-                ? index + 1
-                : null,
+            rank: tripIndex + 1,
             userHasTrip: _userHasTrip,
             busy: _busyTripIds.contains(trip.tripId),
             onTap: () => _openDetail(trip),
@@ -332,50 +334,59 @@ class _RecommendSortBar extends StatelessWidget {
       (value: 'time', label: '时间'),
     ];
     return Container(
-      height: 48,
       color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 9),
       child: Row(
-        children: items
-            .map(
-              (item) => Expanded(
-                child: InkWell(
-                  onTap: () => onSelected(item.value),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Text(
-                        item.label,
-                        style: TextStyle(
-                          color: selected == item.value
-                              ? AppColors.primary
-                              : AppColors.secondaryText,
-                          fontSize: 14,
-                          fontWeight: selected == item.value
-                              ? FontWeight.w800
-                              : FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 9),
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 160),
-                        width: 38,
-                        height: 3,
-                        decoration: BoxDecoration(
-                          color: selected == item.value
-                              ? AppColors.primary
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(99),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+        children: [
+          for (var index = 0; index < items.length; index++) ...[
+            if (index > 0) const SizedBox(width: 8),
+            Expanded(
+              child: _RecommendSortSegment(
+                label: items[index].label,
+                selected: selected == items[index].value,
+                onTap: () => onSelected(items[index].value),
               ),
-            )
-            .toList(),
+            ),
+          ],
+        ],
       ),
     );
   }
+}
+
+class _RecommendSortSegment extends StatelessWidget {
+  const _RecommendSortSegment({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: selected ? AppColors.primary : const Color(0xFFF2F4F8),
+    borderRadius: BorderRadius.circular(999),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: SizedBox(
+        height: 36,
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : AppColors.secondaryText,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _NoTripGuide extends StatelessWidget {
@@ -388,30 +399,68 @@ class _NoTripGuide extends StatelessWidget {
     margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
     padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        colors: [Color(0xFFEAF3FF), Color(0xFFF7FAFF)],
-      ),
-      borderRadius: BorderRadius.circular(14),
+      color: AppColors.primarySoft,
+      borderRadius: BorderRadius.circular(18),
       border: Border.all(color: const Color(0xFFCFE2FF)),
     ),
-    child: Row(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Icon(LucideIcons.sparkles, color: AppColors.primary),
-        const SizedBox(width: 10),
-        const Expanded(
-          child: Text(
-            '发布你的行程，即可获得基于顺路率的个性化推荐。',
-            style: TextStyle(fontSize: 13, height: 1.4),
+        const Row(
+          children: [
+            Icon(LucideIcons.sparkles, color: AppColors.primary, size: 18),
+            SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                '发布行程后可获得个性化顺路推荐',
+                style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          '当前暂无基准行程，因此先按热度、距离和时间展示。',
+          style: TextStyle(
+            color: AppColors.secondaryText,
+            fontSize: 12,
+            height: 1.45,
           ),
         ),
-        const SizedBox(width: 8),
-        FilledButton(
+        const SizedBox(height: 9),
+        FilledButton.icon(
           onPressed: onPublish,
           style: FilledButton.styleFrom(
+            minimumSize: const Size(0, 35),
             padding: const EdgeInsets.symmetric(horizontal: 14),
-            minimumSize: const Size(0, 36),
           ),
-          child: const Text('立即发布'),
+          icon: const Icon(LucideIcons.plus, size: 16),
+          label: const Text('立即发布'),
+        ),
+      ],
+    ),
+  );
+}
+
+class _RecommendContentTitle extends StatelessWidget {
+  const _RecommendContentTitle({required this.userHasTrip});
+
+  final bool userHasTrip;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(2, 1, 2, 2),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          userHasTrip ? '为你推荐' : '热门行程',
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+        ),
+        const Spacer(),
+        Text(
+          userHasTrip ? '按综合顺路率排序' : '近期高热度',
+          style: const TextStyle(color: AppColors.muted, fontSize: 11),
         ),
       ],
     ),
@@ -426,13 +475,13 @@ class _RecommendTripCard extends StatelessWidget {
     required this.onTap,
     required this.onGreeting,
     required this.onApply,
-    this.rank,
+    required this.rank,
   });
 
   final TripRecommendModel trip;
   final bool userHasTrip;
   final bool busy;
-  final int? rank;
+  final int rank;
   final VoidCallback onTap;
   final VoidCallback? onGreeting;
   final VoidCallback? onApply;
@@ -450,123 +499,200 @@ class _RecommendTripCard extends StatelessWidget {
     _ => '申请入队',
   };
 
+  String get ownerInitial {
+    final value = trip.ownerNickname.trim();
+    return value.isEmpty ? '友' : value.substring(0, 1);
+  }
+
   @override
   Widget build(BuildContext context) => Material(
     color: Colors.white,
-    borderRadius: BorderRadius.circular(16),
+    borderRadius: BorderRadius.circular(22),
+    clipBehavior: Clip.antiAlias,
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE6EBF2)),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
           boxShadow: const [
             BoxShadow(
-              color: Color(0x0D0F172A),
-              blurRadius: 10,
-              offset: Offset(0, 3),
+              color: Color(0x0E1D3969),
+              blurRadius: 17,
+              offset: Offset(0, 5),
             ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
           children: [
-            Row(
-              children: [
-                if (rank != null) ...[
-                  Text(
-                    'No.$rank',
-                    style: const TextStyle(
-                      color: Color(0xFFF59E0B),
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                Expanded(
-                  child: Text(
-                    trip.tripName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-                const Icon(
-                  LucideIcons.chevronRight,
-                  size: 18,
-                  color: AppColors.muted,
-                ),
-              ],
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              child: Container(width: 4, color: const Color(0xFFD5E5FF)),
             ),
-            const SizedBox(height: 9),
-            Text(
-              '${trip.startLocation} → ${trip.endLocation} · $dateText · '
-              '${trip.currentVehicleCount}/${trip.vehicleLimit} 车',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.secondaryText,
-                fontSize: 13,
-                height: 1.45,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 12,
-              runSpacing: 6,
-              children: [
-                _MetricText(
-                  icon: userHasTrip
-                      ? LucideIcons.route
-                      : LucideIcons.flame,
-                  text: userHasTrip
-                      ? '顺路率 ${trip.matchRate ?? 0}%'
-                      : '热度 ${trip.heat ?? 0}',
-                  emphasized: true,
-                ),
-                _MetricText(
-                  icon: LucideIcons.mapPin,
-                  text: '距你 ${_distanceText(trip.distance)}',
-                ),
-                _MetricText(
-                  icon: LucideIcons.star,
-                  text: '评分 ${trip.leaderRating.toStringAsFixed(1)}',
-                ),
-              ],
-            ),
-            const SizedBox(height: 13),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: busy ? null : onGreeting,
-                    icon: const Icon(LucideIcons.messageCircle, size: 17),
-                    label: Text(onGreeting == null ? '已打招呼' : '打招呼'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: busy ? null : onApply,
-                    icon: busy
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 13, 13, 13),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 31,
+                        height: 31,
+                        decoration: BoxDecoration(
+                          color: rank == 1
+                              ? const Color(0xFFFFF4D9)
+                              : const Color(0xFFF2F4F7),
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          '$rank',
+                          style: TextStyle(
+                            color: rank == 1
+                                ? const Color(0xFFA96200)
+                                : const Color(0xFF667085),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              trip.tripName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w900,
+                                height: 1.35,
+                              ),
                             ),
-                          )
-                        : const Icon(LucideIcons.userPlus, size: 17),
-                    label: Text(relationshipText),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${trip.startLocation} → ${trip.endLocation} · $dateText出发',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.secondaryText,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      _RecommendBadge(
+                        label: userHasTrip
+                            ? '顺路率 ${trip.matchRate ?? 0}%'
+                            : '热度 ${trip.heat ?? 0}',
+                        heat: !userHasTrip,
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      _RecommendMetric(
+                        icon: LucideIcons.navigation,
+                        label: '距你 ${_distanceText(trip.distance)}',
+                      ),
+                      _RecommendMetric(
+                        icon: LucideIcons.users,
+                        label:
+                            '车辆 ${trip.currentVehicleCount}/${trip.vehicleLimit}',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 11),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: busy ? null : onGreeting,
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 35),
+                            side: const BorderSide(color: Color(0xFFBFD7FF)),
+                            shape: const StadiumBorder(),
+                          ),
+                          icon: const Icon(LucideIcons.messageCircle, size: 16),
+                          label: Text(onGreeting == null ? '已打招呼' : '打招呼'),
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: busy ? null : onApply,
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size(0, 35),
+                          ),
+                          icon: busy
+                              ? const SizedBox(
+                                  width: 15,
+                                  height: 15,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(LucideIcons.userPlus, size: 16),
+                          label: Text(relationshipText),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 11),
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 17,
+                        backgroundColor: AppColors.primarySoft,
+                        child: Text(
+                          ownerInitial,
+                          style: const TextStyle(
+                            color: AppColors.primaryDark,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              trip.ownerNickname,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                              '队长',
+                              style: TextStyle(
+                                color: AppColors.muted,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -580,36 +706,58 @@ class _RecommendTripCard extends StatelessWidget {
   }
 }
 
-class _MetricText extends StatelessWidget {
-  const _MetricText({
-    required this.icon,
-    required this.text,
-    this.emphasized = false,
-  });
+class _RecommendBadge extends StatelessWidget {
+  const _RecommendBadge({required this.label, required this.heat});
 
-  final IconData icon;
-  final String text;
-  final bool emphasized;
+  final String label;
+  final bool heat;
 
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Icon(
-        icon,
-        size: 15,
-        color: emphasized ? AppColors.primary : AppColors.muted,
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+    decoration: BoxDecoration(
+      color: heat ? const Color(0xFFFFF2DC) : AppColors.primarySoft,
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(
+        color: heat ? const Color(0xFFC66B00) : AppColors.primaryDark,
+        fontSize: 10,
+        fontWeight: FontWeight.w900,
       ),
-      const SizedBox(width: 4),
-      Text(
-        text,
-        style: TextStyle(
-          color: emphasized ? AppColors.primary : AppColors.secondaryText,
-          fontSize: 12.5,
-          fontWeight: emphasized ? FontWeight.w800 : FontWeight.w600,
+    ),
+  );
+}
+
+class _RecommendMetric extends StatelessWidget {
+  const _RecommendMetric({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF5F7FA),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: AppColors.muted),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: const TextStyle(
+            color: AppColors.secondaryText,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+          ),
         ),
-      ),
-    ],
+      ],
+    ),
   );
 }
 

@@ -728,6 +728,36 @@ class TripDiscoveryService {
         as Map,
   );
 
+  Future<List<Map<String, dynamic>>> searchHistory({int limit = 12}) async {
+    final data = await api.get(
+      '/v1/trips/search-history',
+      query: {'limit': limit.toString()},
+    );
+    return (data as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> recordSearchHistory({
+    required String keyword,
+    required String searchType,
+  }) async => Map<String, dynamic>.from(
+    await api.post(
+          '/v1/trips/search-history',
+          body: {'keyword': keyword.trim(), 'searchType': searchType},
+        )
+        as Map,
+  );
+
+  Future<bool> deleteSearchHistory(String historyId) async =>
+      await api.delete('/v1/trips/search-history/$historyId') == true;
+
+  Future<int> clearSearchHistory() async {
+    final data = await api.delete('/v1/trips/search-history');
+    return (data as num?)?.toInt() ?? 0;
+  }
+
   Future<Map<String, dynamic>> publicTripsByUser(
     String userId, {
     int page = 1,
@@ -739,6 +769,15 @@ class TripDiscoveryService {
         )
         as Map,
   );
+
+  Future<Map<String, dynamic>> favorites({int page = 1, int size = 20}) async =>
+      Map<String, dynamic>.from(
+        await api.get(
+              '/v1/trips/favorites',
+              query: {'page': '$page', 'size': '$size'},
+            )
+            as Map,
+      );
 
   Future<TripPublicDetailModel> publicDetail(String tripId) async {
     final data = await api

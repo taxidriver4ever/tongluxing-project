@@ -25,7 +25,10 @@ class _MainShellPageState extends State<MainShellPage> {
   void initState() {
     super.initState();
     pages = [
-      MapHomePage(onOpenTripRecommendations: () => selectTab(1)),
+      MapHomePage(
+        onOpenTripRecommendations: () => selectTab(1),
+        onOpenMessages: () => selectTab(2),
+      ),
       const TripHomePage(),
       const ChatIndexPage(),
       ProfilePage(key: profileKey),
@@ -46,7 +49,7 @@ class _MainShellPageState extends State<MainShellPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    // 地图搜索键盘覆盖在地图和抽屉上方，不改变地图/抽屉的整体高度。
+    // 地图页底部面板直接贴住主 Tab，上层页面不因键盘改变地图主体高度。
     // 其他主 Tab 继续使用 Scaffold 默认的键盘避让行为。
     resizeToAvoidBottomInset: index != 0,
     body: IndexedStack(

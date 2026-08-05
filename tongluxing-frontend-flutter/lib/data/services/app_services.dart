@@ -911,6 +911,13 @@ class TripDiscoveryService {
         .toList();
   }
 
+  Future<TripApplicationModel> cancelApplication(String applicationId) async =>
+      TripApplicationModel.fromJson(
+        Map<String, dynamic>.from(
+          await api.post('/v1/teams/applications/$applicationId/cancel') as Map,
+        ),
+      );
+
   Future<List<TripApplicationModel>> tripApplications(String tripId) async {
     final data = await api.get('/v1/trips/$tripId/applications');
     return (data as List? ?? const [])

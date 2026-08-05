@@ -55,6 +55,9 @@ public interface TeamService {
      */
     TeamApplicationResponse review(Long applicationId, ReviewTeamApplicationRequest request);
 
+    /** 申请人主动取消仍处于待审批状态的入队申请。 */
+    TeamApplicationResponse cancelApplication(Long applicationId);
+
     /** 查询当前用户提交的入队申请。 */
     List<TeamApplicationResponse> getMyApplications();
 

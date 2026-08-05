@@ -17,6 +17,7 @@ import 'trip_detail_page.dart';
 import 'trip_discovery_widgets.dart';
 import '../widgets/trip_discovery_theme.dart';
 import '../widgets/route_map_view.dart';
+import '../widgets/trip_route_preview.dart';
 
 class TripDiscoveryDetailPage extends StatefulWidget {
   const TripDiscoveryDetailPage({
@@ -59,7 +60,7 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
       detail = loaded;
       followed = loaded.owner.followed;
       saved = loaded.favorited;
-      // 发现详情只展示可拖动底图和起终点标记，不下载、不解析实际道路折线。
+      // 发现详情只使用起终点节点绘制概览曲线，不下载、不解析实际道路折线。
       // 真实 routePolyline 仍保留在后端，继续供导航和顺路率计算使用。
       roadRoute = loaded.mapPoints;
     } catch (e) {
@@ -891,7 +892,7 @@ class _TripRouteMapCard extends StatelessWidget {
                   clipBehavior: Clip.hardEdge,
                   children: [
                     RouteMapView(
-                      polylinePoints: routePoints,
+                      polylinePoints: buildSmoothOverviewRoute(routePoints),
                       performanceLabel:
                           'trip_discovery_detail:${detail.trip.tripId}',
                       stops: [
@@ -910,7 +911,7 @@ class _TripRouteMapCard extends StatelessWidget {
                       ],
                       height: mapHeight,
                       interactive: true,
-                      drawPolyline: false,
+                      drawPolyline: true,
                     ),
                     Positioned(
                       right: 10,

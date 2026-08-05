@@ -283,19 +283,16 @@ class ProfilePageState extends State<ProfilePage> {
                     LucideIcons.contact,
                     '驾驶证认证',
                     () => _open(const DrivingLicensePage(), refreshAfter: true),
-                    subtitle: '不作为车主身份识别前置条件',
                   ),
                   _Menu(
                     LucideIcons.carFront,
                     '我的车辆',
                     () => _open(const VehicleListPage()),
-                    subtitle: hasApprovedVehicle ? '已识别为车主' : '上传行驶证后自动成为车主',
                   ),
                   _Menu(
                     LucideIcons.users,
                     '我的车队',
                     () => _open(const TeamPage()),
-                    subtitle: '成员、招募、途中加入与脱队管理',
                   ),
                   _Menu(
                     LucideIcons.trendingUp,

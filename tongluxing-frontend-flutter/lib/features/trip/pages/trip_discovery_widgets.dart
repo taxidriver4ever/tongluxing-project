@@ -501,7 +501,7 @@ class RouteSketch extends StatelessWidget {
                       ),
                       SizedBox(width: 4),
                       Text(
-                        '查看完整路线',
+                        '查看路线概览',
                         style: TextStyle(
                           color: TripDiscoveryColors.secondaryText,
                           fontSize: 9,

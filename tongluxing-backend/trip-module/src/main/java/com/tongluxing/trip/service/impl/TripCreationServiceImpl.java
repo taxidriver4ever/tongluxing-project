@@ -261,9 +261,20 @@ public class TripCreationServiceImpl implements TripCreationService {
         if ("PUBLISHED".equals(draft.getDraftStatus()) && draft.getPublishedTripId() != null) {
             return new TripDraftPublishResponse(String.valueOf(draftId), String.valueOf(draft.getPublishedTripId()), "PUBLISHED");
         }
-        validatePublish(draft);
-        TripRoute route = routeMapper.findByDraftId(draftId);
         List<TripWaypoint> waypoints = waypointMapper.findByDraftId(draftId);
+        validatePublish(draft, waypoints);
+        TripRoute route = routeMapper.findByDraftId(draftId);
+        if (route == null || !"VALID".equals(route.getRouteStatus())) {
+            log.warn("trip_publish_route_repair draftId={} oldStatus={} reason=missing_or_stale",
+                    draftId, route == null ? "MISSING" : route.getRouteStatus());
+            // 兼容旧版本客户端和历史草稿：发布前自动重新规划一次，避免用户已经填写完
+            // 全部信息后仍被失效路线阻断。
+            planRoute(draftId);
+            route = routeMapper.findByDraftId(draftId);
+        }
+        if (route == null || !"VALID".equals(route.getRouteStatus())) {
+            throw bad("路线自动生成失败，请返回第一步检查起点、终点和途经点");
+        }
         // P0：车辆认证不再是发布前置条件。存在默认认证车辆时发布车主行程，
         // 否则由 TripService 自动识别为乘客出行需求，不创建队长、车队和群聊。
         TripVehicleDTO vehicle = vehiclePort.getDefaultCertifiedVehicle(userId);
@@ -289,7 +300,7 @@ public class TripCreationServiceImpl implements TripCreationService {
         return new TripDraftPublishResponse(String.valueOf(draftId), String.valueOf(tripId), "PUBLISHED");
     }
 
-    private void validatePublish(TripCreationDraft draft) {
+    private void validatePublish(TripCreationDraft draft, List<TripWaypoint> waypoints) {
         if (!"DRAFT".equals(draft.getDraftStatus())) throw new BusinessException(409, "草稿状态不允许发布");
         if (!StringUtils.hasText(draft.getTitle())) throw bad("行程标题必填");
         if (draft.getDepartureTime() == null) throw bad("出发时间必填");
@@ -300,11 +311,9 @@ public class TripCreationServiceImpl implements TripCreationService {
         LocationRequest end = location(draft.getEndLocationJson());
         if (start == null) throw bad("起点必填");
         if (end == null) throw bad("终点必填");
-        validateRouteLocations(start, end, waypointMapper.findByDraftId(draft.getId()));
+        validateRouteLocations(start, end, waypoints);
         if (draft.getPeopleCount() == null) throw bad("预计人数必填");
-        TripRoute route = routeMapper.findByDraftId(draft.getId());
-        if (route == null || !"VALID".equals(route.getRouteStatus())) throw bad("请重新生成有效路线");
-        if (waypointMapper.findByDraftId(draft.getId()).stream().anyMatch(v -> !WAYPOINT_TYPES.contains(v.getWaypointType()))) {
+        if (waypoints.stream().anyMatch(v -> !WAYPOINT_TYPES.contains(v.getWaypointType()))) {
             throw bad("经停点类型不正确");
         }
     }

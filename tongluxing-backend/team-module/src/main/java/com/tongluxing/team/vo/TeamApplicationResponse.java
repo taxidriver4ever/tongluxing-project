@@ -27,6 +27,13 @@ public record TeamApplicationResponse(
         String plateReference,
         String ownerConfirmStatus,
         String currentLatitude,
-        String currentLongitude
+        String currentLongitude,
+        String tripTitle,
+        String startName,
+        String endName,
+        String departureTime,
+        String captainNickname,
+        Integer currentMemberCount,
+        Integer maxMemberCount
 ) {
 }

@@ -330,6 +330,41 @@ public class TeamServiceImpl implements TeamService {
         return toApplicationResponse(application);
     }
 
+    /**
+     * 申请人主动取消待审批申请。取消操作按申请人和 PENDING 状态做条件更新，
+     * 防止越权取消以及与队长审批并发时覆盖已经产生的审核结果。
+     */
+    @Override
+    @Transactional
+    public TeamApplicationResponse cancelApplication(Long applicationId) {
+        Long applicantUserId = currentUserContext.requireUserId();
+        TeamJoinApplication application = applicationMapper.findById(applicationId);
+        if (application == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "入队申请不存在");
+        }
+        if (!applicantUserId.equals(application.getApplicantUserId())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "只能取消本人提交的申请");
+        }
+        if ("CANCELLED".equals(application.getApplicationStatus())) {
+            return toApplicationResponse(application);
+        }
+        if (!"PENDING".equals(application.getApplicationStatus())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "当前申请状态不允许取消");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        int changed = applicationMapper.cancelByApplicant(applicationId, applicantUserId, now);
+        if (changed == 0) {
+            throw new BusinessException(ResultCode.BUSINESS_ERROR, "申请状态已变更，请刷新后重试");
+        }
+        application.setApplicationStatus("CANCELLED");
+        application.setReviewMessage("申请人主动取消");
+        application.setReviewedAt(now);
+        application.setUpdatedAt(now);
+        audit(application.getTeamId(), applicantUserId,
+                "CANCEL_TEAM_APPLICATION", "申请人主动取消入队申请");
+        return toApplicationResponse(application);
+    }
+
     @Override
     public List<TeamApplicationResponse> getMyApplications() {
         return applicationMapper.findByApplicantUserId(currentUserContext.requireUserId()).stream()
@@ -806,6 +841,7 @@ public class TeamServiceImpl implements TeamService {
         var applicant = userService.getChatMemberProfile(application.getApplicantUserId());
         var relation = userService.getFollowStatus(application.getApplicantUserId());
         Team team = teamMapper.findById(application.getTeamId());
+        var captain = team == null ? null : userService.getChatMemberProfile(team.getOwnerUserId());
         boolean wantsToDrive = wantsToDrive(application.getJoinQuestionJson());
         PublicVehicleCardResponse vehicle = wantsToDrive && application.getApplicantVehicleId() != null
                 ? vehicleService.getPublicCard(application.getApplicantVehicleId()) : null;
@@ -840,7 +876,14 @@ public class TeamServiceImpl implements TeamService {
                 application.getPlateReference(),
                 application.getOwnerConfirmStatus(),
                 application.getCurrentLatitude() == null ? null : application.getCurrentLatitude().toPlainString(),
-                application.getCurrentLongitude() == null ? null : application.getCurrentLongitude().toPlainString()
+                application.getCurrentLongitude() == null ? null : application.getCurrentLongitude().toPlainString(),
+                team == null ? "行程车队" : team.getTeamName(),
+                team == null ? null : team.getStartName(),
+                team == null ? null : team.getEndName(),
+                team == null ? null : format(team.getDepartureTime()),
+                captain == null ? "队长" : displayName(captain.nickname()),
+                team == null ? 0 : memberMapper.countActiveByTeamId(team.getId()),
+                team == null ? 0 : team.getMaxMemberCount()
         );
     }
 

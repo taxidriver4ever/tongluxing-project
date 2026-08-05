@@ -934,6 +934,13 @@ class TripApplicationModel {
     this.vehicleId,
     this.createdAt = '',
     this.conversationName = '',
+    this.tripTitle = '',
+    this.startName = '',
+    this.endName = '',
+    this.departureTime = '',
+    this.captainNickname = '',
+    this.currentMemberCount = 0,
+    this.maxMemberCount = 0,
   });
   final String applicationId;
   final String tripId;
@@ -944,6 +951,13 @@ class TripApplicationModel {
   final String? vehicleId;
   final String createdAt;
   final String conversationName;
+  final String tripTitle;
+  final String startName;
+  final String endName;
+  final String departureTime;
+  final String captainNickname;
+  final int currentMemberCount;
+  final int maxMemberCount;
 
   factory TripApplicationModel.fromJson(Map<String, dynamic> json) =>
       TripApplicationModel(
@@ -956,6 +970,13 @@ class TripApplicationModel {
         vehicleId: json['applicantVehicleId']?.toString(),
         createdAt: json['createdAt']?.toString() ?? '',
         conversationName: json['conversationName']?.toString() ?? '待审批行程',
+        tripTitle: json['tripTitle']?.toString() ?? '',
+        startName: json['startName']?.toString() ?? '',
+        endName: json['endName']?.toString() ?? '',
+        departureTime: json['departureTime']?.toString() ?? '',
+        captainNickname: json['captainNickname']?.toString() ?? '',
+        currentMemberCount: _int(json['currentMemberCount']) ?? 0,
+        maxMemberCount: _int(json['maxMemberCount']) ?? 0,
       );
 }
 

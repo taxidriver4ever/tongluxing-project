@@ -119,7 +119,9 @@ class _TripCreatePageState extends State<TripCreatePage> {
         ),
       );
       persistedWaypointIds.addAll(draft.waypoints.map((item) => item.id));
-      route = draft.route;
+      route = draft.route?.status.toUpperCase() == 'VALID'
+          ? draft.route
+          : null;
       if (route != null) plannedRouteSignature = _routeSignature();
       coverImageKey = draft.coverImageKey;
       if (coverImageKey.isNotEmpty) {
@@ -255,7 +257,10 @@ class _TripCreatePageState extends State<TripCreatePage> {
     routeTimer?.cancel();
     final generation = ++routeGeneration;
     if (start == null || end == null || _routeConflictMessage() != null) return;
-    if (route != null && plannedRouteSignature == _routeSignature()) return;
+    if (route?.status.toUpperCase() == 'VALID' &&
+        plannedRouteSignature == _routeSignature()) {
+      return;
+    }
     routeTimer = Timer(_routeDebounce, () async {
       if (!mounted || generation != routeGeneration) return;
       if (routePlanning) {
@@ -549,7 +554,10 @@ class _TripCreatePageState extends State<TripCreatePage> {
       final signature = _routeSignature();
       // 路线节点未变化时复用已经成功的规划结果，避免“下一步”和“发布”
       // 再次提交所有途经点、排序并调用地图服务。
-      if (route != null && plannedRouteSignature == signature) return true;
+      if (route?.status.toUpperCase() == 'VALID' &&
+          plannedRouteSignature == signature) {
+        return true;
+      }
       final previousIds = persistedWaypointIds.toSet();
       final activeIds = <String>[];
       for (var i = 0; i < waypoints.length; i++) {
@@ -890,6 +898,7 @@ class _TripCreatePageState extends State<TripCreatePage> {
                   mapHeight: constraints.maxHeight,
                   interactive: true,
                   onMapInteraction: _collapseRoutePanel,
+                  simplifiedOverview: true,
                 )
               : GestureDetector(
                   behavior: HitTestBehavior.opaque,

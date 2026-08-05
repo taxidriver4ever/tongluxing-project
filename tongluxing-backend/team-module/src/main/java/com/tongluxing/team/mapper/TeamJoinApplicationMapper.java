@@ -130,4 +130,23 @@ public interface TeamJoinApplicationMapper {
                @Param("status") String status,
                @Param("reviewMessage") String reviewMessage,
                @Param("now") LocalDateTime now);
+
+    /**
+     * 申请人主动取消仍处于待审批状态的申请。
+     */
+    @Update("""
+            update team_join_application
+            set application_status = 'CANCELLED',
+                review_message = '申请人主动取消',
+                reviewed_at = #{now},
+                updated_at = #{now}
+            where id = #{applicationId}
+              and applicant_user_id = #{applicantUserId}
+              and application_status = 'PENDING'
+              and deleted = 0
+            """)
+    int cancelByApplicant(@Param("applicationId") Long applicationId,
+                          @Param("applicantUserId") Long applicantUserId,
+                          @Param("now") LocalDateTime now);
 }
+

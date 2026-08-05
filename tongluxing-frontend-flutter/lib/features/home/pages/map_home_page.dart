@@ -58,6 +58,10 @@ class _MapHomePageState extends State<MapHomePage> {
   TripModel? currentTrip;
   TripModel? completedTrip;
   List<TripRecommendModel> hotTrips = const [];
+  int unreadMessageCount = 0;
+  bool loadingUnreadMessageCount = false;
+  StreamSubscription<void>? imConversationSubscription;
+  StreamSubscription<void>? imMessageSubscription;
 
   _MapMode get mode {
     final trip = currentTrip;
@@ -74,8 +78,49 @@ class _MapHomePageState extends State<MapHomePage> {
   @override
   void initState() {
     super.initState();
+    final im = context.read<AppSession>().tencentIm;
+    imConversationSubscription = im.conversationEvents.listen(
+      (_) => unawaited(_loadUnreadMessageCount()),
+    );
+    imMessageSubscription = im.messageEvents.listen(
+      (_) => unawaited(_loadUnreadMessageCount()),
+    );
     _checkAmapSupport();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadState());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadState());
+      unawaited(_loadUnreadMessageCount());
+    });
+  }
+
+  @override
+  void dispose() {
+    imConversationSubscription?.cancel();
+    imMessageSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadUnreadMessageCount() async {
+    if (!mounted || loadingUnreadMessageCount) return;
+    loadingUnreadMessageCount = true;
+    try {
+      final session = context.read<AppSession>();
+      final bindings = await ChatService(session.api).imBindings();
+      await session.tencentIm.connect();
+      final conversations = await session.tencentIm.conversations(bindings);
+      final count = conversations.fold<int>(
+        0,
+        (total, conversation) => total + conversation.unread,
+      );
+      if (!mounted) return;
+      setState(() => unreadMessageCount = count);
+    } catch (_) {
+      // 腾讯 IM 或业务绑定暂不可用时隐藏角标，绝不使用固定 Mock 数量兜底。
+      if (mounted && unreadMessageCount != 0) {
+        setState(() => unreadMessageCount = 0);
+      }
+    } finally {
+      loadingUnreadMessageCount = false;
+    }
   }
 
   Future<void> _checkAmapSupport() async {
@@ -335,6 +380,7 @@ class _MapHomePageState extends State<MapHomePage> {
           error: error,
           onOpenTrip: _openHotTrip,
           onOpenMessages: widget.onOpenMessages ?? _openChat,
+          unreadMessageCount: unreadMessageCount,
         ),
       ),
       Positioned(
@@ -368,6 +414,7 @@ class _MapTopOverlay extends StatelessWidget {
     required this.error,
     required this.onOpenTrip,
     required this.onOpenMessages,
+    required this.unreadMessageCount,
   });
 
   final _MapMode mode;
@@ -377,6 +424,7 @@ class _MapTopOverlay extends StatelessWidget {
   final String? error;
   final ValueChanged<TripRecommendModel> onOpenTrip;
   final VoidCallback onOpenMessages;
+  final int unreadMessageCount;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -401,34 +449,43 @@ class _MapTopOverlay extends StatelessWidget {
         child: InkWell(
           onTap: onOpenMessages,
           customBorder: const CircleBorder(),
-          child: const SizedBox(
+          child: SizedBox(
             width: 48,
             height: 48,
             child: Stack(
               children: [
-                Center(
+                const Center(
                   child: Icon(
                     LucideIcons.messageCircle,
                     color: AppColors.primary,
                     size: 22,
                   ),
                 ),
-                Positioned(
-                  right: 9,
-                  top: 8,
-                  child: CircleAvatar(
-                    radius: 7,
-                    backgroundColor: AppColors.danger,
-                    child: Text(
-                      '3',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 8,
-                        fontWeight: FontWeight.w900,
+                if (unreadMessageCount > 0)
+                  Positioned(
+                    right: 6,
+                    top: 6,
+                    child: Container(
+                      constraints: const BoxConstraints(minWidth: 16),
+                      height: 16,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        color: AppColors.danger,
+                        borderRadius: BorderRadius.all(Radius.circular(8)),
+                      ),
+                      child: Text(
+                        unreadMessageCount > 99
+                            ? '99+'
+                            : '$unreadMessageCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
           ),

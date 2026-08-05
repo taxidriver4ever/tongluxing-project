@@ -78,6 +78,12 @@ public class TeamController {
         return Result.success(teamService.review(applicationId, request));
     }
 
+    /** 当前申请人主动取消尚未审批的入队申请。 */
+    @PostMapping("/applications/{applicationId}/cancel")
+    public Result<TeamApplicationResponse> cancelApplication(@PathVariable Long applicationId) {
+        return Result.success(teamService.cancelApplication(applicationId));
+    }
+
     /** 队长在互动消息中查询自己收到的入队申请。 */
     @GetMapping("/applications/received")
     public Result<java.util.List<TeamApplicationResponse>> receivedApplications(

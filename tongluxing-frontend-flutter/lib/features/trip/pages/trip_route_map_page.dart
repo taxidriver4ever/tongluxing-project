@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../data/models/app_models.dart';
 import '../widgets/route_map_view.dart';
+import '../widgets/trip_route_preview.dart';
 
 class TripRouteMapPage extends StatelessWidget {
   const TripRouteMapPage({required this.detail, this.routePoints, super.key})
@@ -22,11 +23,15 @@ class TripRouteMapPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final publicDetail = detail;
     final ownedTrip = trip;
-    final points =
-        routePoints ??
-        publicDetail?.routePoints ??
-        ownedTrip?.routePoints ??
-        const <LocationSelection>[];
+    final overviewNodes = routePoints ??
+        (publicDetail != null
+            ? publicDetail.mapPoints
+            : <LocationSelection>[
+                ?ownedTrip?.startLocation,
+                ...?ownedTrip?.waypoints,
+                ?ownedTrip?.endLocation,
+              ]);
+    final points = buildSmoothOverviewRoute(overviewNodes);
     final startName =
         publicDetail?.trip.startName ?? ownedTrip?.startName ?? '起点';
     final endName = publicDetail?.trip.endName ?? ownedTrip?.endName ?? '终点';
@@ -54,7 +59,7 @@ class TripRouteMapPage extends StatelessWidget {
             ),
           ];
     return Scaffold(
-      appBar: AppBar(title: const Text('完整路线')),
+      appBar: AppBar(title: const Text('路线概览')),
       body: Stack(
         children: [
           Positioned.fill(

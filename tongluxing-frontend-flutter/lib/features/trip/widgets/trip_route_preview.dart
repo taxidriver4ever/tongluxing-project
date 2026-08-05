@@ -13,7 +13,7 @@ class TripRoutePreview extends StatelessWidget {
     this.interactive = true,
     this.onMapInteraction,
     this.performanceLabel = 'trip_route_preview',
-    this.simplifiedOverview = false,
+    this.simplifiedOverview = true,
     super.key,
   });
 

@@ -72,6 +72,12 @@ WHERE deleted = 0
       OR (vehicle_id IS NULL AND captain_user_id IS NULL AND auto_start_enabled <> 0)
   );
 
+-- 当前产品规则：行程创建者就是队长。修复旧版本中未绑定车辆时 captain_user_id 为空的问题。
+UPDATE trip
+SET captain_user_id = user_id
+WHERE deleted = 0
+  AND (captain_user_id IS NULL OR captain_user_id <> user_id);
+
 SET @ddl = IF((SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='trip' AND index_name='idx_trip_captain_status')=0,
   'CREATE INDEX idx_trip_captain_status ON trip(captain_user_id, status, departure_time)', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
@@ -428,3 +434,20 @@ WHERE r.deleted=0;
 SET @ddl = IF((SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='invite_reward_record' AND index_name='uk_invite_reward_idempotency')=0,
   'CREATE UNIQUE INDEX uk_invite_reward_idempotency ON invite_reward_record(idempotency_key, deleted)', 'SELECT 1');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+
+-- 驾驶证材料齐全自动通过：兼容升级前已经进入待审核队列的完整记录。
+-- 仅处理姓名、证件号、准驾车型及正反面图片均存在的记录；不完整记录继续保留供后台排查。
+UPDATE user_driving_license_certification
+SET certification_status='APPROVED',
+    reject_reason=NULL,
+    reviewer_id=NULL,
+    reviewed_at=COALESCE(reviewed_at, NOW()),
+    updated_at=NOW()
+WHERE certification_status='PENDING'
+  AND deleted=0
+  AND holder_name_cipher IS NOT NULL AND holder_name_cipher<>''
+  AND license_no_cipher IS NOT NULL AND license_no_cipher<>''
+  AND vehicle_class IS NOT NULL AND vehicle_class<>''
+  AND license_front_image_key IS NOT NULL AND license_front_image_key<>''
+  AND license_back_image_key IS NOT NULL AND license_back_image_key<>'';

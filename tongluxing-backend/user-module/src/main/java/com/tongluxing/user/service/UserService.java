@@ -57,10 +57,10 @@ public interface UserService {
     PrivacySettingsVO getPrivacySettings(Long userId);
 
     /**
-     * 提交当前登录用户的驾驶证认证申请。
+     * 提交当前登录用户的驾驶证材料；材料齐全时系统自动通过并保留后台记录。
      *
      * @param request 用户确认后的证件信息、图片 Key 和识别来源
-     * @return 新创建的 PENDING 认证状态
+     * @return 新创建并由系统自动通过的 APPROVED 认证状态
      * @throws com.tongluxing.common.exception.BusinessException 待审核、已通过或日期不合法时抛出
      */
     CertificationVO submitCertification(CertificationRequest request);
@@ -119,6 +119,9 @@ public interface UserService {
 
     /** 查询当前登录用户与目标用户的双向关系及目标关注计数。 */
     FollowStatusVO getFollowStatus(Long userId);
+
+    /** 匿名访问公开主页时只返回目标用户关注计数，关系状态固定为 false。 */
+    FollowStatusVO getPublicFollowStatus(Long userId);
 
     /** 查询当前登录用户的粉丝列表。 */
     List<FollowUserVO> getMyFollowers(int page, int size);

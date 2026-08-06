@@ -156,10 +156,11 @@ public interface UserDomainMapper {
     UserQueryDTO findLatestCertification(@Param("userId") Long userId);
 
     /**
-     * 新增一条待审核驾驶证认证申请。
+     * 新增一条系统自动通过的驾驶证认证记录。
      *
-     * <p>姓名和证件号参数必须已经由 Service 加密，状态固定写为 PENDING，审核字段
-     * 初始化为空，防止客户端伪造已通过状态。</p>
+     * <p>姓名和证件号参数必须已经由 Service 加密。只有经过请求校验、日期校验和
+     * 正反面材料完整性校验后才会调用本方法；状态由 SQL 固定写为 APPROVED，
+     * 客户端无法伪造认证结果。</p>
      */
     @Insert("""
             insert into user_driving_license_certification(
@@ -169,7 +170,7 @@ public interface UserDomainMapper {
                 reviewer_id,submitted_at,reviewed_at,created_at,updated_at,deleted)
             values(#{id},#{userId},#{holderNameCipher},#{licenseNoCipher},#{licenseNoMask},#{vehicleClass},
                 #{firstIssueDate},#{validFrom},#{validTo},#{issuingAuthority},#{licenseFrontImageKey},
-                #{licenseBackImageKey},#{recognitionSource},'PENDING',null,null,#{now},null,#{now},#{now},0)
+                #{licenseBackImageKey},#{recognitionSource},'APPROVED',null,null,#{now},#{now},#{now},#{now},0)
             """)
     int insertCertification(@Param("id") Long id, @Param("userId") Long userId,
                             @Param("holderNameCipher") String holderNameCipher,

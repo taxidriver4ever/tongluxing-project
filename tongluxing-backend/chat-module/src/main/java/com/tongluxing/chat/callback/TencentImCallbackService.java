@@ -378,38 +378,58 @@ public class TencentImCallbackService {
         memberMapper.exitAll(conversation.getId(), now);
     }
 
-    /** 把 TIMTextElem/TIMCustomElem 转为本地统一 JSON。 */
+    /** 把腾讯 IM MsgBody 转为本地统一 JSON，并为所有官方消息类型生成可读摘要。 */
     private Map<String, Object> normalizeBody(Object raw) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        if (!(raw instanceof List<?> list) || list.isEmpty() || !(list.get(0) instanceof Map<?, ?> elem)) {
-            result.put("messageType", "UNKNOWN");
-            result.put("content", "[不支持的消息]");
-            return result;
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            return messageSummary("UNKNOWN", "[消息]");
         }
-        String msgType = string(elem.get("MsgType"));
-        Object contentRaw = elem.get("MsgContent");
-        Map<?, ?> content = contentRaw instanceof Map<?, ?> map ? map : Map.of();
-        if ("TIMTextElem".equals(msgType)) {
-            result.put("messageType", "TEXT");
-            result.put("content", string(content.get("Text")));
-            return result;
-        }
-        if ("TIMCustomElem".equals(msgType)) {
-            String data = string(content.get("Data"));
-            try {
-                Map<String, Object> custom = objectMapper.readValue(data, new TypeReference<>() { });
-                result.putAll(custom);
-                result.put("messageType", string(custom.getOrDefault("type", "CUSTOM")));
-                return result;
-            } catch (Exception ignored) {
-                result.put("messageType", "CUSTOM");
-                result.put("content", string(content.get("Desc")));
-                result.put("rawData", data);
+        // MsgBody 允许组合多个元素。优先返回第一个可识别元素，避免首元素异常时
+        // 把后续正常文本、图片或文件错误显示为“不支持的消息”。
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> elem)) continue;
+            String msgType = string(elem.get("MsgType"));
+            Object contentRaw = elem.get("MsgContent");
+            Map<?, ?> content = contentRaw instanceof Map<?, ?> map ? map : Map.of();
+            if ("TIMTextElem".equals(msgType)) {
+                return messageSummary("TEXT", string(content.get("Text")));
+            }
+            if ("TIMCustomElem".equals(msgType)) {
+                String data = string(content.get("Data"));
+                try {
+                    Map<String, Object> custom = objectMapper.readValue(data, new TypeReference<>() { });
+                    Map<String, Object> result = new LinkedHashMap<>(custom);
+                    result.put("messageType", string(custom.getOrDefault("type", "CUSTOM")));
+                    result.putIfAbsent("content", string(content.get("Desc")));
+                    return result;
+                } catch (Exception ignored) {
+                    Map<String, Object> result = messageSummary("CUSTOM", string(content.get("Desc")));
+                    result.put("rawData", data);
+                    return result;
+                }
+            }
+            if ("TIMLocationElem".equals(msgType)) {
+                Map<String, Object> result = messageSummary("LOCATION", string(content.get("Desc")));
+                result.put("latitude", content.get("Latitude"));
+                result.put("longitude", content.get("Longitude"));
                 return result;
             }
+            if ("TIMImageElem".equals(msgType)) return messageSummary("IMAGE", "[图片]");
+            if ("TIMFileElem".equals(msgType)) {
+                String fileName = string(content.get("FileName"));
+                return messageSummary("FILE", StringUtils.hasText(fileName) ? fileName : "[文件]");
+            }
+            if ("TIMSoundElem".equals(msgType)) return messageSummary("SOUND", "[语音]");
+            if ("TIMVideoFileElem".equals(msgType)) return messageSummary("VIDEO", "[视频]");
+            if ("TIMFaceElem".equals(msgType)) return messageSummary("FACE", "[表情]");
+            if ("TIMRelayElem".equals(msgType)) return messageSummary("MERGER", "[聊天记录]");
         }
-        result.put("messageType", "UNKNOWN");
-        result.put("content", "[不支持的消息]");
+        return messageSummary("UNKNOWN", "[消息]");
+    }
+
+    private Map<String, Object> messageSummary(String messageType, String content) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("messageType", messageType);
+        result.put("content", StringUtils.hasText(content) ? content : "[消息]");
         return result;
     }
 

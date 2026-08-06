@@ -86,10 +86,10 @@ public class UserController {
     }
 
     /**
-     * 提交驾驶证认证申请。
+     * 提交驾驶证认证材料并自动认证。
      *
-     * <p>请求只接收用户确认后的 OCR/手工录入结果；敏感字段加密、重复申请检查和状态
-     * 初始化由 Service 完成。</p>
+     * <p>请求只接收用户确认后的 OCR/手工录入结果；敏感字段加密、重复申请检查、
+     * 材料完整性校验和自动通过由 Service 完成。</p>
      */
     @PostMapping("/me/certifications")
     public Result<CertificationVO> certify(@Valid @RequestBody CertificationRequest request) {

@@ -9,6 +9,7 @@ import 'package:tencent_cloud_chat_sdk/enum/group_member_filter_enum.dart';
 import 'package:tencent_cloud_chat_sdk/enum/log_level_enum.dart';
 import 'package:tencent_cloud_chat_sdk/enum/message_elem_type.dart';
 import 'package:tencent_cloud_chat_sdk/enum/receive_message_opt_enum.dart';
+import 'package:tencent_cloud_chat_sdk/models/v2_tim_conversation.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart';
 import 'package:tencent_cloud_chat_sdk/tencent_im_sdk_plugin.dart';
 
@@ -158,7 +159,7 @@ class TencentImClient {
   ) async {
     await _requireConnected();
     final manager = TencentImSDKPlugin.v2TIMManager.getConversationManager();
-    final sdkRows = <Map<String, dynamic>>[];
+    final sdkRows = <V2TimConversation>[];
     var nextSeq = '0';
 
     // 腾讯建议分页拉取；最多十页可避免异常序列导致死循环。
@@ -174,8 +175,7 @@ class TencentImClient {
       final dynamic list = data?.conversationList;
       if (list is List) {
         for (final dynamic item in list) {
-          if (item == null) continue;
-          sdkRows.add(Map<String, dynamic>.from(item.toJson() as Map));
+          if (item is V2TimConversation) sdkRows.add(item);
         }
       }
       if (data == null || data.isFinished == true) break;
@@ -191,7 +191,7 @@ class TencentImClient {
     };
     final merged = <ConversationModel>[];
     for (final sdk in sdkRows) {
-      final imId = sdk['conversationID']?.toString() ?? '';
+      final imId = sdk.conversationID;
       final binding = byImId.remove(imId);
       // 不展示没有同路行业务绑定的陌生会话，避免绕过业务权限直接产生会话。
       if (binding == null) continue;
@@ -230,9 +230,7 @@ class TencentImClient {
     if (data is List) {
       for (final dynamic message in data) {
         if (message == null) continue;
-        rows.add(
-          _messageToMap(Map<String, dynamic>.from(message.toJson() as Map)),
-        );
+        if (message is V2TimMessage) rows.add(_messageToMap(message));
       }
     }
     // SDK 默认从新到旧返回；聊天页面需要从旧到新排列。
@@ -386,10 +384,10 @@ class TencentImClient {
       if (list is List) {
         for (final dynamic member in list) {
           if (member == null) continue;
-          final json = Map<String, dynamic>.from(member.toJson() as Map);
-          final imUserId = json['userID']?.toString() ?? '';
-          final nameCard = json['nameCard']?.toString().trim() ?? '';
-          final nickname = json['nickName']?.toString().trim() ?? '';
+          final dynamic info = member;
+          final imUserId = info.userID?.toString() ?? '';
+          final nameCard = info.nameCard?.toString().trim() ?? '';
+          final nickname = info.nickName?.toString().trim() ?? '';
           rows.add({
             'userId': _businessUserId(imUserId),
             'nickname': nameCard.isNotEmpty
@@ -397,11 +395,11 @@ class TencentImClient {
                 : nickname.isNotEmpty
                 ? nickname
                 : '同路行用户',
-            'avatarUrl': json['faceUrl']?.toString() ?? '',
+            'avatarUrl': info.faceUrl?.toString() ?? '',
             'avatarImageKey': '',
-            'memberRole': _memberRole(json['role']),
+            'memberRole': _memberRole(info.role),
             'memberStatus': 'ACTIVE',
-            'joinedAt': _timestampText(json['joinTime']),
+            'joinedAt': _timestampText(info.joinTime),
           });
         }
       }
@@ -419,27 +417,25 @@ class TencentImClient {
 
   ConversationModel _mergeConversation(
     ConversationModel binding,
-    Map<String, dynamic> sdk,
+    V2TimConversation sdk,
   ) {
-    final last = sdk['lastMessage'] is Map
-        ? Map<String, dynamic>.from(sdk['lastMessage'] as Map)
-        : const <String, dynamic>{};
-    final sdkName = sdk['showName']?.toString().trim() ?? '';
-    final sdkAvatar = sdk['faceUrl']?.toString().trim() ?? '';
-    final recvOpt = _asInt(sdk['recvOpt']) ?? 0;
+    final last = sdk.lastMessage;
+    final sdkName = sdk.showName?.trim() ?? '';
+    final sdkAvatar = sdk.faceUrl?.trim() ?? '';
+    final recvOpt = sdk.recvOpt ?? 0;
     return ConversationModel(
       id: binding.id,
       name: sdkName.isEmpty ? binding.name : sdkName,
-      preview: last.isEmpty ? binding.preview : _messagePreview(last),
-      time: last.isEmpty ? binding.time : _timestampText(last['timestamp']),
-      unread: _asInt(sdk['unreadCount']) ?? 0,
+      preview: last == null ? binding.preview : _messagePreview(last),
+      time: last == null ? binding.time : _timestampText(last.timestamp),
+      unread: sdk.unreadCount ?? 0,
       bizType: binding.bizType,
       bizId: binding.bizId,
       status: binding.status,
       providerType: binding.providerType,
       providerConversationKey: binding.providerConversationKey,
       imConversationId: binding.imConversationId,
-      pinned: sdk['isPinned'] == true,
+      pinned: sdk.isPinned == true,
       muted: recvOpt != 0,
       avatarImageKey: binding.avatarImageKey,
       avatarUrl: sdkAvatar.isEmpty ? binding.avatarUrl : sdkAvatar,
@@ -450,23 +446,18 @@ class TencentImClient {
     );
   }
 
-  Map<String, dynamic> _messageToMap(Map<String, dynamic> raw) {
-    final elemType = _asInt(raw['elemType']) ?? 0;
+  Map<String, dynamic> _messageToMap(V2TimMessage raw) {
+    final elemType = raw.elemType;
     var type = 'UNKNOWN';
-    var content = '[不支持的消息]';
+    var content = '[消息]';
     var payload = <String, dynamic>{};
 
     if (elemType == MessageElemType.V2TIM_ELEM_TYPE_TEXT) {
-      final text = raw['textElem'] is Map
-          ? Map<String, dynamic>.from(raw['textElem'] as Map)
-          : const <String, dynamic>{};
       type = 'TEXT';
-      content = text['text']?.toString() ?? '';
+      content = raw.textElem?.text ?? '';
     } else if (elemType == MessageElemType.V2TIM_ELEM_TYPE_CUSTOM) {
-      final custom = raw['customElem'] is Map
-          ? Map<String, dynamic>.from(raw['customElem'] as Map)
-          : const <String, dynamic>{};
-      final decoded = _decodeCustom(custom['data']);
+      final custom = raw.customElem;
+      final decoded = _decodeCustom(custom?.data);
       final customType = decoded['type']?.toString().toUpperCase() ?? 'CUSTOM';
       type = switch (customType) {
         'CHAT_IMAGE' => 'IMAGE',
@@ -480,50 +471,89 @@ class TencentImClient {
       content =
           payload['content']?.toString() ??
           payload['fileName']?.toString() ??
-          custom['desc']?.toString() ??
+          custom?.desc ??
           _customPreview(type);
     } else if (elemType == MessageElemType.V2TIM_ELEM_TYPE_LOCATION) {
-      final location = raw['locationElem'] is Map
-          ? Map<String, dynamic>.from(raw['locationElem'] as Map)
-          : <String, dynamic>{};
+      final location = raw.locationElem;
       type = 'LOCATION';
-      content = location['desc']?.toString() ?? '位置';
-      payload = {...location, 'address': location['desc']?.toString() ?? '位置'};
+      content = location?.desc ?? '位置';
+      payload = {
+        'desc': location?.desc ?? '位置',
+        'address': location?.desc ?? '位置',
+        'latitude': location?.latitude,
+        'longitude': location?.longitude,
+      };
     } else if (elemType == MessageElemType.V2TIM_ELEM_TYPE_IMAGE) {
-      // 兼容历史上直接通过腾讯 IM 上传的原生图片消息。
       type = 'IMAGE';
       content = '[图片]';
-      payload = raw['imageElem'] is Map
-          ? Map<String, dynamic>.from(raw['imageElem'] as Map)
-          : <String, dynamic>{};
+      payload = raw.imageElem?.toJson() ?? <String, dynamic>{};
     } else if (elemType == MessageElemType.V2TIM_ELEM_TYPE_FILE) {
       type = 'FILE';
-      final file = raw['fileElem'] is Map
-          ? Map<String, dynamic>.from(raw['fileElem'] as Map)
-          : <String, dynamic>{};
-      content = file['fileName']?.toString() ?? '[文件]';
-      payload = file;
+      content = raw.fileElem?.fileName ?? '[文件]';
+      payload = raw.fileElem?.toJson() ?? <String, dynamic>{};
+    } else if (elemType == MessageElemType.V2TIM_ELEM_TYPE_SOUND) {
+      type = 'SOUND';
+      content = '[语音]';
+    } else if (elemType == MessageElemType.V2TIM_ELEM_TYPE_VIDEO) {
+      type = 'VIDEO';
+      content = '[视频]';
+    } else if (elemType == MessageElemType.V2TIM_ELEM_TYPE_FACE) {
+      type = 'FACE';
+      content = '[表情]';
+    } else if (elemType == MessageElemType.V2TIM_ELEM_TYPE_MERGER) {
+      type = 'MERGER';
+      content = raw.mergerElem?.title ?? '[聊天记录]';
+    } else if (elemType == MessageElemType.V2TIM_ELEM_TYPE_GROUP_TIPS ||
+        elemType == MessageElemType.V2TIM_ELEM_TYPE_GROUP_REPORT) {
+      type = 'SYSTEM';
+      content = _groupSystemText(raw);
+    } else if (elemType == MessageElemType.V2TIM_ELEM_TYPE_STREAM) {
+      type = 'STREAM';
+      content = '[流式消息]';
     }
 
-    final imSender = raw['sender']?.toString() ?? '';
-    final nameCard = raw['nameCard']?.toString().trim() ?? '';
-    final nickname = raw['nickName']?.toString().trim() ?? '';
+    final dynamic senderProfile = raw.senderProfile;
+    final imSender = raw.sender?.trim().isNotEmpty == true
+        ? raw.sender!.trim()
+        : senderProfile?.userID?.toString() ?? '';
+    final nameCard = raw.nameCard?.trim() ?? '';
+    final nickname = raw.nickName?.trim().isNotEmpty == true
+        ? raw.nickName!.trim()
+        : senderProfile?.nickName?.toString().trim() ?? '';
+    final friendRemark = raw.friendRemark?.trim() ?? '';
+    final avatar = raw.faceUrl?.trim().isNotEmpty == true
+        ? raw.faceUrl!.trim()
+        : senderProfile?.faceUrl?.toString() ?? '';
     return {
-      'messageId': raw['msgID']?.toString() ?? raw['id']?.toString() ?? '',
+      'messageId': raw.msgID ?? raw.id ?? '',
       'senderUserId': _businessUserId(imSender),
       'senderNickname': nameCard.isNotEmpty
           ? nameCard
+          : friendRemark.isNotEmpty
+          ? friendRemark
           : nickname.isNotEmpty
           ? nickname
           : '同路行用户',
       'senderAvatarImageKey': '',
-      'senderAvatarUrl': raw['faceUrl']?.toString() ?? '',
+      'senderAvatarUrl': avatar,
       'messageType': type,
       'content': content,
       'payload': payload,
-      'sentAt': _timestampText(raw['timestamp']),
+      'sentAt': _timestampText(raw.timestamp),
       'messageStatus': 'NORMAL',
+      'isSelf': raw.isSelf == true,
     };
+  }
+
+  String _groupSystemText(V2TimMessage message) {
+    final dynamic tips = message.groupTipsElem;
+    final dynamic operator = tips?.opMember;
+    final operatorName = operator?.nameCard?.toString().trim().isNotEmpty == true
+        ? operator.nameCard.toString().trim()
+        : operator?.nickName?.toString().trim().isNotEmpty == true
+        ? operator.nickName.toString().trim()
+        : '群成员';
+    return '$operatorName 更新了群聊信息';
   }
 
   Map<String, dynamic> _decodeCustom(Object? value) {
@@ -538,7 +568,7 @@ class TencentImClient {
     }
   }
 
-  String _messagePreview(Map<String, dynamic> raw) {
+  String _messagePreview(V2TimMessage raw) {
     final mapped = _messageToMap(raw);
     final type = mapped['messageType']?.toString() ?? '';
     return switch (type) {

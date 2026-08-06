@@ -143,7 +143,7 @@ public class TripServiceImpl implements TripService {
         trip.setVehicleId(driverTrip ? vehicle.vehicleId() : null);
         trip.setTripType(driverTrip ? TRIP_TYPE_DRIVER : TRIP_TYPE_PASSENGER);
         trip.setPublisherRole(driverTrip ? PUBLISHER_DRIVER : PUBLISHER_PASSENGER);
-        trip.setCaptainUserId(driverTrip ? userId : null);
+        trip.setCaptainUserId(userId);
         trip.setAutoStartEnabled(driverTrip && !Boolean.FALSE.equals(request.autoStartEnabled()) ? 1 : 0);
         trip.setArrivalStatus("NOT_ARRIVED");
         trip.setContinueCount(0);
@@ -320,11 +320,11 @@ public class TripServiceImpl implements TripService {
         fillTrip(trip, request);
         if (TRIP_TYPE_DRIVER.equals(before.getTripType())) {
             trip.setVehicleId(vehicle.vehicleId());
-            trip.setCaptainUserId(before.getCaptainUserId() == null ? userId : before.getCaptainUserId());
         } else {
             trip.setVehicleId(null);
-            trip.setCaptainUserId(null);
         }
+        // 产品规则：行程创建者始终是当前行程队长，不能因为是否绑定车辆而丢失队长身份。
+        trip.setCaptainUserId(userId);
         if (request.autoStartEnabled() != null && TRIP_TYPE_DRIVER.equals(before.getTripType())) {
             trip.setAutoStartEnabled(Boolean.TRUE.equals(request.autoStartEnabled()) ? 1 : 0);
         }
@@ -978,14 +978,24 @@ public class TripServiceImpl implements TripService {
     }
 
 
-    /** 队长专属操作校验；乘客需求发布者不能开始、结束或管理队伍。 */
+    /**
+     * 队长专属操作校验。
+     *
+     * <p>当前产品规则中，行程创建者就是队长。历史数据可能因为旧逻辑只在绑定车辆时
+     * 写入 captain_user_id，导致创建者被误判为普通成员；这里以 user_id 为最终依据，
+     * 并在发现旧数据不一致时顺便修复 captain_user_id。</p>
+     */
     private Trip requireCaptainTrip(Long tripId, Long userId) {
         Trip trip = tripMapper.findById(tripId);
         if (trip == null) {
             throw new BusinessException(ResultCode.NOT_FOUND, "行程不存在");
         }
-        if (trip.getCaptainUserId() == null || !trip.getCaptainUserId().equals(userId)) {
+        if (!trip.getUserId().equals(userId)) {
             throw new BusinessException(ResultCode.FORBIDDEN, "只有当前行程队长可以执行此操作");
+        }
+        if (!userId.equals(trip.getCaptainUserId())) {
+            tripMapper.ensureCreatorCaptain(tripId, userId);
+            trip.setCaptainUserId(userId);
         }
         return trip;
     }
@@ -1066,6 +1076,8 @@ public class TripServiceImpl implements TripService {
      * 将行程实体和途经点列表转换为接口响应对象。
      */
     private TripResponse toResponse(Trip trip, List<WaypointLocationResponse> waypoints) {
+        // 创建者是队长。响应层继续做一次兜底，避免旧数据缓存让客户端隐藏“开始行程”入口。
+        Long captainUserId = trip.getUserId();
         return new TripResponse(
                 String.valueOf(trip.getId()),
                 trip.getTripNumber(),
@@ -1105,14 +1117,14 @@ public class TripServiceImpl implements TripService {
                 formatTime(trip.getUpdatedAt()),
                 trip.getTripType(),
                 trip.getPublisherRole(),
-                trip.getCaptainUserId() == null ? null : String.valueOf(trip.getCaptainUserId()),
+                String.valueOf(captainUserId),
                 trip.getAutoStartEnabled() != null && trip.getAutoStartEnabled() == 1,
                 trip.getArrivalStatus(),
                 formatTime(trip.getArrivalEnteredAt()),
                 formatTime(trip.getArrivalDecisionDeadline()),
                 trip.getContinueCount(),
                 TRIP_TYPE_PASSENGER.equals(trip.getTripType()),
-                trip.getCaptainUserId() != null
+                true
         );
     }
 

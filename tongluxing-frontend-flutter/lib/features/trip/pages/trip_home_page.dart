@@ -25,6 +25,7 @@ class TripHomePage extends StatefulWidget {
 }
 
 class _TripHomePageState extends State<TripHomePage> {
+  final _MyTripsPageController _myTripsController = _MyTripsPageController();
   int section = 0;
   int refreshVersion = 0;
   bool loadingDashboard = true;
@@ -154,6 +155,16 @@ class _TripHomePageState extends State<TripHomePage> {
     );
   }
 
+  void _showFormalTrips() {
+    if (section != 1) {
+      setState(() => section = 1);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _myTripsController.showFormalTrips();
+    });
+  }
+
   @override
   Widget build(BuildContext context) => AnnotatedRegion<SystemUiOverlayStyle>(
     value: const SystemUiOverlayStyle(
@@ -181,6 +192,7 @@ class _TripHomePageState extends State<TripHomePage> {
                     activeCount: (dashboard['activeCount'] as num?)?.toInt() ??
                         currentTrips.length,
                     onRetry: _loadDashboard,
+                    onViewAll: _showFormalTrips,
                     onOpen: _openTrip,
                     onNavigate: _openNavigation,
                     onChat: _openConversation,
@@ -207,6 +219,7 @@ class _TripHomePageState extends State<TripHomePage> {
                       )
                     : _MyTripsPage(
                         key: ValueKey('my-trips-$refreshVersion'),
+                        controller: _myTripsController,
                         currentTrips: currentTrips,
                         joinedTripIds: joinedTripIds,
                         onChanged: _refreshAll,
@@ -308,6 +321,7 @@ class _CurrentTripArea extends StatelessWidget {
     required this.joinedTripIds,
     required this.activeCount,
     required this.onRetry,
+    required this.onViewAll,
     required this.onOpen,
     required this.onNavigate,
     required this.onChat,
@@ -320,6 +334,7 @@ class _CurrentTripArea extends StatelessWidget {
   final Set<String> joinedTripIds;
   final int activeCount;
   final VoidCallback onRetry;
+  final VoidCallback onViewAll;
   final ValueChanged<TripModel> onOpen;
   final ValueChanged<TripModel> onNavigate;
   final ValueChanged<TripModel> onChat;
@@ -359,12 +374,33 @@ class _CurrentTripArea extends StatelessWidget {
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
               ),
               const Spacer(),
-              Text(
-                '查看全部  $activeCount 条',
-                style: const TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+              InkWell(
+                onTap: onViewAll,
+                borderRadius: BorderRadius.circular(99),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 5,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '查看全部  $activeCount 条',
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      const Icon(
+                        LucideIcons.chevronRight,
+                        size: 14,
+                        color: AppColors.primary,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -625,14 +661,28 @@ class _TripTabHeaderDelegate extends SliverPersistentHeaderDelegate {
       oldDelegate.child != child;
 }
 
+class _MyTripsPageController {
+  _MyTripsPageState? _state;
+
+  void attach(_MyTripsPageState state) => _state = state;
+
+  void detach(_MyTripsPageState state) {
+    if (identical(_state, state)) _state = null;
+  }
+
+  void showFormalTrips() => _state?.showFormalTrips();
+}
+
 class _MyTripsPage extends StatefulWidget {
   const _MyTripsPage({
+    required this.controller,
     required this.currentTrips,
     required this.joinedTripIds,
     required this.onChanged,
     super.key,
   });
 
+  final _MyTripsPageController controller;
   final List<TripModel> currentTrips;
   final Set<String> joinedTripIds;
   final Future<void> Function() onChanged;
@@ -642,6 +692,7 @@ class _MyTripsPage extends StatefulWidget {
 }
 
 class _MyTripsPageState extends State<_MyTripsPage> {
+  final GlobalKey _formalTripsKey = GlobalKey();
   int category = 0;
   int favoriteFilter = 0;
   bool loading = true;
@@ -653,11 +704,28 @@ class _MyTripsPageState extends State<_MyTripsPage> {
   List<TripApplicationModel> applications = const [];
   List<TripDiscoverModel> favorites = const [];
   final Set<String> busyActions = <String>{};
+  bool _pendingFormalJump = false;
 
   @override
   void initState() {
     super.initState();
+    widget.controller.attach(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => load());
+  }
+
+  @override
+  void didUpdateWidget(covariant _MyTripsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.controller, widget.controller)) {
+      oldWidget.controller.detach(this);
+      widget.controller.attach(this);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.detach(this);
+    super.dispose();
   }
 
   Future<void> load() async {
@@ -709,8 +777,34 @@ class _MyTripsPageState extends State<_MyTripsPage> {
         });
       }
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted) {
+        setState(() => loading = false);
+        _scrollToFormalTripsWhenReady();
+      }
     }
+  }
+
+  void showFormalTrips() {
+    _pendingFormalJump = true;
+    if (category != 0) {
+      setState(() => category = 0);
+    }
+    _scrollToFormalTripsWhenReady();
+  }
+
+  void _scrollToFormalTripsWhenReady() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_pendingFormalJump || loading || error != null) return;
+      final targetContext = _formalTripsKey.currentContext;
+      if (targetContext == null) return;
+      _pendingFormalJump = false;
+      Scrollable.ensureVisible(
+        targetContext,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        alignment: 0.04,
+      );
+    });
   }
 
   Future<void> _open(Widget page) async {
@@ -1009,7 +1103,8 @@ class _MyTripsPageState extends State<_MyTripsPage> {
       );
     }
     widgets.add(
-      const _SectionHeaderSliver(
+      _SectionHeaderSliver(
+        key: _formalTripsKey,
         title: '正式行程',
         suffix: '按出发时间升序',
       ),
@@ -1051,7 +1146,7 @@ class _MyTripsPageState extends State<_MyTripsPage> {
                   onManage: joined
                       ? null
                       : () => _open(TripQuickEditPage(tripId: trip.id)),
-                  onChat: joined ? () => _openChat(trip) : null,
+                  onChat: () => _openChat(trip),
                   onCancel: joined ? null : () => _cancelTrip(trip),
                   onLeave: joined ? () => _leaveTrip(trip) : null,
                 );
@@ -1486,11 +1581,11 @@ class _FormalTripCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Expanded(
+                Expanded(
                   child: _CompactButton(
-                    label: '分享邀请',
-                    icon: LucideIcons.share2,
-                    onTap: null,
+                    label: '进入群聊',
+                    icon: LucideIcons.messageCircle,
+                    onTap: busy ? null : onChat,
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -1793,6 +1888,7 @@ class _FavoriteTripCard extends StatelessWidget {
 
 class _SectionHeaderSliver extends StatelessWidget {
   const _SectionHeaderSliver({
+    super.key,
     required this.title,
     this.subtitle,
     this.suffix,

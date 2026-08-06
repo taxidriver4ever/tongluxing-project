@@ -29,15 +29,16 @@ public class UserHomepageController {
     @GetMapping("/v1/users/{userId}/homepage")
     /** 执行 homepage 对应的领域操作，并返回统一的业务结果。 */
     public Result<UserHomepageVO> homepage(@PathVariable Long userId) {
-        Long currentUserId = currentUserContext.requireUserId();
-        var profile = currentUserId.equals(userId)
+        Long currentUserId = currentUserContext.getUserIdOrNull();
+        boolean viewingSelf = currentUserId != null && currentUserId.equals(userId);
+        var profile = viewingSelf
                 ? userService.getChatMemberProfile(userId)
                 : userService.getPublicProfile(userId);
         AuthAccount account = authAccountMapper.findByUserId(userId);
         String province = ipProvinceResolver.resolve(
                 account == null ? null : account.getLastLoginIp(), profile.cityName());
         var privacy = userService.getPrivacySettings(userId);
-        var vehicle = (currentUserId.equals(userId) || "PUBLIC".equals(privacy.vehicleVisibility()))
+        var vehicle = (viewingSelf || "PUBLIC".equals(privacy.vehicleVisibility()))
                 ? vehicleService.getPublicMainCard(userId) : null;
         PublicVehicleSummaryVO mainVehicle = vehicle == null ? null
                 : new PublicVehicleSummaryVO(vehicle.brand(), vehicle.model(), vehicle.vehicleType());
@@ -45,6 +46,8 @@ public class UserHomepageController {
                 Boolean.TRUE.equals(privacy.levelVisible()) ? growthService.getSummary(userId) : null,
                 Boolean.TRUE.equals(privacy.levelVisible()) ? growthService.getBadgeWall(userId) : null,
                 mainVehicle, province,
-                userService.getFollowStatus(userId)));
+                currentUserId == null
+                        ? userService.getPublicFollowStatus(userId)
+                        : userService.getFollowStatus(userId)));
     }
 }

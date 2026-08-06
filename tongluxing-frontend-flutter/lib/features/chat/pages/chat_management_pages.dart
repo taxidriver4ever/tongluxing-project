@@ -77,9 +77,10 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
     load();
   }
 
-  /// 加载腾讯 IM 群成员和同路行业务工作区。
+  /// 加载真实群成员资料和同路行业务工作区。
   ///
-  /// 群成员只从腾讯 IM SDK 获取；后端只提供关联行程、队长权限等业务字段。
+  /// 成员身份与权限以后端会话成员表为准，昵称和头像以后端用户资料为准；
+  /// 腾讯 IM 只维护消息、置顶和免打扰状态。
   Future<void> load() async {
     if (mounted) {
       setState(() {
@@ -90,12 +91,8 @@ class _ChatGroupDetailsPageState extends State<ChatGroupDetailsPage> {
     try {
       final session = context.read<AppSession>();
       final service = ChatService(session.api);
-      if (widget.conversation.imGroupId.isEmpty) {
-        throw StateError('当前群聊缺少腾讯 IM GroupId');
-      }
-      await session.tencentIm.connect();
       final values = await Future.wait<dynamic>([
-        session.tencentIm.groupMembers(widget.conversation),
+        service.conversationMembers(widget.conversation.id),
         service.groupWorkspace(widget.conversation.id),
       ]);
       if (!mounted) return;

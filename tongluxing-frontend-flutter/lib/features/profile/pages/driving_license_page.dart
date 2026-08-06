@@ -133,7 +133,15 @@ class _DrivingLicensePageState extends State<DrivingLicensePage> {
       setState(() => _status = result);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('驾驶证图片已上传，认证申请已提交')));
+      ).showSnackBar(
+        SnackBar(
+          content: Text(
+            result['status'] == 'APPROVED'
+                ? '材料齐全，驾驶证认证已自动通过'
+                : '驾驶证材料已提交',
+          ),
+        ),
+      );
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -194,7 +202,7 @@ class _DrivingLicensePageState extends State<DrivingLicensePage> {
     final meta = switch (status) {
       'PENDING' => (
         '认证审核中',
-        '材料已提交，请等待平台审核',
+        '历史材料待处理，请联系平台核查',
         LucideIcons.clock3,
         AppColors.warning,
       ),
@@ -212,7 +220,7 @@ class _DrivingLicensePageState extends State<DrivingLicensePage> {
       ),
       _ => (
         '尚未认证驾驶证',
-        '驾驶证认证与车辆认证相互独立',
+        '填写信息并上传正反面后将自动完成认证',
         LucideIcons.contact,
         AppColors.primary,
       ),
@@ -322,7 +330,7 @@ class _DrivingLicensePageState extends State<DrivingLicensePage> {
                     ),
                   )
                 : const Icon(LucideIcons.shieldCheck),
-            label: Text(_submitting ? _submittingLabel : '上传并提交驾驶证认证'),
+            label: Text(_submitting ? _submittingLabel : '上传材料并自动认证'),
           ),
         ),
       ],

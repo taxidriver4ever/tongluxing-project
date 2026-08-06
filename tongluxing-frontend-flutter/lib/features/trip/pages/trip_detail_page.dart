@@ -296,9 +296,11 @@ class _TripDetailPageState extends State<TripDetailPage> {
     final currentUserId = context.watch<AppSession>().userId;
     final isOwner =
         trip?.ownerUserId != null && trip!.ownerUserId == currentUserId;
-    final isCaptain = trip?.canManageTeam == true &&
-        trip!.captainUserId != null &&
-        trip!.captainUserId == currentUserId;
+    // 创建者就是队长。isOwner 兜底兼容后端旧缓存中 captainUserId 为空的行程。
+    final isCaptain = isOwner ||
+        (trip?.canManageTeam == true &&
+            trip!.captainUserId != null &&
+            trip!.captainUserId == currentUserId);
     return Scaffold(
       backgroundColor: Colors.white,
       bottomNavigationBar:

@@ -138,10 +138,11 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
-     * 提交驾驶证认证申请。
+     * 提交驾驶证材料并自动认证。
      *
-     * <p>该流程先检查重复申请，再验证日期、加密敏感字段并创建 PENDING 记录。
-     * 认证状态会出现在个人资料和公开名片，因此写入成功后必须同时清除两类缓存。</p>
+     * <p>该流程先检查重复申请，再验证日期和正反面材料完整性，加密敏感字段后直接
+     * 创建 APPROVED 记录。认证状态会出现在个人资料和公开名片，因此写入成功后必须
+     * 同时清除两类缓存；记录仍完整保留，供 Web Admin 查询和追溯。</p>
      */
     @Override
     @Transactional
@@ -153,15 +154,17 @@ public class UserServiceImpl implements UserService {
         ensureProfile(userId);
         UserQueryDTO latest = mapper.findLatestCertification(userId);
         if (latest != null && java.util.List.of("PENDING", "APPROVED").contains(latest.getCertificationStatus())) {
-            // 待审核时禁止重复排队；已通过时禁止创建第二份有效认证。
+            // 历史待处理记录禁止重复排队；已通过时禁止创建第二份有效认证。
             throw new BusinessException(409, "认证正在审核或已通过");
         }
 
         // 整次写入使用同一个时间戳，保证 submitted_at/created_at/updated_at 一致。
         LocalDateTime now = LocalDateTime.now();
         validateDates(request);
+        validateCompleteCertificationMaterials(request);
 
         // 姓名和完整证件号入库前加密；列表只使用脱敏号，减少非必要解密。
+        // Mapper 固定写入 APPROVED，并把 reviewed_at 设为当前时间，表示系统自动通过。
         mapper.insertCertification(SnowflakeIdGenerator.nextId(), userId,
                 encrypt(request.holderName().trim()), encrypt(request.licenseNo().trim()),
                 maskLicenseNo(request.licenseNo()), request.vehicleClass().trim(), request.firstIssueDate(),
@@ -169,7 +172,7 @@ public class UserServiceImpl implements UserService {
                 request.licenseFrontImageKey().trim(), trimToEmpty(request.licenseBackImageKey()),
                 request.recognitionSource().trim(), now);
 
-        // 最新认证状态已经由 UNSUBMITTED/REJECTED 变为 PENDING，旧资料缓存不可继续使用。
+        // 最新认证状态已经由 UNSUBMITTED/REJECTED 变为 APPROVED，旧资料缓存不可继续使用。
         redis.delete(java.util.List.of(PROFILE_CACHE.formatted(userId), PUBLIC_CACHE.formatted(userId)));
 
         // 回查刚提交的最新记录，统一通过 certification() 计算 canResubmit。
@@ -452,6 +455,13 @@ public class UserServiceImpl implements UserService {
         return followStatus(currentUserContext.requireUserId(), userId);
     }
 
+    /** 匿名查看公开主页时仍返回真实粉丝/关注计数，但不伪造任何双向关系。 */
+    @Override
+    public FollowStatusVO getPublicFollowStatus(Long userId) {
+        return new FollowStatusVO(userId, false, false, false,
+                followMapper.countFollowers(userId), followMapper.countFollowing(userId));
+    }
+
     /** 查询当前登录用户的粉丝列表，避免客户端自行传递并信任“我的 userId”。 */
     @Override
     public List<FollowUserVO> getMyFollowers(int page, int size) {
@@ -699,6 +709,19 @@ public class UserServiceImpl implements UserService {
                 row.getIssuingAuthority(), row.getLicenseFrontImageKey(), row.getLicenseBackImageKey(),
                 row.getRecognitionSource(), row.getCertificationStatus(), row.getRejectReason(),
                 row.getSubmittedAt(), row.getReviewedAt());
+    }
+
+    /**
+     * 校验驾驶证认证材料是否齐全。
+     *
+     * <p>姓名、证件号、准驾车型、识别来源和主页图片已由 Bean Validation 保证；
+     * 此处额外要求副页图片存在，确保与 App、小程序的“正反面必传”规则一致。
+     * 材料不完整时直接拒绝提交，不生成无法自动处理的 PENDING 记录。</p>
+     */
+    private void validateCompleteCertificationMaterials(CertificationRequest request) {
+        if (!StringUtils.hasText(request.licenseBackImageKey())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "请上传完整的驾驶证正面和背面");
+        }
     }
 
     /**

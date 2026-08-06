@@ -21,11 +21,8 @@ public class TripChatLifecycleListener {
 
     @EventListener
     public void onTripPublished(TripPublishedEvent event) {
-        // 乘客发布的只是出行需求，在匹配到车主前没有队长，也不创建群聊。
-        if (!event.hasCaptain()) {
-            return;
-        }
-        // 车主发布后准备群聊，让成员能在正式出发前沟通。
+        // 发布行程即创建群聊。无论发布者当前是车主还是乘客需求方，发布者都先作为
+        // 群主进入会话；后续匹配、入队时再由既有成员同步逻辑补齐真实同行成员。
         chatService.prepareTripConversation(event.tripId(), event.tripName(), event.ownerUserId(), event.memberUserIds());
     }
 

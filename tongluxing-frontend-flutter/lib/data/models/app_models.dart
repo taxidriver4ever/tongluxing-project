@@ -290,10 +290,8 @@ class TripModel {
   final bool passengerDemand;
   final bool hasCaptain;
 
-  /// 只有司机行程且后端已经确定队长时，才展示队长管理入口。
-  /// 页面还会继续比对当前登录用户与 [captainUserId]，避免普通成员误操作。
-  bool get canManageTeam =>
-      tripType == 'DRIVER_TRIP' && captainUserId?.isNotEmpty == true;
+  /// 创建者即队长；只要接口返回了队长 ID，就允许页面继续校验当前用户并展示管理入口。
+  bool get canManageTeam => captainUserId?.isNotEmpty == true;
 
   List<LocationSelection> get routePoints {
     final parsed = parseRoutePolyline(routePolyline);

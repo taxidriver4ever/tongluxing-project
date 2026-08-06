@@ -20,7 +20,7 @@ import jakarta.validation.constraints.Size;
  * @param validTo 当前有效期截止日期
  * @param issuingAuthority 发证机关
  * @param licenseFrontImageKey 驾驶证主页图片 Key
- * @param licenseBackImageKey 可选的驾驶证副页图片 Key
+ * @param licenseBackImageKey 驾驶证副页图片 Key
  * @param recognitionSource MINIPROGRAM_OCR 或 MANUAL_UPLOAD
  */
 public record CertificationRequest(
@@ -32,7 +32,7 @@ public record CertificationRequest(
         LocalDate validTo,
         @Size(max = 128) String issuingAuthority,
         @NotBlank @Size(max = 512) String licenseFrontImageKey,
-        @Size(max = 512) String licenseBackImageKey,
+        @NotBlank @Size(max = 512) String licenseBackImageKey,
         @NotBlank @Pattern(regexp = "MINIPROGRAM_OCR|MANUAL_UPLOAD") String recognitionSource
 ) {
 }

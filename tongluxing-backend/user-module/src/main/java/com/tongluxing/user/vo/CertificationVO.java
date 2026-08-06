@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
  * @param status UNSUBMITTED、PENDING、APPROVED 或 REJECTED
  * @param rejectReason 驳回原因
  * @param submittedAt 提交时间
- * @param reviewedAt 人工审核完成时间
+ * @param reviewedAt 系统自动通过或异常复核完成时间
  * @param canResubmit 当前状态是否允许再次提交
  */
 public record CertificationVO(

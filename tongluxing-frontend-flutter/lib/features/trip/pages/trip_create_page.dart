@@ -770,6 +770,9 @@ class _TripCreatePageState extends State<TripCreatePage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    // 创建行程的底部操作区固定在屏幕底部。键盘弹出时由键盘覆盖，
+    // 不再让按钮跟随可用高度变化整体上移。
+    resizeToAvoidBottomInset: false,
     appBar: AppBar(
       title: Text(switch (step) {
         0 => '规划行程节点',
@@ -1064,7 +1067,13 @@ class _TripCreatePageState extends State<TripCreatePage> {
   );
 
   Widget _buildPublishStep() => ListView(
-    padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+    padding: EdgeInsets.fromLTRB(
+      20,
+      8,
+      20,
+      MediaQuery.viewInsetsOf(context).bottom + 28,
+    ),
     children: [
       const Text(
         '让其他人看懂这趟行程',
@@ -1170,7 +1179,13 @@ class _TripCreatePageState extends State<TripCreatePage> {
   );
 
   Widget _buildRequirementsStep() => ListView(
-    padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+    padding: EdgeInsets.fromLTRB(
+      20,
+      8,
+      20,
+      MediaQuery.viewInsetsOf(context).bottom + 28,
+    ),
     children: [
       const Text(
         '同行车辆与补充说明',
@@ -1401,16 +1416,16 @@ class _WaypointEditorSheetState extends State<_WaypointEditorSheet> {
   @override
   Widget build(BuildContext context) {
     final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 160),
-      curve: Curves.easeOut,
-      padding: EdgeInsets.only(bottom: keyboardHeight),
+    return MediaQuery.removeViewInsets(
+      context: context,
+      removeBottom: true,
       child: Material(
         color: const Color(0xFFFAFAFB),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         clipBehavior: Clip.antiAlias,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: EdgeInsets.fromLTRB(20, 18, 20, keyboardHeight + 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,

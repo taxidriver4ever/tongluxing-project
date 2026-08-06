@@ -1075,6 +1075,15 @@ class ChatService {
         await api.get('/v1/chats/conversations/$id/group') as Map,
       );
 
+  /// 获取会话内真实用户资料。昵称和头像以后端用户资料为准，
+  /// 腾讯 IM 只负责消息传输，避免 IM 账号初始占位资料显示成 Mock。
+  Future<List<Map<String, dynamic>>> conversationMembers(String id) async {
+    final data = await api.get('/v1/chats/conversations/$id/members');
+    return (data as List? ?? const [])
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList();
+  }
+
   Future<Map<String, dynamic>> createGroupItem(
     String id, {
     required String type,

@@ -368,6 +368,17 @@ public interface TripMapper {
             """)
     int startTrip(@Param("tripId") Long tripId, @Param("userId") Long userId, @Param("actualStartTime") LocalDateTime actualStartTime);
 
+    /** 修复旧数据：行程创建者必须同时是队长。 */
+    @Update("""
+            update trip
+            set captain_user_id = user_id
+            where id = #{tripId}
+              and user_id = #{userId}
+              and (captain_user_id is null or captain_user_id <> user_id)
+              and deleted = 0
+            """)
+    int ensureCreatorCaptain(@Param("tripId") Long tripId, @Param("userId") Long userId);
+
     /** 定时任务自动开始行程；状态条件保证重复扫描幂等。 */
     @Update("""
             update trip

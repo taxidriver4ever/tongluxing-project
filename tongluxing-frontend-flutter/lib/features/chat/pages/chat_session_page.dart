@@ -90,6 +90,9 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
       final businessFuture = isPrivate
           ? service.privateConversationPermission(widget.conversation.id)
           : service.groupWorkspace(widget.conversation.id);
+      final memberProfilesFuture = isPrivate
+          ? Future.value(const <Map<String, dynamic>>[])
+          : service.conversationMembers(widget.conversation.id);
 
       // 会话历史、发送状态和未读数由腾讯 IM 作为唯一聊天数据源。
       _requireTencentConversation();
@@ -100,14 +103,19 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
       await session.tencentIm.markRead(widget.conversation);
 
       final business = await businessFuture;
+      final memberProfiles = await memberProfilesFuture;
+      final profiledMessages = _mergeSenderProfiles(
+        nextMessages,
+        memberProfiles,
+      );
       final previousLatestId = messages.isEmpty
           ? null
           : messages.last['messageId']?.toString();
-      final nextLatestId = nextMessages.isEmpty
+      final nextLatestId = profiledMessages.isEmpty
           ? null
-          : nextMessages.last['messageId']?.toString();
+          : profiledMessages.last['messageId']?.toString();
       if (previousLatestId != nextLatestId) confirmationDetails.clear();
-      messages = nextMessages;
+      messages = profiledMessages;
 
       if (isPrivate) {
         privatePermission = Map<String, dynamic>.from(business as Map);
@@ -474,10 +482,39 @@ class _ChatSessionPageState extends State<ChatSessionPage> {
     );
   }
 
+  /// 腾讯 IM 中的账号资料可能仍是注册时的占位值，群聊展示统一使用
+  /// 后端成员接口返回的真实昵称、头像对象 Key 和短期访问地址。
+  List<Map<String, dynamic>> _mergeSenderProfiles(
+    List<Map<String, dynamic>> source,
+    List<Map<String, dynamic>> profiles,
+  ) {
+    if (source.isEmpty || profiles.isEmpty) return source;
+    final byUserId = <String, Map<String, dynamic>>{
+      for (final profile in profiles)
+        if (profile['userId']?.toString().isNotEmpty == true)
+          profile['userId'].toString(): profile,
+    };
+    return source.map((message) {
+      final userId = message['senderUserId']?.toString() ?? '';
+      final profile = byUserId[userId];
+      if (profile == null) return message;
+      final nickname = profile['nickname']?.toString().trim() ?? '';
+      final avatarKey = profile['avatarImageKey']?.toString().trim() ?? '';
+      final avatarUrl = profile['avatarUrl']?.toString().trim() ?? '';
+      return <String, dynamic>{
+        ...message,
+        if (nickname.isNotEmpty) 'senderNickname': nickname,
+        if (avatarKey.isNotEmpty) 'senderAvatarImageKey': avatarKey,
+        if (avatarUrl.isNotEmpty) 'senderAvatarUrl': avatarUrl,
+      };
+    }).toList();
+  }
+
   Widget _message(Map<String, dynamic> message) {
     final self =
+        message['isSelf'] == true ||
         message['senderUserId']?.toString() ==
-        context.read<AppSession>().userId;
+            context.read<AppSession>().userId;
     final type = message['messageType']?.toString() ?? 'TEXT';
     final content = message['content']?.toString() ?? '';
     if (type == 'SYSTEM') {

@@ -15,8 +15,8 @@ import {
 import { showToast } from '../utils.js'
 
 /**
- * P0 认证后台只承担自动认证记录查询和异常复核，不再提供人工“通过/驳回”入口。
- * 车主身份以行驶证自动认证结果为准；驾驶证仅保留历史记录查询。
+ * 认证后台展示驾驶证和行驶证的自动认证记录，并保留历史异常记录查询。
+ * 新提交的驾驶证材料齐全时由后端直接通过，后台仍可查看材料和通过时间。
  */
 const modules = [
   {
@@ -27,9 +27,9 @@ const modules = [
   },
   {
     key: 'driver',
-    title: '驾驶证历史记录',
+    title: '驾驶证自动认证',
     icon: FileBadge2,
-    description: '不再作为车主认证前置条件，仅用于查询旧数据。',
+    description: '正反面材料齐全后自动通过，并保留记录与材料详情。',
   },
 ]
 
@@ -55,7 +55,7 @@ function statusMeta(status) {
   return {
     APPROVED: { label: '自动通过', className: 'success' },
     REJECTED: { label: '异常/拒绝', className: 'danger' },
-    PENDING: { label: '历史待处理', className: 'warning' },
+    PENDING: { label: '材料异常待处理', className: 'warning' },
   }[status] || { label: status || '未知', className: 'info' }
 }
 
@@ -158,7 +158,7 @@ onMounted(() => Promise.all(modules.map(item => refresh(item.key))))
       <div>
         <div class="eyebrow"><ShieldCheck /> P0 AUTO CERTIFICATION</div>
         <h1>自动认证记录</h1>
-        <p>车主只需上传行驶证，系统自动通过并同步身份；后台不再人工审批。</p>
+        <p>驾驶证和行驶证材料齐全后由系统自动通过，后台保留全部认证记录与材料详情。</p>
       </div>
       <button class="btn" :disabled="currentQueue.loading" @click="refresh(activeModule, true)">
         <LoaderCircle v-if="currentQueue.loading" class="spin" /><RefreshCw v-else />刷新
@@ -167,7 +167,7 @@ onMounted(() => Promise.all(modules.map(item => refresh(item.key))))
 
     <section class="auto-cert-note">
       <BadgeCheck />
-      <div><b>当前执行规则</b><p>行驶证认证成功即成为车主。驾驶证、车辆外观图均不再作为车主认证前置材料。</p></div>
+      <div><b>当前执行规则</b><p>驾驶证正反面与基础信息齐全后自动通过；记录、材料图片和通过时间会继续显示在后台。</p></div>
     </section>
 
     <section class="auto-cert-modules">
@@ -182,7 +182,7 @@ onMounted(() => Promise.all(modules.map(item => refresh(item.key))))
     <div class="grid cols-3 auto-cert-metrics">
       <div class="metric"><small>自动通过</small><b>{{ currentQueue.stats.APPROVED || 0 }}</b></div>
       <div class="metric"><small>异常/拒绝</small><b>{{ currentQueue.stats.REJECTED || 0 }}</b></div>
-      <div class="metric"><small>历史待处理</small><b>{{ currentQueue.stats.PENDING || 0 }}</b></div>
+      <div class="metric"><small>材料异常待处理</small><b>{{ currentQueue.stats.PENDING || 0 }}</b></div>
     </div>
 
     <section class="panel">
@@ -190,7 +190,7 @@ onMounted(() => Promise.all(modules.map(item => refresh(item.key))))
         <div class="search-box"><Search /><input v-model="currentFilter.keyword" placeholder="用户、车牌或认证单号" @keyup.enter="loadQueue(activeModule, { resetPage: true })"></div>
         <select v-model="currentFilter.status" class="field" @change="loadQueue(activeModule, { resetPage: true })">
           <option value="">全部状态</option><option value="APPROVED">自动通过</option>
-          <option value="REJECTED">异常/拒绝</option><option value="PENDING">历史待处理</option>
+          <option value="REJECTED">异常/拒绝</option><option value="PENDING">材料异常待处理</option>
         </select>
         <button class="btn sm" @click="loadQueue(activeModule, { resetPage: true })">查询</button>
       </div>
@@ -201,7 +201,7 @@ onMounted(() => Promise.all(modules.map(item => refresh(item.key))))
             <tr v-for="row in currentQueue.rows" :key="row.certificationId">
               <td><b>#{{ row.certificationId }}</b></td>
               <td>{{ row.nickname || row.userId || '—' }}<br><small>{{ row.userId || '' }}</small></td>
-              <td>{{ activeModule === 'vehicle' ? '行驶证' : '驾驶证（历史）' }}</td>
+              <td>{{ activeModule === 'vehicle' ? '行驶证' : '驾驶证' }}</td>
               <td><span class="status" :class="statusMeta(row.status).className">{{ statusMeta(row.status).label }}</span></td>
               <td>{{ formatTime(row.submittedAt || row.createdAt) }}</td>
               <td><small>{{ row.rejectReason || (row.status === 'APPROVED' ? '系统自动认证' : '—') }}</small></td>
@@ -228,7 +228,7 @@ onMounted(() => Promise.all(modules.map(item => refresh(item.key))))
           <div class="detail-item"><small>车牌</small><b>{{ selected.plateNumber || selected.plateNoMask || '—' }}</b></div>
           <div class="detail-item"><small>时间</small><b>{{ formatTime(selected.reviewedAt || selected.submittedAt || selected.createdAt) }}</b></div>
         </div>
-        <h3 class="material-title">{{ activeModule === 'vehicle' ? '行驶证材料' : '驾驶证历史材料' }}</h3>
+        <h3 class="material-title">{{ activeModule === 'vehicle' ? '行驶证材料' : '驾驶证材料' }}</h3>
         <div class="auto-cert-images">
           <a v-for="url in detailImages" :key="url" :href="url" target="_blank" rel="noopener"><img :src="url" alt="认证材料"></a>
           <div v-if="!detailImages.length" class="missing-image"><ImageOff /><span>暂无可展示材料</span></div>

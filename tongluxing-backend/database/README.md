@@ -62,3 +62,5 @@ ORDER BY a.phone;
 ```
 
 - `14_trip_search_history.sql`：为已有数据库新增行程搜索历史表，支持新行程搜索页的跨设备历史记录。
+- `15_trip_real_heat_and_search_match.sql`：修复搜索页基准行程顺路率，并将推荐热度切换为真实报名、收藏、评价数据；同时补齐聚合索引。
+- `16_remove_trip_cover.sql`：从已有数据库的 `trip` 与 `trip_draft` 表移除行程/车队封面字段；商家和优惠券封面不受影响。

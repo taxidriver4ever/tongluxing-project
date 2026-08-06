@@ -924,15 +924,17 @@ class _SearchTripCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Text(
-                  '顺路 ${trip.matchScore}%',
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w900,
+                if (trip.matchScore != null) ...[
+                  const SizedBox(width: 10),
+                  Text(
+                    '顺路率 ${trip.matchScore}%',
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
             const SizedBox(height: 7),

@@ -17,7 +17,6 @@ import java.util.List;
  * @param departureTime 出发时间
  * @param estimatedDays 预计天数
  * @param description 公开介绍
- * @param coverImageKey 封面 Key
  * @param startLatitude 起点纬度，仅用于详情地图定位
  * @param startLongitude 起点经度，仅用于详情地图定位
  * @param endLatitude 终点纬度，仅用于详情地图定位
@@ -56,7 +55,6 @@ public record TripPublicDetailResponse(
         String departureTime,
         Integer estimatedDays,
         String description,
-        String coverImageKey,
         Double startLatitude,
         Double startLongitude,
         Double endLatitude,

@@ -65,8 +65,6 @@ public class MatchServiceImpl implements MatchService {
     private static final long RECOMMEND_MAX_TIME_GAP_MINUTES = 3L * 24 * 60;
     /** 有基准行程时，综合顺路率低于 20% 的候选直接淘汰。 */
     private static final int RECOMMEND_MIN_MATCH_RATE = 20;
-    /** 队长评分低于 3.0 的行程不进入推荐列表。 */
-    private static final double RECOMMEND_MIN_LEADER_RATING = 3.0D;
     /** 行程领域只读端口。 */
     private final MatchTripPort tripPort;
     /** 车队领域查询与申请端口。 */
@@ -467,9 +465,11 @@ public class MatchServiceImpl implements MatchService {
             if (vehicleFull || memberFull) continue;
 
             TripRecommendationMetricRow metric = metrics.getOrDefault(trip.tripId(),
-                    new TripRecommendationMetricRow(trip.tripId(), 0, 0, 5.0D, 1.0D));
-            double leaderRating = metric.leaderRating() == null ? 5.0D : metric.leaderRating();
-            if (leaderRating < RECOMMEND_MIN_LEADER_RATING) continue;
+                    new TripRecommendationMetricRow(trip.tripId(), 0, 0, 0.0D, 0.0D, 0));
+            int ratingCount = Math.max(0, metric.ratingCount() == null ? 0 : metric.ratingCount());
+            // 没有真实评价时不再伪造 5.0 分或 100% 好评率；评分和热度贡献均为 0。
+            double leaderRating = ratingCount == 0 ? 0D
+                    : Math.max(0D, Math.min(5D, metric.leaderRating() == null ? 0D : metric.leaderRating()));
 
             double baseLatitude = userHasTrip ? value(reference.startLatitude(), Double.NaN) : latitude;
             double baseLongitude = userHasTrip ? value(reference.startLongitude(), Double.NaN) : longitude;
@@ -492,13 +492,14 @@ public class MatchServiceImpl implements MatchService {
 
             int applications = Math.max(0, metric.applicationCount() == null ? 0 : metric.applicationCount());
             int favorites = Math.max(0, metric.favoriteCount() == null ? 0 : metric.favoriteCount());
-            double positiveRate = Math.max(0D, Math.min(1D,
-                    metric.positiveRate() == null ? 1D : metric.positiveRate()));
-            // 严格使用：报名人数×40 + 收藏数×30 + 好评率×30。好评率按 0~1 存储。
+            double positiveRate = ratingCount == 0 ? 0D : Math.max(0D, Math.min(1D,
+                    metric.positiveRate() == null ? 0D : metric.positiveRate()));
+            // 严格使用真实数据库指标：报名人数×40 + 收藏数×30 + 好评率×30。
+            // 好评率按 0~1 存储；尚无有效评价时该项为 0，而不是默认赠送 30 分。
             int heat = applications * 40 + favorites * 30 + (int) Math.round(positiveRate * 30D);
 
             String relationship = teamPort.relationshipStatus(team.teamId(), userId);
-            boolean allowApply = List.of("NONE", "REJECTED").contains(relationship);
+            boolean allowApply = canSubmitApplication(relationship);
             accepted.add(new RecommendationCandidate(trip, team, matchRate, heat, distanceMeters,
                     timeGapMinutes, leaderRating, relationship, allowApply));
         }
@@ -544,8 +545,11 @@ public class MatchServiceImpl implements MatchService {
         // 日期字符串为空表示不限制，格式错误则直接返回明确的 400 业务异常。
         LocalDate from = parseDate(departureDateFrom);
         LocalDate to = parseDate(departureDateTo);
-        // 基准行程只能使用自己的，防止借助他人路线推导非公开推荐上下文。
-        MatchTripDTO reference = referenceTripId == null ? null : requireOwnedReference(referenceTripId, userId);
+        // 搜索页未显式传入 referenceTripId 时，自动使用数据库中当前用户的推荐基准行程。
+        // 显式指定时仍校验归属，防止借助他人路线推导非公开推荐上下文。
+        MatchTripDTO reference = referenceTripId == null
+                ? tripPort.findRecommendationReferenceTrip(userId)
+                : requireOwnedReference(referenceTripId, userId);
         List<TripDiscoverCardResponse> records = new ArrayList<>();
         Map<Long, MatchTripDTO> candidateById = new java.util.HashMap<>();
         // 推荐分用于服务端稳定排序；未选择基准行程时响应会隐藏 matchScore，
@@ -569,8 +573,9 @@ public class MatchServiceImpl implements MatchService {
             if (!isPubliclyVisible(trip) || trip.departureTime() == null) {
                 continue;
             }
-            // 基准行程属于“我的行程”固定卡片，不参与候选推荐和顺路评分。
-            if (reference != null && reference.tripId().equals(trip.tripId())) continue;
+            // 搜索与发现候选始终排除当前用户自己发布的行程；自己的行程由“当前行程/我的行程”展示。
+            // 这也避免把自身与自身比较后出现无意义的顺路率或 null%。
+            if (userId.equals(trip.userId())) continue;
             // 优先使用车队实时容量，没有车队时回退行程车辆容量。
             // 候选阶段使用行程快照容量完成排序，避免对完整候选池逐条查询 team-module。
             // 只有最终一页记录才补充实时车队容量和当前用户关系。
@@ -611,18 +616,14 @@ public class MatchServiceImpl implements MatchService {
         // 二级排序保证同分数据在相同请求条件下稳定分页。
         records.sort(comparator.thenComparing(TripDiscoverCardResponse::departureTime)
                 .thenComparing(TripDiscoverCardResponse::tripId));
-        if (reference != null && isPubliclyVisible(reference)) {
-            MatchTeamDTO ownTeam = teamPort.findActiveTeamByTripId(reference.tripId());
-            records.add(0, toDiscoverCard(reference, ownTeam,
-                    waypointNames(reference.waypointsJson()), 0, -1, userId, false, true));
-        }
+        // 当前用户自己的行程不插入搜索/发现候选列表，避免与“当前行程”固定区域重复。
         // 推荐结果必须在相同基准和筛选条件下稳定；不再使用 refreshSeed 随机轮换。
         // 所有过滤排序完成后再分页，total 表示真实候选总数。
         int fromIndex = Math.min(records.size(), (safePage - 1) * safeSize);
         int toIndex = Math.min(records.size(), fromIndex + safeSize);
         List<TripDiscoverCardResponse> pageRecords = records.subList(fromIndex, toIndex).stream().map(card -> {
             MatchTripDTO trip = candidateById.get(Long.valueOf(card.tripId()));
-            if (trip == null || card.tripId().equals(referenceTripId == null ? null : String.valueOf(referenceTripId))) {
+            if (trip == null) {
                 return card;
             }
             MatchTeamDTO pageTeam = teamByTripId.get(trip.tripId());
@@ -639,7 +640,7 @@ public class MatchServiceImpl implements MatchService {
                 pageRecords);
         long finished = System.nanoTime();
         log.info("trip_discover_timing referenceTripId={} candidates={} returned={} databaseMs={} calculationAndAssemblyMs={} totalMs={}",
-                referenceTripId, candidates.size(), response.records().size(), millis(totalStarted, databaseFinished),
+                reference == null ? null : reference.tripId(), candidates.size(), response.records().size(), millis(totalStarted, databaseFinished),
                 millis(databaseFinished, finished), millis(totalStarted, finished));
         return response;
     }
@@ -705,13 +706,13 @@ public class MatchServiceImpl implements MatchService {
         boolean joinable = current < max && isJoinable(trip);
         // 申请要求非本人、有活跃车队、有容量且当前关系允许重新申请。
         boolean allowApply = team != null && !ownerTrip && joinable
-                && List.of("NONE", "REJECTED").contains(relationship);
+                && canSubmitApplication(relationship);
         // 咨询只开放给关注者、互关用户或已入队成员，防止陌生人骚扰。
         boolean allowConsultation = !ownerTrip && (followed
                 || Boolean.TRUE.equals(follow.mutual()) || "JOINED".equals(relationship));
         return new TripPublicDetailResponse(String.valueOf(trip.tripId()), trip.title(), trip.status(),
                 trip.startName(), waypointNames(trip.waypointsJson()), trip.endName(), format(trip.departureTime()),
-                trip.estimatedDays(), trip.description(), trip.coverImageKey(),
+                trip.estimatedDays(), trip.description(),
                 trip.startLatitude(), trip.startLongitude(), trip.endLatitude(), trip.endLongitude(),
                 "", trip.routeDistance(),
                 trip.routeDuration(), trip.joinedVehicleCount(), trip.maxVehicleCount(), current, max,
@@ -881,7 +882,7 @@ public class MatchServiceImpl implements MatchService {
                 trip.description(), trip.joinedVehicleCount(), trip.maxVehicleCount(), current, max,
                 Math.max(0, max - current), exposeRouteMatch ? score : null,
                 distance < 0 ? null : distance,
-                discoverTags(trip), trip.coverImageKey(),
+                discoverTags(trip),
                 relationship, discoverOwner(trip, currentUserId, enrichRelationship),
                 tripType(trip), publisherRole(trip), passengerDemand(trip), hasCaptain(trip));
     }
@@ -1368,6 +1369,20 @@ public class MatchServiceImpl implements MatchService {
         if (!StringUtils.hasText(requirements)) return List.of("不限");
         return java.util.Arrays.stream(requirements.split(","))
                 .map(String::trim).filter(StringUtils::hasText).distinct().toList();
+    }
+
+    /**
+     * 判断当前关系是否允许再次提交入队申请。
+     *
+     * <p>主动取消后当前已不存在有效申请，因此 CANCELLED/CANCELED 与 NONE 一样
+     * 必须恢复申请入口。这里保留取消状态兼容旧接口和历史数据。</p>
+     */
+    private boolean canSubmitApplication(String relationshipStatus) {
+        if (!StringUtils.hasText(relationshipStatus)) return true;
+        return switch (relationshipStatus.trim().toUpperCase(Locale.ROOT)) {
+            case "NONE", "REJECTED", "CANCELLED", "CANCELED" -> true;
+            default -> false;
+        };
     }
 
     /** 为 String.join 提供空安全文本。 */

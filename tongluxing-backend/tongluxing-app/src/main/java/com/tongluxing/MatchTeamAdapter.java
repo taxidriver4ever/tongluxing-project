@@ -74,7 +74,16 @@ public class MatchTeamAdapter implements MatchTeamPort {
         if (member != null && List.of("EXITED", "REMOVED").contains(member.getMemberStatus())) {
             return member.getMemberStatus();
         }
-        return application == null ? "NONE" : application.getApplicationStatus();
+        if (application == null || application.getApplicationStatus() == null) {
+            return "NONE";
+        }
+        String applicationStatus = application.getApplicationStatus().toUpperCase(java.util.Locale.ROOT);
+        // 主动取消代表当前已不存在申请关系，推荐和详情页应立即恢复“申请加入”。
+        // 同时兼容历史数据中可能存在的美式拼写 CANCELED。
+        if (List.of("CANCELLED", "CANCELED").contains(applicationStatus)) {
+            return "NONE";
+        }
+        return applicationStatus;
     }
 
     @Override

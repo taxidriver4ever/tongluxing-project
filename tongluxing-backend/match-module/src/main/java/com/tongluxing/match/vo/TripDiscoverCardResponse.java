@@ -21,7 +21,6 @@ public record TripDiscoverCardResponse(
         Integer matchScore,
         Integer distanceMeters,
         List<String> tags,
-        String coverImageKey,
         String relationshipStatus,
         TripDiscoverOwnerResponse owner,
         String tripType,

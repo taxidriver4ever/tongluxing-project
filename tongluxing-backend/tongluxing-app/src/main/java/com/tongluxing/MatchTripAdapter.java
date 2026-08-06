@@ -106,9 +106,12 @@ public class MatchTripAdapter implements MatchTripPort {
                 vehicle == null ? null : vehicle.getVehicleType(),
                 vehicleSummary.isBlank() ? "已认证车辆" : vehicleSummary,
                 trip.getVehicleRequirements(), trip.getBudgetDescription(),
-                trip.getTitle(), trip.getDescription(), trip.getCoverImageKey(),
+                trip.getTitle(), trip.getDescription(),
                 trip.getStartName(), trip.getEndName(),
-                decimal(trip.getStartLat()), decimal(trip.getStartLng()), decimal(trip.getEndLat()), decimal(trip.getEndLng()),
+                decimal(firstNonNull(trip.getStartLatitude(), trip.getStartLat())),
+                decimal(firstNonNull(trip.getStartLongitude(), trip.getStartLng())),
+                decimal(firstNonNull(trip.getEndLatitude(), trip.getEndLat())),
+                decimal(firstNonNull(trip.getEndLongitude(), trip.getEndLng())),
                 trip.getDepartureTime(), trip.getEstimatedDays(), trip.getRouteDistance(), trip.getRouteDuration(),
                 trip.getRoutePolyline(), trip.getWaypointsJson(), trip.getRemark(), trip.getTravelDepth(), trip.getExpectedPeople(),
                 trip.getMaxVehicleCount(), trip.getJoinedVehicleCount(), trip.getStatus(), trip.getPublicFlag(),
@@ -133,6 +136,11 @@ public class MatchTripAdapter implements MatchTripPort {
 
     private Double decimal(java.math.BigDecimal value) {
         return value == null ? null : value.doubleValue();
+    }
+
+    /** 优先使用标准位置字段，并兼容迁移前只写入 start_lat/end_lat 的历史数据。 */
+    private java.math.BigDecimal firstNonNull(java.math.BigDecimal primary, java.math.BigDecimal fallback) {
+        return primary == null ? fallback : primary;
     }
 
     private record OwnerSnapshot(UserQueryDTO profile, GrowthSummaryVO growth,

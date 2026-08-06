@@ -701,7 +701,6 @@ public class TripServiceImpl implements TripService {
                 : displayName(request.startLocation().name(), request.startLocation().address()) + "到"
                 + displayName(request.endLocation().name(), request.endLocation().address()));
         trip.setDescription(StringUtils.hasText(request.description()) ? normalize(request.description()) : normalize(request.remark()));
-        trip.setCoverImageKey(normalize(request.coverImageKey()));
         trip.setExpectedPeople(request.expectedPeople() == null ? defaultCapacity(request.maxVehicleCount()) : request.expectedPeople());
         fillLocations(trip, request.startLocation(), request.endLocation());
         trip.setRouteSummary(normalize(request.routeSummary()));
@@ -729,7 +728,6 @@ public class TripServiceImpl implements TripService {
                 : displayName(request.startLocation().name(), request.startLocation().address()) + "到"
                 + displayName(request.endLocation().name(), request.endLocation().address()));
         trip.setDescription(StringUtils.hasText(request.description()) ? normalize(request.description()) : normalize(request.remark()));
-        trip.setCoverImageKey(normalize(request.coverImageKey()));
         trip.setExpectedPeople(request.expectedPeople() == null ? defaultCapacity(request.maxVehicleCount()) : request.expectedPeople());
         fillLocations(trip, request.startLocation(), request.endLocation());
         trip.setRouteSummary(normalize(request.routeSummary()));
@@ -1075,7 +1073,6 @@ public class TripServiceImpl implements TripService {
                 trip.getVehicleId() == null ? null : String.valueOf(trip.getVehicleId()),
                 trip.getTitle(),
                 trip.getDescription(),
-                trip.getCoverImageKey(),
                 trip.getExpectedPeople(),
                 trip.getStartName(),
                 trip.getStartLat(),

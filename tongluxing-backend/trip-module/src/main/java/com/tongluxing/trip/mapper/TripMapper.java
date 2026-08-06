@@ -21,7 +21,7 @@ public interface TripMapper {
      * 根据行程 ID 查询未删除行程。
      */
     @Select("""
-            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -37,7 +37,7 @@ public interface TripMapper {
 
     /** 根据公开行程号精确查询，不支持前缀或模糊匹配。 */
     @Select("""
-            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -55,7 +55,7 @@ public interface TripMapper {
      * 查询用户当前活跃行程。
      */
     @Select("""
-            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -77,7 +77,7 @@ public interface TripMapper {
      * 发布的行程，保证距离和时间基准符合推荐规则。</p>
      */
     @Select("""
-            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -138,7 +138,7 @@ public interface TripMapper {
 
     /** 查询与新行程预计时间重叠的未来行程。 */
     @Select("""
-            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -177,7 +177,7 @@ public interface TripMapper {
      * 查询用户历史行程。
      */
     @Select("""
-            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -200,7 +200,7 @@ public interface TripMapper {
     @Select("""
             select distinct
                    t.id, t.trip_number, t.user_id, t.trip_type, t.publisher_role, t.captain_user_id,
-                   t.auto_start_enabled, t.vehicle_id, t.title, t.description, t.cover_image_key, t.expected_people,
+                   t.auto_start_enabled, t.vehicle_id, t.title, t.description, t.expected_people,
                    t.start_name, t.start_lat, t.start_lng,
                    t.start_location_name, t.start_location_address, t.start_latitude, t.start_longitude,
                    t.end_name, t.end_lat, t.end_lng,
@@ -245,7 +245,7 @@ public interface TripMapper {
      * 查询公开且仍可参与的行程列表。
      */
     @Select("""
-            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -268,7 +268,7 @@ public interface TripMapper {
     @Insert("""
             insert into trip
                 (id, trip_number, user_id, trip_type, publisher_role, captain_user_id, vehicle_id,
-                 title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+                 title, description, expected_people, start_name, start_lat, start_lng,
                  start_location_name, start_location_address, start_latitude, start_longitude,
                  end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                  route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -280,7 +280,7 @@ public interface TripMapper {
                  created_at, updated_at, deleted)
             values
                 (#{id}, #{tripNumber}, #{userId}, #{tripType}, #{publisherRole}, #{captainUserId}, #{vehicleId},
-                 #{title}, #{description}, #{coverImageKey}, #{expectedPeople}, #{startName}, #{startLat}, #{startLng},
+                 #{title}, #{description}, #{expectedPeople}, #{startName}, #{startLat}, #{startLng},
                  #{startLocationName}, #{startLocationAddress}, #{startLatitude}, #{startLongitude},
                  #{endName}, #{endLat}, #{endLng}, #{endLocationName}, #{endLocationAddress}, #{endLatitude}, #{endLongitude},
                  #{routeSummary}, #{routePolylineKey}, #{routeDistance}, #{routeDuration}, #{routePolyline}, #{waypointsJson},
@@ -305,7 +305,6 @@ public interface TripMapper {
                 vehicle_id = #{vehicleId},
                 title = #{title},
                 description = #{description},
-                cover_image_key = #{coverImageKey},
                 expected_people = #{expectedPeople},
                 start_name = #{startName},
                 start_lat = #{startLat},
@@ -493,7 +492,7 @@ public interface TripMapper {
 
     /** 锁定当前用户的行程，供结束后的幂等结算使用。 */
     @Select("""
-            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
@@ -519,7 +518,7 @@ public interface TripMapper {
      * 查询当前用户正在驾驶中的行程。
      */
     @Select("""
-            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, cover_image_key, expected_people, start_name, start_lat, start_lng,
+            select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
                    route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,

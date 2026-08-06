@@ -24,8 +24,8 @@ class TripDiscoveryPage extends StatefulWidget {
   });
 
   final bool userHasTrip;
-  final VoidCallback? onTripCreated;
-  final VoidCallback? onApplicationSubmitted;
+  final Future<void> Function()? onTripCreated;
+  final Future<void> Function()? onApplicationSubmitted;
 
   @override
   State<TripDiscoveryPage> createState() => _TripDiscoveryPageState();
@@ -34,7 +34,6 @@ class TripDiscoveryPage extends StatefulWidget {
 class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
   static const int _pageSize = 10;
 
-  final ScrollController _scrollController = ScrollController();
   List<TripRecommendModel> _trips = const [];
   final Set<String> _busyTripIds = <String>{};
 
@@ -51,7 +50,6 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
   void initState() {
     super.initState();
     _userHasTrip = widget.userHasTrip;
-    _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load(reset: true));
   }
 
@@ -64,21 +62,16 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
     }
   }
 
-  @override
-  void dispose() {
-    _scrollController
-      ..removeListener(_onScroll)
-      ..dispose();
-    super.dispose();
-  }
-
-  void _onScroll() {
-    if (_scrollController.position.extentAfter < 360) {
+  bool _onScrollNotification(ScrollNotification notification) {
+    if (notification.metrics.axis == Axis.vertical &&
+        notification.metrics.extentAfter < 360) {
       _load(reset: false);
     }
+    return false;
   }
 
   Future<void> _load({required bool reset}) async {
+    if (!mounted) return;
     if (reset) {
       setState(() {
         _loading = true;
@@ -162,10 +155,14 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
       MaterialPageRoute(builder: (_) => const TripCreatePage()),
     );
     if (!mounted || created != true) return;
-    widget.onTripCreated?.call();
-    // 后端会重新判断是否已有可作为推荐基准的行程，因此这里先刷新列表，
-    // 不依赖本地猜测发布后的业务状态。
-    await _load(reset: true);
+    final callback = widget.onTripCreated;
+    if (callback != null) {
+      await callback();
+      return;
+    }
+    // 独立使用该页面时仍由自身重新请求；嵌入行程首页时交给父页面统一刷新
+    // 当前行程与推荐列表，避免父级重建后继续操作已经销毁的 State。
+    if (mounted) await _load(reset: true);
   }
 
   Future<void> _openDetail(TripRecommendModel trip) async {
@@ -222,8 +219,8 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
         );
         setState(() => _trips = next);
       }
-      widget.onApplicationSubmitted?.call();
       _showMessage('申请已提交，可在“我的行程-待出发”查看待审批状态');
+      await widget.onApplicationSubmitted?.call();
     } catch (error) {
       if (mounted) _showMessage(error.toString(), error: true);
     } finally {
@@ -271,7 +268,9 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
       return _RecommendState(
         icon: LucideIcons.routeOff,
         title: '暂无符合条件的推荐行程',
-        subtitle: '系统已过滤距离超过100km、时间差超过3天或已满员队伍',
+        subtitle: _userHasTrip
+            ? '系统已过滤顺路率低于20%、距离超过100km、时间差超过3天或已满员队伍'
+            : '系统已过滤距离超过100km、时间差超过3天或已满员队伍',
         actionText: _userHasTrip ? '刷新推荐' : '立即发布',
         onAction: _userHasTrip
             ? () => _load(reset: true)
@@ -279,11 +278,9 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: () => _load(reset: true),
-      color: AppColors.primary,
+    return NotificationListener<ScrollNotification>(
+      onNotification: _onScrollNotification,
       child: ListView.separated(
-        controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
         itemCount: 1 + _trips.length + (_loadingMore ? 1 : 0),
@@ -496,6 +493,7 @@ class _RecommendTripCard extends StatelessWidget {
     'PENDING' => '待审批',
     'JOINED' => '已加入',
     'OWNER' => '我的队伍',
+    'REJECTED' || 'CANCELLED' || 'CANCELED' => '重新申请',
     _ => '申请入队',
   };
 

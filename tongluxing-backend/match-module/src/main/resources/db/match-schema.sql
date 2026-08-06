@@ -91,7 +91,8 @@ CREATE TABLE IF NOT EXISTS trip_favorite (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP comment '记录创建时间',
   PRIMARY KEY (id),
   UNIQUE KEY uk_trip_favorite_user_trip (user_id, trip_id),
-  KEY idx_trip_favorite_user_time (user_id, created_at)
+  KEY idx_trip_favorite_user_time (user_id, created_at),
+  KEY idx_trip_favorite_trip_time (trip_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程收藏表';
 
 -- 受控行程咨询请求。互关或已入队用户直接沟通，不会写入此表；单向关注者写入
@@ -111,12 +112,12 @@ CREATE TABLE IF NOT EXISTS trip_consultation_request (
   KEY idx_trip_consult_receiver (receiver_user_id, request_status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程咨询请求表';
 
--- 队长评分汇总。推荐页使用 rating 进行 3.0 分过滤，使用 positive_rate 计算热度。
--- 好评率按 0~1 保存；尚无评价记录的队长由查询层使用 5.0 / 1.0 中性默认值。
+-- 队长真实评分汇总。推荐页使用 positive_rate 计算热度。
+-- 好评率按 0~1 保存；尚无评价记录时评分和好评率均为 0，不填充演示值。
 CREATE TABLE IF NOT EXISTS trip_leader_rating_summary (
   leader_user_id BIGINT NOT NULL comment '队长用户ID',
-  rating DECIMAL(3,2) NOT NULL DEFAULT 5.00 comment '队长综合评分，范围0~5',
-  positive_rate DECIMAL(5,4) NOT NULL DEFAULT 1.0000 comment '好评率，范围0~1',
+  rating DECIMAL(3,2) NOT NULL DEFAULT 0.00 comment '队长真实综合评分，范围0~5；无评价为0',
+  positive_rate DECIMAL(5,4) NOT NULL DEFAULT 0.0000 comment '真实好评率，范围0~1；无评价为0',
   rating_count INT NOT NULL DEFAULT 0 comment '有效评价数量',
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '汇总更新时间',
   deleted TINYINT(1) NOT NULL DEFAULT 0 comment '逻辑删除标记',

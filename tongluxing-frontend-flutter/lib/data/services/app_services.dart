@@ -308,7 +308,6 @@ class TripService {
             'vehicleId': raw['vehicleId'],
             'title': title,
             'description': description,
-            'coverImageKey': raw['coverImageKey'],
             'expectedPeople': expectedPeople ?? raw['expectedPeople'],
             'startLocation': startLocation ?? raw['startLocation'],
             'endLocation': endLocation ?? raw['endLocation'],

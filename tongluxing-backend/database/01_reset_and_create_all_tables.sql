@@ -655,7 +655,6 @@ create table if not exists trip (
                                     vehicle_id bigint null comment '发布者车辆ID；乘客需求为空',
                                     title varchar(128) not null default '' comment '展示标题',
                                     description varchar(1000) not null default '' comment '详细说明',
-                                    cover_image_key varchar(512) null comment '封面图在对象存储中的文件Key',
                                     expected_people int null comment '预计人数',
                                     start_name varchar(128) not null comment '起点名称',
                                     start_lat decimal(10,6) null comment '起点纬度',
@@ -779,7 +778,6 @@ create table if not exists trip_draft (
                                           user_id bigint not null comment '平台用户ID',
                                           title varchar(128) not null default '' comment '展示标题',
                                           description varchar(1000) not null default '' comment '详细说明',
-                                          cover_image_key varchar(512) null comment '封面图在对象存储中的文件Key',
                                           start_location_json json null comment '起点位置JSON数据',
                                           end_location_json json null comment '终点位置JSON数据',
                                           waypoint_json json not null comment '途经点JSON数据',
@@ -987,7 +985,8 @@ CREATE TABLE IF NOT EXISTS team_join_application (
                                                      PRIMARY KEY (id),
                                                      KEY idx_team_apply_applicant (applicant_user_id, application_status, created_at),
                                                      KEY idx_team_apply_team (team_id, application_status, created_at),
-                                                     KEY idx_team_apply_type (team_id, application_type, application_status, created_at)
+                                                     KEY idx_team_apply_type (team_id, application_type, application_status, created_at),
+                                                     KEY idx_team_apply_trip_user (trip_id, applicant_user_id, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='队伍加入申请表';
 
 CREATE TABLE IF NOT EXISTS team_audit_log (
@@ -1276,7 +1275,8 @@ CREATE TABLE IF NOT EXISTS trip_favorite (
                                              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP comment '记录创建时间',
                                              PRIMARY KEY (id),
                                              UNIQUE KEY uk_trip_favorite_user_trip (user_id, trip_id),
-                                             KEY idx_trip_favorite_user_time (user_id, created_at)
+                                             KEY idx_trip_favorite_user_time (user_id, created_at),
+                                             KEY idx_trip_favorite_trip_time (trip_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程收藏表';
 
 -- App 行程搜索历史：同一用户、关键词和搜索类型只保留一条。
@@ -2563,8 +2563,8 @@ create table if not exists sos_event
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS trip_leader_rating_summary (
                                                           leader_user_id BIGINT NOT NULL comment '队长用户ID',
-                                                          rating DECIMAL(3,2) NOT NULL DEFAULT 5.00 comment '队长综合评分，范围0~5',
-                                                          positive_rate DECIMAL(5,4) NOT NULL DEFAULT 1.0000 comment '好评率，范围0~1',
+                                                          rating DECIMAL(3,2) NOT NULL DEFAULT 0.00 comment '队长真实综合评分，范围0~5；无评价为0',
+                                                          positive_rate DECIMAL(5,4) NOT NULL DEFAULT 0.0000 comment '真实好评率，范围0~1；无评价为0',
                                                           rating_count INT NOT NULL DEFAULT 0 comment '有效评价数量',
                                                           updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP comment '汇总更新时间',
                                                           deleted TINYINT(1) NOT NULL DEFAULT 0 comment '逻辑删除标记',

@@ -40,6 +40,7 @@ public interface TeamJoinApplicationMapper {
             from team_join_application
             where team_id = #{teamId} and applicant_user_id = #{userId}
               and application_status = 'PENDING' and deleted = 0
+            order by created_at desc, id desc
             limit 1
             """)
     TeamJoinApplication findPending(@Param("teamId") Long teamId, @Param("userId") Long userId);
@@ -50,7 +51,7 @@ public interface TeamJoinApplicationMapper {
                    created_at, updated_at, deleted
             from team_join_application
             where team_id=#{teamId} and applicant_user_id=#{userId} and deleted=0
-            order by created_at desc limit 1
+            order by created_at desc, id desc limit 1
             """)
     TeamJoinApplication findLatest(@Param("teamId") Long teamId, @Param("userId") Long userId);
 

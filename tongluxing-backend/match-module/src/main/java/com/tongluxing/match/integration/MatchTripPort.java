@@ -70,7 +70,6 @@ public interface MatchTripPort {
      * @param budgetDescription 费用预算说明
      * @param title 行程标题
      * @param description 行程公开介绍
-     * @param coverImageKey 封面资源 Key
      * @param startName 起点名称
      * @param endName 终点名称
      * @param startLatitude 起点纬度
@@ -110,7 +109,6 @@ public interface MatchTripPort {
             String budgetDescription,
             String title,
             String description,
-            String coverImageKey,
             String startName,
             String endName,
             Double startLatitude,

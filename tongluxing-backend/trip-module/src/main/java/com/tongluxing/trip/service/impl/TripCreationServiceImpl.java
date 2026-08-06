@@ -129,7 +129,6 @@ public class TripCreationServiceImpl implements TripCreationService {
 
         if (request.title() != null) draft.setTitle(text(request.title()));
         if (request.description() != null) draft.setDescription(text(request.description()));
-        if (request.coverImageKey() != null) draft.setCoverImageKey(text(request.coverImageKey()));
         if (request.startTime() != null) draft.setDepartureTime(parseTime(request.startTime()));
         if (request.startLocation() != null) draft.setStartLocationJson(json(request.startLocation()));
         if (request.destination() != null) draft.setEndLocationJson(json(request.destination()));
@@ -281,7 +280,7 @@ public class TripCreationServiceImpl implements TripCreationService {
         LocationRequest start = location(draft.getStartLocationJson());
         LocationRequest end = location(draft.getEndLocationJson());
         TripResponse trip = tripService.createTrip(new CreateTripRequest(vehicle == null ? null : vehicle.vehicleId(), draft.getTitle(),
-                draft.getDescription(), draft.getCoverImageKey(), draft.getPeopleCount(), start, end,
+                draft.getDescription(), draft.getPeopleCount(), start, end,
                 start.name() + " - " + end.name(), formatTime(draft.getDepartureTime()), draft.getDurationDays(),
                 route.getPlanDistance(), route.getPlanDuration(), route.getPolyline(), draft.getPeopleCount(),
                 "MIDDLE", true, vehicleRequirementsList(draft.getVehicleRequirements()),
@@ -408,7 +407,7 @@ public class TripCreationServiceImpl implements TripCreationService {
         LocationRequest start = location(draft.getStartLocationJson());
         LocationRequest end = location(draft.getEndLocationJson());
         return new TripDraftDetailResponse(String.valueOf(draft.getId()), draft.getTitle(), formatTime(draft.getDepartureTime()),
-                response(start), response(end), draft.getDescription(), draft.getCoverImageKey(),
+                response(start), response(end), draft.getDescription(),
                 draft.getPeopleCount(), draft.getDurationDays(),
                 vehicleRequirementsList(draft.getVehicleRequirements()), draft.getBudgetDescription(), draft.getNotes(),
                 draft.getDraftStatus(), draft.getPublishedTripId() == null ? "" : String.valueOf(draft.getPublishedTripId()),

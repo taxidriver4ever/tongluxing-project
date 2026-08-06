@@ -86,8 +86,8 @@ class _TripHomePageState extends State<TripHomePage> {
   }
 
   Future<void> _refreshAll() async {
-    setState(() => refreshVersion++);
     await _loadDashboard();
+    if (mounted) setState(() => refreshVersion++);
   }
 
   Future<void> _openCreateTrip() async {
@@ -165,50 +165,53 @@ class _TripHomePageState extends State<TripHomePage> {
       children: [
         _TripHeader(onSearch: _openSearch, onCreate: _openCreateTrip),
         Expanded(
-          child: NestedScrollView(
-            key: ValueKey('trip-home-$refreshVersion'),
-            headerSliverBuilder: (context, innerBoxIsScrolled) => [
-              SliverToBoxAdapter(
-                child: _CurrentTripArea(
-                  loading: loadingDashboard,
-                  error: dashboardError,
-                  trips: currentTrips,
-                  joinedTripIds: joinedTripIds,
-                  activeCount: (dashboard['activeCount'] as num?)?.toInt() ??
-                      currentTrips.length,
-                  onRetry: _loadDashboard,
-                  onOpen: _openTrip,
-                  onNavigate: _openNavigation,
-                  onChat: _openConversation,
-                  onShare: _shareTrip,
-                ),
-              ),
-              SliverPersistentHeader(
-                pinned: true,
-                delegate: _TripTabHeaderDelegate(
-                  child: _TripPrimaryTabs(
-                    section: section,
-                    onChanged: (value) => setState(() => section = value),
+          child: RefreshIndicator(
+            onRefresh: _refreshAll,
+            color: AppColors.primary,
+            child: NestedScrollView(
+              key: ValueKey('trip-home-$refreshVersion'),
+              physics: const AlwaysScrollableScrollPhysics(),
+              headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                SliverToBoxAdapter(
+                  child: _CurrentTripArea(
+                    loading: loadingDashboard,
+                    error: dashboardError,
+                    trips: currentTrips,
+                    joinedTripIds: joinedTripIds,
+                    activeCount: (dashboard['activeCount'] as num?)?.toInt() ??
+                        currentTrips.length,
+                    onRetry: _loadDashboard,
+                    onOpen: _openTrip,
+                    onNavigate: _openNavigation,
+                    onChat: _openConversation,
+                    onShare: _shareTrip,
                   ),
                 ),
-              ),
-            ],
-            body: ColoredBox(
-              color: AppColors.background,
-              child: section == 0
-                  ? TripDiscoveryPage(
-                      userHasTrip: currentTrips.isNotEmpty,
-                      onTripCreated: _refreshAll,
-                      onApplicationSubmitted: () {
-                        setState(() => refreshVersion++);
-                      },
-                    )
-                  : _MyTripsPage(
-                      key: ValueKey('my-trips-$refreshVersion'),
-                      currentTrips: currentTrips,
-                      joinedTripIds: joinedTripIds,
-                      onChanged: _refreshAll,
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: _TripTabHeaderDelegate(
+                    child: _TripPrimaryTabs(
+                      section: section,
+                      onChanged: (value) => setState(() => section = value),
                     ),
+                  ),
+                ),
+              ],
+              body: ColoredBox(
+                color: AppColors.background,
+                child: section == 0
+                    ? TripDiscoveryPage(
+                        userHasTrip: currentTrips.isNotEmpty,
+                        onTripCreated: _refreshAll,
+                        onApplicationSubmitted: _refreshAll,
+                      )
+                    : _MyTripsPage(
+                        key: ValueKey('my-trips-$refreshVersion'),
+                        currentTrips: currentTrips,
+                        joinedTripIds: joinedTripIds,
+                        onChanged: _refreshAll,
+                      ),
+              ),
             ),
           ),
         ),

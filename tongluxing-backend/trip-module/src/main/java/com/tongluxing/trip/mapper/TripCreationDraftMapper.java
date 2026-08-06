@@ -16,35 +16,35 @@ import com.tongluxing.trip.entity.TripCreationDraft;
 public interface TripCreationDraftMapper {
 
     @Insert("""
-            insert into trip_draft(id,user_id,title,description,cover_image_key,start_location_json,end_location_json,waypoint_json,
+            insert into trip_draft(id,user_id,title,description,start_location_json,end_location_json,waypoint_json,
                 departure_time,duration_days,people_count,vehicle_requirements,budget_description,notes,remark,draft_status,created_at,updated_at,deleted)
-            values(#{id},#{userId},'', '', null, null, null, json_array(), null, null, null, '不限', null, null, '', 'DRAFT',#{now},#{now},0)
+            values(#{id},#{userId},'', '', null, null, json_array(), null, null, null, '不限', null, null, '', 'DRAFT',#{now},#{now},0)
             """)
     int insertEmpty(@Param("id") Long id, @Param("userId") Long userId, @Param("now") LocalDateTime now);
 
     @Select("""
-            select id,user_id,title,description,cover_image_key,start_location_json,end_location_json,departure_time,duration_days,
+            select id,user_id,title,description,start_location_json,end_location_json,departure_time,duration_days,
                    people_count,vehicle_requirements,budget_description,notes,remark,draft_status,published_trip_id,created_at,updated_at
             from trip_draft where id=#{id} and user_id=#{userId} and deleted=0 limit 1
             """)
     TripCreationDraft find(@Param("id") Long id, @Param("userId") Long userId);
 
     @Select("""
-            select id,user_id,title,description,cover_image_key,start_location_json,end_location_json,departure_time,duration_days,
+            select id,user_id,title,description,start_location_json,end_location_json,departure_time,duration_days,
                    people_count,vehicle_requirements,budget_description,notes,remark,draft_status,published_trip_id,created_at,updated_at
             from trip_draft where id=#{id} and user_id=#{userId} and deleted=0 limit 1 for update
             """)
     TripCreationDraft findForUpdate(@Param("id") Long id, @Param("userId") Long userId);
 
     @Select("""
-            select id,user_id,title,description,cover_image_key,start_location_json,end_location_json,departure_time,duration_days,
+            select id,user_id,title,description,start_location_json,end_location_json,departure_time,duration_days,
                    people_count,vehicle_requirements,budget_description,notes,remark,draft_status,published_trip_id,created_at,updated_at
             from trip_draft where user_id=#{userId} and draft_status=#{status} and deleted=0 order by updated_at desc
             """)
     List<TripCreationDraft> findByStatus(@Param("userId") Long userId, @Param("status") String status);
 
     @Update("""
-            update trip_draft set title=#{title},description=#{description},cover_image_key=#{coverImageKey},start_location_json=#{startLocationJson},
+            update trip_draft set title=#{title},description=#{description},start_location_json=#{startLocationJson},
                 end_location_json=#{endLocationJson},departure_time=#{departureTime},duration_days=#{durationDays},
                 people_count=#{peopleCount},vehicle_requirements=#{vehicleRequirements},
                 budget_description=#{budgetDescription},notes=#{notes},remark=#{notes},updated_at=#{updatedAt}

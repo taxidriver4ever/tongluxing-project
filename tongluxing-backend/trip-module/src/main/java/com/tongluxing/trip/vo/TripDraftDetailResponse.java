@@ -5,7 +5,7 @@ import java.util.List;
 /** 创建行程草稿详情。 */
 public record TripDraftDetailResponse(
         String draftId, String title, String startTime, LocationResponse startLocation,
-        LocationResponse destination, String description, String coverImageKey, Integer expectPeople, Integer durationDays,
+        LocationResponse destination, String description, Integer expectPeople, Integer durationDays,
         List<String> vehicleRequirements, String budgetDescription, String notes,
         String status, String publishedTripId, List<TripCreationWaypointResponse> waypoints,
         TripDraftRouteResponse route, String updatedAt

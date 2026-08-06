@@ -95,7 +95,6 @@ class TripDraftModel {
     this.startLocation,
     this.destination,
     this.description = '',
-    this.coverImageKey = '',
     this.expectPeople = 5,
     this.durationDays = 1,
     this.vehicleRequirements = const ['不限'],
@@ -112,7 +111,6 @@ class TripDraftModel {
   final LocationSelection? startLocation;
   final LocationSelection? destination;
   final String description;
-  final String coverImageKey;
   final int expectPeople;
   final int durationDays;
   final List<String> vehicleRequirements;
@@ -138,7 +136,6 @@ class TripDraftModel {
           )
         : null,
     description: json['description']?.toString() ?? '',
-    coverImageKey: json['coverImageKey']?.toString() ?? '',
     expectPeople: _int(json['expectPeople']) ?? 5,
     durationDays: _int(json['durationDays']) ?? 1,
     vehicleRequirements: (json['vehicleRequirements'] as List? ?? const ['不限'])
@@ -256,7 +253,6 @@ class TripModel {
     this.joinedVehicles = 0,
     this.maxVehicles = 0,
     this.description,
-    this.coverImageKey = '',
     this.waypoints = const [],
     this.startLocation,
     this.endLocation,
@@ -281,7 +277,6 @@ class TripModel {
   final int joinedVehicles;
   final int maxVehicles;
   final String? description;
-  final String coverImageKey;
   final List<LocationSelection> waypoints;
   final LocationSelection? startLocation;
   final LocationSelection? endLocation;
@@ -324,7 +319,6 @@ class TripModel {
     joinedVehicles: _int(json['joinedVehicleCount']) ?? 0,
     maxVehicles: _int(json['maxVehicleCount']) ?? 0,
     description: json['description']?.toString(),
-    coverImageKey: json['coverImageKey']?.toString() ?? '',
     waypoints: (json['waypoints'] as List? ?? const [])
         .whereType<Map>()
         .map((e) => LocationSelection.fromJson(Map<String, dynamic>.from(e)))
@@ -701,7 +695,6 @@ class TripDiscoverModel {
     this.matchScore,
     this.distanceMeters,
     this.tags = const [],
-    this.coverImageKey = '',
     this.relationshipStatus = 'NONE',
     this.tripType = '',
     this.publisherRole = '',
@@ -726,7 +719,6 @@ class TripDiscoverModel {
   final int? matchScore;
   final int? distanceMeters;
   final List<String> tags;
-  final String coverImageKey;
   final String relationshipStatus;
   final String tripType;
   final String publisherRole;
@@ -757,7 +749,6 @@ class TripDiscoverModel {
         tags: (json['tags'] as List? ?? const [])
             .map((e) => e.toString())
             .toList(),
-        coverImageKey: json['coverImageKey']?.toString() ?? '',
         relationshipStatus: json['relationshipStatus']?.toString() ?? 'NONE',
         tripType: json['tripType']?.toString() ?? '',
         publisherRole: json['publisherRole']?.toString() ?? '',

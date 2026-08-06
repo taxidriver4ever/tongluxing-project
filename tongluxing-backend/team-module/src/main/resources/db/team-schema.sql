@@ -88,7 +88,8 @@ CREATE TABLE IF NOT EXISTS team_join_application (
   PRIMARY KEY (id),
   KEY idx_team_apply_applicant (applicant_user_id, application_status, created_at),
   KEY idx_team_apply_team (team_id, application_status, created_at),
-  KEY idx_team_apply_type (team_id, application_type, application_status, created_at)
+  KEY idx_team_apply_type (team_id, application_type, application_status, created_at),
+  KEY idx_team_apply_trip_user (trip_id, applicant_user_id, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='队伍加入申请表';
 
 CREATE TABLE IF NOT EXISTS team_audit_log (

@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -76,11 +74,6 @@ class _TripCreatePageState extends State<TripCreatePage> {
   int routeGeneration = 0;
   String? plannedRouteSignature;
 
-  Uint8List? coverBytes;
-  String coverFileName = '';
-  String coverImageKey = '';
-  String coverDownloadUrl = '';
-
   @override
   void initState() {
     super.initState();
@@ -123,10 +116,6 @@ class _TripCreatePageState extends State<TripCreatePage> {
           ? draft.route
           : null;
       if (route != null) plannedRouteSignature = _routeSignature();
-      coverImageKey = draft.coverImageKey;
-      if (coverImageKey.isNotEmpty) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _loadCoverUrl());
-      }
     } else {
       start = widget.initialStart;
       end = widget.initialEnd;
@@ -449,71 +438,12 @@ class _TripCreatePageState extends State<TripCreatePage> {
       '${value.year}年${value.month}月${value.day}日'
       '${dateOnly ? '' : ' ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}'}';
 
-  Future<void> _loadCoverUrl() async {
-    try {
-      final value = await StorageUploadService(
-        context.read<AppSession>().api,
-      ).downloadUrlByObjectKey(coverImageKey);
-      if (mounted) setState(() => coverDownloadUrl = value);
-    } catch (_) {
-      // 草稿封面加载失败不阻断节点编辑。
-    }
-  }
-
-  Future<void> _pickCover() async {
-    try {
-      final image = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 88,
-        maxWidth: 1920,
-      );
-      if (image == null || !mounted) return;
-      final bytes = await image.readAsBytes();
-      if (bytes.length > 10 * 1024 * 1024) {
-        throw const ApiException('行程封面不能超过 10MB');
-      }
-      setState(() {
-        coverBytes = bytes;
-        coverFileName = image.name;
-        coverDownloadUrl = '';
-      });
-    } catch (error) {
-      _showMessage('$error');
-    }
-  }
-
-  Future<void> _ensureCoverUploaded() async {
-    final bytes = coverBytes;
-    if (bytes == null) return;
-    final storageService = StorageUploadService(context.read<AppSession>().api);
-    final uploaded = await storageService.upload(
-      bizType: 'TRIP_COVER',
-      bizId: draftId ?? context.read<AppSession>().userId,
-      fileName: coverFileName.isEmpty ? 'trip-cover.jpg' : coverFileName,
-      bytes: bytes,
-    );
-    final uploadedKey = uploaded['objectKey']?.toString() ?? '';
-    if (uploadedKey.isEmpty) {
-      throw const ApiException('行程封面上传结果缺少 objectKey');
-    }
-    coverImageKey = uploadedKey;
-    coverBytes = null;
-    try {
-      coverDownloadUrl = await storageService.downloadUrlByObjectKey(
-        coverImageKey,
-      );
-    } catch (_) {
-      coverDownloadUrl = '';
-    }
-  }
-
   Map<String, dynamic> _draftBody({bool includeRoute = true}) => {
     'title': title.text.trim().isEmpty ? null : title.text.trim(),
     'startTime': startTime == null ? null : _formatTime(startTime!),
     if (includeRoute) 'startLocation': start?.toJson(),
     if (includeRoute) 'destination': end?.toJson(),
     'description': description.text.trim(),
-    'coverImageKey': coverImageKey.isEmpty ? null : coverImageKey,
     'expectPeople': expectPeople,
     'durationDays': startTime == null || expectedEndDate == null
         ? 1
@@ -619,7 +549,6 @@ class _TripCreatePageState extends State<TripCreatePage> {
   Future<bool> _saveAll({bool plan = true}) async {
     setState(() => submitting = true);
     try {
-      await _ensureCoverUploaded();
       if (start != null && end != null) {
         return await _persistRoute(plan: plan, showError: true);
       }
@@ -673,7 +602,6 @@ class _TripCreatePageState extends State<TripCreatePage> {
     }
     setState(() => submitting = true);
     try {
-      await _ensureCoverUploaded();
       final id = await _ensureDraft();
       await _tripService.updateDraft(id, _draftBody());
       if (!mounted) return;
@@ -706,7 +634,6 @@ class _TripCreatePageState extends State<TripCreatePage> {
     }
     setState(() => submitting = true);
     try {
-      await _ensureCoverUploaded();
       final id = await _ensureDraft();
       if (!await _persistRoute(plan: true, showError: true)) return;
       if (!await _confirmTimeConflict()) return;
@@ -1149,12 +1076,6 @@ class _TripCreatePageState extends State<TripCreatePage> {
         style: TextStyle(color: AppColors.secondaryText),
       ),
       const SizedBox(height: 20),
-      _TripCoverPicker(
-        bytes: coverBytes,
-        downloadUrl: coverDownloadUrl,
-        onTap: submitting ? null : _pickCover,
-      ),
-      const SizedBox(height: 18),
       TextField(
         controller: title,
         maxLength: 128,
@@ -1916,133 +1837,6 @@ class _PublishRouteSummary extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         const _ReferenceRouteNotice(),
-      ],
-    ),
-  );
-}
-
-class _TripCoverPicker extends StatelessWidget {
-  const _TripCoverPicker({
-    required this.bytes,
-    required this.downloadUrl,
-    required this.onTap,
-  });
-
-  final Uint8List? bytes;
-  final String downloadUrl;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final image = bytes != null
-        ? Image.memory(bytes!, fit: BoxFit.cover)
-        : downloadUrl.isNotEmpty
-        ? Image.network(
-            downloadUrl,
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => _placeholder(),
-          )
-        : _placeholder();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Row(
-          children: [
-            Text(
-              '行程封面',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-            ),
-            SizedBox(width: 6),
-            Text('选填', style: TextStyle(color: AppColors.muted, fontSize: 12)),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            child: SizedBox(
-              width: double.infinity,
-              height: 176,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  image,
-                  if (onTap != null)
-                    Positioned(
-                      right: 12,
-                      bottom: 12,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 13,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xCC10294F),
-                          borderRadius: BorderRadius.circular(99),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              LucideIcons.imagePlus,
-                              color: Colors.white,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              bytes == null && downloadUrl.isEmpty
-                                  ? '上传封面'
-                                  : '更换封面',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _placeholder() => Container(
-    decoration: const BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [Color(0xFF90CAF9), Color(0xFF246ED8)],
-      ),
-    ),
-    child: const Stack(
-      children: [
-        Positioned(
-          right: -16,
-          bottom: -20,
-          child: Icon(
-            LucideIcons.mountainSnow,
-            size: 180,
-            color: Color(0x50FFFFFF),
-          ),
-        ),
-        Center(
-          child: Text(
-            '让同行先看见这段旅程',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
       ],
     ),
   );

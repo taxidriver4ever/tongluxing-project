@@ -20,7 +20,6 @@ public record CreateTripRequest(
         Long vehicleId,
         @Size(max = 128) String title,
         @Size(max = 1000) String description,
-        @Size(max = 512) String coverImageKey,
         @Min(1) @Max(50) Integer expectedPeople,
         @Valid @NotNull LocationRequest startLocation,
         @Valid @NotNull LocationRequest endLocation,
@@ -42,12 +41,12 @@ public record CreateTripRequest(
 ) {
     /** 兼容项目内部尚未显式传递 P0 新字段的旧构造调用。 */
     public CreateTripRequest(
-            Long vehicleId, String title, String description, String coverImageKey, Integer expectedPeople,
+            Long vehicleId, String title, String description, Integer expectedPeople,
             LocationRequest startLocation, LocationRequest endLocation, String routeSummary, String departureTime,
             Integer estimatedDays, Integer routeDistance, Integer routeDuration, String routePolyline,
             Integer maxVehicleCount, String travelDepth, Boolean publicFlag, List<String> vehicleRequirements,
             String budgetDescription, String remark, List<WaypointLocationRequest> waypoints) {
-        this(vehicleId, title, description, coverImageKey, expectedPeople, startLocation, endLocation,
+        this(vehicleId, title, description, expectedPeople, startLocation, endLocation,
                 routeSummary, departureTime, estimatedDays, routeDistance, routeDuration, routePolyline,
                 maxVehicleCount, travelDepth, publicFlag, vehicleRequirements, budgetDescription, remark,
                 waypoints, "AUTO", Boolean.TRUE);

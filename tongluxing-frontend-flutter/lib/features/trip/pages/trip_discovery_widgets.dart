@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:provider/provider.dart';
 
-import '../../../app/app_session.dart';
 import '../../../common/utils/display_text.dart';
 import '../../../data/models/app_models.dart';
-import '../../../data/services/app_services.dart';
 import '../../profile/widgets/user_avatar.dart';
 import '../widgets/trip_discovery_theme.dart';
 
@@ -153,15 +150,6 @@ class TripDiscoveryCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 9),
-                SizedBox(
-                  width: 102,
-                  height: 80,
-                  child: TripCoverImage(
-                    imageKey: trip.coverImageKey,
-                    score: trip.matchScore ?? 0,
-                  ),
-                ),
               ],
             ),
             if (trip.tags.isNotEmpty) ...[
@@ -278,113 +266,6 @@ class TripDiscoveryCard extends StatelessWidget {
       ),
     ),
   );
-}
-
-class TripCoverImage extends StatefulWidget {
-  const TripCoverImage({
-    required this.imageKey,
-    required this.score,
-    this.borderRadius = 11,
-    super.key,
-  });
-
-  final String imageKey;
-  final int score;
-  final double borderRadius;
-
-  @override
-  State<TripCoverImage> createState() => _TripCoverImageState();
-}
-
-class _TripCoverImageState extends State<TripCoverImage> {
-  Future<String>? future;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _resolve();
-  }
-
-  @override
-  void didUpdateWidget(covariant TripCoverImage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.imageKey != widget.imageKey) {
-      future = null;
-      _resolve();
-    }
-  }
-
-  void _resolve() {
-    if (future != null || widget.imageKey.trim().isEmpty) return;
-    future = StorageUploadService(
-      context.read<AppSession>().api,
-    ).downloadUrlByObjectKey(widget.imageKey);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final fallback = Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(widget.borderRadius),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: widget.score >= 85
-              ? const [Color(0xFF9AD3FA), Color(0xFF246CC7)]
-              : const [Color(0xFFBCDDF7), Color(0xFF5D91C7)],
-        ),
-      ),
-      child: const Stack(
-        children: [
-          Positioned(
-            right: -10,
-            bottom: -9,
-            child: Icon(
-              LucideIcons.mountainSnow,
-              size: 74,
-              color: Color(0x68FFFFFF),
-            ),
-          ),
-          Positioned(
-            left: 7,
-            bottom: 6,
-            child: Row(
-              children: [
-                Icon(LucideIcons.image, size: 10, color: Colors.white),
-                SizedBox(width: 4),
-                Text(
-                  '行程封面',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 8.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-    if (future == null) return fallback;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(widget.borderRadius),
-      child: FutureBuilder<String>(
-        future: future,
-        builder: (context, snapshot) {
-          final url = snapshot.data ?? '';
-          if (url.isEmpty) return fallback;
-          return Image.network(
-            url,
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => fallback,
-            loadingBuilder: (context, child, progress) =>
-                progress == null ? child : fallback,
-          );
-        },
-      ),
-    );
-  }
 }
 
 class RouteSketch extends StatelessWidget {

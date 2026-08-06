@@ -24,7 +24,6 @@ public class Trip {
     private Integer autoStartEnabled;
     private String title;
     private String description;
-    private String coverImageKey;
     private Integer expectedPeople;
     private String startName;
     private BigDecimal startLat;

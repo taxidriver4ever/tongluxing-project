@@ -416,6 +416,7 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
       'JOINED' => '进入群聊',
       'PENDING' => '审核中',
       'REJECTED' => value.allowApply ? '重新申请' : '申请已拒绝',
+      'CANCELLED' || 'CANCELED' => value.allowApply ? '重新申请' : '申请已取消',
       _ =>
         value.joinable
             ? '申请加入'

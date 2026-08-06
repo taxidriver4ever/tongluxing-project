@@ -9,11 +9,11 @@ import '../../../data/models/app_models.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import '../../chat/pages/chat_session_page.dart';
+import '../../home/pages/main_tab_controller.dart';
 import 'trip_create_page.dart';
 import 'trip_detail_page.dart';
 import 'trip_discovery_detail_page.dart';
 import 'trip_discovery_page.dart';
-import 'trip_navigation_page.dart';
 import 'trip_quick_edit_page.dart';
 import 'trip_search_results_page.dart';
 
@@ -119,11 +119,7 @@ class _TripHomePageState extends State<TripHomePage> {
   }
 
   Future<void> _openNavigation(TripModel trip) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => TripNavigationPage(trip: trip)),
-    );
-    if (mounted) await _refreshAll();
+    MainTabController.showMap(refresh: true);
   }
 
   Future<void> _openConversation(TripModel trip) async {
@@ -1195,11 +1191,11 @@ class _MyTripsPageState extends State<_MyTripsPage> {
               trip: trip,
               joined: widget.joinedTripIds.contains(trip.id),
               category: category,
-              onOpen: () => _open(
-                category == 1
-                    ? TripNavigationPage(trip: trip)
-                    : TripDetailPage(tripId: trip.id, initial: trip),
-              ),
+              onOpen: category == 1
+                  ? () => MainTabController.showMap(refresh: true)
+                  : () => _open(
+                        TripDetailPage(tripId: trip.id, initial: trip),
+                      ),
               onChat: () => _openChat(trip),
             );
           },

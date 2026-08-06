@@ -113,11 +113,14 @@ class ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final session = context.watch<AppSession>();
-    final nickname = profile['nickname']?.toString().isNotEmpty == true
-        ? profile['nickname'].toString()
+    final tongluxingId = profile['tongluxingId']?.toString().trim() ?? '';
+    final rawNickname = profile['nickname']?.toString().trim() ?? '';
+    final nickname = rawNickname.isNotEmpty &&
+            (tongluxingId.isEmpty ||
+                rawNickname.toUpperCase() != tongluxingId.toUpperCase())
+        ? rawNickname
         : '同路行用户';
     final approvedMerchant = merchantApplication?['auditStatus'] == 'APPROVED';
-    final tongluxingId = profile['tongluxingId']?.toString().trim() ?? '';
 
     void openPublicProfile() => _open(
       PublicProfilePage(userId: session.userId ?? '0'),

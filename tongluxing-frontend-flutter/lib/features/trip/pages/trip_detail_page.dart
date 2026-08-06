@@ -12,7 +12,7 @@ import '../../../common/widgets/app_widgets.dart';
 import '../../../data/models/app_models.dart';
 import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
-import 'trip_navigation_page.dart';
+import '../../home/pages/main_tab_controller.dart';
 import 'trip_quick_edit_page.dart';
 import 'trip_route_map_page.dart';
 import '../widgets/trip_route_preview.dart';
@@ -92,12 +92,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
             ) ??
             false;
         if (openCurrent && mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => TripDetailPage(tripId: runningTripId),
-            ),
-          );
+          _returnToMapTab();
         }
         return;
       }
@@ -177,10 +172,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
         accuracy: accuracy,
       );
       if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => TripNavigationPage(trip: trip!)),
-      );
+      _returnToMapTab();
     } on PlatformException catch (e) {
       _showStartMessage(
         e.message?.trim().isNotEmpty == true
@@ -201,6 +193,13 @@ class _TripDetailPageState extends State<TripDetailPage> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _returnToMapTab() {
+    MainTabController.showMap(refresh: true);
+    Navigator.of(context).popUntil(
+      (route) => route.settings.name == AppRoutes.home || route.isFirst,
+    );
   }
 
   double _distanceMeters(
@@ -404,12 +403,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
                       onOpenChat: openChat,
                       onStart: start,
                       onSettle: settle,
-                      onContinue: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => TripNavigationPage(trip: trip!),
-                        ),
-                      ),
+                      onContinue: _returnToMapTab,
                     ),
                   ),
                 ],

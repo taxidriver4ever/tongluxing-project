@@ -59,10 +59,10 @@ public class UserServiceImpl implements UserService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     /** 当前用户完整资料缓存 Key。 */
-    private static final String PROFILE_CACHE = "user:cache:profile:v2:%d";
+    private static final String PROFILE_CACHE = "user:cache:profile:v3:%d";
 
     /** 用户公开资料缓存 Key。 */
-    private static final String PUBLIC_CACHE = "user:cache:public-card:v2:%d";
+    private static final String PUBLIC_CACHE = "user:cache:public-card:v3:%d";
 
     /** 统一解析 Spring Security 中的当前登录用户，避免各方法自行猜测 principal 类型。 */
     private final CurrentUserContext currentUserContext;
@@ -662,7 +662,16 @@ public class UserServiceImpl implements UserService {
     }
 
     private String displayNickname(String nickname, String tongluxingId) {
-        return StringUtils.hasText(nickname) ? nickname.trim() : tongluxingId;
+        if (!StringUtils.hasText(nickname)) {
+            return "同路行用户";
+        }
+        String normalized = nickname.trim();
+        // 历史版本曾把同路行号写入 nickname；它只是公开编号，不能作为昵称展示。
+        if (StringUtils.hasText(tongluxingId)
+                && normalized.equalsIgnoreCase(tongluxingId.trim())) {
+            return "同路行用户";
+        }
+        return normalized;
     }
 
     /**

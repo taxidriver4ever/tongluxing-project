@@ -108,3 +108,12 @@ create table if not exists user_follow (
     key idx_user_follow_followed (followed_user_id, created_at),
     key idx_user_follow_follower (follower_user_id, created_at)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci comment='用户关注关系表';
+
+-- 历史兼容：旧版本曾把公开同路行号写入 nickname，导致“我的”页把编号当成昵称。
+-- 本更新幂等且仅清理 nickname 与 tongluxing_id 完全相同的系统占位值，真实昵称不会受影响。
+UPDATE user_profile
+SET nickname = '', updated_at = NOW()
+WHERE deleted = 0
+  AND tongluxing_id IS NOT NULL
+  AND TRIM(tongluxing_id) <> ''
+  AND UPPER(TRIM(nickname)) = UPPER(TRIM(tongluxing_id));

@@ -1064,7 +1064,14 @@ class _EditProfilePageState extends State<EditProfilePage> {
     try {
       final api = context.read<AppSession>().api;
       final p = await UserProfileService(api).me();
-      nickname.text = p['nickname']?.toString() ?? '';
+      final tongluxingId = p['tongluxingId']?.toString().trim() ?? '';
+      final loadedNickname = p['nickname']?.toString().trim() ?? '';
+      nickname.text = loadedNickname.isNotEmpty &&
+              loadedNickname != '同路行用户' &&
+              (tongluxingId.isEmpty ||
+                  loadedNickname.toUpperCase() != tongluxingId.toUpperCase())
+          ? loadedNickname
+          : '';
       city.text = p['cityName']?.toString() ?? '';
       cityCode = p['cityCode']?.toString() ?? '';
       bio.text = p['bio']?.toString() ?? '';

@@ -415,6 +415,30 @@ class TripService {
         await api.get('/v1/driver-tracks/trips/$tripId/deviation') as Map,
       );
 
+  Future<List<LocationSelection>> trackPoints(
+    String tripId, {
+    String? driverId,
+  }) async {
+    final data = Map<String, dynamic>.from(
+      await api.get('/v1/driver-tracks/trips/$tripId') as Map,
+    );
+    return (data['points'] as List? ?? const [])
+        .whereType<Map>()
+        .where(
+          (row) => driverId == null || row['driverId']?.toString() == driverId,
+        )
+        .map(
+          (row) => LocationSelection(
+            id: row['id']?.toString(),
+            name: '',
+            address: row['recordTime']?.toString() ?? '',
+            latitude: (row['latitude'] as num).toDouble(),
+            longitude: (row['longitude'] as num).toDouble(),
+          ),
+        )
+        .toList(growable: false);
+  }
+
   Future<TripSettlementModel> settle(String id) async =>
       TripSettlementModel.fromJson(
         Map<String, dynamic>.from(

@@ -9,6 +9,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/app_session.dart';
+import '../../../app/routes.dart';
 import '../../../app/theme.dart';
 import '../../../common/utils/display_text.dart';
 import '../../../data/models/app_models.dart';
@@ -16,6 +17,7 @@ import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import '../../profile/pages/profile_system_pages.dart';
 import '../../profile/widgets/user_avatar.dart';
+import '../../home/pages/main_tab_controller.dart';
 import 'chat_location_detail_page.dart';
 import 'chat_management_pages.dart';
 
@@ -1507,7 +1509,14 @@ class _TripConfirmationCardPageState extends State<TripConfirmationCardPage> {
                         widget.conversation.id,
                         widget.confirmationId,
                       );
-                      if (context.mounted) Navigator.pop(context);
+                      if (context.mounted) {
+                        MainTabController.showMap(refresh: true);
+                        Navigator.of(context).popUntil(
+                          (route) =>
+                              route.settings.name == AppRoutes.home ||
+                              route.isFirst,
+                        );
+                      }
                     },
                     icon: const Icon(LucideIcons.navigation),
                     label: const Text('开启行程'),

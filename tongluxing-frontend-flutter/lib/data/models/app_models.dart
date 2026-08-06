@@ -250,6 +250,10 @@ class TripModel {
     this.ownerUserId,
     this.departureTime,
     this.distanceMeters,
+    this.plannedDistanceMeters = 0,
+    this.routeDurationSeconds = 0,
+    this.actualStartTime,
+    this.actualEndTime,
     this.joinedVehicles = 0,
     this.maxVehicles = 0,
     this.description,
@@ -274,6 +278,10 @@ class TripModel {
   final String? ownerUserId;
   final String? departureTime;
   final int? distanceMeters;
+  final int plannedDistanceMeters;
+  final int routeDurationSeconds;
+  final String? actualStartTime;
+  final String? actualEndTime;
   final int joinedVehicles;
   final int maxVehicles;
   final String? description;
@@ -314,6 +322,10 @@ class TripModel {
     ownerUserId: json['userId']?.toString() ?? json['ownerUserId']?.toString(),
     departureTime: json['departureTime']?.toString(),
     distanceMeters: _int(json['totalDistanceMeters'] ?? json['routeDistance']),
+    plannedDistanceMeters: _int(json['routeDistance']) ?? 0,
+    routeDurationSeconds: _int(json['routeDuration']) ?? 0,
+    actualStartTime: json['actualStartTime']?.toString(),
+    actualEndTime: json['actualEndTime']?.toString(),
     joinedVehicles: _int(json['joinedVehicleCount']) ?? 0,
     maxVehicles: _int(json['maxVehicleCount']) ?? 0,
     description: json['description']?.toString(),

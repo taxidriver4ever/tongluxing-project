@@ -94,13 +94,13 @@ public interface UserDomainMapper {
     /**
      * 创建用户默认资料。
      *
-     * <p>默认资料在用户首次访问用户模块能力时懒初始化。</p>
+     * <p>默认资料在用户首次访问用户模块能力时懒初始化；同路行号与昵称必须保持为两个独立字段。</p>
      *
      * @return 成功插入的行数；并发初始化可能由唯一索引抛出重复键异常
      */
     @Insert("""
             insert into user_profile(id,user_id,tongluxing_id,nickname,avatar_image_key,gender,birthday,city_code,city_name,bio,profile_status,created_at,updated_at,deleted)
-            values(#{id},#{userId},#{tongluxingId},#{tongluxingId}, '',0,null,'','', '', 'ACTIVE',#{now},#{now},0)
+            values(#{id},#{userId},#{tongluxingId},'', '',0,null,'','', '', 'ACTIVE',#{now},#{now},0)
             """)
     int insertProfile(@Param("id") Long id, @Param("userId") Long userId,
                       @Param("tongluxingId") String tongluxingId, @Param("now") LocalDateTime now);

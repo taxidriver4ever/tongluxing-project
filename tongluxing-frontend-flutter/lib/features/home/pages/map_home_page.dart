@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:amap_map/amap_map.dart';
 import 'package:flutter/foundation.dart';
@@ -6,17 +7,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:x_amap_base/x_amap_base.dart';
 
 import '../../../app/app_session.dart';
 import '../../../app/theme.dart';
 import '../../../data/models/app_models.dart';
+import '../../../data/services/api_client.dart';
 import '../../../data/services/app_services.dart';
 import '../../../data/services/location_snapshot.dart';
+import '../../../data/services/track_upload_queue.dart';
 import '../../chat/pages/chat_session_page.dart';
 import '../../trip/pages/trip_create_page.dart';
 import '../../trip/pages/trip_discovery_detail_page.dart';
-import '../../trip/pages/trip_navigation_page.dart';
 import '../../trip/pages/trip_search_results_page.dart';
 import 'sos_confirm_page.dart';
 
@@ -40,10 +43,10 @@ class MapHomePage extends StatefulWidget {
       const bool.fromEnvironment('AMAP_NATIVE', defaultValue: true);
 
   @override
-  State<MapHomePage> createState() => _MapHomePageState();
+  State<MapHomePage> createState() => MapHomePageState();
 }
 
-class _MapHomePageState extends State<MapHomePage> {
+class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
   static const _permissionChannel = MethodChannel('com.tongluxing/permissions');
 
   AMapController? mapController;
@@ -57,11 +60,26 @@ class _MapHomePageState extends State<MapHomePage> {
   String? error;
   TripModel? currentTrip;
   TripModel? completedTrip;
+  List<LocationSelection> exactRoutePoints = const [];
+  List<LocationSelection> teamLocations = const [];
   List<TripRecommendModel> hotTrips = const [];
   int unreadMessageCount = 0;
   bool loadingUnreadMessageCount = false;
   StreamSubscription<void>? imConversationSubscription;
   StreamSubscription<void>? imMessageSubscription;
+  final TrackUploadQueue trackQueue = TrackUploadQueue();
+  Timer? trackTimer;
+  String? trackingTripId;
+  String? conversationId;
+  DateTime? lastTrackCapturedAt;
+  DateTime? lastTrackUploadAt;
+  bool requestingLocation = false;
+  bool uploadingTrack = false;
+  bool sharingLocation = true;
+  bool endingTrip = false;
+  int trackedDistanceMeters = 0;
+  int completedWaypointCount = 0;
+  String appLifecycleState = 'foreground';
 
   _MapMode get mode {
     final trip = currentTrip;
@@ -78,6 +96,7 @@ class _MapHomePageState extends State<MapHomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final im = context.read<AppSession>().tencentIm;
     imConversationSubscription = im.conversationEvents.listen(
       (_) => unawaited(_loadUnreadMessageCount()),
@@ -94,10 +113,25 @@ class _MapHomePageState extends State<MapHomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    trackTimer?.cancel();
     imConversationSubscription?.cancel();
     imMessageSubscription?.cancel();
     super.dispose();
   }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    appLifecycleState = state == AppLifecycleState.resumed
+        ? 'foreground'
+        : 'background';
+    if (state == AppLifecycleState.resumed && currentTrip != null) {
+      unawaited(_flushTrackQueue(showError: false));
+      unawaited(refreshFromServer());
+    }
+  }
+
+  Future<void> refreshFromServer() => _loadState();
 
   Future<void> _loadUnreadMessageCount() async {
     if (!mounted || loadingUnreadMessageCount) return;
@@ -177,12 +211,64 @@ class _MapHomePageState extends State<MapHomePage> {
         currentTrip = active;
         completedTrip = justCompleted;
       });
+      final visible = active ?? justCompleted;
+      await _loadExactRoute(visible);
+      if (active != null) {
+        await _ensureTracking(active);
+      } else {
+        _stopTracking(clearRuntimeState: true);
+      }
       if (active == null && justCompleted == null) await _loadHotTrips();
       _fitTripRoute();
     } catch (caught) {
       if (mounted) setState(() => error = caught.toString());
     } finally {
       if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> _loadExactRoute(TripModel? trip) async {
+    if (trip == null) {
+      if (mounted) setState(() => exactRoutePoints = const []);
+      return;
+    }
+    if (_isCompleted(trip.status)) {
+      try {
+        final session = context.read<AppSession>();
+        final actualTrack = await TripService(session.api).trackPoints(
+          trip.id,
+          driverId: session.userId,
+        );
+        if (actualTrack.length >= 2) {
+          if (mounted) setState(() => exactRoutePoints = actualTrack);
+          return;
+        }
+      } catch (_) {
+        // 历史轨迹不可用时继续展示发布时保存的完整道路路线。
+      }
+    }
+    final saved = trip.routePoints;
+    if (saved.length > 2 && trip.routePolyline?.trim().isNotEmpty == true) {
+      if (mounted) setState(() => exactRoutePoints = saved);
+      return;
+    }
+    final start = trip.startLocation;
+    final end = trip.endLocation;
+    if (start == null || end == null) {
+      if (mounted) setState(() => exactRoutePoints = saved);
+      return;
+    }
+    try {
+      final planned = await TripService(
+        context.read<AppSession>().api,
+      ).planRoadRoute(start: start, end: end, waypoints: trip.waypoints);
+      final points = planned.polylinePoints;
+      if (!mounted) return;
+      setState(() {
+        exactRoutePoints = points.length >= 2 ? points : saved;
+      });
+    } catch (_) {
+      if (mounted) setState(() => exactRoutePoints = saved);
     }
   }
 
@@ -241,17 +327,436 @@ class _MapHomePageState extends State<MapHomePage> {
   }
 
   void _fitTripRoute() {
-    final points = visibleTrip?.routePoints ?? const <LocationSelection>[];
+    final points = exactRoutePoints.isNotEmpty
+        ? exactRoutePoints
+        : visibleTrip?.routePoints ?? const <LocationSelection>[];
     if (points.isEmpty) return;
-    final center = points[points.length ~/ 2];
+    var minLat = points.first.latitude;
+    var maxLat = points.first.latitude;
+    var minLng = points.first.longitude;
+    var maxLng = points.first.longitude;
+    for (final point in points.skip(1)) {
+      minLat = math.min(minLat, point.latitude);
+      maxLat = math.max(maxLat, point.latitude);
+      minLng = math.min(minLng, point.longitude);
+      maxLng = math.max(maxLng, point.longitude);
+    }
+    final center = LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
+    final span = math.max(maxLat - minLat, maxLng - minLng);
+    final zoom = switch (span) {
+      > 20 => 3.8,
+      > 10 => 4.8,
+      > 5 => 5.8,
+      > 2 => 6.8,
+      > 1 => 7.8,
+      > .5 => 8.8,
+      > .2 => 9.8,
+      > .1 => 10.8,
+      > .05 => 11.8,
+      _ => 13.0,
+    };
     WidgetsBinding.instance.addPostFrameCallback((_) {
       mapController?.moveCamera(
-        CameraUpdate.newLatLngZoom(
-          LatLng(center.latitude, center.longitude),
-          points.length > 2 ? 9.5 : 11.5,
-        ),
+        CameraUpdate.newLatLngZoom(center, zoom),
       );
     });
+  }
+
+  Future<void> _ensureTracking(TripModel trip) async {
+    if (trackingTripId == trip.id && trackTimer?.isActive == true) return;
+    _stopTracking(clearRuntimeState: trackingTripId != trip.id);
+    try {
+      final granted =
+          await _permissionChannel.invokeMethod<bool>('requestLocation') ?? false;
+      if (!granted || !mounted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('请开启定位权限，否则无法记录本次行程轨迹')),
+          );
+        }
+        return;
+      }
+      final session = context.read<AppSession>();
+      final userId = session.userId ?? 'anonymous';
+      trackingTripId = trip.id;
+      lastTrackCapturedAt = await trackQueue.lastCapturedAt(trip.id, userId);
+      if (mounted) setState(() => locationEnabled = true);
+      await _flushTrackQueue(showError: false);
+      await _uploadCurrentPoint(force: true);
+      trackTimer = Timer.periodic(
+        const Duration(seconds: 5),
+        (_) => unawaited(_uploadCurrentPoint()),
+      );
+    } on PlatformException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('定位服务暂不可用，地图仍可查看完整路线')),
+        );
+      }
+    } on MissingPluginException {
+      // 非 Android 原生环境只展示路线，不启动轨迹采集。
+    }
+  }
+
+  void _stopTracking({required bool clearRuntimeState}) {
+    trackTimer?.cancel();
+    trackTimer = null;
+    trackingTripId = null;
+    conversationId = null;
+    if (clearRuntimeState && mounted) {
+      setState(() {
+        trackedDistanceMeters = 0;
+        completedWaypointCount = 0;
+        teamLocations = const [];
+      });
+    }
+  }
+
+  Future<void> _uploadCurrentPoint({bool force = false}) async {
+    final trip = currentTrip;
+    if (trip == null || !_isRunning(trip.status)) return;
+    if (requestingLocation || uploadingTrack || !mounted) return;
+    final lastUpload = lastTrackUploadAt;
+    if (!force &&
+        lastUpload != null &&
+        DateTime.now().difference(lastUpload) < const Duration(seconds: 3)) {
+      return;
+    }
+    requestingLocation = true;
+    try {
+      final raw = await _permissionChannel.invokeMapMethod<String, dynamic>(
+        'getCurrentLocation',
+      );
+      if (raw == null || !mounted) return;
+      final latitude = (raw['latitude'] as num?)?.toDouble();
+      final longitude = (raw['longitude'] as num?)?.toDouble();
+      final accuracy = (raw['accuracy'] as num?)?.toDouble();
+      if (latitude == null ||
+          longitude == null ||
+          accuracy == null ||
+          !latitude.isFinite ||
+          !longitude.isFinite ||
+          !accuracy.isFinite ||
+          accuracy <= 0) {
+        return;
+      }
+      final locationTimeMillis = (raw['locationTimeMillis'] as num?)?.toInt();
+      final capturedAt = locationTimeMillis == null
+          ? DateTime.now()
+          : DateTime.fromMillisecondsSinceEpoch(locationTimeMillis);
+      final speed = (raw['speed'] as num?)?.toDouble();
+      final minimumInterval = (speed ?? 0) >= .8
+          ? const Duration(seconds: 5)
+          : const Duration(seconds: 10);
+      if (!force &&
+          lastTrackCapturedAt != null &&
+          capturedAt.difference(lastTrackCapturedAt!) < minimumInterval) {
+        return;
+      }
+      lastLocation = LatLng(latitude, longitude);
+      LocationSnapshot.current = LocationSnapshot(latitude, longitude);
+      final session = context.read<AppSession>();
+      final userId = session.userId ?? 'anonymous';
+      final sequenceNo = await trackQueue.nextSequence(trip.id, userId);
+      final point = <String, dynamic>{
+        'tripId': trip.id,
+        'longitude': longitude,
+        'latitude': latitude,
+        'altitude': (raw['altitude'] as num?)?.toDouble(),
+        'speed': speed,
+        'direction': (raw['direction'] as num?)?.toDouble(),
+        'accuracy': accuracy,
+        'recordTime': capturedAt.toIso8601String(),
+        'clientSendTime': DateTime.now().toIso8601String(),
+        'deviceId': 'app-$userId',
+        'sequenceNo': sequenceNo,
+        'mockLocation': raw['isMock'] == true,
+        'provider': raw['provider']?.toString() ?? 'fused',
+        'appState': appLifecycleState,
+      };
+      await trackQueue.enqueue(trip.id, userId, point);
+      await trackQueue.markCapturedAt(trip.id, userId, capturedAt);
+      lastTrackCapturedAt = capturedAt;
+      await _flushTrackQueue(showError: true);
+    } on PlatformException {
+      // 定位短暂不可用时保留行进中界面，下一个周期继续采集。
+    } finally {
+      requestingLocation = false;
+    }
+  }
+
+  Future<void> _flushTrackQueue({required bool showError}) async {
+    final trip = currentTrip;
+    if (trip == null || uploadingTrack || !mounted) return;
+    uploadingTrack = true;
+    final session = context.read<AppSession>();
+    final userId = session.userId ?? 'anonymous';
+    final service = TripService(session.api);
+    try {
+      final pending = await trackQueue.pending(trip.id, userId);
+      for (final point in pending) {
+        Map<String, dynamic> response;
+        try {
+          response = await service.uploadTrackPayload(point);
+        } on ApiException catch (caught) {
+          final duplicate = caught.statusCode == 409 || caught.code == 409;
+          if (duplicate) {
+            await trackQueue.remove(
+              trip.id,
+              userId,
+              (point['sequenceNo'] as num).toInt(),
+            );
+            continue;
+          }
+          if (showError && mounted) {
+            final count = await trackQueue.count(trip.id, userId);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('轨迹已保存在本地，待网络恢复后补传（$count 点）')),
+              );
+            }
+          }
+          break;
+        }
+        await trackQueue.remove(
+          trip.id,
+          userId,
+          (point['sequenceNo'] as num).toInt(),
+        );
+        lastTrackUploadAt = DateTime.now();
+        if (!mounted) return;
+        setState(() {
+          trackedDistanceMeters =
+              (response['totalDistance'] as num?)?.toInt() ??
+              trackedDistanceMeters;
+        });
+        _handleReachedWaypoint(response);
+        if (response['accepted'] == true && sharingLocation) {
+          await _shareAndLoadTeamLocations(
+            latitude: (point['latitude'] as num).toDouble(),
+            longitude: (point['longitude'] as num).toDouble(),
+            speed: (point['speed'] as num?)?.toDouble(),
+          );
+        }
+      }
+    } finally {
+      uploadingTrack = false;
+    }
+  }
+
+  void _handleReachedWaypoint(Map<String, dynamic> response) {
+    final waypoint = response['reachedWaypointName']?.toString().trim() ?? '';
+    final trip = currentTrip;
+    if (waypoint.isEmpty || trip == null || !mounted) return;
+    setState(() {
+      completedWaypointCount = math.min(
+        completedWaypointCount + 1,
+        trip.waypoints.length,
+      );
+    });
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text('已到达“$waypoint”，下一导航目标已更新')));
+  }
+
+  Future<void> _ensureConversation() async {
+    final trip = currentTrip;
+    if (trip == null || conversationId != null || !mounted) return;
+    try {
+      final conversation = await ChatService(
+        context.read<AppSession>().api,
+      ).tripConversation(trip.id);
+      conversationId = conversation.id;
+    } catch (_) {
+      // 群聊刚创建时下一次位置上传继续重试。
+    }
+  }
+
+  Future<void> _shareAndLoadTeamLocations({
+    required double latitude,
+    required double longitude,
+    double? speed,
+  }) async {
+    await _ensureConversation();
+    final id = conversationId;
+    if (id == null || id.isEmpty || !mounted) return;
+    try {
+      final rows = await ChatService(context.read<AppSession>().api)
+          .shareLocation(
+            id,
+            latitude: latitude,
+            longitude: longitude,
+            speed: speed,
+          );
+      final points = rows
+          .map(
+            (row) => LocationSelection(
+              id: row['userId']?.toString(),
+              name: row['nickname']?.toString().trim().isNotEmpty == true
+                  ? row['nickname'].toString()
+                  : '行程成员',
+              address: '实时位置',
+              latitude: (row['latitude'] as num).toDouble(),
+              longitude: (row['longitude'] as num).toDouble(),
+            ),
+          )
+          .toList(growable: false);
+      if (mounted) setState(() => teamLocations = points);
+    } catch (_) {
+      // 实时位置共享失败不影响本地轨迹记录。
+    }
+  }
+
+  Future<void> _toggleLocationSharing() async {
+    if (!mounted) return;
+    setState(() => sharingLocation = !sharingLocation);
+    if (sharingLocation) {
+      await _uploadCurrentPoint(force: true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已停止向车队共享实时位置，行程轨迹仍会继续记录')),
+      );
+    }
+  }
+
+  Future<void> _openAmapNavigation() async {
+    final trip = currentTrip;
+    if (trip == null) return;
+    final route = exactRoutePoints.isNotEmpty ? exactRoutePoints : trip.routePoints;
+    final end = trip.endLocation ?? (route.isEmpty ? null : route.last);
+    if (end == null) return;
+    final current = lastLocation;
+    final start = current == null
+        ? trip.startLocation ?? (route.isEmpty ? null : route.first)
+        : LocationSelection(
+            name: '当前位置',
+            address: '',
+            latitude: current.latitude,
+            longitude: current.longitude,
+          );
+    if (start == null) return;
+    final remainingWaypoints = trip.waypoints
+        .skip(completedWaypointCount)
+        .toList(growable: false);
+    final query = <String, String>{
+      'sourceApplication': '同路行',
+      'sid': 'TLX_START',
+      'slat': '${start.latitude}',
+      'slon': '${start.longitude}',
+      'sname': start.name,
+      'did': 'TLX_END',
+      'dlat': '${end.latitude}',
+      'dlon': '${end.longitude}',
+      'dname': end.name.isEmpty ? trip.endName : end.name,
+      'dev': '0',
+      't': '0',
+      'm': '4',
+      if (remainingWaypoints.isNotEmpty)
+        'vian': '${remainingWaypoints.length}',
+      if (remainingWaypoints.isNotEmpty)
+        'vialons': remainingWaypoints.map((point) => point.longitude).join('|'),
+      if (remainingWaypoints.isNotEmpty)
+        'vialats': remainingWaypoints.map((point) => point.latitude).join('|'),
+      if (remainingWaypoints.isNotEmpty)
+        'vianames': remainingWaypoints.map((point) => point.name).join('|'),
+    };
+    final nativeUri = Uri(
+      scheme: 'amapuri',
+      host: 'route',
+      path: '/plan/',
+      queryParameters: query,
+    );
+    try {
+      if (await launchUrl(nativeUri, mode: LaunchMode.externalApplication)) {
+        return;
+      }
+      final webQuery = <String, String>{
+        'from': '${start.longitude},${start.latitude},${start.name}',
+        'to': '${end.longitude},${end.latitude},${end.name}',
+        if (remainingWaypoints.isNotEmpty)
+          'via': '${remainingWaypoints.first.longitude},${remainingWaypoints.first.latitude},${remainingWaypoints.first.name}',
+        'mode': 'car',
+        'policy': '1',
+        'src': 'tongluxing',
+        'callnative': '1',
+      };
+      if (await launchUrl(
+        Uri.https('uri.amap.com', '/navigation', webQuery),
+        mode: LaunchMode.externalApplication,
+      )) {
+        return;
+      }
+    } catch (_) {
+      // 下方统一提示。
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('无法打开高德地图，请确认已经安装高德地图')),
+      );
+    }
+  }
+
+  Future<void> _endNavigation() async {
+    final trip = currentTrip;
+    if (trip == null || endingTrip) return;
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('结束导航？'),
+            content: const Text('结束导航会同时结束当前行程，并保存已经同步的行驶轨迹。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('继续行程'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                ),
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('确认结束'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+    setState(() => endingTrip = true);
+    trackTimer?.cancel();
+    try {
+      await _uploadCurrentPoint(force: true);
+      await _flushTrackQueue(showError: false);
+      final session = context.read<AppSession>();
+      final pending = await trackQueue.count(
+        trip.id,
+        session.userId ?? 'anonymous',
+      );
+      if (pending > 0) {
+        throw const ApiException('仍有轨迹未同步，请恢复网络后再结束导航');
+      }
+      final ended = await TripService(session.api).end(trip.id);
+      if (!mounted) return;
+      _stopTracking(clearRuntimeState: false);
+      setState(() {
+        currentTrip = null;
+        completedTrip = ended;
+        endingTrip = false;
+      });
+      await _loadExactRoute(ended);
+      _fitTripRoute();
+    } catch (caught) {
+      if (mounted) {
+        setState(() => endingTrip = false);
+        trackTimer = Timer.periodic(
+          const Duration(seconds: 5),
+          (_) => unawaited(_uploadCurrentPoint()),
+        );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(caught.toString())),
+        );
+      }
+    }
   }
 
   Future<void> _createTrip() async {
@@ -281,16 +786,6 @@ class _MapHomePageState extends State<MapHomePage> {
         ),
       ),
     );
-  }
-
-  Future<void> _openNavigation() async {
-    final trip = visibleTrip;
-    if (trip == null) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => TripNavigationPage(trip: trip)),
-    );
-    if (mounted) await _loadState();
   }
 
   Future<void> _openChat() async {
@@ -349,6 +844,8 @@ class _MapHomePageState extends State<MapHomePage> {
           checkingSupport: checkingAmapSupport,
           locationEnabled: locationEnabled,
           trip: visibleTrip,
+          routePoints: exactRoutePoints,
+          teamLocations: teamLocations,
           mode: mode,
           onMapCreated: (controller) {
             mapController = controller;
@@ -393,10 +890,14 @@ class _MapHomePageState extends State<MapHomePage> {
           onSearch: _openSearch,
           onPublish: _createTrip,
           onRecommendations: widget.onOpenTripRecommendations,
-          onNavigate: _openNavigation,
+          onToggleLocationSharing: _toggleLocationSharing,
+          onGoNavigation: _openAmapNavigation,
+          onEndNavigation: _endNavigation,
           onChat: _openChat,
           onSos: _openSos,
-          onReportPosition: _openNavigation,
+          sharingLocation: sharingLocation,
+          endingTrip: endingTrip,
+          trackedDistanceMeters: trackedDistanceMeters,
         ),
       ),
     ],
@@ -678,10 +1179,14 @@ class _MapBottomPanel extends StatelessWidget {
     required this.onSearch,
     required this.onPublish,
     required this.onRecommendations,
-    required this.onNavigate,
+    required this.onToggleLocationSharing,
+    required this.onGoNavigation,
+    required this.onEndNavigation,
     required this.onChat,
     required this.onSos,
-    required this.onReportPosition,
+    required this.sharingLocation,
+    required this.endingTrip,
+    required this.trackedDistanceMeters,
   });
 
   final _MapMode mode;
@@ -689,10 +1194,14 @@ class _MapBottomPanel extends StatelessWidget {
   final VoidCallback onSearch;
   final VoidCallback onPublish;
   final VoidCallback? onRecommendations;
-  final VoidCallback onNavigate;
+  final VoidCallback onToggleLocationSharing;
+  final VoidCallback onGoNavigation;
+  final VoidCallback onEndNavigation;
   final VoidCallback onChat;
   final VoidCallback onSos;
-  final VoidCallback onReportPosition;
+  final bool sharingLocation;
+  final bool endingTrip;
+  final int trackedDistanceMeters;
 
   @override
   Widget build(BuildContext context) => Material(
@@ -724,10 +1233,13 @@ class _MapBottomPanel extends StatelessWidget {
           else if (mode == _MapMode.tracking)
             _TrackingPanel(
               trip: trip,
-              onNavigate: onNavigate,
-              onChat: onChat,
+              onToggleLocationSharing: onToggleLocationSharing,
+              onGoNavigation: onGoNavigation,
+              onEndNavigation: onEndNavigation,
               onSos: onSos,
-              onReportPosition: onReportPosition,
+              sharingLocation: sharingLocation,
+              endingTrip: endingTrip,
+              trackedDistanceMeters: trackedDistanceMeters,
             )
           else
             _EndedPanel(
@@ -830,117 +1342,153 @@ class _NormalPanel extends StatelessWidget {
 class _TrackingPanel extends StatelessWidget {
   const _TrackingPanel({
     required this.trip,
-    required this.onNavigate,
-    required this.onChat,
+    required this.onToggleLocationSharing,
+    required this.onGoNavigation,
+    required this.onEndNavigation,
     required this.onSos,
-    required this.onReportPosition,
+    required this.sharingLocation,
+    required this.endingTrip,
+    required this.trackedDistanceMeters,
   });
 
   final TripModel? trip;
-  final VoidCallback onNavigate;
-  final VoidCallback onChat;
+  final VoidCallback onToggleLocationSharing;
+  final VoidCallback onGoNavigation;
+  final VoidCallback onEndNavigation;
   final VoidCallback onSos;
-  final VoidCallback onReportPosition;
+  final bool sharingLocation;
+  final bool endingTrip;
+  final int trackedDistanceMeters;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  trip?.title ?? '当前行程',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${trip?.startName ?? '起点'} → ${trip?.endName ?? '终点'}',
-                  style: const TextStyle(
-                    color: AppColors.secondaryText,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+  Widget build(BuildContext context) {
+    final plannedDistance = (trip?.plannedDistanceMeters ?? 0) > 0
+        ? trip!.plannedDistanceMeters
+        : trip?.distanceMeters ?? 0;
+    final remaining = math.max(0, plannedDistance - trackedDistanceMeters);
+    final plannedDuration = trip?.routeDurationSeconds ?? 0;
+    final remainingDuration = plannedDistance <= 0
+        ? plannedDuration
+        : (plannedDuration * (remaining / plannedDistance)).round();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    trip?.title ?? '当前行程',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                   ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEAF8EF),
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: const Row(
-              children: [
-                Icon(LucideIcons.radio, size: 13, color: AppColors.success),
-                SizedBox(width: 5),
-                Text(
-                  '位置共享中',
-                  style: TextStyle(
-                    color: AppColors.success,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
+                  const SizedBox(height: 4),
+                  Text(
+                    '${trip?.startName ?? '起点'} → ${trip?.endName ?? '终点'}',
+                    style: const TextStyle(
+                      color: AppColors.secondaryText,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 12),
-      Row(
-        children: [
-          Expanded(child: _TripMetric(label: '剩余', value: '持续计算')),
-          Expanded(child: _TripMetric(label: '预计', value: '导航更新')),
-          Expanded(
-            child: _TripMetric(label: '同行车队', value: _vehicleLabel(trip)),
-          ),
-        ],
-      ),
-      const SizedBox(height: 13),
-      Row(
-        children: [
-          Expanded(
-            child: _RoundAction(
-              icon: LucideIcons.navigation,
-              label: '共享位置',
-              onTap: onNavigate,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: sharingLocation
+                    ? const Color(0xFFEAF8EF)
+                    : const Color(0xFFF2F4F7),
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    sharingLocation ? LucideIcons.radio : LucideIcons.wifiOff,
+                    size: 13,
+                    color: sharingLocation ? AppColors.success : AppColors.muted,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    sharingLocation ? '位置共享中' : '位置共享已关闭',
+                    style: TextStyle(
+                      color: sharingLocation ? AppColors.success : AppColors.muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: _RoundAction(
-              icon: LucideIcons.mapPinCheck,
-              label: '报位置',
-              onTap: onReportPosition,
-            ),
-          ),
-          Expanded(
-            child: _RoundAction(
-              icon: LucideIcons.siren,
-              label: 'SOS',
-              danger: true,
-              onTap: onSos,
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 10),
-      SizedBox(
-        width: double.infinity,
-        child: FilledButton.icon(
-          onPressed: onChat,
-          icon: const Icon(LucideIcons.messageCircle, size: 18),
-          label: const Text('进入群聊 · 查看新消息'),
+          ],
         ),
-      ),
-    ],
-  );
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _TripMetric(
+                label: '剩余',
+                value: _distanceLabel(remaining),
+              ),
+            ),
+            Expanded(
+              child: _TripMetric(
+                label: '预计',
+                value: _durationLabel(remainingDuration),
+              ),
+            ),
+            Expanded(
+              child: _TripMetric(label: '同行车队', value: _vehicleLabel(trip)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 13),
+        Row(
+          children: [
+            Expanded(
+              child: _RoundAction(
+                icon: sharingLocation
+                    ? LucideIcons.mapPinCheck
+                    : LucideIcons.mapPinOff,
+                label: '共享位置',
+                active: sharingLocation,
+                onTap: onToggleLocationSharing,
+              ),
+            ),
+            Expanded(
+              child: _RoundAction(
+                icon: LucideIcons.navigation,
+                label: '去导航',
+                onTap: onGoNavigation,
+              ),
+            ),
+            Expanded(
+              child: _RoundAction(
+                icon: LucideIcons.siren,
+                label: 'SOS',
+                danger: true,
+                onTap: onSos,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: endingTrip ? null : onEndNavigation,
+            icon: const Icon(LucideIcons.square, size: 17),
+            label: Text(endingTrip ? '正在结束导航…' : '结束导航'),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _EndedPanel extends StatelessWidget {
@@ -995,7 +1543,12 @@ class _EndedPanel extends StatelessWidget {
               value: _distanceLabel(trip?.distanceMeters ?? 0),
             ),
           ),
-          const Expanded(child: _TripMetric(label: '总耗时', value: '已完成')),
+          Expanded(
+            child: _TripMetric(
+              label: '总耗时',
+              value: _elapsedLabel(trip?.actualStartTime, trip?.actualEndTime),
+            ),
+          ),
           Expanded(
             child: _TripMetric(label: '同行车队', value: _vehicleLabel(trip)),
           ),
@@ -1101,12 +1654,14 @@ class _RoundAction extends StatelessWidget {
     required this.label,
     required this.onTap,
     this.danger = false,
+    this.active = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
   final bool danger;
+  final bool active;
 
   @override
   Widget build(BuildContext context) => InkWell(
@@ -1120,12 +1675,20 @@ class _RoundAction extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: danger ? const Color(0xFFFFECEA) : AppColors.primarySoft,
+              color: danger
+                  ? const Color(0xFFFFECEA)
+                  : active
+                  ? AppColors.primary
+                  : AppColors.primarySoft,
               shape: BoxShape.circle,
             ),
             child: Icon(
               icon,
-              color: danger ? AppColors.danger : AppColors.primary,
+              color: danger
+                  ? AppColors.danger
+                  : active
+                  ? Colors.white
+                  : AppColors.primary,
               size: 19,
             ),
           ),
@@ -1171,6 +1734,8 @@ class _MapSurface extends StatelessWidget {
     required this.checkingSupport,
     required this.locationEnabled,
     required this.trip,
+    required this.routePoints,
+    required this.teamLocations,
     required this.mode,
     required this.onMapCreated,
     required this.onLocationChanged,
@@ -1180,6 +1745,8 @@ class _MapSurface extends StatelessWidget {
   final bool checkingSupport;
   final bool locationEnabled;
   final TripModel? trip;
+  final List<LocationSelection> routePoints;
+  final List<LocationSelection> teamLocations;
   final _MapMode mode;
   final ValueChanged<AMapController> onMapCreated;
   final ValueChanged<AMapLocation> onLocationChanged;
@@ -1192,7 +1759,9 @@ class _MapSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final route = trip?.routePoints ?? const <LocationSelection>[];
+    final route = routePoints.isNotEmpty
+        ? routePoints
+        : trip?.routePoints ?? const <LocationSelection>[];
     if (nativeEnabled) {
       AMapInitializer.init(context);
       AMapInitializer.updatePrivacyAgree(privacy);
@@ -1212,6 +1781,22 @@ class _MapSurface extends StatelessWidget {
             ),
           );
         }
+      }
+      for (final waypoint in trip?.waypoints ?? const <LocationSelection>[]) {
+        markers.add(
+          Marker(
+            position: LatLng(waypoint.latitude, waypoint.longitude),
+            infoWindow: InfoWindow(title: waypoint.name.isEmpty ? '途经点' : waypoint.name),
+          ),
+        );
+      }
+      for (final teammate in teamLocations) {
+        markers.add(
+          Marker(
+            position: LatLng(teammate.latitude, teammate.longitude),
+            infoWindow: InfoWindow(title: teammate.name, snippet: '车队实时位置'),
+          ),
+        );
       }
       final polylines = route.length >= 2
           ? {
@@ -1235,7 +1820,7 @@ class _MapSurface extends StatelessWidget {
               : LatLng(route.first.latitude, route.first.longitude),
           zoom: route.isEmpty ? 11.5 : 10.5,
         ),
-        trafficEnabled: false,
+        trafficEnabled: mode == _MapMode.tracking,
         myLocationStyleOptions: MyLocationStyleOptions(
           locationEnabled,
           circleFillColor: const Color(0x223A86FF),
@@ -1253,7 +1838,7 @@ class _MapSurface extends StatelessWidget {
       children: [
         CustomPaint(
           painter: _RoadPainter(
-            routeVisible: route.length >= 2,
+            route: route,
             ended: mode == _MapMode.ended,
           ),
           child: const ColoredBox(color: Color(0xFFF2F6FC)),
@@ -1272,7 +1857,7 @@ class _MapSurface extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
               ),
               child: const Text(
-                '当前模拟器不支持高德原生地图\n请使用 ARM64 Android 真机预览',
+                '当前模拟器不支持高德原生地图\n请使用 ARM64 Android 真机预览真实道路路线',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppColors.secondaryText, height: 1.5),
               ),
@@ -1300,9 +1885,9 @@ class _MapLabel extends StatelessWidget {
 }
 
 class _RoadPainter extends CustomPainter {
-  const _RoadPainter({required this.routeVisible, required this.ended});
+  const _RoadPainter({required this.route, required this.ended});
 
-  final bool routeVisible;
+  final List<LocationSelection> route;
   final bool ended;
 
   @override
@@ -1326,45 +1911,62 @@ class _RoadPainter extends CustomPainter {
       Offset(size.width * .68, size.height),
       minorRoad,
     );
-    if (routeVisible) {
-      final route = Paint()
-        ..color = ended ? AppColors.success : AppColors.primary
-        ..strokeWidth = 8
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round;
-      final path = Path()
-        ..moveTo(size.width * .14, size.height * .66)
-        ..cubicTo(
-          size.width * .30,
-          size.height * .50,
-          size.width * .56,
-          size.height * .40,
-          size.width * .82,
-          size.height * .24,
-        );
-      canvas.drawPath(path, route);
-      canvas.drawCircle(
-        Offset(size.width * .14, size.height * .66),
-        10,
-        Paint()..color = AppColors.primary,
-      );
-      canvas.drawCircle(
-        Offset(size.width * .82, size.height * .24),
-        10,
-        Paint()..color = ended ? AppColors.success : AppColors.primaryDark,
-      );
-    } else {
+    if (route.length < 2) {
       canvas.drawCircle(
         Offset(size.width * .48, size.height * .44),
         11,
         Paint()..color = AppColors.primary,
       );
+      return;
     }
+
+    var minLat = route.first.latitude;
+    var maxLat = route.first.latitude;
+    var minLng = route.first.longitude;
+    var maxLng = route.first.longitude;
+    for (final point in route.skip(1)) {
+      minLat = math.min(minLat, point.latitude);
+      maxLat = math.max(maxLat, point.latitude);
+      minLng = math.min(minLng, point.longitude);
+      maxLng = math.max(maxLng, point.longitude);
+    }
+    final latSpan = math.max(maxLat - minLat, .000001);
+    final lngSpan = math.max(maxLng - minLng, .000001);
+    const padding = 30.0;
+    Offset project(LocationSelection point) => Offset(
+      padding +
+          ((point.longitude - minLng) / lngSpan) *
+              math.max(1, size.width - padding * 2),
+      padding +
+          ((maxLat - point.latitude) / latSpan) *
+              math.max(1, size.height - padding * 2),
+    );
+
+    final path = Path()..moveTo(project(route.first).dx, project(route.first).dy);
+    for (final point in route.skip(1)) {
+      final offset = project(point);
+      path.lineTo(offset.dx, offset.dy);
+    }
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = ended ? AppColors.success : AppColors.primary
+        ..strokeWidth = 7
+        ..style = PaintingStyle.stroke
+        ..strokeJoin = StrokeJoin.round
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.drawCircle(project(route.first), 9, Paint()..color = AppColors.success);
+    canvas.drawCircle(
+      project(route.last),
+      9,
+      Paint()..color = ended ? AppColors.success : AppColors.primaryDark,
+    );
   }
 
   @override
   bool shouldRepaint(covariant _RoadPainter oldDelegate) =>
-      routeVisible != oldDelegate.routeVisible || ended != oldDelegate.ended;
+      route != oldDelegate.route || ended != oldDelegate.ended;
 }
 
 bool _validLocation(AMapLocation location) {
@@ -1400,4 +2002,20 @@ String _distanceLabel(int meters) {
   if (meters < 1000) return '${meters}m';
   final km = meters / 1000;
   return km >= 10 ? '${km.round()}km' : '${km.toStringAsFixed(1)}km';
+}
+
+String _durationLabel(int seconds) {
+  if (seconds <= 0) return '时间计算中';
+  final hours = seconds ~/ 3600;
+  final minutes = (seconds % 3600) ~/ 60;
+  if (hours <= 0) return '$minutes分钟';
+  if (minutes == 0) return '$hours小时';
+  return '$hours小时$minutes分';
+}
+
+String _elapsedLabel(String? start, String? end) {
+  final startAt = DateTime.tryParse(start ?? '');
+  final endAt = DateTime.tryParse(end ?? '');
+  if (startAt == null || endAt == null || endAt.isBefore(startAt)) return '已完成';
+  return _durationLabel(endAt.difference(startAt).inSeconds);
 }

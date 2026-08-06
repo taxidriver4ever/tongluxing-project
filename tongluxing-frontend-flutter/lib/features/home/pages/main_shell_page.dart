@@ -5,6 +5,7 @@ import '../../../app/theme.dart';
 import '../../chat/pages/chat_index_page.dart';
 import '../../profile/pages/profile_page.dart';
 import '../../trip/pages/trip_home_page.dart';
+import 'main_tab_controller.dart';
 import 'map_home_page.dart';
 
 class MainShellPage extends StatefulWidget {
@@ -17,6 +18,7 @@ class MainShellPage extends StatefulWidget {
 class _MainShellPageState extends State<MainShellPage> {
   int index = 0;
   final Set<int> loadedTabs = {0};
+  final mapKey = GlobalKey<MapHomePageState>();
   final profileKey = GlobalKey<ProfilePageState>();
 
   late final List<Widget> pages;
@@ -24,8 +26,10 @@ class _MainShellPageState extends State<MainShellPage> {
   @override
   void initState() {
     super.initState();
+    MainTabController.requests.addListener(_handleExternalTabRequest);
     pages = [
       MapHomePage(
+        key: mapKey,
         onOpenTripRecommendations: () => selectTab(1),
         onOpenMessages: () => selectTab(2),
       ),
@@ -35,11 +39,28 @@ class _MainShellPageState extends State<MainShellPage> {
     ];
   }
 
-  void selectTab(int value) {
+  @override
+  void dispose() {
+    MainTabController.requests.removeListener(_handleExternalTabRequest);
+    super.dispose();
+  }
+
+  void _handleExternalTabRequest() {
+    final request = MainTabController.requests.value;
+    if (request == null || !mounted) return;
+    selectTab(request.tabIndex, refreshMap: request.refreshMap);
+  }
+
+  void selectTab(int value, {bool refreshMap = false}) {
     setState(() {
       index = value;
       loadedTabs.add(value);
     });
+    if (value == 0 && refreshMap) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => mapKey.currentState?.refreshFromServer(),
+      );
+    }
     if (value == 3) {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => profileKey.currentState?.refresh(),

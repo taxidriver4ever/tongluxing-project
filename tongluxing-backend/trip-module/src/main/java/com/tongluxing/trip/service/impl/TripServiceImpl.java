@@ -144,7 +144,7 @@ public class TripServiceImpl implements TripService {
         trip.setTripType(driverTrip ? TRIP_TYPE_DRIVER : TRIP_TYPE_PASSENGER);
         trip.setPublisherRole(driverTrip ? PUBLISHER_DRIVER : PUBLISHER_PASSENGER);
         trip.setCaptainUserId(userId);
-        trip.setAutoStartEnabled(driverTrip && !Boolean.FALSE.equals(request.autoStartEnabled()) ? 1 : 0);
+        trip.setAutoStartEnabled(driverTrip && Boolean.TRUE.equals(request.autoStartEnabled()) ? 1 : 0);
         trip.setArrivalStatus("NOT_ARRIVED");
         trip.setContinueCount(0);
         trip.setJoinedVehicleCount(driverTrip ? 1 : 0);
@@ -175,7 +175,8 @@ public class TripServiceImpl implements TripService {
                 trip.getTripType(),
                 trip.getCaptainUserId()
         ));
-        return buildResponse(trip.getId());
+        // 当前事务里 trip 已经是完整持久化对象，不再为了返回值额外 SELECT 一次。
+        return toResponse(trip);
     }
 
     /**
@@ -466,6 +467,12 @@ public class TripServiceImpl implements TripService {
     public TripResponse endTrip(Long tripId) {
         Long userId = currentUserContext.requireUserId();
         Trip before = requireCaptainTrip(tripId, userId);
+        // 结束接口需要支持幂等重试：如果 FINISHED 后自动结算网络瞬时失败，
+        // 客户端再次点击结束时允许继续进入结算链路，而不是卡在“只能结束行驶中行程”。
+        if ("FINISHED".equals(before.getStatus()) || "ENDED".equals(before.getStatus())
+                || "SETTLED".equals(before.getStatus())) {
+            return toResponse(before);
+        }
         if (!STATUS_RUNNING.equals(before.getStatus()) && !STATUS_LEGACY_ONGOING.equals(before.getStatus())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "只有行驶中行程可以结束");
         }

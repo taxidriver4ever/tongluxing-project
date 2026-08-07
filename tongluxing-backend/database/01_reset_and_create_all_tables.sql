@@ -5,7 +5,9 @@
 --   1. 本脚本会创建并切换到 tongluxing 数据库。
 --   2. 本脚本会永久删除 tongluxing 中下方列出的全部业务表及其数据。
 --   3. 执行前务必确认已完成备份，并使用具有 CREATE、DROP、ALTER、INDEX 权限的 MySQL 账号。
---   4. 如需开发联调数据，再手动执行 02_seed_test_users_and_trips.sql；生产环境不要执行该文件。
+--   4. 本文件已与当前各模块建表/迁移脚本逐项核对：当前版本共创建 120 张业务表。
+--   5. map_location_catalog 仅作为历史废弃表清理，不再重建。
+--   6. 如需额外密码登录回归账号，可在测试库执行 07_mock_50_password_login_users.sql。
 
 CREATE DATABASE IF NOT EXISTS `tongluxing`
     DEFAULT CHARACTER SET utf8mb4
@@ -687,7 +689,7 @@ create table if not exists trip (
                                     travel_depth varchar(16) not null comment '出行深度',
                                     public_flag tinyint(1) not null default 1 comment '是否公开：0否、1是',
                                     status varchar(20) not null comment '业务状态',
-                                    auto_start_enabled tinyint(1) not null default 1 comment '是否到点自动出发',
+                                    auto_start_enabled tinyint(1) not null default 0 comment '是否到点自动出发（需显式开启）',
                                     arrival_status varchar(24) not null default 'NOT_ARRIVED' comment '到达状态',
                                     arrival_entered_at datetime null comment '首次进入终点范围时间',
                                     arrival_decision_deadline datetime null comment '到达后最迟处理时间',
@@ -759,7 +761,8 @@ create table if not exists trip_member_snapshot (
                                                     joined_at datetime null comment '加入时间',
                                                     created_at datetime not null comment '记录创建时间',
                                                     updated_at datetime not null comment '记录最后更新时间',
-                                                    key idx_member_trip_status (trip_id, join_status)
+                                                    key idx_member_trip_status (trip_id, join_status),
+                                                    key idx_member_trip_user_status (trip_id, user_id, join_status)
 ) comment='行程成员快照表';
 
 create table if not exists trip_audit_log (
@@ -1369,7 +1372,9 @@ CREATE TABLE IF NOT EXISTS driver_track_record (
                                                    UNIQUE KEY uk_driver_track_sequence (trip_id, driver_id, sequence_no, deleted),
                                                    KEY idx_driver_track_trip_time (trip_id, record_time),
                                                    KEY idx_driver_track_driver_time (driver_id, record_time),
-                                                   KEY idx_driver_track_status (trip_id, point_status)
+                                                   KEY idx_driver_track_status (trip_id, point_status),
+                                                   KEY idx_driver_track_trip_driver_time (trip_id, driver_id, deleted, record_time),
+                                                   KEY idx_driver_track_trip_driver_valid_time (trip_id, driver_id, deleted, valid_point, record_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='驾驶人轨迹记录表';
 
 CREATE TABLE IF NOT EXISTS driver_track_distance_record (
@@ -1462,7 +1467,8 @@ CREATE TABLE IF NOT EXISTS trip_track_anomaly (
                                                   occurred_at DATETIME NOT NULL comment '发生时间',
                                                   created_at DATETIME NOT NULL comment '记录创建时间',
                                                   KEY idx_trip_track_anomaly_trip_time (trip_id, occurred_at),
-                                                  KEY idx_trip_track_anomaly_user_time (user_id, occurred_at)
+                                                  KEY idx_trip_track_anomaly_user_time (user_id, occurred_at),
+                                                  KEY idx_trip_track_anomaly_trip_user_type_time (trip_id, user_id, anomaly_type, occurred_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程轨迹异常表';
 
 CREATE TABLE IF NOT EXISTS trip_member_distance_alert (
@@ -1473,6 +1479,7 @@ CREATE TABLE IF NOT EXISTS trip_member_distance_alert (
                                                           alert_level VARCHAR(24) NOT NULL comment '成员距离告警等级',
                                                           distance_m INT NOT NULL comment '成员距离，单位为米',
                                                           started_at DATETIME NOT NULL comment '告警开始时间',
+                                                          severe_started_at DATETIME NULL comment '连续超过严重偏离阈值的开始时间',
                                                           notified_at DATETIME NULL comment '告警通知时间',
                                                           recovered_at DATETIME NULL comment '距离恢复正常时间',
                                                           acknowledged_at DATETIME NULL comment '告警确认时间',
@@ -1519,7 +1526,8 @@ CREATE TABLE IF NOT EXISTS trip_execution_member (
                                                      created_at DATETIME NOT NULL comment '记录创建时间',
                                                      updated_at DATETIME NOT NULL comment '记录最后更新时间',
                                                      deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记：0未删除、1已删除',
-                                                     UNIQUE KEY uk_execution_member (execution_id, user_id, deleted)
+                                                     UNIQUE KEY uk_execution_member (execution_id, user_id, deleted),
+                                                     KEY idx_execution_member_trip_eligible (trip_id, deleted, eligible_flag, member_status, user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='行程EXECUTION成员表';
 
 CREATE TABLE IF NOT EXISTS trip_track_point (
@@ -2597,3 +2605,7 @@ CREATE TABLE IF NOT EXISTS trip_leader_rating_summary (
 
 SET FOREIGN_KEY_CHECKS = 1;
 -- 建表完成。
+-- 可选验收：查看当前库全部表。当前纯净重建后业务表应为 120 张。
+SELECT COUNT(*) AS current_table_count
+FROM information_schema.tables
+WHERE table_schema = DATABASE();

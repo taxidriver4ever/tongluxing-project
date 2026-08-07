@@ -399,6 +399,18 @@ class TripService {
     );
   }
 
+  Future<Map<String, dynamic>> uploadTrackBatchPayload(
+    List<Map<String, dynamic>> points,
+  ) async {
+    return Map<String, dynamic>.from(
+      await api.post(
+            '/v1/driver-tracks/points/batch',
+            body: {'points': points},
+          )
+          as Map,
+    );
+  }
+
   Future<Map<String, dynamic>> mockDeviation(
     String tripId, {
     int status = 1,

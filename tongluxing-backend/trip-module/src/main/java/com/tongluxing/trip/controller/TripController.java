@@ -137,7 +137,11 @@ public class TripController {
      */
     @PostMapping("/{tripId}/end")
     public Result<TripResponse> endTrip(@PathVariable Long tripId) {
-        return Result.success(tripService.endTrip(tripId));
+        // 结束和成长值判定对 App 暴露为一次操作：
+        // 1 km 内且队长轨迹无中断/明显异常时立即 SETTLED；否则进入 Admin 人工审核。
+        tripService.endTrip(tripId);
+        tripSettlementService.settle(tripId);
+        return Result.success(tripService.getTrip(tripId));
     }
 
 
@@ -150,7 +154,11 @@ public class TripController {
     /** 队长确认结束已经到达终点的行程。 */
     @PostMapping("/{tripId}/arrival/end")
     public Result<TripResponse> finishArrival(@PathVariable Long tripId) {
-        return Result.success(tripService.finishArrival(tripId));
+        // 到达提示里的“结束行程”与地图 Tab 的结束按钮保持完全一致：
+        // 结束后立即自动判定成长值，不能留下需要用户再次手动结算的旁路。
+        tripService.finishArrival(tripId);
+        tripSettlementService.settle(tripId);
+        return Result.success(tripService.getTrip(tripId));
     }
 
     /** 队长选择继续行程，并提交新的终点。 */

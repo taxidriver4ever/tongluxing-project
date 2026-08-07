@@ -17,7 +17,7 @@ import org.apache.ibatis.annotations.Update;
 @Mapper
 public interface DriverMemberDistanceAlertMapper {
     @Select("""
-            select id, alert_level as alertLevel, started_at as startedAt
+            select id, alert_level as alertLevel, started_at as startedAt, severe_started_at as severeStartedAt
             from trip_member_distance_alert
             where trip_id=#{tripId} and member_user_id=#{memberId}
               and recovered_at is null and deleted=0
@@ -47,6 +47,21 @@ public interface DriverMemberDistanceAlertMapper {
     int update(@Param("id") Long id, @Param("level") String level,
                @Param("distance") int distance, @Param("notify") int notify,
                @Param("now") LocalDateTime now);
+
+    @Update("""
+            update trip_member_distance_alert
+            set severe_started_at=#{startedAt}, updated_at=#{now}
+            where id=#{id} and recovered_at is null and deleted=0
+            """)
+    int setSevereStartedAt(@Param("id") Long id, @Param("startedAt") LocalDateTime startedAt,
+                           @Param("now") LocalDateTime now);
+
+    @Update("""
+            update trip_member_distance_alert
+            set severe_started_at=null, updated_at=#{now}
+            where id=#{id} and recovered_at is null and deleted=0
+            """)
+    int clearSevereStartedAt(@Param("id") Long id, @Param("now") LocalDateTime now);
 
     @Update("""
             update trip_member_distance_alert

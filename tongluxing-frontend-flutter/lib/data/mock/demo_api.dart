@@ -246,6 +246,20 @@ class DemoApi {
     if (path == '/v1/invites/qr/validate') {
       return {'valid': true, 'inviteCode': 'TLX2026'};
     }
+    if (path == '/v1/driver-tracks/points/batch' && method == 'POST') {
+      final points = body is Map ? body['points'] : null;
+      final rows = points is List ? points.whereType<Map>().toList() : const <Map>[];
+      return {
+        'confirmedSequenceNos': rows
+            .map((row) => row['sequenceNo'])
+            .whereType<num>()
+            .map((value) => value.toInt())
+            .toList(),
+        'totalDistance': 0,
+        'riskLevel': 'LOW',
+        'settlementReviewRequired': false,
+      };
+    }
     if (path == '/v1/driver-tracks/points' && method == 'POST') {
       return {
         'trackId': 'demo-track',

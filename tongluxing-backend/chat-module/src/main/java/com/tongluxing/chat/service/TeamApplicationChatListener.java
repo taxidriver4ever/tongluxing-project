@@ -1,6 +1,8 @@
 package com.tongluxing.chat.service;
 
-import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.stereotype.Component;
 
 import com.tongluxing.team.service.TeamApplicationReviewedEvent;
@@ -19,7 +21,8 @@ public class TeamApplicationChatListener {
 
     private final ChatService chatService;
 
-    @EventListener
+    @Async("tripEventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onReviewed(TeamApplicationReviewedEvent event) {
         // 明确匹配 APPROVED，避免未来增加其他审核状态时被误当作通过处理。
         if ("APPROVED".equals(event.status())) {

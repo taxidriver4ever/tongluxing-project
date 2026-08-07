@@ -55,6 +55,7 @@ ALTER TABLE team_join_application
     ADD KEY idx_team_apply_type (team_id, application_type, application_status, created_at);
 
 ALTER TABLE trip_member_distance_alert
+    ADD COLUMN severe_started_at DATETIME NULL COMMENT '连续超过严重偏离阈值的开始时间' AFTER started_at,
     ADD COLUMN handled_action VARCHAR(24) NULL COMMENT '队长处理动作：IGNORE、REMOVE、WAIT、CONTINUE' AFTER acknowledged_at,
     ADD COLUMN handled_by_user_id BIGINT NULL COMMENT '处理人用户ID' AFTER handled_action,
     ADD COLUMN handled_at DATETIME NULL COMMENT '处理时间' AFTER handled_by_user_id,

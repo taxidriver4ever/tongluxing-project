@@ -106,6 +106,25 @@ class TrackUploadQueue {
     await storage.setString(_queueKey(tripId, userId), jsonEncode(rows));
   }
 
+  Future<void> removeMany(
+    String tripId,
+    String userId,
+    Iterable<int> sequenceNos,
+  ) async {
+    final targets = sequenceNos.toSet();
+    if (targets.isEmpty) return;
+    final storage = await SharedPreferences.getInstance();
+    final rows = await pending(tripId, userId);
+    rows.removeWhere(
+      (row) => targets.contains((row['sequenceNo'] as num?)?.toInt()),
+    );
+    if (rows.isEmpty) {
+      await storage.remove(_queueKey(tripId, userId));
+      return;
+    }
+    await storage.setString(_queueKey(tripId, userId), jsonEncode(rows));
+  }
+
   Future<int> count(String tripId, String userId) async =>
       (await pending(tripId, userId)).length;
 

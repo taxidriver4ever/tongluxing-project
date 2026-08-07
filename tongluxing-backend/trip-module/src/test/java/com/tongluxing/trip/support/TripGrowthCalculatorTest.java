@@ -5,11 +5,11 @@ import org.junit.jupiter.api.Test;
 
 class TripGrowthCalculatorTest {
     @Test
-    void followsFiveKilometresPerPointRule() {
+    void followsFiveKilometresTenPointsRule() {
         assertEquals(0, TripGrowthCalculator.points(4_900));
-        assertEquals(1, TripGrowthCalculator.points(5_000));
-        assertEquals(1, TripGrowthCalculator.points(9_900));
-        assertEquals(2, TripGrowthCalculator.points(10_000));
-        assertEquals(5, TripGrowthCalculator.points(27_400));
+        assertEquals(10, TripGrowthCalculator.points(5_000));
+        assertEquals(10, TripGrowthCalculator.points(9_900));
+        assertEquals(20, TripGrowthCalculator.points(10_000));
+        assertEquals(50, TripGrowthCalculator.points(27_400));
     }
 }

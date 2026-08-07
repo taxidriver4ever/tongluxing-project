@@ -39,7 +39,7 @@ create table if not exists trip (
     travel_depth varchar(16) not null comment '出行深度',
     public_flag tinyint(1) not null default 1 comment '是否公开：0否、1是',
     status varchar(20) not null comment '业务状态',
-    auto_start_enabled tinyint(1) not null default 1 comment '是否到点自动出发',
+    auto_start_enabled tinyint(1) not null default 0 comment '是否到点自动出发（需显式开启）',
     arrival_status varchar(24) not null default 'NOT_ARRIVED' comment '到达状态',
     arrival_entered_at datetime null comment '首次进入终点范围时间',
     arrival_decision_deadline datetime null comment '到达后最迟处理时间',

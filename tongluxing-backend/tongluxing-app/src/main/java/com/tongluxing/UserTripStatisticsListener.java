@@ -3,7 +3,9 @@ package com.tongluxing;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import com.tongluxing.trip.service.TripFinishedEvent;
@@ -15,7 +17,8 @@ import lombok.RequiredArgsConstructor;
 public class UserTripStatisticsListener {
     private final JdbcTemplate jdbc;
 
-    @EventListener
+    @Async("tripEventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onTripFinished(TripFinishedEvent event) {
         List<java.util.Map<String, Object>> trips = jdbc.queryForList("""
             select user_id,coalesce(total_distance_meters,route_distance,0) distance_meters,

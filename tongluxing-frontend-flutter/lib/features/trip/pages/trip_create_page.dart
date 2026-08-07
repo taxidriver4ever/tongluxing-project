@@ -637,14 +637,11 @@ class _TripCreatePageState extends State<TripCreatePage> {
       final id = await _ensureDraft();
       if (!await _persistRoute(plan: true, showError: true)) return;
       if (!await _confirmTimeConflict()) return;
-      final tripId = await _tripService.publishDraft(id);
-      final published = await _tripService.detail(tripId);
+      await _tripService.publishDraft(id);
       if (!mounted) return;
-      _showMessage(
-        published.passengerDemand
-            ? '出行需求发布成功，已进入匹配池'
-            : '车主行程发布成功，已自动成为队长',
-      );
+      // 发布接口成功即代表主事务已经提交；建群、推荐等后置任务由后端异步完成。
+      // 不再为了拼一条提示文案额外请求一次详情，减少发布完成后的等待时间。
+      _showMessage('行程发布成功');
       Navigator.pushNamedAndRemoveUntil(context, AppRoutes.home, (_) => false);
     } catch (error) {
       await _handlePublishError(error);

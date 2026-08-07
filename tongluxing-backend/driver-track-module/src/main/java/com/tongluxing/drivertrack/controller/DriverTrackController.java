@@ -16,6 +16,7 @@ import com.tongluxing.drivertrack.service.DriverTrackService;
 import com.tongluxing.drivertrack.vo.DriverDeviationResponse;
 import com.tongluxing.drivertrack.vo.DriverDistanceResponse;
 import com.tongluxing.drivertrack.vo.DriverTrackListResponse;
+import com.tongluxing.drivertrack.vo.DriverTrackBatchUploadResponse;
 import com.tongluxing.drivertrack.vo.DriverTrackUploadResponse;
 
 import jakarta.validation.Valid;
@@ -38,7 +39,7 @@ public class DriverTrackController {
     }
 
     @PostMapping("/points/batch")
-    public Result<DriverTrackListResponse> uploadBatch(@Valid @RequestBody DriverTrackBatchRequest request) {
+    public Result<DriverTrackBatchUploadResponse> uploadBatch(@Valid @RequestBody DriverTrackBatchRequest request) {
         return Result.success(driverTrackService.uploadBatch(request));
     }
 

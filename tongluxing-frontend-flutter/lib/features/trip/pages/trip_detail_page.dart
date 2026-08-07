@@ -877,9 +877,23 @@ class _LifecycleAction extends StatelessWidget {
       return _PrimaryAction(label: '继续导航', onTap: onContinue);
     }
     if (trip.status == 'FINISHED' || trip.status == 'ENDED') {
-      return _PrimaryAction(
-        label: settling ? '正在结算…' : '完成行程结算',
-        onTap: settling ? null : onSettle,
+      return const SizedBox(
+        height: 54,
+        child: Row(
+          children: [
+            Icon(LucideIcons.clock3, color: AppColors.warning, size: 20),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '行程已结束，成长值等待管理员审核',
+                style: TextStyle(
+                  color: AppColors.warning,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
       );
     }
     if (trip.status == 'SETTLED') {

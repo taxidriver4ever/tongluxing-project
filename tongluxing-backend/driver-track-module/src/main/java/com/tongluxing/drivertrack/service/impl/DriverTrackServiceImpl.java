@@ -35,15 +35,14 @@ import com.tongluxing.drivertrack.mapper.TripExecutionTrackMapper;
 import com.tongluxing.drivertrack.mapper.TripTrackRiskMapper;
 import com.tongluxing.drivertrack.mapper.TripMemberLatestLocationMapper;
 import com.tongluxing.drivertrack.service.DriverTrackService;
-import com.tongluxing.drivertrack.service.MileageSettlementService;
 import com.tongluxing.drivertrack.service.TripTrackSecurityAuditService;
 import com.tongluxing.drivertrack.support.TrajectoryRuleEngine;
 import com.tongluxing.drivertrack.vo.DriverDeviationResponse;
 import com.tongluxing.drivertrack.vo.DriverDistanceResponse;
 import com.tongluxing.drivertrack.vo.DriverTrackListResponse;
+import com.tongluxing.drivertrack.vo.DriverTrackBatchUploadResponse;
 import com.tongluxing.drivertrack.vo.DriverTrackPointVO;
 import com.tongluxing.drivertrack.vo.DriverTrackUploadResponse;
-import com.tongluxing.drivertrack.vo.MileageSettlementResponse;
 import com.tongluxing.map.dto.LocationDto;
 import com.tongluxing.notify.service.AppPushService;
 import com.tongluxing.trip.entity.Trip;
@@ -52,9 +51,7 @@ import com.tongluxing.trip.mapper.TripMapper;
 import com.tongluxing.team.entity.Team;
 import com.tongluxing.team.mapper.TeamMapper;
 import com.tongluxing.trip.mapper.TripRouteMapper;
-import com.tongluxing.trip.mapper.TripWaypointMapper;
 import com.tongluxing.trip.mapper.TripMemberSnapshotMapper;
-import com.tongluxing.trip.entity.TripWaypoint;
 import com.tongluxing.user.support.CurrentUserContext;
 
 import lombok.RequiredArgsConstructor;
@@ -70,6 +67,7 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     private static final String STATUS_RUNNING = "RUNNING";
     private static final int MILD_DEVIATION_METERS = 100;
     private static final int SEVERE_DEVIATION_METERS = 500;
+    private static final int MEMBER_REPLAY_MAX_AGE_MINUTES = 5;
     private static final int RECOVERY_DEVIATION_METERS = 60;
 
     private final CurrentUserContext currentUserContext;
@@ -77,7 +75,6 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     private final TripMapper tripMapper;
     private final TeamMapper teamMapper;
     private final TripRouteMapper tripRouteMapper;
-    private final TripWaypointMapper tripWaypointMapper;
     private final TripMemberSnapshotMapper tripMemberSnapshotMapper;
     private final DriverTrackRecordMapper trackMapper;
     private final DriverDeviationRecordMapper deviationMapper;
@@ -85,7 +82,6 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     private final DriverMemberDistanceAlertMapper memberAlertMapper;
     private final TripMemberLatestLocationMapper memberLocationMapper;
     private final TripExecutionTrackMapper executionTrackMapper;
-    private final MileageSettlementService mileageSettlementService;
     private final TrajectoryProperties trajectoryProperties;
     private final TripTrackRiskMapper riskMapper;
     private final TripTrackSecurityAuditService securityAuditService;
@@ -140,32 +136,15 @@ public class DriverTrackServiceImpl implements DriverTrackService {
             throw new BusinessException(409, "该轨迹点已上传，请勿重复提交");
         }
 
-        Long executionId = ensureExecutionTrack(trip, driverId, record, filter.rawDistanceMeters(), now);
+        ensureExecutionTrack(trip, driverId, record, filter.rawDistanceMeters(), now);
         saveRiskResult(trip, driverId, previousValid, record, filter, now);
 
-        WaypointArrival waypointArrival = null;
-        if (filter.valid() && !filter.gap()) {
-            saveMemberDistanceState(trip, request, driverId, now);
-            if (riskMapper.countFatalAnomaliesSince(
-                    request.tripId(), driverId,
-                    request.recordTime().minusSeconds(trajectoryProperties.getGapSegmentMaxSeconds())) == 0) {
-                waypointArrival = settleReachedWaypoint(
-                        request.tripId(), driverId, request.latitude(), request.longitude(),
-                        request.recordTime(), trackMapper.sumDistance(request.tripId(), driverId));
-            }
-            if (waypointArrival != null) {
-                executionTrackMapper.insertWaypointArrival(
-                        SnowflakeIdGenerator.nextId(), executionId, trip.getId(),
-                        waypointArrival.waypointId(), driverId,
-                        waypointArrival.firstInsideAt(), request.recordTime(),
-                        waypointArrival.evidenceCount(), waypointArrival.distanceMeters());
-            }
-        }
-
-        int totalDistance = trackMapper.sumDistance(request.tripId(), driverId);
-        MileageSettlementResponse mileageResult = mileageSettlementService
-                .settleMileage(request.tripId(), driverId, totalDistance);
+        // 队长轨迹只负责有效里程与风险判断。途经点仅作为路线参考，不再在每个定位点上
+        // 执行“到达途经点”查询/结算；普通成员的位置与脱队检测走 uploadMemberPosition。
         java.util.Map<String, Object> summary = riskMapper.findSummary(request.tripId());
+        int totalDistance = summary != null && summary.get("filteredDistanceMeters") instanceof Number distance
+                ? distance.intValue()
+                : trackMapper.sumDistance(request.tripId(), driverId);
         String riskLevel = summary == null ? "LOW" : String.valueOf(summary.get("riskLevel"));
         boolean reviewRequired = summary != null
                 && !"LOW".equalsIgnoreCase(riskLevel);
@@ -201,10 +180,10 @@ public class DriverTrackServiceImpl implements DriverTrackService {
                 0,
                 0,
                 totalDistance,
-                mileageResult.settledStages() + (waypointArrival == null ? 0 : 1),
-                mileageResult.grantedPoints() + (waypointArrival == null ? 0 : waypointArrival.points()),
-                waypointArrival == null ? null : String.valueOf(waypointArrival.waypointId()),
-                waypointArrival == null ? null : waypointArrival.waypointName(),
+                0,
+                0,
+                null,
+                null,
                 filter.status(),
                 summary == null || summary.get("riskScore") == null
                         ? filter.riskScore() : ((Number) summary.get("riskScore")).intValue(),
@@ -228,6 +207,12 @@ public class DriverTrackServiceImpl implements DriverTrackService {
                 && request.clientSendTime().isBefore(request.recordTime())) {
             return memberPositionResponse(trip, memberUserId, request,
                     "TIME_ANOMALY", false, 0, 0, "定位采集时间异常，位置未更新");
+        }
+        if (request.recordTime().isBefore(now.minusMinutes(MEMBER_REPLAY_MAX_AGE_MINUTES))) {
+            int captainDistance = trackMapper.sumDistance(trip.getId(), captainUserId);
+            return memberPositionResponse(trip, memberUserId, request,
+                    "STALE_POSITION_CONFIRMED", false, 0, captainDistance,
+                    "普通成员历史位置补传已确认，仅保留最新位置，不参与脱队判断");
         }
         if (request.latitude().compareTo(BigDecimal.ZERO) == 0
                 && request.longitude().compareTo(BigDecimal.ZERO) == 0) {
@@ -288,13 +273,18 @@ public class DriverTrackServiceImpl implements DriverTrackService {
                 ? trip.getTotalDistanceMeters()
                 : trip.getRouteDistance() == null ? 0 : trip.getRouteDistance();
         Long captainUserId = captainUserId(trip);
-        executionTrackMapper.ensureExecution(
-                SnowflakeIdGenerator.nextId(), trip.getId(), captainUserId, plannedDistance, now);
+        // 正常情况下 startTrip 已经一次性创建 execution 和所有 execution_member。
+        // 定位点每 10 秒上传时不再重复 INSERT IGNORE，也不再向未被业务读取的
+        // trip_track_point 重复写一份轨迹，从而降低持续定位期间的数据库写压力。
         Long executionId = executionTrackMapper.findExecutionId(trip.getId());
-        executionTrackMapper.ensureMember(
-                SnowflakeIdGenerator.nextId(), executionId, trip.getId(), driverId,
-                driverId.equals(captainUserId) ? "CAPTAIN" : "MEMBER", now);
-        executionTrackMapper.insertPoint(executionId, record, rawDistanceFromPrev);
+        if (executionId == null) {
+            executionTrackMapper.ensureExecution(
+                    SnowflakeIdGenerator.nextId(), trip.getId(), captainUserId, plannedDistance, now);
+            executionId = executionTrackMapper.findExecutionId(trip.getId());
+            executionTrackMapper.ensureMember(
+                    SnowflakeIdGenerator.nextId(), executionId, trip.getId(), driverId,
+                    driverId.equals(captainUserId) ? "CAPTAIN" : "MEMBER", now);
+        }
         executionTrackMapper.appendDistance(
                 executionId, rawDistanceFromPrev, record.getDistanceFromPrev(), now);
         return executionId;
@@ -302,7 +292,7 @@ public class DriverTrackServiceImpl implements DriverTrackService {
 
     @Override
     @Transactional
-    public DriverTrackListResponse uploadBatch(DriverTrackBatchRequest request) {
+    public DriverTrackBatchUploadResponse uploadBatch(DriverTrackBatchRequest request) {
         Long tripId = request.points().get(0).tripId();
         if (request.points().stream().anyMatch(point -> !tripId.equals(point.tripId()))) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "一次批量上传只能包含同一行程的轨迹点");
@@ -311,10 +301,43 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         if (request.points().stream().anyMatch(point -> !recordTimes.add(point.recordTime()))) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "同一批次不能包含重复时间的轨迹点");
         }
-        request.points().stream()
-                .sorted(Comparator.comparing(DriverTrackPointRequest::recordTime))
-                .forEach(this::uploadPoint);
-        return getTrack(tripId);
+
+        List<DriverTrackPointRequest> ordered = request.points().stream()
+                .sorted(Comparator.comparing(DriverTrackPointRequest::recordTime)
+                        .thenComparing(DriverTrackPointRequest::sequenceNo))
+                .toList();
+        java.util.ArrayList<Long> confirmed = new java.util.ArrayList<>(ordered.size());
+        DriverTrackUploadResponse lastResponse = null;
+        for (DriverTrackPointRequest point : ordered) {
+            try {
+                lastResponse = uploadPoint(point);
+                confirmed.add(point.sequenceNo());
+            } catch (BusinessException exception) {
+                if (Integer.valueOf(409).equals(exception.getCode())) {
+                    // 补传时服务端已存在同 sequenceNo，视为“已确认”，客户端可以清除缓存。
+                    confirmed.add(point.sequenceNo());
+                    continue;
+                }
+                throw exception;
+            }
+        }
+
+        if (lastResponse != null) {
+            return new DriverTrackBatchUploadResponse(
+                    List.copyOf(confirmed),
+                    lastResponse.totalDistance(),
+                    lastResponse.riskLevel(),
+                    lastResponse.settlementReviewRequired());
+        }
+        Trip trip = requireReadableTrip(tripId);
+        Long captainUserId = captainUserId(trip);
+        java.util.Map<String, Object> summary = riskMapper.findSummary(tripId);
+        int totalDistance = summary != null && summary.get("filteredDistanceMeters") instanceof Number distance
+                ? distance.intValue() : trackMapper.sumDistance(tripId, captainUserId);
+        String riskLevel = summary == null || summary.get("riskLevel") == null
+                ? "LOW" : String.valueOf(summary.get("riskLevel"));
+        return new DriverTrackBatchUploadResponse(
+                List.copyOf(confirmed), totalDistance, riskLevel, !"LOW".equalsIgnoreCase(riskLevel));
     }
 
     @Override
@@ -732,9 +755,22 @@ public class DriverTrackServiceImpl implements DriverTrackService {
 
         long elapsedMinutes = startedAt == null ? 0
                 : Math.max(0, java.time.Duration.between(startedAt, request.recordTime()).toMinutes());
+        LocalDateTime severeStartedAt = active == null ? null : (LocalDateTime) active.get("severeStartedAt");
+        if (distance >= severeDistance) {
+            if (severeStartedAt == null) {
+                severeStartedAt = request.recordTime();
+                memberAlertMapper.setSevereStartedAt(alertId, severeStartedAt, now);
+            }
+        } else if (severeStartedAt != null) {
+            memberAlertMapper.clearSevereStartedAt(alertId, now);
+            severeStartedAt = null;
+        }
+        long severeElapsedMinutes = severeStartedAt == null ? 0
+                : Math.max(0, java.time.Duration.between(severeStartedAt, request.recordTime()).toMinutes());
+
         String targetLevel = currentLevel;
         int status = 0;
-        if (distance >= severeDistance && elapsedMinutes >= severeMinutes) {
+        if (distance >= severeDistance && severeElapsedMinutes >= severeMinutes) {
             targetLevel = "SEVERE";
             status = 2;
         } else if (elapsedMinutes >= warningMinutes) {
@@ -886,57 +922,6 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         }
     }
 
-    /**
-     * 只判断“下一个尚未完成的节点”，禁止越过当前节点直接结算后续节点。
-     * 节点在 100 米范围内保持至少 10 秒并形成至少 2 个有效点后记录到达事实。
-     */
-    private WaypointArrival settleReachedWaypoint(Long tripId, Long driverId,
-                                                  BigDecimal latitude, BigDecimal longitude,
-                                                  LocalDateTime currentRecordTime,
-                                                  int totalDistance) {
-        for (TripWaypoint waypoint : tripWaypointMapper.findByTripId(tripId)) {
-            String settleKey = tripId + ":" + driverId + ":TRIP_WAYPOINT:" + waypoint.getId();
-            if (distanceMapper.findBySettleKey(settleKey) != null) {
-                continue;
-            }
-            // 当前目标缺少坐标时不能跳过它去结算后续节点。
-            if (waypoint.getLat() == null || waypoint.getLng() == null) {
-                return null;
-            }
-            int distance = haversineMeters(latitude, longitude, waypoint.getLat(), waypoint.getLng());
-            if (distance > trajectoryProperties.getWaypointRadiusMeters()) {
-                return null;
-            }
-            List<DriverTrackRecord> arrivalEvidence = trackMapper.findRecent(
-                    tripId, driverId, currentRecordTime.minusSeconds(trajectoryProperties.getWaypointEvidenceWindowSeconds())).stream()
-                    .filter(point -> Integer.valueOf(1).equals(point.getValidPoint()))
-                    .filter(point -> !"LOCATION_GAP".equals(point.getPointStatus()))
-                    .filter(point -> point.getAccuracy() == null
-                            || point.getAccuracy().intValue()
-                            <= trajectoryProperties.getLowConfidenceAccuracyMeters())
-                    .filter(point -> haversineMeters(
-                            point.getLatitude(), point.getLongitude(),
-                            waypoint.getLat(), waypoint.getLng())
-                            <= trajectoryProperties.getWaypointRadiusMeters())
-                    .toList();
-            if (arrivalEvidence.size() < trajectoryProperties.getWaypointMinPoints()
-                    || arrivalEvidence.get(0).getRecordTime()
-                    .isAfter(arrivalEvidence.get(arrivalEvidence.size() - 1)
-                            .getRecordTime().minusSeconds(trajectoryProperties.getWaypointMinDurationSeconds()))) {
-                return null;
-            }
-            MileageSettlementResponse result = mileageSettlementService.settleWaypoint(
-                    tripId, driverId, waypoint.getId(), waypoint.getPlaceName(), totalDistance);
-            if (!Boolean.TRUE.equals(result.duplicate())) {
-                return new WaypointArrival(
-                        waypoint.getId(), waypoint.getPlaceName(), result.grantedPoints(),
-                        arrivalEvidence.get(0).getRecordTime(), arrivalEvidence.size(), distance);
-            }
-            return null;
-        }
-        return null;
-    }
-
     private DriverTrackPointVO toPointVO(DriverTrackRecord record) {
         return new DriverTrackPointVO(
                 String.valueOf(record.getId()),
@@ -998,11 +983,6 @@ public class DriverTrackServiceImpl implements DriverTrackService {
                     "ABNORMAL_ACCELERATION", "FATAL_REJECTED")
                     .stream().anyMatch(flag -> riskFlags != null && riskFlags.contains(flag));
         }
-    }
-
-    private record WaypointArrival(
-            Long waypointId, String waypointName, Integer points,
-            LocalDateTime firstInsideAt, int evidenceCount, int distanceMeters) {
     }
 
     private String formatTime(LocalDateTime value) {

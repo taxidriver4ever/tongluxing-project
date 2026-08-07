@@ -1,6 +1,8 @@
 package com.tongluxing;
 
-import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.stereotype.Component;
 import com.tongluxing.match.service.MatchService;
 import com.tongluxing.trip.service.TripFinishedEvent;
@@ -14,22 +16,26 @@ import lombok.RequiredArgsConstructor;
 public class MatchTripLifecycleListener {
     private final MatchService matchService;
 
-    @EventListener
+    @Async("tripEventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onPublished(TripPublishedEvent event) {
         matchService.generateTripRecommendations(event.tripId());
     }
 
-    @EventListener
+    @Async("tripEventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onStarted(TripStartedEvent event) {
         matchService.recordTripLifecycle(event.tripId(), "START");
     }
 
-    @EventListener
+    @Async("tripEventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onFinished(TripFinishedEvent event) {
         matchService.recordTripLifecycle(event.tripId(), "FINISH");
     }
 
-    @EventListener
+    @Async("tripEventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onTeamApplicationReviewed(TeamApplicationReviewedEvent event) {
         matchService.recordTeamApplication(event.applicantUserId(), event.targetTripId(), event.teamId(), event.status());
     }

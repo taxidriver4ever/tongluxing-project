@@ -84,19 +84,37 @@ public class TripSettlementServiceImpl implements TripSettlementService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "只有已结束行程可以结算");
         }
 
-        int actualDistance = executionSettlementMapper.actualDistance(tripId, captainUserId);
-        int totalTrackPoints = executionSettlementMapper.totalPoints(tripId, captainUserId);
-        int validTrackPoints = executionSettlementMapper.validPoints(tripId, captainUserId);
+        // 轨迹上传阶段已经持续维护 trip_track_summary。结算时优先一次读取汇总，
+        // 避免对 driver_track_record / trip_track_summary 连续发起多次聚合查询。
+        TripTrackReviewSnapshot trackSummary = executionSettlementMapper.findTrackReviewForUpdate(tripId);
+        int actualDistance;
+        int totalTrackPoints;
+        int validTrackPoints;
+        String riskLevel;
+        int riskScore;
+        int locationGapCount;
+        if (trackSummary != null) {
+            Integer approvedDistance = trackSummary.getApprovedDistanceMeters();
+            Integer filteredDistance = trackSummary.getFilteredDistanceMeters();
+            actualDistance = approvedDistance != null && approvedDistance > 0
+                    ? approvedDistance : filteredDistance == null ? 0 : filteredDistance;
+            totalTrackPoints = java.util.Optional.ofNullable(trackSummary.getTotalPointCount()).orElse(0);
+            validTrackPoints = java.util.Optional.ofNullable(trackSummary.getValidPointCount()).orElse(0);
+            riskLevel = trackSummary.getRiskLevel() == null ? "LOW" : trackSummary.getRiskLevel();
+            riskScore = java.util.Optional.ofNullable(trackSummary.getRiskScore()).orElse(0);
+            locationGapCount = java.util.Optional.ofNullable(trackSummary.getLocationGapCount()).orElse(0);
+        } else {
+            // 兼容升级前已经存在轨迹、但还没有 trip_track_summary 的历史数据。
+            actualDistance = executionSettlementMapper.actualDistance(tripId, captainUserId);
+            totalTrackPoints = executionSettlementMapper.totalPoints(tripId, captainUserId);
+            validTrackPoints = executionSettlementMapper.validPoints(tripId, captainUserId);
+            riskLevel = java.util.Optional.ofNullable(executionSettlementMapper.riskLevel(tripId)).orElse("LOW");
+            riskScore = java.util.Optional.ofNullable(executionSettlementMapper.riskScore(tripId)).orElse(0);
+            locationGapCount = java.util.Optional.ofNullable(
+                    executionSettlementMapper.locationGapCount(tripId)).orElse(0);
+        }
         int coverageRate = totalTrackPoints == 0 ? 0
                 : (int) Math.round(validTrackPoints * 100.0d / totalTrackPoints);
-        String riskLevel = executionSettlementMapper.riskLevel(tripId);
-        if (riskLevel == null) {
-            riskLevel = "LOW";
-        }
-        int riskScore = java.util.Optional.ofNullable(
-                executionSettlementMapper.riskScore(tripId)).orElse(0);
-        int locationGapCount = java.util.Optional.ofNullable(
-                executionSettlementMapper.locationGapCount(tripId)).orElse(0);
         java.math.BigDecimal endLng = trip.getEndLng() != null
                 ? trip.getEndLng() : trip.getEndLongitude();
         java.math.BigDecimal endLat = trip.getEndLat() != null

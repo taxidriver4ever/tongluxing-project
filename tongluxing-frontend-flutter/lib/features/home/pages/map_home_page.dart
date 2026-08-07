@@ -445,6 +445,14 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
           ? DateTime.now()
           : DateTime.fromMillisecondsSinceEpoch(locationTimeMillis);
       final speed = (raw['speed'] as num?)?.toDouble();
+      if (force &&
+          lastTrackCapturedAt != null &&
+          !capturedAt.isAfter(lastTrackCapturedAt!)) {
+        // 结束前系统定位可能返回刚刚缓存的同一时间点。此时不重复入队，
+        // 否则同一 recordTime 的两个 sequence 会让整批补传被服务端拒绝。
+        await _flushTrackQueue(showError: false);
+        return;
+      }
       const minimumInterval = Duration(seconds: 10);
       if (!force &&
           lastTrackCapturedAt != null &&
@@ -475,7 +483,17 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
       await trackQueue.enqueue(trip.id, userId, point);
       await trackQueue.markCapturedAt(trip.id, userId, capturedAt);
       lastTrackCapturedAt = capturedAt;
-      await _flushTrackQueue(showError: true);
+
+      // 每 10 秒采集并可靠落本地；正常情况下每 60 秒批量上传一次。
+      // force 用于开始/恢复/结束前立即补传，确保结束结算前服务端拿到最后定位。
+      final shouldFlush =
+          force ||
+          lastTrackUploadAt == null ||
+          DateTime.now().difference(lastTrackUploadAt!) >=
+              const Duration(seconds: 60);
+      if (shouldFlush) {
+        await _flushTrackQueue(showError: true);
+      }
     } on PlatformException {
       // 定位短暂不可用时保留行进中界面，下一个周期继续采集。
     } finally {
@@ -491,21 +509,14 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
     final userId = session.userId ?? 'anonymous';
     final service = TripService(session.api);
     try {
-      final pending = await trackQueue.pending(trip.id, userId);
-      for (final point in pending) {
+      var pending = await trackQueue.pending(trip.id, userId);
+      while (pending.isNotEmpty) {
+        // 后端单批上限 200；断网很久后的历史轨迹按采集时间分批补传。
+        final chunk = pending.take(200).toList(growable: false);
         Map<String, dynamic> response;
         try {
-          response = await service.uploadTrackPayload(point);
-        } on ApiException catch (caught) {
-          final duplicate = caught.statusCode == 409 || caught.code == 409;
-          if (duplicate) {
-            await trackQueue.remove(
-              trip.id,
-              userId,
-              (point['sequenceNo'] as num).toInt(),
-            );
-            continue;
-          }
+          response = await service.uploadTrackBatchPayload(chunk);
+        } on ApiException {
           if (showError && mounted) {
             final count = await trackQueue.count(trip.id, userId);
             if (mounted) {
@@ -516,11 +527,16 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
           }
           break;
         }
-        await trackQueue.remove(
-          trip.id,
-          userId,
-          (point['sequenceNo'] as num).toInt(),
-        );
+
+        final confirmed = (response['confirmedSequenceNos'] as List? ?? const [])
+            .whereType<num>()
+            .map((value) => value.toInt())
+            .toSet();
+        if (confirmed.isEmpty) {
+          // 没有得到服务端明确确认时绝不能清理本地队列。
+          break;
+        }
+        await trackQueue.removeMany(trip.id, userId, confirmed);
         lastTrackUploadAt = DateTime.now();
         if (!mounted) return;
         setState(() {
@@ -528,13 +544,34 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
               (response['totalDistance'] as num?)?.toInt() ??
               trackedDistanceMeters;
         });
-        _handleReachedWaypoint(response);
-        if (response['accepted'] == true && sharingLocation) {
+
+        // 位置共享只发送本批最后一个已确认点，避免补传几十个历史点时重复刷新群位置。
+        Map<String, dynamic>? latestConfirmedPoint;
+        for (final point in chunk.reversed) {
+          final sequenceNo = (point['sequenceNo'] as num?)?.toInt();
+          if (sequenceNo != null && confirmed.contains(sequenceNo)) {
+            latestConfirmedPoint = point;
+            break;
+          }
+        }
+        if (latestConfirmedPoint != null && sharingLocation) {
           await _shareAndLoadTeamLocations(
-            latitude: (point['latitude'] as num).toDouble(),
-            longitude: (point['longitude'] as num).toDouble(),
-            speed: (point['speed'] as num?)?.toDouble(),
+            latitude: (latestConfirmedPoint['latitude'] as num).toDouble(),
+            longitude: (latestConfirmedPoint['longitude'] as num).toDouble(),
+            speed: (latestConfirmedPoint['speed'] as num?)?.toDouble(),
           );
+        }
+
+        pending = pending
+            .where(
+              (point) => !confirmed.contains(
+                (point['sequenceNo'] as num?)?.toInt(),
+              ),
+            )
+            .toList(growable: false);
+        if (confirmed.length < chunk.length) {
+          // 部分确认时保留未确认数据，下一次重传，不继续越过它上传更晚的点。
+          break;
         }
       }
     } finally {
@@ -694,6 +731,15 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _waitForTrackIoIdle() async {
+    for (var i = 0; i < 50 && (requestingLocation || uploadingTrack); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    if (requestingLocation || uploadingTrack) {
+      throw const ApiException('轨迹正在同步，请稍后重新结束导航');
+    }
+  }
+
   Future<void> _endNavigation() async {
     final trip = currentTrip;
     if (trip == null || endingTrip) return;
@@ -702,7 +748,9 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: const Text('结束导航？'),
-            content: const Text('结束导航会同时结束当前行程，并保存已经同步的行驶轨迹。'),
+            content: const Text(
+              '结束导航会同时结束当前行程。若队长已进入终点1公里范围且轨迹无明显异常，系统会立即自动结算成长值；否则提交管理员审核。',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),
@@ -723,6 +771,8 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
     setState(() => endingTrip = true);
     trackTimer?.cancel();
     try {
+      // 等待周期性采集/上传结束，再执行最后一次定位和强制补传，避免结束按钮与定时器竞争。
+      await _waitForTrackIoIdle();
       await _uploadCurrentPoint(force: true);
       await _flushTrackQueue(showError: false);
       final session = context.read<AppSession>();
@@ -743,6 +793,18 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
       });
       await _loadExactRoute(ended);
       _fitTripRoute();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              ended.status == 'SETTLED'
+                  ? '行程已结束，成长值已自动结算'
+                  : '行程已结束，成长值已提交管理员审核',
+            ),
+          ),
+        );
     } catch (caught) {
       if (mounted) {
         setState(() => endingTrip = false);
@@ -1445,8 +1507,8 @@ class _TrackingPanel extends StatelessWidget {
           children: [
             Expanded(
               child: _TripMetric(
-                label: '剩余',
-                value: _distanceLabel(remaining),
+                label: '已行驶',
+                value: _distanceLabel(trackedDistanceMeters),
               ),
             ),
             Expanded(

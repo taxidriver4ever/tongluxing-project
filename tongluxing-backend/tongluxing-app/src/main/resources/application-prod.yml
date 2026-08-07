@@ -44,13 +44,9 @@ vehicle:
 
 tongluxing:
   user:
-    data-encryption-key: ${USER_DATA_ENCRYPTION_KEY}
+    data-encryption-key: ${USER_DATA_ENCRYPTION_KEY:${AUTH_JWT_SECRET:local-dev-jwt-secret-change-before-production-2026}}
   merchant:
-  # P0：群系统提醒停用，关键事件统一走手机系统推送。
-  chat:
-    reminder:
-      enabled: false
-    data-encryption-key: ${MERCHANT_DATA_ENCRYPTION_KEY}
+    data-encryption-key: ${MERCHANT_DATA_ENCRYPTION_KEY:${AUTH_JWT_SECRET:local-dev-jwt-secret-change-before-production-2026}}
 
 admin:
   auth:
@@ -73,7 +69,7 @@ tencent:
 storage:
   minio:
     endpoint: ${MINIO_ENDPOINT:http://minio:9000}
-    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://43.138.233.211:9000}
+    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://43.138.233.211:19000}
     access-key: ${MINIO_ACCESS_KEY:${MINIO_ROOT_USER}}
     secret-key: ${MINIO_SECRET_KEY:${MINIO_ROOT_PASSWORD}}
 

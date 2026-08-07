@@ -5,7 +5,8 @@ const ACCOUNT_LOGGED_IN_ELSEWHERE_CODE = 40101
 const SESSION_HEARTBEAT_MS = 15_000
 let forcedLogoutHandling = false
 const LONG_FIELDS = ['id', 'applyId', 'certificationId', 'userId', 'creatorId', 'assignedAdminId', 'receiverId', 'vehicleId', 'auditUserId', 'auditLogId', 'operatorId',
-  'orderId', 'refundId', 'settlementId', 'verificationId', 'transactionId', 'merchantId', 'productId', 'couponId', 'templateId', 'bizId']
+  'orderId', 'refundId', 'settlementId', 'verificationId', 'transactionId', 'merchantId', 'productId', 'couponId', 'templateId', 'bizId',
+  'tripId', 'primaryUserId', 'reviewerId', 'previousPointId', 'currentPointId', 'sequenceNo']
 
 export class ApiError extends Error {
   constructor(message, { status = 0, code = 0, payload = null } = {}) {

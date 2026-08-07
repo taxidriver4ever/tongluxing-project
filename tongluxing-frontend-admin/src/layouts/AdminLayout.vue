@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
   Bell, Boxes, ChartNoAxesCombined, ChevronRight, FileClock, LayoutDashboard,
-  Compass, Handshake, Headphones, LogOut, Network, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Store, TicketCheck, UsersRound, Siren, MessageSquareWarning,
+  Compass, Handshake, Headphones, LogOut, Network, Search, ShieldCheck, ShoppingBag, SlidersHorizontal, Store, TicketCheck, UsersRound, Siren, MessageSquareWarning, Route,
 } from 'lucide-vue-next'
 import { adminAuthState, logoutAdmin } from '../services/adminAuth.js'
 
@@ -23,6 +23,7 @@ const navGroups = [
     { to: '/customer-service', name: 'customer-service', label: '客服工单', icon: Headphones },
     { to: '/sos-events', name: 'sos-events', label: 'SOS 事件', icon: Siren },
     { to: '/chat-risk', name: 'chat-risk', label: '聊天风控', icon: MessageSquareWarning },
+    { to: '/trip-track-reviews', name: 'trip-track-reviews', label: '轨迹结算审核', icon: Route },
   ] },
   { label: '平台配置', items: [
     { to: '/operation-rules', name: 'rules', label: '运营规则', icon: SlidersHorizontal },

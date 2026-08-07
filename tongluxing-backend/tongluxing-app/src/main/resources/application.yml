@@ -89,7 +89,7 @@ observability:
 
 # MVP 轨迹风控阈值：后台首轮内测只读，统一配置，禁止业务代码散落硬编码。
 trajectory:
-  moving-sample-seconds: ${TRAJECTORY_MOVING_SAMPLE_SECONDS:5}
+  moving-sample-seconds: ${TRAJECTORY_MOVING_SAMPLE_SECONDS:10}
   stationary-sample-seconds: ${TRAJECTORY_STATIONARY_SAMPLE_SECONDS:10}
   min-segment-seconds: ${TRAJECTORY_MIN_SEGMENT_SECONDS:2}
   normal-segment-max-seconds: ${TRAJECTORY_NORMAL_SEGMENT_MAX_SECONDS:20}
@@ -105,14 +105,14 @@ trajectory:
   waypoint-min-duration-seconds: ${TRAJECTORY_WAYPOINT_MIN_DURATION_SECONDS:10}
   waypoint-evidence-window-seconds: ${TRAJECTORY_WAYPOINT_EVIDENCE_WINDOW_SECONDS:30}
   acceleration-max-segment-seconds: ${TRAJECTORY_ACCELERATION_MAX_SEGMENT_SECONDS:10}
-  destination-radius-meters: ${TRAJECTORY_DESTINATION_RADIUS_METERS:100}
-  destination-min-points: ${TRAJECTORY_DESTINATION_MIN_POINTS:3}
-  destination-min-duration-seconds: ${TRAJECTORY_DESTINATION_MIN_DURATION_SECONDS:15}
+  destination-radius-meters: ${TRAJECTORY_DESTINATION_RADIUS_METERS:1000}
+  destination-min-points: ${TRAJECTORY_DESTINATION_MIN_POINTS:1}
+  destination-min-duration-seconds: ${TRAJECTORY_DESTINATION_MIN_DURATION_SECONDS:0}
   valid-point-ratio-percent: ${TRAJECTORY_VALID_POINT_RATIO_PERCENT:70}
   critical-valid-point-ratio-percent: ${TRAJECTORY_CRITICAL_VALID_POINT_RATIO_PERCENT:50}
-  normal-speed-max-kmh: ${TRAJECTORY_NORMAL_SPEED_MAX_KMH:160}
-  warning-speed-max-kmh: ${TRAJECTORY_WARNING_SPEED_MAX_KMH:200}
-  fatal-speed-kmh: ${TRAJECTORY_FATAL_SPEED_KMH:1000}
+  normal-speed-max-kmh: ${TRAJECTORY_NORMAL_SPEED_MAX_KMH:300}
+  warning-speed-max-kmh: ${TRAJECTORY_WARNING_SPEED_MAX_KMH:300}
+  fatal-speed-kmh: ${TRAJECTORY_FATAL_SPEED_KMH:300}
   suspicious-acceleration-mps2: ${TRAJECTORY_SUSPICIOUS_ACCELERATION_MPS2:8}
   abnormal-acceleration-mps2: ${TRAJECTORY_ABNORMAL_ACCELERATION_MPS2:12}
   teleport-five-seconds-meters: ${TRAJECTORY_TELEPORT_5S_METERS:300}

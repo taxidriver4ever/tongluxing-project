@@ -20,6 +20,7 @@ const routes = [
     { path: 'customer-service', name: 'customer-service', component: () => import('../views/CustomerServicePage.vue'), meta: { title: '客服工单' } },
     { path: 'sos-events', name: 'sos-events', component: () => import('../views/SosEventsPage.vue'), meta: { title: 'SOS 事件' } },
     { path: 'chat-risk', name: 'chat-risk', component: () => import('../views/ChatRiskPage.vue'), meta: { title: '聊天风控' } },
+    { path: 'trip-track-reviews', name: 'trip-track-reviews', component: () => import('../views/TripTrackReviewPage.vue'), meta: { title: '轨迹结算审核' } },
     { path: 'operation-rules', name: 'rules', component: () => import('../views/OperationRulesPage.vue'), meta: { title: '运营规则' } },
     { path: 'audit-logs', name: 'logs', component: () => import('../views/AuditLogsPage.vue'), meta: { title: '审计日志' } },
     { path: 'internal-interfaces', name: 'internal', component: () => import('../views/InternalInterfacesPage.vue'), meta: { title: '内部接口' } },

@@ -130,7 +130,11 @@ class _TeamPageState extends State<TeamPage> {
     try {
       await stateService.handleTeamAlert(alert['id'].toString(), action);
       await load();
-      _message(action == 'REMOVE' ? '成员已移除' : '异常已忽略');
+      _message(switch (action) {
+        'REMOVE' => '成员已移除',
+        'REMIND' => '已提醒成员尽快归队',
+        _ => '异常已忽略',
+      });
     } catch (e) {
       _message('$e');
     }
@@ -266,6 +270,7 @@ class _TeamPageState extends State<TeamPage> {
                     ...alerts.map(
                       (alert) => _AlertCard(
                         alert: alert,
+                        onRemind: () => handleAlert(alert, 'REMIND'),
                         onIgnore: () => handleAlert(alert, 'IGNORE'),
                         onRemove: () => handleAlert(alert, 'REMOVE'),
                       ),
@@ -425,10 +430,12 @@ class _TeamStatusCard extends StatelessWidget {
 class _AlertCard extends StatelessWidget {
   const _AlertCard({
     required this.alert,
+    required this.onRemind,
     required this.onIgnore,
     required this.onRemove,
   });
   final Map<String, dynamic> alert;
+  final VoidCallback onRemind;
   final VoidCallback onIgnore;
   final VoidCallback onRemove;
 
@@ -449,6 +456,7 @@ class _AlertCard extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
+              TextButton(onPressed: onRemind, child: const Text('提醒他')),
               TextButton(onPressed: onIgnore, child: const Text('忽略')),
               const Spacer(),
               FilledButton.tonal(

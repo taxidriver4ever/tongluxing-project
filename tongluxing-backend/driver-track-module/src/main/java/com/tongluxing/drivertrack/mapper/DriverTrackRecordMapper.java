@@ -84,6 +84,20 @@ public interface DriverTrackRecordMapper {
     List<DriverTrackRecord> findByTripId(@Param("tripId") Long tripId, @Param("limit") Integer limit);
 
     @Select("""
+            select
+            """ + COLUMNS + """
+            from driver_track_record
+            where trip_id = #{tripId} and driver_id = #{driverId}
+              and deleted = 0 and valid_point = 1
+            order by record_time asc
+            limit #{limit}
+            """)
+    List<DriverTrackRecord> findByTripAndDriver(
+            @Param("tripId") Long tripId,
+            @Param("driverId") Long driverId,
+            @Param("limit") Integer limit);
+
+    @Select("""
             select coalesce(sum(distance_from_prev), 0)
             from driver_track_record
             where trip_id = #{tripId} and driver_id = #{driverId} and deleted = 0

@@ -138,6 +138,15 @@ public interface TripExecutionSettlementMapper {
             """)
     int validPoints(@Param("tripId") Long tripId, @Param("driverId") Long driverId);
 
+
+    @Select("""
+            select coalesce(location_gap_count, 0)
+            from trip_track_summary
+            where trip_id = #{tripId} and deleted = 0
+            limit 1
+            """)
+    Integer locationGapCount(@Param("tripId") Long tripId);
+
     @Select("""
             select case when count(*) = #{minPoints}
                     and timestampdiff(second, min(record_time), max(record_time)) >= #{minDurationSeconds}
@@ -244,6 +253,50 @@ public interface TripExecutionSettlementMapper {
             @Param("status") String status,
             @Param("distance") int distance,
             @Param("now") LocalDateTime now);
+
+    /** 确保需要人工审核的行程一定存在轨迹汇总记录。 */
+    @Insert("""
+            insert ignore into trip_track_summary(
+              id, trip_id, primary_user_id, raw_distance_meters, filtered_distance_meters,
+              approved_distance_meters, total_point_count, valid_point_count, invalid_point_count,
+              location_gap_count, warning_count, hard_anomaly_count, risk_score, risk_level,
+              settlement_status, review_reason, reviewer_id, reviewed_at,
+              created_at, updated_at, deleted
+            ) values (
+              #{id}, #{tripId}, #{primaryUserId}, #{rawDistance}, #{filteredDistance},
+              0, #{totalPoints}, #{validPoints}, #{invalidPoints}, #{locationGapCount},
+              0, 0, #{riskScore}, #{riskLevel}, 'MANUAL_REVIEW', #{reason}, null, null,
+              #{now}, #{now}, 0
+            )
+            """)
+    int ensureTrackReviewSummary(@Param("id") Long id,
+                                 @Param("tripId") Long tripId,
+                                 @Param("primaryUserId") Long primaryUserId,
+                                 @Param("rawDistance") int rawDistance,
+                                 @Param("filteredDistance") int filteredDistance,
+                                 @Param("totalPoints") int totalPoints,
+                                 @Param("validPoints") int validPoints,
+                                 @Param("invalidPoints") int invalidPoints,
+                                 @Param("locationGapCount") int locationGapCount,
+                                 @Param("riskScore") int riskScore,
+                                 @Param("riskLevel") String riskLevel,
+                                 @Param("reason") String reason,
+                                 @Param("now") LocalDateTime now);
+
+    /** 将结束但无法自动结算的行程送入 Admin 人工审核队列。 */
+    @Update("""
+            update trip_track_summary
+            set settlement_status='MANUAL_REVIEW',
+                review_reason=#{reason},
+                reviewer_id=null, reviewed_at=null,
+                updated_at=#{now}
+            where trip_id=#{tripId} and deleted=0
+              and settlement_status not in ('SETTLED','REJECTED')
+            """)
+    int markTrackManualReview(@Param("tripId") Long tripId,
+                              @Param("reason") String reason,
+                              @Param("now") LocalDateTime now);
+
     /** 锁定轨迹汇总，供管理员人工审核。 */
     @Select("""
             select trip_id, primary_user_id, raw_distance_meters, filtered_distance_meters,

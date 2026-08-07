@@ -384,7 +384,7 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
       await _flushTrackQueue(showError: false);
       await _uploadCurrentPoint(force: true);
       trackTimer = Timer.periodic(
-        const Duration(seconds: 5),
+        const Duration(seconds: 10),
         (_) => unawaited(_uploadCurrentPoint()),
       );
     } on PlatformException {
@@ -445,9 +445,7 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
           ? DateTime.now()
           : DateTime.fromMillisecondsSinceEpoch(locationTimeMillis);
       final speed = (raw['speed'] as num?)?.toDouble();
-      final minimumInterval = (speed ?? 0) >= .8
-          ? const Duration(seconds: 5)
-          : const Duration(seconds: 10);
+      const minimumInterval = Duration(seconds: 10);
       if (!force &&
           lastTrackCapturedAt != null &&
           capturedAt.difference(lastTrackCapturedAt!) < minimumInterval) {
@@ -614,7 +612,7 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
       await _uploadCurrentPoint(force: true);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已停止向车队共享实时位置，行程轨迹仍会继续记录')),
+        const SnackBar(content: Text('已停止在车队地图展示位置；后台定位仍用于队长轨迹或成员脱队检测')),
       );
     }
   }
@@ -749,7 +747,7 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
       if (mounted) {
         setState(() => endingTrip = false);
         trackTimer = Timer.periodic(
-          const Duration(seconds: 5),
+          const Duration(seconds: 10),
           (_) => unawaited(_uploadCurrentPoint()),
         );
         ScaffoldMessenger.of(context).showSnackBar(
@@ -835,6 +833,16 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
     );
   }
 
+  bool _isCurrentUserCaptain(BuildContext context) {
+    final trip = visibleTrip;
+    final userId = context.watch<AppSession>().userId;
+    if (trip == null || userId == null) return false;
+    final captainId = trip.captainUserId?.isNotEmpty == true
+        ? trip.captainUserId
+        : trip.ownerUserId;
+    return captainId == userId;
+  }
+
   @override
   Widget build(BuildContext context) => Stack(
     children: [
@@ -898,6 +906,7 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
           sharingLocation: sharingLocation,
           endingTrip: endingTrip,
           trackedDistanceMeters: trackedDistanceMeters,
+          canEndTrip: _isCurrentUserCaptain(context),
         ),
       ),
     ],
@@ -1187,6 +1196,7 @@ class _MapBottomPanel extends StatelessWidget {
     required this.sharingLocation,
     required this.endingTrip,
     required this.trackedDistanceMeters,
+    required this.canEndTrip,
   });
 
   final _MapMode mode;
@@ -1202,6 +1212,7 @@ class _MapBottomPanel extends StatelessWidget {
   final bool sharingLocation;
   final bool endingTrip;
   final int trackedDistanceMeters;
+  final bool canEndTrip;
 
   @override
   Widget build(BuildContext context) => Material(
@@ -1240,6 +1251,7 @@ class _MapBottomPanel extends StatelessWidget {
               sharingLocation: sharingLocation,
               endingTrip: endingTrip,
               trackedDistanceMeters: trackedDistanceMeters,
+              canEndTrip: canEndTrip,
             )
           else
             _EndedPanel(
@@ -1349,6 +1361,7 @@ class _TrackingPanel extends StatelessWidget {
     required this.sharingLocation,
     required this.endingTrip,
     required this.trackedDistanceMeters,
+    required this.canEndTrip,
   });
 
   final TripModel? trip;
@@ -1359,6 +1372,7 @@ class _TrackingPanel extends StatelessWidget {
   final bool sharingLocation;
   final bool endingTrip;
   final int trackedDistanceMeters;
+  final bool canEndTrip;
 
   @override
   Widget build(BuildContext context) {
@@ -1477,15 +1491,29 @@ class _TrackingPanel extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 10),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            onPressed: endingTrip ? null : onEndNavigation,
-            icon: const Icon(LucideIcons.square, size: 17),
-            label: Text(endingTrip ? '正在结束导航…' : '结束导航'),
+        if (canEndTrip)
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+              onPressed: endingTrip ? null : onEndNavigation,
+              icon: const Icon(LucideIcons.square, size: 17),
+              label: Text(endingTrip ? '正在结束导航…' : '结束导航'),
+            ),
+          )
+        else
+          const SizedBox(
+            width: double.infinity,
+            child: Text(
+              '只有队长可以结束行程',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.secondaryText,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
-        ),
       ],
     );
   }

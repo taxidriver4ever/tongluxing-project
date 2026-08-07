@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "trajectory")
 public class TrajectoryProperties {
-    private int movingSampleSeconds = 5;
+    private int movingSampleSeconds = 10;
     private int stationarySampleSeconds = 10;
     private int minSegmentSeconds = 2;
     private int normalSegmentMaxSeconds = 20;
@@ -23,14 +23,14 @@ public class TrajectoryProperties {
     private int waypointMinDurationSeconds = 10;
     private int waypointEvidenceWindowSeconds = 30;
     private int accelerationMaxSegmentSeconds = 10;
-    private int destinationRadiusMeters = 100;
-    private int destinationMinPoints = 3;
-    private int destinationMinDurationSeconds = 15;
+    private int destinationRadiusMeters = 1000;
+    private int destinationMinPoints = 1;
+    private int destinationMinDurationSeconds = 0;
     private int validPointRatioPercent = 70;
     private int criticalValidPointRatioPercent = 50;
-    private int normalSpeedMaxKmh = 160;
-    private int warningSpeedMaxKmh = 200;
-    private int fatalSpeedKmh = 1000;
+    private int normalSpeedMaxKmh = 300;
+    private int warningSpeedMaxKmh = 300;
+    private int fatalSpeedKmh = 300;
     private double suspiciousAccelerationMps2 = 8;
     private double abnormalAccelerationMps2 = 12;
     private int teleportFiveSecondsMeters = 300;

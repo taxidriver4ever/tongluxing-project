@@ -70,40 +70,78 @@ public interface AdminTripTrackReviewMapper {
     @Select("""
             select ms.user_id, ms.member_role, ms.join_status,
                    coalesce(p.nickname, ms.nickname_snapshot, '') nickname,
-                   coalesce(sum(r.distance_from_prev),0) distance_meters,
-                   count(r.id) total_point_count,
-                   coalesce(sum(case when r.valid_point=1 then 1 else 0 end),0) valid_point_count
+                   case when ms.user_id=s.primary_user_id then coalesce((
+                       select sum(r.distance_from_prev)
+                       from driver_track_record r
+                       where r.trip_id=ms.trip_id and r.driver_id=ms.user_id
+                         and r.valid_point=1 and r.deleted=0
+                   ),0) else 0 end distance_meters,
+                   case when ms.user_id=s.primary_user_id then (
+                       select count(*) from driver_track_record r
+                       where r.trip_id=ms.trip_id and r.driver_id=ms.user_id and r.deleted=0
+                   ) else 0 end total_point_count,
+                   case when ms.user_id=s.primary_user_id then (
+                       select count(*) from driver_track_record r
+                       where r.trip_id=ms.trip_id and r.driver_id=ms.user_id
+                         and r.valid_point=1 and r.deleted=0
+                   ) else 0 end valid_point_count,
+                   case when ms.user_id=s.primary_user_id then (
+                       select r.longitude from driver_track_record r
+                       where r.trip_id=ms.trip_id and r.driver_id=ms.user_id and r.deleted=0 and r.valid_point=1
+                       order by r.record_time desc, r.sequence_no desc limit 1
+                   ) else ml.longitude end latest_longitude,
+                   case when ms.user_id=s.primary_user_id then (
+                       select r.latitude from driver_track_record r
+                       where r.trip_id=ms.trip_id and r.driver_id=ms.user_id and r.deleted=0 and r.valid_point=1
+                       order by r.record_time desc, r.sequence_no desc limit 1
+                   ) else ml.latitude end latest_latitude,
+                   case when ms.user_id=s.primary_user_id then (
+                       select cast(r.accuracy as signed) from driver_track_record r
+                       where r.trip_id=ms.trip_id and r.driver_id=ms.user_id and r.deleted=0 and r.valid_point=1
+                       order by r.record_time desc, r.sequence_no desc limit 1
+                   ) else cast(ml.accuracy as signed) end latest_accuracy_meters,
+                   case when ms.user_id=s.primary_user_id then (
+                       select r.mock_location from driver_track_record r
+                       where r.trip_id=ms.trip_id and r.driver_id=ms.user_id and r.deleted=0 and r.valid_point=1
+                       order by r.record_time desc, r.sequence_no desc limit 1
+                   ) else ml.mock_location end mock_location,
+                   case when ms.user_id=s.primary_user_id then (
+                       select r.record_time from driver_track_record r
+                       where r.trip_id=ms.trip_id and r.driver_id=ms.user_id and r.deleted=0 and r.valid_point=1
+                       order by r.record_time desc, r.sequence_no desc limit 1
+                   ) else ml.record_time end latest_location_time
             from trip_member_snapshot ms
+            join trip_track_summary s on s.trip_id=ms.trip_id and s.deleted=0
             left join user_profile p on p.user_id=ms.user_id and p.deleted=0
-            left join driver_track_record r on r.trip_id=ms.trip_id
-                 and r.driver_id=ms.user_id and r.deleted=0
+            left join trip_member_latest_location ml on ml.trip_id=ms.trip_id
+                 and ml.member_user_id=ms.user_id and ml.deleted=0
             where ms.trip_id=#{tripId} and ms.join_status in ('OWNER','APPROVED')
-            group by ms.user_id, ms.member_role, ms.join_status,
-                     coalesce(p.nickname, ms.nickname_snapshot, '')
-            order by case when ms.join_status='OWNER' then 0 else 1 end, ms.joined_at
+            order by case when ms.user_id=s.primary_user_id then 0 else 1 end, ms.joined_at
             """)
     List<AdminTripTrackMemberVO> members(Long tripId);
 
     @Select("""
-            select id, user_id, previous_point_id, current_point_id, anomaly_type,
-                   risk_score, cast(detail_json as char) detail_json, occurred_at
-            from trip_track_anomaly
-            where trip_id=#{tripId}
-            order by occurred_at desc
+            select a.id, a.user_id, a.previous_point_id, a.current_point_id, a.anomaly_type,
+                   a.risk_score, cast(a.detail_json as char) detail_json, a.occurred_at
+            from trip_track_anomaly a
+            join trip_track_summary s on s.trip_id=a.trip_id and s.deleted=0
+            where a.trip_id=#{tripId} and a.user_id=s.primary_user_id
+            order by a.occurred_at desc
             limit 500
             """)
     List<AdminTripTrackAnomalyVO> anomalies(Long tripId);
 
     @Select("""
-            select id, driver_id user_id, sequence_no, longitude, latitude,
-                   accuracy accuracy_meters, calculated_speed_kmh,
-                   raw_distance_from_prev raw_distance_meters,
-                   distance_from_prev accepted_distance_meters,
-                   point_status, risk_score, risk_flags, reject_reason,
-                   mock_location, record_time location_time
-            from driver_track_record
-            where trip_id=#{tripId} and deleted=0
-            order by record_time, sequence_no
+            select r.id, r.driver_id user_id, r.sequence_no, r.longitude, r.latitude,
+                   r.accuracy accuracy_meters, r.calculated_speed_kmh,
+                   r.raw_distance_from_prev raw_distance_meters,
+                   r.distance_from_prev accepted_distance_meters,
+                   r.point_status, r.risk_score, r.risk_flags, r.reject_reason,
+                   r.mock_location, r.record_time location_time
+            from driver_track_record r
+            join trip_track_summary s on s.trip_id=r.trip_id and s.primary_user_id=r.driver_id and s.deleted=0
+            where r.trip_id=#{tripId} and r.deleted=0
+            order by r.record_time, r.sequence_no
             limit 5000
             """)
     List<AdminTripTrackPointVO> points(Long tripId);

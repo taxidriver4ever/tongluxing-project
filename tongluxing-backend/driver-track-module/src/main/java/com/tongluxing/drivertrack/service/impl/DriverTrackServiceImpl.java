@@ -26,12 +26,14 @@ import com.tongluxing.drivertrack.dto.MockDeviationRequest;
 import com.tongluxing.drivertrack.entity.DriverDeviationRecord;
 import com.tongluxing.drivertrack.entity.DriverTrackRecord;
 import com.tongluxing.drivertrack.entity.DriverTrackDistanceRecord;
+import com.tongluxing.drivertrack.entity.TripMemberLatestLocation;
 import com.tongluxing.drivertrack.mapper.DriverDeviationRecordMapper;
 import com.tongluxing.drivertrack.mapper.DriverTrackRecordMapper;
 import com.tongluxing.drivertrack.mapper.DriverTrackDistanceRecordMapper;
 import com.tongluxing.drivertrack.mapper.DriverMemberDistanceAlertMapper;
 import com.tongluxing.drivertrack.mapper.TripExecutionTrackMapper;
 import com.tongluxing.drivertrack.mapper.TripTrackRiskMapper;
+import com.tongluxing.drivertrack.mapper.TripMemberLatestLocationMapper;
 import com.tongluxing.drivertrack.service.DriverTrackService;
 import com.tongluxing.drivertrack.service.MileageSettlementService;
 import com.tongluxing.drivertrack.service.TripTrackSecurityAuditService;
@@ -81,6 +83,7 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     private final DriverDeviationRecordMapper deviationMapper;
     private final DriverTrackDistanceRecordMapper distanceMapper;
     private final DriverMemberDistanceAlertMapper memberAlertMapper;
+    private final TripMemberLatestLocationMapper memberLocationMapper;
     private final TripExecutionTrackMapper executionTrackMapper;
     private final MileageSettlementService mileageSettlementService;
     private final TrajectoryProperties trajectoryProperties;
@@ -93,6 +96,10 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     public DriverTrackUploadResponse uploadPoint(DriverTrackPointRequest request) {
         Long driverId = currentUserContext.requireUserId();
         Trip trip = requireOngoingParticipantTrip(request.tripId(), driverId);
+        Long captainUserId = captainUserId(trip);
+        if (!driverId.equals(captainUserId)) {
+            return uploadMemberPosition(trip, request, driverId, captainUserId);
+        }
         DriverTrackRecord previousRaw = trackMapper.findLast(request.tripId(), driverId);
         DriverTrackRecord previousValid = trackMapper.findLastValid(request.tripId(), driverId);
         FilterResult filter = filterPoint(previousRaw, previousValid, request);
@@ -208,18 +215,85 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         );
     }
 
+    /**
+     * 普通成员只更新最新位置快照，不落驾驶轨迹、不累计里程，也不进入成长值风控。
+     * 重传的旧位置由服务端确认后直接忽略，客户端可安全清除对应本地缓存。
+     */
+    private DriverTrackUploadResponse uploadMemberPosition(
+            Trip trip, DriverTrackPointRequest request, Long memberUserId, Long captainUserId) {
+        LocalDateTime now = LocalDateTime.now();
+        if (request.recordTime().isAfter(
+                now.plusSeconds(trajectoryProperties.getMaxFutureLocationSeconds()))
+                || request.clientSendTime() != null
+                && request.clientSendTime().isBefore(request.recordTime())) {
+            return memberPositionResponse(trip, memberUserId, request,
+                    "TIME_ANOMALY", false, 0, 0, "定位采集时间异常，位置未更新");
+        }
+        if (request.latitude().compareTo(BigDecimal.ZERO) == 0
+                && request.longitude().compareTo(BigDecimal.ZERO) == 0) {
+            return memberPositionResponse(trip, memberUserId, request,
+                    "INVALID_COORDINATE", false, 0, 0, "经纬度无效，位置未更新");
+        }
+        if (request.accuracy().intValue() > trajectoryProperties.getAcceptableAccuracyMeters()) {
+            return memberPositionResponse(trip, memberUserId, request,
+                    "LOW_ACCURACY", false, 0, 0, "定位精度过低，位置未更新");
+        }
+        if (Boolean.TRUE.equals(request.mockLocation())) {
+            return memberPositionResponse(trip, memberUserId, request,
+                    "MOCK_LOCATION", false, 0, 0, "疑似模拟定位，位置未更新");
+        }
+        TripMemberLatestLocation previous = memberLocationMapper.findOne(trip.getId(), memberUserId);
+        if (previous != null && previous.getRecordTime() != null
+                && !request.recordTime().isAfter(previous.getRecordTime())) {
+            int captainDistance = trackMapper.sumDistance(trip.getId(), captainUserId);
+            return memberPositionResponse(trip, memberUserId, request,
+                    "STALE_POSITION_CONFIRMED", false, 0, captainDistance,
+                    "历史位置重传已确认，不覆盖成员最新位置");
+        }
+        memberLocationMapper.upsert(
+                SnowflakeIdGenerator.nextId(), trip.getId(), captainUserId, memberUserId,
+                request.longitude(), request.latitude(), request.speed(), request.accuracy(),
+                request.sequenceNo(), Boolean.TRUE.equals(request.mockLocation()) ? 1 : 0,
+                request.recordTime(), now, now);
+        MemberDistanceReading reading = saveMemberDistanceState(
+                trip, request, memberUserId, now);
+        int captainDistance = trackMapper.sumDistance(trip.getId(), captainUserId);
+        return memberPositionResponse(trip, memberUserId, request,
+                "MEMBER_POSITION_UPDATED", true, reading.status(), captainDistance, "");
+    }
+
+    private DriverTrackUploadResponse memberPositionResponse(
+            Trip trip, Long memberUserId, DriverTrackPointRequest request,
+            String status, boolean accepted, int deviationStatus,
+            int captainDistance, String message) {
+        TripMemberLatestLocation latest = memberLocationMapper.findOne(trip.getId(), memberUserId);
+        DriverTrackRecord captain = trackMapper.findLastValid(trip.getId(), captainUserId(trip));
+        int deviationDistance = latest == null || captain == null ? 0 : haversineMeters(
+                latest.getLatitude(), latest.getLongitude(),
+                captain.getLatitude(), captain.getLongitude());
+        return new DriverTrackUploadResponse(
+                "member-position:" + memberUserId + ":" + request.sequenceNo(),
+                0, deviationStatus, deviationDistance, captainDistance,
+                0, 0, null, null, status, 0, "LOW", false, message, accepted);
+    }
+
+    private Long captainUserId(Trip trip) {
+        return trip.getCaptainUserId() == null ? trip.getUserId() : trip.getCaptainUserId();
+    }
+
     private Long ensureExecutionTrack(
             Trip trip, Long driverId, DriverTrackRecord record,
             int rawDistanceFromPrev, LocalDateTime now) {
         int plannedDistance = trip.getTotalDistanceMeters() != null
                 ? trip.getTotalDistanceMeters()
                 : trip.getRouteDistance() == null ? 0 : trip.getRouteDistance();
+        Long captainUserId = captainUserId(trip);
         executionTrackMapper.ensureExecution(
-                SnowflakeIdGenerator.nextId(), trip.getId(), trip.getUserId(), plannedDistance, now);
+                SnowflakeIdGenerator.nextId(), trip.getId(), captainUserId, plannedDistance, now);
         Long executionId = executionTrackMapper.findExecutionId(trip.getId());
         executionTrackMapper.ensureMember(
                 SnowflakeIdGenerator.nextId(), executionId, trip.getId(), driverId,
-                driverId.equals(trip.getUserId()) ? "CAPTAIN" : "MEMBER", now);
+                driverId.equals(captainUserId) ? "CAPTAIN" : "MEMBER", now);
         executionTrackMapper.insertPoint(executionId, record, rawDistanceFromPrev);
         executionTrackMapper.appendDistance(
                 executionId, rawDistanceFromPrev, record.getDistanceFromPrev(), now);
@@ -246,38 +320,53 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     @Override
     public DriverTrackListResponse getTrack(Long tripId) {
         requireReadableTrip(tripId);
+        Trip trip = tripMapper.findById(tripId);
+        Long captainUserId = captainUserId(trip);
         return new DriverTrackListResponse(
                 String.valueOf(tripId),
-                trackMapper.findByTripId(tripId, 5000).stream().map(this::toPointVO).toList()
+                trackMapper.findByTripAndDriver(tripId, captainUserId, 5000)
+                        .stream().map(this::toPointVO).toList()
         );
     }
 
     @Override
     public DriverDeviationResponse getDeviation(Long tripId) {
-        requireReadableTrip(tripId);
+        Trip trip = requireReadableTrip(tripId);
         Long userId = currentUserContext.requireUserId();
-        DriverDeviationRecord latest = deviationMapper.findLatest(tripId, userId);
-        if (latest == null) {
+        Long captainUserId = captainUserId(trip);
+        if (userId.equals(captainUserId)) {
             return new DriverDeviationResponse(String.valueOf(tripId), 0, 0, "");
         }
-        int status = latest.getDeviationStatus();
-        if (latest.getRecordTime().isBefore(LocalDateTime.now().minusMinutes(2))) {
+        TripMemberLatestLocation member = memberLocationMapper.findOne(tripId, userId);
+        DriverTrackRecord captain = trackMapper.findLastValid(tripId, captainUserId);
+        if (member == null || captain == null) {
+            return new DriverDeviationResponse(String.valueOf(tripId), 3, 0, "");
+        }
+        int distance = haversineMeters(
+                member.getLatitude(), member.getLongitude(),
+                captain.getLatitude(), captain.getLongitude());
+        java.util.Map<String, Object> active = memberAlertMapper.findActive(tripId, userId);
+        String level = active == null ? "" : String.valueOf(active.get("alertLevel"));
+        int status = "SEVERE".equals(level) ? 2 : "FAR".equals(level) ? 1 : 0;
+        if (member.getRecordTime() == null
+                || member.getRecordTime().isBefore(LocalDateTime.now().minusHours(12))) {
             status = 3;
         }
         return new DriverDeviationResponse(
-                String.valueOf(tripId), status, latest.getDeviationDistance(),
-                formatTime(latest.getRecordTime()));
+                String.valueOf(tripId), status, distance,
+                member.getRecordTime() == null ? "" : formatTime(member.getRecordTime()));
     }
 
     @Override
     public DriverDistanceResponse getDistance(Long tripId) {
-        Long driverId = currentUserContext.requireUserId();
-        requireReadableTrip(tripId);
-        int totalDistance = trackMapper.sumDistance(tripId, driverId);
-        DriverTrackDistanceRecord latest = distanceMapper.findLatest(tripId, driverId);
+        Long requesterId = currentUserContext.requireUserId();
+        Trip trip = requireReadableTrip(tripId);
+        Long captainUserId = captainUserId(trip);
+        int totalDistance = trackMapper.sumDistance(tripId, captainUserId);
+        DriverTrackDistanceRecord latest = distanceMapper.findLatest(tripId, captainUserId);
         return new DriverDistanceResponse(
                 String.valueOf(tripId),
-                String.valueOf(driverId),
+                String.valueOf(requesterId),
                 totalDistance,
                 latest == null ? 0 : latest.getLastSettleDistance(),
                 latest == null ? "" : formatTime(latest.getSettleTime())
@@ -306,12 +395,12 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         if (!participant) {
             securityAuditService.record(tripId, userId, "UNAUTHORIZED_UPLOAD",
                     "非行程成员尝试上传定位点");
-            throw new BusinessException(ResultCode.FORBIDDEN, "只有本次行程的有效成员可以上传轨迹");
+            throw new BusinessException(ResultCode.FORBIDDEN, "只有本次行程的有效成员可以上传位置");
         }
         if (!STATUS_RUNNING.equals(trip.getStatus())) {
             securityAuditService.record(tripId, userId, "UPLOAD_OUTSIDE_RUNNING_TRIP",
                     "行程状态为" + trip.getStatus() + "，拒绝轨迹上传");
-            throw new BusinessException(ResultCode.BAD_REQUEST, "行程未开始或已经结束，不能上传轨迹");
+            throw new BusinessException(ResultCode.BAD_REQUEST, "行程未开始或已经结束，不能上传位置");
         }
         return trip;
     }
@@ -355,11 +444,6 @@ public class DriverTrackServiceImpl implements DriverTrackService {
                     mockRisk > 0 ? "MOCK_LOCATION" : "", null, false, false, 0d);
         }
 
-        FilterResult roundTrip = detectRoundTripTeleport(previousRaw, previousValid, request);
-        if (roundTrip != null) {
-            return roundTrip;
-        }
-
         long deltaSeconds = java.time.Duration.between(
                 previousValid.getRecordTime(), request.recordTime()).getSeconds();
         if (deltaSeconds < trajectoryProperties.getMinSegmentSeconds()) {
@@ -383,40 +467,19 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         double calculatedSpeedKmh = TrajectoryRuleEngine.speedKmh(
                 lowerBoundDistance, deltaSeconds);
 
-        if (calculatedSpeedKmh >= trajectoryProperties.getFatalSpeedKmh()) {
-            FilterResult recovery = recoverSegmentStart(previousRaw, request);
-            if (recovery != null) return recovery;
-            return FilterResult.rejected("FATAL_REJECTED", rawDistance,
-                    trajectoryProperties.getHighRiskScore(),
-                    "FATAL_IMPOSSIBLE_SPEED",
-                    "服务端计算速度达到致命异常阈值，不更新可信位置、抵达状态或里程",
-                    true, calculatedSpeedKmh);
-        }
-        boolean teleport = TrajectoryRuleEngine.isTeleport(
-                deltaSeconds, lowerBoundDistance,
-                trajectoryProperties.getTeleportFiveSecondsMeters(),
-                trajectoryProperties.getTeleportTenSecondsMeters());
-        if (teleport) {
-            FilterResult recovery = recoverSegmentStart(previousRaw, request);
-            if (recovery != null) return recovery;
-            return FilterResult.rejected("TELEPORT", rawDistance, 3,
-                    "TELEPORT", "短时间内出现明显瞬移", false, calculatedSpeedKmh);
-        }
         if (calculatedSpeedKmh > trajectoryProperties.getWarningSpeedMaxKmh()) {
             FilterResult recovery = recoverSegmentStart(previousRaw, request);
             if (recovery != null) return recovery;
-            return FilterResult.rejected("IMPOSSIBLE_SPEED", rawDistance, 3,
-                    "IMPOSSIBLE_SPEED", "服务端计算速度超过200km/h", false, calculatedSpeedKmh);
+            return FilterResult.rejected("IMPOSSIBLE_SPEED", rawDistance,
+                    trajectoryProperties.getHighRiskScore(),
+                    "IMPOSSIBLE_SPEED",
+                    "相邻定位点按实际时间差计算速度超过300km/h，疑似瞬移或极端速度",
+                    true, calculatedSpeedKmh);
         }
 
         int riskScore = 0;
         java.util.List<String> flags = new java.util.ArrayList<>();
         String status = "ACCEPTED";
-        if (calculatedSpeedKmh > trajectoryProperties.getNormalSpeedMaxKmh()) {
-            riskScore += 1;
-            flags.add("SPEED_WARNING");
-            status = "SPEED_WARNING";
-        }
         if (Boolean.TRUE.equals(request.mockLocation())) {
             riskScore += 5;
             flags.add("MOCK_LOCATION");
@@ -443,21 +506,6 @@ public class DriverTrackServiceImpl implements DriverTrackService {
             status = "LOW_CONFIDENCE";
         }
 
-        if (previousValid.getCalculatedSpeedKmh() != null
-                && deltaSeconds <= trajectoryProperties.getAccelerationMaxSegmentSeconds()
-                && previousValid.getAccuracy() != null
-                && previousValid.getAccuracy().intValue() <= trajectoryProperties.getNormalAccuracyMeters()
-                && accuracy <= trajectoryProperties.getNormalAccuracyMeters()) {
-            double acceleration = Math.abs(calculatedSpeedKmh / 3.6d
-                    - previousValid.getCalculatedSpeedKmh().doubleValue() / 3.6d) / deltaSeconds;
-            if (acceleration > trajectoryProperties.getAbnormalAccelerationMps2()) {
-                riskScore += 3;
-                flags.add("ABNORMAL_ACCELERATION");
-            } else if (acceleration > trajectoryProperties.getSuspiciousAccelerationMps2()) {
-                riskScore += 1;
-                flags.add("SUSPICIOUS_ACCELERATION");
-            }
-        }
 
         int acceptedDistance = TrajectoryRuleEngine.filterStationaryDrift(
                 rawDistance,
@@ -549,9 +597,10 @@ public class DriverTrackServiceImpl implements DriverTrackService {
 
     private void saveRiskResult(Trip trip, Long driverId, DriverTrackRecord previousValid,
                                 DriverTrackRecord record, FilterResult filter, LocalDateTime now) {
-        boolean primaryTrack = driverId.equals(trip.getUserId());
+        Long captainUserId = captainUserId(trip);
+        boolean primaryTrack = driverId.equals(captainUserId);
         if (primaryTrack) {
-            riskMapper.ensureSummary(SnowflakeIdGenerator.nextId(), trip.getId(), trip.getUserId(), now);
+            riskMapper.ensureSummary(SnowflakeIdGenerator.nextId(), trip.getId(), captainUserId, now);
             int minimumRisk = filter.fatal() ? trajectoryProperties.getHighRiskScore() : 0;
             int warningCount = filter.riskScore() > 0 && !filter.hardAnomaly() ? 1 : 0;
             int hardCount = filter.hardAnomaly() ? 1 : 0;
@@ -622,15 +671,16 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     }
 
     /**
-     * 队伍脱队和导航偏航完全分离：这里按成员与队长的实时直线距离判断。
-     * 默认 50km/30 分钟为一级提醒，100km/60 分钟为严重提醒；具体阈值读取车队设置。
+     * 按成员与队长的实时直线距离进行车队脱队检测。
+     * 50km 持续30分钟提醒成员，100km 持续60分钟通知队长；
+     * 成员回到50km以内时解除告警，是否移出始终由队长决定。
      */
-    private void saveMemberDistanceState(
-            Trip trip, DriverTrackPointRequest request, Long driverId, LocalDateTime now) {
-        Long captainUserId = trip.getCaptainUserId() == null ? trip.getUserId() : trip.getCaptainUserId();
+    private MemberDistanceReading saveMemberDistanceState(
+            Trip trip, DriverTrackPointRequest request, Long memberUserId, LocalDateTime now) {
+        Long captainUserId = captainUserId(trip);
         DriverTrackRecord captain = trackMapper.findLastValid(trip.getId(), captainUserId);
-        if (captain == null || driverId.equals(captainUserId)) {
-            return;
+        if (captain == null || memberUserId.equals(captainUserId)) {
+            return new MemberDistanceReading(3, 0);
         }
         Team team = teamMapper.findAnyActiveByTripId(trip.getId());
         int warningDistance = team == null || team.getDeviationWarningDistanceM() == null
@@ -641,72 +691,81 @@ public class DriverTrackServiceImpl implements DriverTrackService {
                 ? 100_000 : team.getSevereDeviationDistanceM();
         int severeMinutes = team == null || team.getSevereDeviationMinutes() == null
                 ? 60 : team.getSevereDeviationMinutes();
-        int recoveryDistance = Math.max(1_000, warningDistance / 2);
 
         int distance = haversineMeters(
-                request.latitude(), request.longitude(), captain.getLatitude(), captain.getLongitude());
-        java.util.Map<String, Object> active = memberAlertMapper.findActive(trip.getId(), driverId);
+                request.latitude(), request.longitude(),
+                captain.getLatitude(), captain.getLongitude());
+        java.util.Map<String, Object> active = memberAlertMapper.findActive(trip.getId(), memberUserId);
+        if (active != null && "MISSING".equals(String.valueOf(active.get("alertLevel")))) {
+            memberAlertMapper.recover(((Number) active.get("id")).longValue(), now);
+            active = null;
+        }
+        if (distance < warningDistance) {
+            if (active != null) {
+                Long alertId = ((Number) active.get("id")).longValue();
+                String previousLevel = String.valueOf(active.get("alertLevel"));
+                memberAlertMapper.recover(alertId, now);
+                if ("FAR".equals(previousLevel) || "SEVERE".equals(previousLevel)) {
+                    appPushService.enqueue(memberUserId, "TEAM_MEMBER_RECOVERED", "已恢复车队范围",
+                            "你已回到队长50公里范围内，脱队警告已解除",
+                            "TRIP", String.valueOf(trip.getId()),
+                            "member-distance-recovered:" + alertId);
+                }
+            }
+            return new MemberDistanceReading(0, distance);
+        }
+
+        Long alertId;
+        LocalDateTime startedAt;
+        String currentLevel;
+        if (active == null) {
+            alertId = SnowflakeIdGenerator.nextId();
+            startedAt = request.recordTime();
+            currentLevel = "OBSERVING";
+            memberAlertMapper.insert(alertId, trip.getId(), captainUserId,
+                    memberUserId, currentLevel, distance, startedAt);
+        } else {
+            alertId = ((Number) active.get("id")).longValue();
+            startedAt = (LocalDateTime) active.get("startedAt");
+            currentLevel = String.valueOf(active.get("alertLevel"));
+        }
+
+        long elapsedMinutes = startedAt == null ? 0
+                : Math.max(0, java.time.Duration.between(startedAt, request.recordTime()).toMinutes());
+        String targetLevel = currentLevel;
         int status = 0;
-        String nextLevel = null;
-        Long alertId = active == null ? null : ((Number) active.get("id")).longValue();
-        String level = active == null ? "" : String.valueOf(active.get("alertLevel"));
-        LocalDateTime startedAt = active == null ? null : (LocalDateTime) active.get("startedAt");
-        if (distance >= severeDistance) {
-            if (active == null || !level.contains("SEVERE")) {
-                nextLevel = "OBSERVING_SEVERE";
-            } else if (startedAt != null
-                    && !startedAt.isAfter(request.recordTime().minusMinutes(severeMinutes))) {
-                nextLevel = "SEVERE";
-                status = 2;
-            }
-        } else if (distance >= warningDistance) {
-            if (active == null || level.contains("SEVERE")) {
-                nextLevel = "OBSERVING_FAR";
-            } else if (startedAt != null
-                    && !startedAt.isAfter(request.recordTime().minusMinutes(warningMinutes))) {
-                nextLevel = "FAR";
-                status = 1;
-            }
-        } else if (distance < recoveryDistance && alertId != null) {
-            memberAlertMapper.recover(alertId, now);
-        } else if ("SEVERE".equals(level)) {
+        if (distance >= severeDistance && elapsedMinutes >= severeMinutes) {
+            targetLevel = "SEVERE";
             status = 2;
-        } else if ("FAR".equals(level)) {
+        } else if (elapsedMinutes >= warningMinutes) {
+            targetLevel = "FAR";
+            status = 1;
+        } else if ("SEVERE".equals(currentLevel)) {
+            targetLevel = "FAR";
+            status = 1;
+        } else if ("FAR".equals(currentLevel)) {
             status = 1;
         }
-        if (nextLevel != null) {
-            if (alertId == null || !level.equals(nextLevel)
-                    && nextLevel.startsWith("OBSERVING")) {
-                if (alertId != null) memberAlertMapper.recover(alertId, now);
-                alertId = SnowflakeIdGenerator.nextId();
-                memberAlertMapper.insert(alertId, trip.getId(), captainUserId,
-                        driverId, nextLevel, distance, request.recordTime());
-            } else {
-                memberAlertMapper.update(alertId, nextLevel, distance,
-                        "FAR".equals(nextLevel) || "SEVERE".equals(nextLevel) ? 1 : 0, now);
-            }
-            if ("FAR".equals(nextLevel) || "SEVERE".equals(nextLevel)) {
-                // 达到持续时间后才推送；观察阶段只落库，不打扰队长。
-                String title = "SEVERE".equals(nextLevel) ? "成员严重脱队" : "成员疑似脱队";
-                String content = "成员与队长距离约 " + Math.max(1, distance / 1000)
-                        + " 公里，请进入队长管理页处理";
-                appPushService.enqueue(captainUserId, "TEAM_MEMBER_" + nextLevel, title, content,
+
+        if (!targetLevel.equals(currentLevel) || !"OBSERVING".equals(targetLevel)) {
+            boolean notify = !targetLevel.equals(currentLevel)
+                    && ("FAR".equals(targetLevel) || "SEVERE".equals(targetLevel));
+            memberAlertMapper.update(alertId, targetLevel, distance, notify ? 1 : 0, now);
+            if (notify && "FAR".equals(targetLevel)) {
+                appPushService.enqueue(memberUserId, "TEAM_MEMBER_FAR", "你已远离车队",
+                        "你与队长距离约" + Math.max(1, distance / 1000)
+                                + "公里，请尽快归队",
                         "TRIP", String.valueOf(trip.getId()),
-                        "member-distance-alert:" + alertId + ":" + nextLevel);
+                        "member-distance-alert:" + alertId + ":FAR");
+            } else if (notify && "SEVERE".equals(targetLevel)) {
+                appPushService.enqueue(captainUserId, "TEAM_MEMBER_SEVERE", "成员严重脱队",
+                        "有成员与队长距离约" + Math.max(1, distance / 1000)
+                                + "公里且已持续1小时，请选择提醒、忽略或移出队伍",
+                        "TRIP", String.valueOf(trip.getId()),
+                        "member-distance-alert:" + alertId + ":SEVERE");
             }
         }
-        DriverDeviationRecord record = new DriverDeviationRecord();
-        record.setId(SnowflakeIdGenerator.nextId());
-        record.setTripId(trip.getId());
-        record.setDriverId(driverId);
-        record.setLongitude(request.longitude());
-        record.setLatitude(request.latitude());
-        record.setDeviationDistance(distance);
-        record.setDeviationStatus(status);
-        record.setRecordTime(request.recordTime());
-        record.setCreatedAt(now);
-        record.setDeleted(0);
-        deviationMapper.insert(record);
+        return new MemberDistanceReading(status, distance);
     }
 
     private Trip requireReadableTrip(Long tripId) {
@@ -904,6 +963,9 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     }
 
     private record DeviationReading(int distanceMeters, int status) {
+    }
+
+    private record MemberDistanceReading(int status, int distanceMeters) {
     }
 
     private record FilterResult(

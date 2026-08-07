@@ -13,8 +13,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.drivertrack.entity.DriverTrackRecord;
+import com.tongluxing.drivertrack.entity.TripMemberLatestLocation;
 import com.tongluxing.drivertrack.mapper.DriverMemberDistanceAlertMapper;
 import com.tongluxing.drivertrack.mapper.DriverTrackRecordMapper;
+import com.tongluxing.drivertrack.mapper.TripMemberLatestLocationMapper;
 import com.tongluxing.notify.service.AppPushService;
 import com.tongluxing.team.entity.Team;
 import com.tongluxing.team.entity.TeamMember;
@@ -40,8 +42,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class P0TripLifecycleCoordinator {
 
-    private static final int ARRIVAL_RADIUS_METERS = 5_000;
-    private static final Duration ARRIVAL_DWELL = Duration.ofMinutes(30);
+    private static final int ARRIVAL_RADIUS_METERS = 1_000;
+    private static final Duration ARRIVAL_DWELL = Duration.ofSeconds(10);
     private static final Duration ARRIVAL_DECISION_TIMEOUT = Duration.ofHours(24);
     /** 自动出发必须使用近期定位，避免用几小时前的旧位置误判成员仍在队伍附近。 */
     private static final Duration DEPARTURE_LOCATION_FRESHNESS = Duration.ofMinutes(30);
@@ -50,6 +52,7 @@ public class P0TripLifecycleCoordinator {
     private final TeamMapper teamMapper;
     private final TeamMemberMapper teamMemberMapper;
     private final DriverTrackRecordMapper trackMapper;
+    private final TripMemberLatestLocationMapper memberLocationMapper;
     private final DriverMemberDistanceAlertMapper alertMapper;
     private final TripDepartureExceptionMapper departureExceptionMapper;
     private final TripArrivalStateMapper arrivalStateMapper;
@@ -92,7 +95,7 @@ public class P0TripLifecycleCoordinator {
             return;
         }
 
-        Map<Long, DriverTrackRecord> latest = latestByUser(trip.getId());
+        Map<Long, DriverTrackRecord> latest = latestTrackByUser(trip.getId());
         int range = team.getJoinRadiusM() == null ? 100_000 : team.getJoinRadiusM();
         boolean blocked = false;
         for (TeamMember member : members) {
@@ -182,12 +185,12 @@ public class P0TripLifecycleCoordinator {
         Team team = teamMapper.findAnyActiveByTripId(trip.getId());
         if (team == null) return;
         int missingMinutes = team.getMissingLocationMinutes() == null ? 720 : team.getMissingLocationMinutes();
-        Map<Long, DriverTrackRecord> latest = latestByUser(trip.getId());
+        Map<Long, TripMemberLatestLocation> latest = latestMemberLocations(trip.getId());
         for (TeamMember member : teamMemberMapper.findActiveByTeamId(team.getId())) {
             if (trip.getCaptainUserId().equals(member.getUserId())) continue;
-            DriverTrackRecord point = latest.get(member.getUserId());
-            if (point == null || point.getRecordTime() == null
-                    || point.getRecordTime().isBefore(now.minusMinutes(missingMinutes))) {
+            TripMemberLatestLocation point = latest.get(member.getUserId());
+            LocalDateTime lastSeenAt = point == null ? trip.getActualStartTime() : point.getRecordTime();
+            if (lastSeenAt != null && lastSeenAt.isBefore(now.minusMinutes(missingMinutes))) {
                 Map<String, Object> active = alertMapper.findActive(trip.getId(), member.getUserId());
                 Long alertId;
                 if (active == null) {
@@ -210,10 +213,18 @@ public class P0TripLifecycleCoordinator {
         }
     }
 
-    private Map<Long, DriverTrackRecord> latestByUser(Long tripId) {
+    private Map<Long, DriverTrackRecord> latestTrackByUser(Long tripId) {
         Map<Long, DriverTrackRecord> result = new HashMap<>();
         for (DriverTrackRecord point : trackMapper.findLatestValidByTripId(tripId)) {
             result.put(point.getDriverId(), point);
+        }
+        return result;
+    }
+
+    private Map<Long, TripMemberLatestLocation> latestMemberLocations(Long tripId) {
+        Map<Long, TripMemberLatestLocation> result = new HashMap<>();
+        for (TripMemberLatestLocation point : memberLocationMapper.findByTripId(tripId)) {
+            result.put(point.getMemberUserId(), point);
         }
         return result;
     }

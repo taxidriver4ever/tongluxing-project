@@ -41,7 +41,7 @@ public class AdminTripTrackReviewController {
         return Result.success(queryService.page(riskLevel, settlementStatus, page, size));
     }
 
-    /** 查询原始/过滤/审核里程、成员轨迹、异常前后点和地图轨迹。 */
+    /** 查询队长原始/过滤/审核里程、普通成员最新位置、异常事件和队长轨迹。 */
     @GetMapping("/{tripId}")
     public Result<AdminTripTrackReviewDetailVO> detail(@PathVariable Long tripId) {
         return Result.success(queryService.detail(tripId));

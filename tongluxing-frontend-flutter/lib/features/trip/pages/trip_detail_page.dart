@@ -245,7 +245,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
           ),
           content: Text(
             result.status == 'REVIEW_REQUIRED'
-                ? '轨迹覆盖率或节点到达证据不足，复核完成前暂不发成长值'
+                ? '队长轨迹存在中断、明显异常或未进入终点1公里范围，复核完成前暂不发成长值'
                 : '行程数据与成长值结算结果已更新',
           ),
           actions: [
@@ -295,11 +295,11 @@ class _TripDetailPageState extends State<TripDetailPage> {
     final currentUserId = context.watch<AppSession>().userId;
     final isOwner =
         trip?.ownerUserId != null && trip!.ownerUserId == currentUserId;
-    // 创建者就是队长。isOwner 兜底兼容后端旧缓存中 captainUserId 为空的行程。
-    final isCaptain = isOwner ||
-        (trip?.canManageTeam == true &&
-            trip!.captainUserId != null &&
-            trip!.captainUserId == currentUserId);
+    // captainUserId 存在时严格按当前队长判断；旧数据为空时才回退到创建者。
+    final captainUserId = trip?.captainUserId;
+    final isCaptain = captainUserId != null && captainUserId.isNotEmpty
+        ? captainUserId == currentUserId
+        : isOwner;
     return Scaffold(
       backgroundColor: Colors.white,
       bottomNavigationBar:
@@ -397,7 +397,7 @@ class _TripDetailPageState extends State<TripDetailPage> {
                   SliverToBoxAdapter(
                     child: _TripDetailBody(
                       trip: trip!,
-                      isOwner: isOwner,
+                      isCaptain: isCaptain,
                       exitedView: widget.exitedView,
                       settling: settling,
                       onOpenChat: openChat,
@@ -514,7 +514,7 @@ class _RouteHeader extends StatelessWidget {
 class _TripDetailBody extends StatelessWidget {
   const _TripDetailBody({
     required this.trip,
-    required this.isOwner,
+    required this.isCaptain,
     required this.exitedView,
     required this.settling,
     required this.onOpenChat,
@@ -524,7 +524,7 @@ class _TripDetailBody extends StatelessWidget {
   });
 
   final TripModel trip;
-  final bool isOwner;
+  final bool isCaptain;
   final bool exitedView;
   final bool settling;
   final VoidCallback onOpenChat;
@@ -649,7 +649,7 @@ class _TripDetailBody extends StatelessWidget {
               value: trip.description!,
             ),
           ],
-          if (isOwner && !exitedView) ...[
+          if (isCaptain && !exitedView) ...[
             const SizedBox(height: 18),
             const Divider(height: 1, color: Color(0xFFE8EBEF)),
             _LifecycleAction(

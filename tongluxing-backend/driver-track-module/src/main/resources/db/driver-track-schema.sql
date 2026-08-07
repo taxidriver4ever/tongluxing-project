@@ -64,6 +64,27 @@ CREATE TABLE IF NOT EXISTS driver_track_deviation_record (
     KEY idx_driver_track_deviation_trip_driver_time (trip_id, driver_id, record_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='驾驶人轨迹偏离记录表';
 
+CREATE TABLE IF NOT EXISTS trip_member_latest_location (
+    id BIGINT PRIMARY KEY comment '记录主键',
+    trip_id BIGINT NOT NULL comment '行程ID',
+    captain_user_id BIGINT NOT NULL comment '队长用户ID',
+    member_user_id BIGINT NOT NULL comment '普通成员用户ID',
+    longitude DECIMAL(10,6) NOT NULL comment '成员最新经度',
+    latitude DECIMAL(10,6) NOT NULL comment '成员最新纬度',
+    speed DECIMAL(10,2) NULL comment '成员上报速度',
+    accuracy DECIMAL(10,2) NOT NULL comment '定位精度',
+    sequence_no BIGINT NOT NULL comment '客户端递增序号',
+    mock_location TINYINT NOT NULL DEFAULT 0 comment '是否疑似模拟定位',
+    record_time DATETIME NOT NULL comment '客户端实际采集时间',
+    server_receive_time DATETIME NOT NULL comment '服务端接收时间',
+    created_at DATETIME NOT NULL comment '记录创建时间',
+    updated_at DATETIME NOT NULL comment '记录最后更新时间',
+    deleted TINYINT NOT NULL DEFAULT 0 comment '逻辑删除标记',
+    UNIQUE KEY uk_trip_member_latest_location (trip_id, member_user_id, deleted),
+    KEY idx_trip_member_location_time (trip_id, record_time),
+    KEY idx_trip_member_location_captain (captain_user_id, record_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 comment='普通成员最新位置快照表';
+
 CREATE TABLE IF NOT EXISTS trip_track_summary (
     id BIGINT PRIMARY KEY comment '记录主键',
     trip_id BIGINT NOT NULL comment '行程ID',

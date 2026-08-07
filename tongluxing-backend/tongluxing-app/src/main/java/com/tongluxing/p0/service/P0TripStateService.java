@@ -12,8 +12,11 @@ import org.springframework.transaction.annotation.Transactional;
 import com.tongluxing.common.exception.BusinessException;
 import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.drivertrack.entity.DriverTrackRecord;
+import com.tongluxing.drivertrack.entity.TripMemberLatestLocation;
 import com.tongluxing.drivertrack.mapper.DriverMemberDistanceAlertMapper;
 import com.tongluxing.drivertrack.mapper.DriverTrackRecordMapper;
+import com.tongluxing.drivertrack.mapper.TripMemberLatestLocationMapper;
+import com.tongluxing.notify.service.AppPushService;
 import com.tongluxing.p0.dto.DepartureExceptionActionRequest;
 import com.tongluxing.p0.dto.TeamAlertActionRequest;
 import com.tongluxing.p0.vo.MapHomeStateResponse;
@@ -50,10 +53,12 @@ public class P0TripStateService {
     private final TeamMapper teamMapper;
     private final TeamMemberMapper teamMemberMapper;
     private final DriverTrackRecordMapper trackMapper;
+    private final TripMemberLatestLocationMapper memberLocationMapper;
     private final DriverMemberDistanceAlertMapper alertMapper;
     private final TripDepartureExceptionMapper departureExceptionMapper;
     private final TripService tripService;
     private final TeamService teamService;
+    private final AppPushService appPushService;
 
     /**
      * 返回首页地图状态机快照。
@@ -153,6 +158,14 @@ public class P0TripStateService {
             return alert;
         }
 
+        if ("REMIND".equals(request.action())) {
+            appPushService.enqueue(memberUserId, "TEAM_MEMBER_CAPTAIN_REMIND", "队长提醒你尽快归队",
+                    "你当前与队长距离较远，请确认路线并尽快归队",
+                    "TRIP", String.valueOf(tripId),
+                    "captain-remind-member:" + alertId + ":" + LocalDateTime.now().toLocalDate());
+            // 提醒不会关闭异常，队长后续仍可选择忽略或移出成员。
+            return alertMapper.findById(alertId);
+        }
         // REMOVE 先执行正式成员移除，确保车队、行程和腾讯 IM 群成员同步成功。
         if ("REMOVE".equals(request.action())) {
             Team team = teamMapper.findAnyActiveByTripId(tripId);
@@ -205,15 +218,26 @@ public class P0TripStateService {
     private List<MapMemberPositionResponse> memberPositions(Long tripId, String captainUserId) {
         LocalDateTime staleBefore = LocalDateTime.now().minusMinutes(5);
         List<MapMemberPositionResponse> result = new ArrayList<>();
-        for (DriverTrackRecord point : trackMapper.findLatestValidByTripId(tripId)) {
+        Long captainId = captainUserId == null || captainUserId.isBlank()
+                ? null : Long.valueOf(captainUserId);
+        if (captainId != null) {
+            DriverTrackRecord captain = trackMapper.findLastValid(tripId, captainId);
+            if (captain != null) {
+                result.add(new MapMemberPositionResponse(
+                        String.valueOf(captain.getDriverId()),
+                        captain.getLatitude(), captain.getLongitude(), captain.getSpeed(),
+                        captain.getDirection(),
+                        captain.getRecordTime() == null ? null : captain.getRecordTime().toString(),
+                        true,
+                        captain.getRecordTime() == null || captain.getRecordTime().isBefore(staleBefore)));
+            }
+        }
+        for (TripMemberLatestLocation point : memberLocationMapper.findByTripId(tripId)) {
             result.add(new MapMemberPositionResponse(
-                    String.valueOf(point.getDriverId()),
-                    point.getLatitude(),
-                    point.getLongitude(),
-                    point.getSpeed(),
-                    point.getDirection(),
+                    String.valueOf(point.getMemberUserId()),
+                    point.getLatitude(), point.getLongitude(), point.getSpeed(), null,
                     point.getRecordTime() == null ? null : point.getRecordTime().toString(),
-                    captainUserId != null && captainUserId.equals(String.valueOf(point.getDriverId())),
+                    false,
                     point.getRecordTime() == null || point.getRecordTime().isBefore(staleBefore)));
         }
         return result;

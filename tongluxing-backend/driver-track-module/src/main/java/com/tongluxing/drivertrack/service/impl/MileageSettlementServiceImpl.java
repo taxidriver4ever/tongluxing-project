@@ -29,7 +29,7 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
     public MileageSettlementResponse settleMileage(Long tripId, Long userId, Integer distanceMeters) {
         int effectiveDistance = distanceMeters == null ? 0 : Math.max(0, distanceMeters);
         // 修订版规则：上传途中只记录，不实时发成长值。最终由行程结算一次性按
-        // floor(settlementDistance / 5000) * 1 发给所有有效成员，且不足 5km 不跨行程累计。
+        // floor(settlementDistance / 5000) * 10 发给所有有效成员，且不足 5km 不跨行程累计。
         return new MileageSettlementResponse(
                 String.valueOf(tripId),
                 String.valueOf(userId),
@@ -50,7 +50,7 @@ public class MileageSettlementServiceImpl implements MileageSettlementService {
             return new MileageSettlementResponse(String.valueOf(tripId), String.valueOf(userId),
                     effectiveDistance, 0, 0, true);
         }
-        // 途经点只记录到达事实，不发成长值；成长值在最终结算按每 5 公里 1 点统一发放。
+        // 途经点只记录到达事实，不发成长值；成长值在最终结算按每 5 公里 10 点统一发放。
         insertSettlement(tripId, userId, effectiveDistance, effectiveDistance,
                 SETTLE_TYPE_WAYPOINT, settleKey);
         return new MileageSettlementResponse(String.valueOf(tripId), String.valueOf(userId),

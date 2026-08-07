@@ -50,30 +50,31 @@ public class TripSettlementServiceImpl implements TripSettlementService {
     private final GrowthFacade growthFacade;
     private final StringRedisTemplate redisTemplate;
 
-    @Value("${trajectory.destination-radius-meters:100}")
+    @Value("${trajectory.destination-radius-meters:1000}")
     private int destinationRadiusMeters;
-    @Value("${trajectory.destination-min-points:3}")
+    @Value("${trajectory.destination-min-points:1}")
     private int destinationMinPoints;
-    @Value("${trajectory.destination-min-duration-seconds:15}")
+    @Value("${trajectory.destination-min-duration-seconds:0}")
     private int destinationMinDurationSeconds;
     @Value("${trajectory.gap-segment-max-seconds:60}")
     private int fatalArrivalCooldownSeconds;
-    @Value("${trajectory.valid-point-ratio-percent:70}")
-    private int validPointRatioPercent;
-    @Value("${trajectory.critical-valid-point-ratio-percent:50}")
-    private int criticalValidPointRatioPercent;
-    @Value("${trajectory.medium-risk-score:5}")
-    private int mediumRiskScore;
-    @Value("${trajectory.high-risk-score:10}")
-    private int highRiskScore;
 
     @Override
     @Transactional
     public TripSettlementResponse settle(Long tripId) {
         Long userId = currentUserContext.requireUserId();
-        Trip trip = tripMapper.findOwnedForUpdate(tripId, userId);
+        Trip existing = tripMapper.findById(tripId);
+        if (existing == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "行程不存在");
+        }
+        Long captainUserId = existing.getCaptainUserId() == null
+                ? existing.getUserId() : existing.getCaptainUserId();
+        if (!userId.equals(captainUserId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "只有当前行程队长可以结束并结算行程");
+        }
+        Trip trip = tripMapper.findOwnedForUpdate(tripId, existing.getUserId());
         if (trip == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "行程不存在或不属于当前用户");
+            throw new BusinessException(ResultCode.NOT_FOUND, "行程不存在");
         }
         List<TripMemberSnapshot> members = effectiveMembers(tripId);
         if ("SETTLED".equals(trip.getStatus())) {
@@ -83,64 +84,47 @@ public class TripSettlementServiceImpl implements TripSettlementService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "只有已结束行程可以结算");
         }
 
-        int actualDistance = executionSettlementMapper.actualDistance(tripId, trip.getUserId());
-        int totalTrackPoints = executionSettlementMapper.totalPoints(tripId, trip.getUserId());
-        int validTrackPoints = executionSettlementMapper.validPoints(tripId, trip.getUserId());
+        int actualDistance = executionSettlementMapper.actualDistance(tripId, captainUserId);
+        int totalTrackPoints = executionSettlementMapper.totalPoints(tripId, captainUserId);
+        int validTrackPoints = executionSettlementMapper.validPoints(tripId, captainUserId);
         int coverageRate = totalTrackPoints == 0 ? 0
                 : (int) Math.round(validTrackPoints * 100.0d / totalTrackPoints);
         String riskLevel = executionSettlementMapper.riskLevel(tripId);
         if (riskLevel == null) {
             riskLevel = "LOW";
         }
-        if (totalTrackPoints > 0 && coverageRate < validPointRatioPercent
-                && !Integer.valueOf(1).equals(executionSettlementMapper.coverageRiskApplied(tripId))) {
-            int currentRisk = java.util.Optional.ofNullable(
-                    executionSettlementMapper.riskScore(tripId)).orElse(0);
-            int adjustedRisk = currentRisk + 2;
-            if (coverageRate < criticalValidPointRatioPercent) {
-                adjustedRisk = Math.max(adjustedRisk, mediumRiskScore);
-            }
-            String adjustedLevel = adjustedRisk >= highRiskScore ? "HIGH"
-                    : adjustedRisk >= mediumRiskScore ? "MEDIUM" : "LOW";
-            executionSettlementMapper.markCoverageRisk(
-                    tripId, adjustedRisk, adjustedLevel,
-                    "有效定位点比例不足" + validPointRatioPercent + "%（当前" + coverageRate + "%）",
-                    LocalDateTime.now());
-            riskLevel = adjustedLevel;
-        }
-        boolean memberMedianCandidate = false;
-        if ("HIGH".equalsIgnoreCase(riskLevel)) {
-            List<Integer> memberDistances = executionSettlementMapper
-                    .validMemberDistances(tripId, trip.getUserId());
-            if (memberDistances.size() >= 2) {
-                actualDistance = median(memberDistances);
-                memberMedianCandidate = true;
-            }
-        }
+        int riskScore = java.util.Optional.ofNullable(
+                executionSettlementMapper.riskScore(tripId)).orElse(0);
+        int locationGapCount = java.util.Optional.ofNullable(
+                executionSettlementMapper.locationGapCount(tripId)).orElse(0);
         java.math.BigDecimal endLng = trip.getEndLng() != null
                 ? trip.getEndLng() : trip.getEndLongitude();
         java.math.BigDecimal endLat = trip.getEndLat() != null
                 ? trip.getEndLat() : trip.getEndLatitude();
         boolean destinationArrived = endLng != null && endLat != null
                 && executionSettlementMapper.hasDestinationArrival(
-                tripId, trip.getUserId(), endLng, endLat,
+                tripId, captainUserId, endLng, endLat,
                 destinationRadiusMeters, destinationMinPoints,
                 destinationMinDurationSeconds) == 1
                 && executionSettlementMapper.recentFatalAnomaliesAtDestination(
-                tripId, trip.getUserId(), endLng, endLat,
+                tripId, captainUserId, endLng, endLat,
                 destinationRadiusMeters, fatalArrivalCooldownSeconds) == 0;
-        int requiredWaypointCount = executionSettlementMapper.requiredWaypointCount(tripId);
-        int arrivedRequiredWaypointCount =
-                executionSettlementMapper.arrivedRequiredWaypointCount(tripId, trip.getUserId());
-        boolean routeCompleted = destinationArrived
-                && arrivedRequiredWaypointCount >= requiredWaypointCount;
         boolean automaticSettlement = totalTrackPoints > 0
-                && coverageRate >= validPointRatioPercent
-                && routeCompleted
+                && destinationArrived
+                && locationGapCount == 0
                 && "LOW".equalsIgnoreCase(riskLevel);
         int pointsPerMember = automaticSettlement
                 ? TripGrowthCalculator.points(actualDistance)
                 : 0;
+        String reviewReason = totalTrackPoints == 0
+                ? "队长没有可用轨迹数据，需要人工审核"
+                : !destinationArrived
+                ? "队长没有进入终点1公里范围，需要人工审核"
+                : locationGapCount > 0
+                ? "队长轨迹存在中断，需要管理员酌情审核认可里程"
+                : !"LOW".equalsIgnoreCase(riskLevel)
+                ? "队长轨迹存在瞬移、模拟定位或极端速度等异常，需要人工审核"
+                : "队长轨迹需要人工审核";
 
         String bizId = "trip-settlement:" + tripId;
         if (automaticSettlement) {
@@ -164,14 +148,12 @@ public class TripSettlementServiceImpl implements TripSettlementService {
                     tripId,
                     actualDistance,
                     coverageRate,
-                    automaticSettlement ? "QUALIFIED" : coverageRate >= validPointRatioPercent ? "REVIEW" : "UNQUALIFIED",
+                    automaticSettlement ? "QUALIFIED" : "REVIEW",
                     automaticSettlement ? "SETTLED" : "REVIEW_REQUIRED",
                     pointsPerMember,
-                    automaticSettlement ? "低风险轨迹与节点证据合格，按每5公里1成长值结算"
-                            : memberMedianCandidate ? "队长轨迹高风险，已采用至少2名队员有效里程中位数作为人工审核候选"
-                            : !"LOW".equalsIgnoreCase(riskLevel) ? "轨迹风险等级为" + riskLevel + "，成长值进入人工审核"
-                            : !routeCompleted ? "终点或必达途经点缺少连续有效到达证据"
-                            : "有效定位点比例不足" + validPointRatioPercent + "% ，需要人工复核",
+                    automaticSettlement
+                            ? "队长到达终点1公里范围且无中断和明显异常，按队长有效里程每5公里10成长值结算"
+                            : reviewReason,
                     settledAt);
         }
         executionSettlementMapper.finishExecution(
@@ -183,13 +165,21 @@ public class TripSettlementServiceImpl implements TripSettlementService {
                     "低风险轨迹自动审核通过", null, settledAt);
         }
         if (!automaticSettlement) {
+            // 无论是轨迹中断、未到终点、无轨迹还是明显异常，都必须进入 Admin 人工审核队列。
+            // 没有任何轨迹点时 driver-track 不会创建 trip_track_summary，这里补建一条空汇总，
+            // 避免出现行程已经 REVIEW_REQUIRED 但后台列表查不到的情况。
+            executionSettlementMapper.ensureTrackReviewSummary(
+                    SnowflakeIdGenerator.nextId(), tripId, captainUserId, actualDistance, actualDistance,
+                    totalTrackPoints, validTrackPoints, Math.max(0, totalTrackPoints - validTrackPoints),
+                    locationGapCount, riskScore, riskLevel, reviewReason, settledAt);
+            executionSettlementMapper.markTrackManualReview(tripId, reviewReason, settledAt);
             auditLogMapper.insert(SnowflakeIdGenerator.nextId(), tripId, userId, "SETTLEMENT_REVIEW",
                     "{\"status\":\"FINISHED\"}",
                     "{\"executionStatus\":\"REVIEW_REQUIRED\",\"coverageRate\":" + coverageRate
-                            + ",\"routeCompleted\":" + routeCompleted
-                            + ",\"riskLevel\":\"" + riskLevel + "\""
-                            + ",\"memberMedianCandidate\":" + memberMedianCandidate + "}",
-                    "轨迹风险、覆盖率或节点到达证据不足，转人工复核且暂不发放成长值", settledAt);
+                            + ",\"destinationArrived\":" + destinationArrived
+                            + ",\"locationGapCount\":" + locationGapCount
+                            + ",\"riskLevel\":\"" + riskLevel + "\"}",
+                    reviewReason + "，暂不发放成长值", settledAt);
             return response(
                     trip, "REVIEW_REQUIRED", members.size(), 0, false, settledAt);
         }
@@ -206,7 +196,7 @@ public class TripSettlementServiceImpl implements TripSettlementService {
                         + ",\"coverageRate\":" + coverageRate
                         + ",\"pointsPerMember\":" + pointsPerMember
                         + ",\"memberCount\":" + members.size() + "}",
-                "按审核通过的有效GPS轨迹结算，每5公里发放1成长值", settledAt);
+                "按审核通过的有效GPS轨迹结算，每5公里发放10成长值", settledAt);
         clearCaches(userId, tripId);
         trip.setStatus("SETTLED");
         trip.setUpdatedAt(settledAt);
@@ -312,16 +302,6 @@ public class TripSettlementServiceImpl implements TripSettlementService {
                 String.valueOf(tripId), decision, status, approvedDistance, growthPerMember,
                 memberCount, growthPerMember * memberCount, duplicate,
                 reviewedAt == null ? "" : reviewedAt.format(TIME_FORMATTER));
-    }
-
-    private int median(List<Integer> sortedDistances) {
-        int size = sortedDistances.size();
-        int middle = size / 2;
-        if (size % 2 == 1) {
-            return sortedDistances.get(middle);
-        }
-        return (int) Math.round((sortedDistances.get(middle - 1)
-                + sortedDistances.get(middle)) / 2.0d);
     }
 
     private List<TripMemberSnapshot> effectiveMembers(Long tripId) {

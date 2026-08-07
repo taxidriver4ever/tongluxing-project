@@ -13,6 +13,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Service;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -27,6 +28,7 @@ import com.tongluxing.match.integration.MatchTeamPort;
 import com.tongluxing.match.integration.MatchTeamPort.MatchTeamDTO;
 import com.tongluxing.match.integration.MatchTripPort;
 import com.tongluxing.match.integration.MatchTripPort.MatchTripDTO;
+import com.tongluxing.match.integration.MatchTripPort.MatchCandidateQuery;
 import com.tongluxing.match.mapper.MatchRecommendLogMapper;
 import com.tongluxing.match.mapper.MatchResultMapper;
 import com.tongluxing.match.mapper.TripFavoriteMapper;
@@ -65,6 +67,8 @@ public class MatchServiceImpl implements MatchService {
     private static final long RECOMMEND_MAX_TIME_GAP_MINUTES = 3L * 24 * 60;
     /** 有基准行程时，综合顺路率低于 20% 的候选直接淘汰。 */
     private static final int RECOMMEND_MIN_MATCH_RATE = 20;
+    /** 发现页最多对粗过滤后的前 200 条候选加载完整路线精算，防止大候选池再次拖垮数据库。 */
+    private static final int ROUTE_FINE_CANDIDATE_LIMIT = 200;
     /** 行程领域只读端口。 */
     private final MatchTripPort tripPort;
     /** 车队领域查询与申请端口。 */
@@ -87,6 +91,8 @@ public class MatchServiceImpl implements MatchService {
     private final TripRecommendationMetricsMapper recommendationMetricsMapper;
     /** 行程搜索历史数据访问。 */
     private final TripSearchHistoryMapper tripSearchHistoryMapper;
+    /** 推荐页按用户做 15 秒短缓存；缓存失败不会影响主链路。 */
+    private final StringRedisTemplate redisTemplate;
 
     /**
      * 为一条公开可匹配行程重新生成推荐。
@@ -102,12 +108,18 @@ public class MatchServiceImpl implements MatchService {
         requireMatchable(source);
         // 所有本轮结果共用一个 calculatedAt，便于识别同一批次。
         LocalDateTime now = LocalDateTime.now();
-        tripPort.listPublicTrips(300).stream()
-                // 自己不能推荐给自己；同一用户的另一条行程也不构成“同行”。
-                .filter(target -> !target.tripId().equals(source.tripId()) && !target.userId().equals(source.userId()))
-                // calculate 生成可解释的路线、终点、时间和兴趣四维分数。
-                .map(target -> calculate(source, target, now))
-                // 在持久化前淘汰时间过远或整体相关性过低的候选。
+        List<MatchTripDTO> targets = tripPort.listPublicTrips(new MatchCandidateQuery(
+                source.userId(), null, null, null, null, null, 300)).stream()
+                .filter(target -> !target.tripId().equals(source.tripId()))
+                .toList();
+        List<Long> routeIds = new ArrayList<>();
+        routeIds.add(source.tripId());
+        routeIds.addAll(targets.stream().map(MatchTripDTO::tripId).toList());
+        Map<Long, String> routePolylines = tripPort.getRoutePolylines(routeIds);
+        String sourcePolyline = routePolylines.get(source.tripId());
+        targets.stream()
+                // calculate 只对轻量候选过滤后的集合使用一次批量读取的完整路线。
+                .map(target -> calculate(source, target, now, sourcePolyline, routePolylines.get(target.tripId())))
                 .filter(result -> result.getDepartureGapMinutes() <= MAX_TIME_GAP_MINUTES && result.getMatchScore() >= 50)
                 .forEach(resultMapper::upsert);
     }
@@ -267,14 +279,17 @@ public class MatchServiceImpl implements MatchService {
         // 半径限制在 500 米~100 公里，防止异常参数退化为全量扫描。
         int radius = radiusMeters == null ? 5000 : Math.max(500, Math.min(radiusMeters, 100000));
         Long userId = currentUserContext.requireUserId();
-        List<MatchTripCardResponse> trips = tripPort.listPublicTrips(300).stream()
+        List<MatchTripDTO> nearby = tripPort.listPublicTrips(new MatchCandidateQuery(
+                userId, null, LocalDateTime.now(), null, null, null, 300)).stream()
                 .filter(t -> isRecruiting(t.status()))
-                // 不向用户展示自己发布的附近行程。
-                .filter(t -> !userId.equals(t.userId()))
                 .filter(t -> distanceKm(lat, lng, t.startLatitude(), t.startLongitude()) * 1000 <= radius)
                 .sorted(java.util.Comparator.comparingDouble(t -> distanceKm(lat, lng, t.startLatitude(), t.startLongitude())))
                 .limit(safeLimit(limit))
-                .map(this::cardWithoutMatch)
+                .toList();
+        Map<Long, MatchTeamDTO> teamByTripId = teamPort.findActiveTeamsByTripIds(
+                nearby.stream().map(MatchTripDTO::tripId).toList());
+        List<MatchTripCardResponse> trips = nearby.stream()
+                .map(target -> cardWithoutMatch(target, teamByTripId.get(target.tripId())))
                 .toList();
         return new NearbyTripListResponse(trips);
     }
@@ -297,19 +312,23 @@ public class MatchServiceImpl implements MatchService {
         // 时间得分围绕请求窗口中心计算，而不是只靠起始时间。
         LocalDateTime center = request.departureStart().plusSeconds(
                 Duration.between(request.departureStart(), request.departureEnd()).toSeconds() / 2);
+        List<MatchTripDTO> searchPool = tripPort.listPublicTrips(new MatchCandidateQuery(
+                userId, null, request.departureStart(), request.departureEnd(), null, null, 500));
+        Map<Long, MatchTeamDTO> teamByTripId = teamPort.findActiveTeamsByTripIds(
+                searchPool.stream().map(MatchTripDTO::tripId).toList());
+        Set<Long> blockedTeamIds = teamPort.findBlockedTeamIds(
+                teamByTripId.values().stream().map(MatchTeamDTO::teamId).toList(), userId);
         List<TripSearchCardResponse> candidates = new ArrayList<>();
-        for (MatchTripDTO trip : tripPort.listPublicTrips(500)) {
-            // 第一阶段过滤所有者、状态、公开性、过期时间及请求时间窗口。
+        for (MatchTripDTO trip : searchPool) {
+            // SQL 已提前按所有者与时间窗口收窄，这里保留状态/公开性防御校验。
             if (userId.equals(trip.userId()) || !isRecruiting(trip.status())
                     || !Integer.valueOf(1).equals(trip.publicFlag())
-                    || trip.departureTime() == null || trip.departureTime().isBefore(LocalDateTime.now())
-                    || trip.departureTime().isBefore(request.departureStart())
-                    || trip.departureTime().isAfter(request.departureEnd())) {
+                    || trip.departureTime() == null || trip.departureTime().isBefore(LocalDateTime.now())) {
                 continue;
             }
-            // 没有活跃车队、已经入队或已有待审申请的行程不应再次出现。
-            MatchTeamDTO team = teamPort.findActiveTeamByTripId(trip.tripId());
-            if (team == null || teamPort.hasActiveMembershipOrPending(team.teamId(), userId)) {
+            // 一次批量读取活跃车队，避免搜索候选逐条查询 team。
+            MatchTeamDTO team = teamByTripId.get(trip.tripId());
+            if (team == null) {
                 continue;
             }
             // 容量按车队实时人数计算，并防御空字段。
@@ -343,6 +362,8 @@ public class MatchServiceImpl implements MatchService {
             if (request.waypoints() != null && !request.waypoints().isEmpty() && waypointMatches == 0) {
                 continue;
             }
+            // 成员/待审申请已一次批量加载，不再为每个候选访问数据库。
+            if (blockedTeamIds.contains(team.teamId())) continue;
             long gapMinutes = Math.abs(Duration.between(center, trip.departureTime()).toMinutes());
             int timeWindow = Math.max(1, request.timeToleranceMinutes() == null
                     ? (int) Math.max(60, Duration.between(request.departureStart(), request.departureEnd()).toMinutes() / 2)
@@ -415,46 +436,60 @@ public class MatchServiceImpl implements MatchService {
     public TripRecommendPageResponse recommendTrips(
             String sortBy, Boolean requestedUserHasTrip, Double latitude, Double longitude,
             Integer page, Integer pageSize) {
+        long totalStarted = System.nanoTime();
         Long userId = currentUserContext.requireUserId();
         int safePage = page == null ? 1 : Math.max(1, page);
         int safePageSize = pageSize == null ? 10 : Math.max(1, Math.min(pageSize, 30));
 
-        // 是否有行程必须以数据库真值为准，不能由前端布尔参数决定算法分支。
         MatchTripDTO reference = tripPort.findRecommendationReferenceTrip(userId);
         boolean userHasTrip = reference != null;
         if (requestedUserHasTrip != null && requestedUserHasTrip != userHasTrip) {
             log.debug("recommend_user_trip_state_mismatch userId={} requested={} actual={}",
                     userId, requestedUserHasTrip, userHasTrip);
         }
-
-        // 无自有行程时，距离基准必须使用用户当前定位。缺少定位无法严格执行 100km 否决规则。
         if (!userHasTrip && (latitude == null || longitude == null)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "请先开启定位，再查看附近推荐行程");
         }
 
         String effectiveSort = normalizeRecommendSort(sortBy, userHasTrip);
         LocalDateTime now = LocalDateTime.now();
-        List<MatchTripDTO> candidates = tripPort.listPublicTrips(1000).stream()
-                .filter(trip -> !userId.equals(trip.userId()))
-                .filter(trip -> isRecruiting(trip.status()))
-                .filter(trip -> trip.departureTime() != null && trip.departureTime().isAfter(now))
-                .toList();
+        LocalDateTime timeBase = userHasTrip ? reference.departureTime() : now;
+        if (timeBase == null) {
+            return new TripRecommendPageResponse(0L, List.of(), userHasTrip, effectiveSort,
+                    reference == null ? null : String.valueOf(reference.tripId()));
+        }
+        String recommendCacheKey = recommendCacheKey(userId, reference, effectiveSort, latitude, longitude,
+                safePage, safePageSize);
+        TripRecommendPageResponse cachedRecommendation = readRecommendCache(recommendCacheKey);
+        if (cachedRecommendation != null) {
+            cachedRecommendation.list().forEach(card -> log(userId,
+                    reference == null ? Long.valueOf(card.tripId()) : reference.tripId(),
+                    Long.valueOf(card.tripId()), value(card.teamId()), "IMPRESSION",
+                    "RECOMMEND_CACHE:" + effectiveSort));
+            return cachedRecommendation;
+        }
 
+        LocalDateTime departureFrom = timeBase.minusMinutes(RECOMMEND_MAX_TIME_GAP_MINUTES);
+        if (departureFrom.isBefore(now)) departureFrom = now;
+        LocalDateTime departureTo = timeBase.plusMinutes(RECOMMEND_MAX_TIME_GAP_MINUTES);
+
+        List<MatchTripDTO> candidates = tripPort.listPublicTrips(new MatchCandidateQuery(
+                userId, null, departureFrom, departureTo, null, null, 1000));
         if (candidates.isEmpty()) {
             return new TripRecommendPageResponse(0L, List.of(), userHasTrip, effectiveSort,
                     reference == null ? null : String.valueOf(reference.tripId()));
         }
-
-        // 一次批量查询推荐指标，避免候选池逐条读取报名、收藏和评分。
+        List<Long> candidateIds = candidates.stream().map(MatchTripDTO::tripId).toList();
+        Map<Long, MatchTeamDTO> teamByTripId = teamPort.findActiveTeamsByTripIds(candidateIds);
         Map<Long, TripRecommendationMetricRow> metrics = recommendationMetricsMapper
-                .findByTripIds(candidates.stream().map(MatchTripDTO::tripId).toList())
-                .stream().collect(java.util.stream.Collectors.toMap(
+                .findByTripIds(candidateIds).stream().collect(java.util.stream.Collectors.toMap(
                         TripRecommendationMetricRow::tripId, row -> row));
+        long lightweightDatabaseFinished = System.nanoTime();
 
-        List<RecommendationCandidate> accepted = new ArrayList<>();
+        List<RecommendationCandidate> coarseAccepted = new ArrayList<>();
         for (MatchTripDTO trip : candidates) {
-            MatchTeamDTO team = teamPort.findActiveTeamByTripId(trip.tripId());
-            // 推荐卡片必须支持申请入队，因此没有活跃车队的行程不进入推荐列表。
+            if (!isRecruiting(trip.status()) || trip.departureTime() == null) continue;
+            MatchTeamDTO team = teamByTripId.get(trip.tripId());
             if (team == null) continue;
 
             int currentVehicles = Math.max(0, trip.joinedVehicleCount() == null ? 0 : trip.joinedVehicleCount());
@@ -467,43 +502,47 @@ public class MatchServiceImpl implements MatchService {
             TripRecommendationMetricRow metric = metrics.getOrDefault(trip.tripId(),
                     new TripRecommendationMetricRow(trip.tripId(), 0, 0, 0.0D, 0.0D, 0));
             int ratingCount = Math.max(0, metric.ratingCount() == null ? 0 : metric.ratingCount());
-            // 没有真实评价时不再伪造 5.0 分或 100% 好评率；评分和热度贡献均为 0。
             double leaderRating = ratingCount == 0 ? 0D
                     : Math.max(0D, Math.min(5D, metric.leaderRating() == null ? 0D : metric.leaderRating()));
 
             double baseLatitude = userHasTrip ? value(reference.startLatitude(), Double.NaN) : latitude;
             double baseLongitude = userHasTrip ? value(reference.startLongitude(), Double.NaN) : longitude;
             if (!Double.isFinite(baseLatitude) || !Double.isFinite(baseLongitude)
-                    || trip.startLatitude() == null || trip.startLongitude() == null) {
-                // 无法计算起点距离时不能绕过“超过 100km”否决条件。
-                continue;
-            }
-            int distanceMeters = meters(baseLatitude, baseLongitude,
-                    trip.startLatitude(), trip.startLongitude());
+                    || trip.startLatitude() == null || trip.startLongitude() == null) continue;
+            int distanceMeters = meters(baseLatitude, baseLongitude, trip.startLatitude(), trip.startLongitude());
             if (distanceMeters > RECOMMEND_MAX_DISTANCE_METERS) continue;
 
-            LocalDateTime timeBase = userHasTrip ? reference.departureTime() : now;
-            if (timeBase == null) continue;
             long timeGapMinutes = Math.abs(Duration.between(timeBase, trip.departureTime()).toMinutes());
             if (timeGapMinutes > RECOMMEND_MAX_TIME_GAP_MINUTES) continue;
-
-            Integer matchRate = userHasTrip ? recommendationMatchRate(reference, trip) : null;
-            if (userHasTrip && (matchRate == null || matchRate < RECOMMEND_MIN_MATCH_RATE)) continue;
 
             int applications = Math.max(0, metric.applicationCount() == null ? 0 : metric.applicationCount());
             int favorites = Math.max(0, metric.favoriteCount() == null ? 0 : metric.favoriteCount());
             double positiveRate = ratingCount == 0 ? 0D : Math.max(0D, Math.min(1D,
                     metric.positiveRate() == null ? 0D : metric.positiveRate()));
-            // 严格使用真实数据库指标：报名人数×40 + 收藏数×30 + 好评率×30。
-            // 好评率按 0~1 存储；尚无有效评价时该项为 0，而不是默认赠送 30 分。
             int heat = applications * 40 + favorites * 30 + (int) Math.round(positiveRate * 30D);
-
-            String relationship = teamPort.relationshipStatus(team.teamId(), userId);
-            boolean allowApply = canSubmitApplication(relationship);
-            accepted.add(new RecommendationCandidate(trip, team, matchRate, heat, distanceMeters,
-                    timeGapMinutes, leaderRating, relationship, allowApply));
+            coarseAccepted.add(new RecommendationCandidate(trip, team, null, heat, distanceMeters,
+                    timeGapMinutes, leaderRating));
         }
 
+        // 只有通过状态、容量、100km 和 3 天硬过滤的候选才批量读取完整路线。
+        List<RecommendationCandidate> accepted = coarseAccepted;
+        long routeDatabaseFinished = lightweightDatabaseFinished;
+        if (userHasTrip && !coarseAccepted.isEmpty()) {
+            List<Long> routeIds = new ArrayList<>();
+            routeIds.add(reference.tripId());
+            routeIds.addAll(coarseAccepted.stream().map(value -> value.trip().tripId()).toList());
+            Map<Long, String> routePolylines = tripPort.getRoutePolylines(routeIds);
+            routeDatabaseFinished = System.nanoTime();
+            String referencePolyline = routePolylines.get(reference.tripId());
+            accepted = coarseAccepted.stream().map(candidate -> {
+                int matchRate = recommendationMatchRate(reference, candidate.trip(), referencePolyline,
+                        routePolylines.get(candidate.trip().tripId()));
+                return new RecommendationCandidate(candidate.trip(), candidate.team(), matchRate, candidate.heat(),
+                        candidate.distanceMeters(), candidate.timeGapMinutes(), candidate.leaderRating());
+            }).filter(candidate -> candidate.matchRate() >= RECOMMEND_MIN_MATCH_RATE).toList();
+        }
+
+        List<RecommendationCandidate> sorted = new ArrayList<>(accepted);
         Comparator<RecommendationCandidate> comparator = switch (effectiveSort) {
             case "DISTANCE" -> Comparator.comparingInt(RecommendationCandidate::distanceMeters);
             case "TIME" -> Comparator.comparingLong(RecommendationCandidate::timeGapMinutes);
@@ -511,20 +550,28 @@ public class MatchServiceImpl implements MatchService {
             default -> Comparator.comparingInt((RecommendationCandidate value) ->
                     value.matchRate() == null ? 0 : value.matchRate()).reversed();
         };
-        accepted.sort(comparator
-                .thenComparing(candidate -> candidate.trip().departureTime())
+        sorted.sort(comparator.thenComparing(candidate -> candidate.trip().departureTime())
                 .thenComparing(candidate -> candidate.trip().tripId()));
 
-        int fromIndex = Math.min(accepted.size(), (safePage - 1) * safePageSize);
-        int toIndex = Math.min(accepted.size(), fromIndex + safePageSize);
-        List<TripRecommendCardResponse> list = accepted.subList(fromIndex, toIndex).stream()
-                .map(this::toRecommendCard)
-                .toList();
-        // 只有实际返回到当前页的行程记录曝光，避免重复分页请求放大统计。
+        int fromIndex = Math.min(sorted.size(), (safePage - 1) * safePageSize);
+        int toIndex = Math.min(sorted.size(), fromIndex + safePageSize);
+        List<TripRecommendCardResponse> list = sorted.subList(fromIndex, toIndex).stream().map(candidate -> {
+            // 关系查询只发生在最终一页（最多 30 条），不再对完整候选池逐条查询。
+            String relationship = teamPort.relationshipStatus(candidate.team().teamId(), userId);
+            return toRecommendCard(candidate, relationship, canSubmitApplication(relationship));
+        }).toList();
         list.forEach(card -> log(userId, reference == null ? Long.valueOf(card.tripId()) : reference.tripId(),
                 Long.valueOf(card.tripId()), value(card.teamId()), "IMPRESSION", "RECOMMEND:" + effectiveSort));
-        return new TripRecommendPageResponse((long) accepted.size(), list, userHasTrip, effectiveSort,
+        long finished = System.nanoTime();
+        log.info("trip_recommend_timing referenceTripId={} candidates={} coarseAccepted={} accepted={} returned={} lightweightDatabaseMs={} routeDatabaseMs={} calculationAndAssemblyMs={} totalMs={}",
+                reference == null ? null : reference.tripId(), candidates.size(), coarseAccepted.size(), sorted.size(),
+                list.size(), millis(totalStarted, lightweightDatabaseFinished),
+                millis(lightweightDatabaseFinished, routeDatabaseFinished), millis(routeDatabaseFinished, finished),
+                millis(totalStarted, finished));
+        TripRecommendPageResponse response = new TripRecommendPageResponse((long) sorted.size(), list, userHasTrip, effectiveSort,
                 reference == null ? null : String.valueOf(reference.tripId()));
+        writeRecommendCache(recommendCacheKey, response);
+        return response;
     }
 
     @Override
@@ -532,116 +579,100 @@ public class MatchServiceImpl implements MatchService {
             String keyword, String searchType, String sort, Double latitude, Double longitude, Long referenceTripId,
             String startCity, String destination, String departureDateFrom, String departureDateTo,
             String vehicleType, Integer minimumRemainingSeats, Integer page, Integer size, Long refreshSeed) {
-        // 发现信息流始终基于当前用户计算关系、关注状态，并排除不应重复申请的目标。
         long totalStarted = System.nanoTime();
         Long userId = currentUserContext.requireUserId();
-        // 页大小最大 30，控制跨模块逐条聚合的查询成本。
         int safePage = page == null ? 1 : Math.max(1, page);
         int safeSize = size == null ? 12 : Math.max(1, Math.min(size, 30));
         int requiredSeats = minimumRemainingSeats == null ? 0 : Math.max(0, minimumRemainingSeats);
-        // 文本去空白并统一小写；搜索类型不支持的值回退为 ALL。
         String normalizedKeyword = normalizeLocation(keyword);
         String normalizedSearchType = normalizeSearchType(searchType);
-        // 日期字符串为空表示不限制，格式错误则直接返回明确的 400 业务异常。
         LocalDate from = parseDate(departureDateFrom);
         LocalDate to = parseDate(departureDateTo);
-        // 搜索页未显式传入 referenceTripId 时，自动使用数据库中当前用户的推荐基准行程。
-        // 显式指定时仍校验归属，防止借助他人路线推导非公开推荐上下文。
         MatchTripDTO reference = referenceTripId == null
                 ? tripPort.findRecommendationReferenceTrip(userId)
                 : requireOwnedReference(referenceTripId, userId);
-        List<TripDiscoverCardResponse> records = new ArrayList<>();
-        Map<Long, MatchTripDTO> candidateById = new java.util.HashMap<>();
-        // 推荐分用于服务端稳定排序；未选择基准行程时响应会隐藏 matchScore，
-        // 因此不能再从响应对象中反向读取排序分，否则会因 null 自动拆箱触发 500。
-        Map<Long, Integer> recommendationScoreByTripId = new java.util.HashMap<>();
-        Map<Long, MatchTeamDTO> teamByTripId = new java.util.HashMap<>();
-        // 行程号模式先走精确查询，随后仍在公开候选池中验证状态与其他过滤条件。
         MatchTripDTO exactNumberTrip = "TRIP_NUMBER".equals(normalizedSearchType) && StringUtils.hasText(keyword)
-                ? tripPort.getTripByNumber(keyword.trim().toUpperCase(Locale.ROOT))
-                : null;
-        List<MatchTripDTO> candidates = tripPort.listPublicTrips(1000);
-        long databaseFinished = System.nanoTime();
+                ? tripPort.getTripByNumber(keyword.trim().toUpperCase(Locale.ROOT)) : null;
+
+        LocalDateTime departureFrom = from == null ? null : from.atStartOfDay();
+        LocalDateTime departureTo = to == null ? null : to.plusDays(1).atStartOfDay().minusNanos(1);
+        List<MatchTripDTO> candidates = "TRIP_NUMBER".equals(normalizedSearchType)
+                ? (exactNumberTrip == null ? List.of() : List.of(exactNumberTrip))
+                : tripPort.listPublicTrips(new MatchCandidateQuery(
+                        userId, null, departureFrom, departureTo, startCity, destination, 1000));
+        long lightweightDatabaseFinished = System.nanoTime();
+
+        List<DiscoverCandidate> filtered = new ArrayList<>();
+        Map<Long, Integer> scoreByTripId = new java.util.HashMap<>();
         for (MatchTripDTO trip : candidates) {
-            candidateById.put(trip.tripId(), trip);
             if ("TRIP_NUMBER".equals(normalizedSearchType)
-                    && (exactNumberTrip == null || !exactNumberTrip.tripId().equals(trip.tripId()))) {
-                continue;
-            }
-            // “公开可见”和“仍可加入”是不同概念：已出发/进行中的公开行程仍展示，
-            // 但按钮权限会在详情中按状态关闭。
-            if (!isPubliclyVisible(trip) || trip.departureTime() == null) {
-                continue;
-            }
-            // 搜索与发现候选始终排除当前用户自己发布的行程；自己的行程由“当前行程/我的行程”展示。
-            // 这也避免把自身与自身比较后出现无意义的顺路率或 null%。
-            if (userId.equals(trip.userId())) continue;
-            // 优先使用车队实时容量，没有车队时回退行程车辆容量。
-            // 候选阶段使用行程快照容量完成排序，避免对完整候选池逐条查询 team-module。
-            // 只有最终一页记录才补充实时车队容量和当前用户关系。
-            MatchTeamDTO team = null;
-            int current = discoverCurrentCount(trip, team);
-            int max = discoverMaxCount(trip, team, current);
+                    && (exactNumberTrip == null || !exactNumberTrip.tripId().equals(trip.tripId()))) continue;
+            if (!isPubliclyVisible(trip) || trip.departureTime() == null) continue;
+            int current = discoverCurrentCount(trip, null);
+            int max = discoverMaxCount(trip, null, current);
             if (requiredSeats > 0 && max - current < requiredSeats) continue;
-            // 依次应用文本、起终点、日期、车辆和剩余名额过滤。
             List<String> waypoints = waypointNames(trip.waypointsJson());
             if (StringUtils.hasText(normalizedKeyword)
                     && !matchesKeyword(trip, waypoints, normalizedKeyword, normalizedSearchType)) continue;
-            if (StringUtils.hasText(startCity) && !normalizeLocation(trip.startName()).contains(normalizeLocation(startCity))) continue;
-            if (StringUtils.hasText(destination) && !normalizeLocation(trip.endName()).contains(normalizeLocation(destination))) continue;
-            if (from != null && trip.departureTime().toLocalDate().isBefore(from)) continue;
-            if (to != null && trip.departureTime().toLocalDate().isAfter(to)) continue;
             if (StringUtils.hasText(vehicleType)
                     && !matchesVehicleRequirement(trip.vehicleRequirements(), vehicleType)) continue;
-            // 未提供位置时用 -1 表示“距离未知”，最终响应转换为 null。
             int distance = latitude == null || longitude == null ? -1
                     : meters(latitude, longitude, trip.startLatitude(), trip.startLongitude());
-            // 有基准行程时计算顺路分，否则计算通用发现推荐分。
-            int score = discoveryScore(trip, team, reference, distance);
-            recommendationScoreByTripId.put(trip.tripId(), score);
-            records.add(toDiscoverCard(trip, team, waypoints, score, distance, userId,
-                    reference != null, false));
+            int coarseScore = reference == null ? discoveryScore(trip, null, null, distance)
+                    : routeMatchCoarseScore(reference, trip);
+            scoreByTripId.put(trip.tripId(), coarseScore);
+            filtered.add(new DiscoverCandidate(trip, waypoints, distance));
         }
-        // NEARBY 优先距离；其余模式主要按分数或出发时间排序。
+
         String normalizedSort = StringUtils.hasText(sort) ? sort.trim().toUpperCase(Locale.ROOT) : "RECOMMENDED";
-        Comparator<TripDiscoverCardResponse> comparator = switch (normalizedSort) {
-            case "NEARBY" -> Comparator.comparingInt(card -> card.distanceMeters() == null || card.distanceMeters() < 0
-                    ? Integer.MAX_VALUE : card.distanceMeters());
-            case "DEPARTURE_TIME" -> Comparator.comparing(TripDiscoverCardResponse::departureTime);
-            case "ROUTE_MATCH" -> Comparator.comparingInt((TripDiscoverCardResponse card) ->
-                    recommendationScoreByTripId.getOrDefault(Long.valueOf(card.tripId()), 0)).reversed();
-            default -> Comparator.comparingInt((TripDiscoverCardResponse card) ->
-                    recommendationScoreByTripId.getOrDefault(Long.valueOf(card.tripId()), 0)).reversed();
+        long routeDatabaseFinished = lightweightDatabaseFinished;
+        // 有基准行程时先用轻量端点/时间/里程粗分缩小集合，再批量加载最多 200 条完整路线精算。
+        if (reference != null && !filtered.isEmpty()) {
+            List<DiscoverCandidate> coarseOrder = new ArrayList<>(filtered);
+            coarseOrder.sort(Comparator.comparingInt((DiscoverCandidate value) ->
+                    scoreByTripId.getOrDefault(value.trip().tripId(), 0)).reversed());
+            int requiredFine = Math.max(ROUTE_FINE_CANDIDATE_LIMIT, safePage * safeSize * 3);
+            int fineCount = Math.min(coarseOrder.size(), Math.min(1000, requiredFine));
+            List<DiscoverCandidate> fineCandidates = coarseOrder.subList(0, fineCount);
+            List<Long> routeIds = new ArrayList<>();
+            routeIds.add(reference.tripId());
+            routeIds.addAll(fineCandidates.stream().map(value -> value.trip().tripId()).toList());
+            Map<Long, String> routePolylines = tripPort.getRoutePolylines(routeIds);
+            routeDatabaseFinished = System.nanoTime();
+            String referencePolyline = routePolylines.get(reference.tripId());
+            for (DiscoverCandidate candidate : fineCandidates) {
+                int score = routeMatchScore(reference, candidate.trip(), referencePolyline,
+                        routePolylines.get(candidate.trip().tripId())).total();
+                scoreByTripId.put(candidate.trip().tripId(), score);
+            }
+        }
+
+        Comparator<DiscoverCandidate> comparator = switch (normalizedSort) {
+            case "NEARBY" -> Comparator.comparingInt(value -> value.distance() < 0 ? Integer.MAX_VALUE : value.distance());
+            case "DEPARTURE_TIME" -> Comparator.comparing(value -> value.trip().departureTime());
+            case "ROUTE_MATCH" -> Comparator.comparingInt((DiscoverCandidate value) ->
+                    scoreByTripId.getOrDefault(value.trip().tripId(), 0)).reversed();
+            default -> Comparator.comparingInt((DiscoverCandidate value) ->
+                    scoreByTripId.getOrDefault(value.trip().tripId(), 0)).reversed();
         };
-        // 二级排序保证同分数据在相同请求条件下稳定分页。
-        records.sort(comparator.thenComparing(TripDiscoverCardResponse::departureTime)
-                .thenComparing(TripDiscoverCardResponse::tripId));
-        // 当前用户自己的行程不插入搜索/发现候选列表，避免与“当前行程”固定区域重复。
-        // 推荐结果必须在相同基准和筛选条件下稳定；不再使用 refreshSeed 随机轮换。
-        // 所有过滤排序完成后再分页，total 表示真实候选总数。
-        int fromIndex = Math.min(records.size(), (safePage - 1) * safeSize);
-        int toIndex = Math.min(records.size(), fromIndex + safeSize);
-        List<TripDiscoverCardResponse> pageRecords = records.subList(fromIndex, toIndex).stream().map(card -> {
-            MatchTripDTO trip = candidateById.get(Long.valueOf(card.tripId()));
-            if (trip == null) {
-                return card;
-            }
-            MatchTeamDTO pageTeam = teamByTripId.get(trip.tripId());
-            if (pageTeam == null) {
-                pageTeam = teamPort.findActiveTeamByTripId(trip.tripId());
-                if (pageTeam != null) teamByTripId.put(trip.tripId(), pageTeam);
-            }
-            return toDiscoverCard(trip, pageTeam, waypointNames(trip.waypointsJson()),
-                    card.matchScore() == null ? 0 : card.matchScore(),
-                    card.distanceMeters() == null ? -1 : card.distanceMeters(), userId,
-                    card.matchScore() != null, true);
-        }).toList();
-        TripDiscoverPageResponse response = new TripDiscoverPageResponse(safePage, safeSize, (long) records.size(),
-                pageRecords);
+        filtered.sort(comparator.thenComparing(value -> value.trip().departureTime())
+                .thenComparing(value -> value.trip().tripId()));
+
+        int fromIndex = Math.min(filtered.size(), (safePage - 1) * safeSize);
+        int toIndex = Math.min(filtered.size(), fromIndex + safeSize);
+        List<DiscoverCandidate> pageCandidates = filtered.subList(fromIndex, toIndex);
+        Map<Long, MatchTeamDTO> teamByTripId = teamPort.findActiveTeamsByTripIds(
+                pageCandidates.stream().map(value -> value.trip().tripId()).toList());
+        List<TripDiscoverCardResponse> pageRecords = pageCandidates.stream().map(candidate ->
+                toDiscoverCard(candidate.trip(), teamByTripId.get(candidate.trip().tripId()), candidate.waypoints(),
+                        scoreByTripId.getOrDefault(candidate.trip().tripId(), 0), candidate.distance(), userId,
+                        reference != null, true)).toList();
+        TripDiscoverPageResponse response = new TripDiscoverPageResponse(safePage, safeSize, (long) filtered.size(), pageRecords);
         long finished = System.nanoTime();
-        log.info("trip_discover_timing referenceTripId={} candidates={} returned={} databaseMs={} calculationAndAssemblyMs={} totalMs={}",
-                reference == null ? null : reference.tripId(), candidates.size(), response.records().size(), millis(totalStarted, databaseFinished),
-                millis(databaseFinished, finished), millis(totalStarted, finished));
+        log.info("trip_discover_timing referenceTripId={} candidates={} filtered={} returned={} lightweightDatabaseMs={} routeDatabaseMs={} calculationAndAssemblyMs={} totalMs={}",
+                reference == null ? null : reference.tripId(), candidates.size(), filtered.size(), response.records().size(),
+                millis(totalStarted, lightweightDatabaseFinished), millis(lightweightDatabaseFinished, routeDatabaseFinished),
+                millis(routeDatabaseFinished, finished), millis(totalStarted, finished));
         return response;
     }
 
@@ -654,26 +685,23 @@ public class MatchServiceImpl implements MatchService {
         }
         int safePage = page == null ? 1 : Math.max(1, page);
         int safeSize = size == null ? 10 : Math.max(1, Math.min(size, 30));
-        List<TripDiscoverCardResponse> records = new ArrayList<>();
-            // 用户公开主页保留已发布和进行中的公开行程。
-        for (MatchTripDTO trip : tripPort.listPublicTrips(1000)) {
-            if (!ownerUserId.equals(trip.userId()) || !Integer.valueOf(1).equals(trip.publicFlag())) {
-                continue;
-            }
-            if (!isPubliclyVisible(trip) || trip.departureTime() == null) {
-                continue;
-            }
-            MatchTeamDTO team = teamPort.findActiveTeamByTripId(trip.tripId());
-            records.add(toDiscoverCard(trip, team, waypointNames(trip.waypointsJson()),
-                    discoveryScore(trip, team, null, -1), -1, currentUserId, false, true));
-        }
-            // 按出发时间和 ID 稳定排序，避免公开主页翻页时记录跳动。
-        records.sort(Comparator.comparing(TripDiscoverCardResponse::departureTime)
-                .thenComparing(TripDiscoverCardResponse::tripId));
-        int fromIndex = Math.min(records.size(), (safePage - 1) * safeSize);
-        int toIndex = Math.min(records.size(), fromIndex + safeSize);
-        return new TripDiscoverPageResponse(safePage, safeSize, (long) records.size(),
-                records.subList(fromIndex, toIndex));
+        List<MatchTripDTO> ownerTrips = new ArrayList<>(tripPort.listPublicTrips(new MatchCandidateQuery(
+                null, ownerUserId, null, null, null, null, 1000)).stream()
+                .filter(trip -> isPubliclyVisible(trip) && trip.departureTime() != null)
+                .toList());
+        ownerTrips.sort(Comparator.comparing(MatchTripDTO::departureTime).thenComparing(MatchTripDTO::tripId));
+        int fromIndex = Math.min(ownerTrips.size(), (safePage - 1) * safeSize);
+        int toIndex = Math.min(ownerTrips.size(), fromIndex + safeSize);
+        List<MatchTripDTO> pageTrips = ownerTrips.subList(fromIndex, toIndex);
+        Map<Long, MatchTeamDTO> teamByTripId = teamPort.findActiveTeamsByTripIds(
+                pageTrips.stream().map(MatchTripDTO::tripId).toList());
+        // 只有最终一页才补车队/关注关系，避免公开主页候选池出现 N+1。
+        List<TripDiscoverCardResponse> records = pageTrips.stream().map(trip -> {
+            MatchTeamDTO team = teamByTripId.get(trip.tripId());
+            return toDiscoverCard(trip, team, waypointNames(trip.waypointsJson()),
+                    discoveryScore(trip, team, null, -1), -1, currentUserId, false, true);
+        }).toList();
+        return new TripDiscoverPageResponse(safePage, safeSize, (long) ownerTrips.size(), records);
     }
 
     @Override
@@ -819,8 +847,9 @@ public class MatchServiceImpl implements MatchService {
                 String.valueOf(trip.userId()), "PENDING");
     }
 
-    private MatchResult calculate(MatchTripDTO source, MatchTripDTO target, LocalDateTime now) {
-        RouteMatchScore score = routeMatchScore(source, target);
+    private MatchResult calculate(MatchTripDTO source, MatchTripDTO target, LocalDateTime now,
+                                  String sourcePolyline, String targetPolyline) {
+        RouteMatchScore score = routeMatchScore(source, target, sourcePolyline, targetPolyline);
         // 雪花 ID 仅用于首次 insert；重复 pair 由 Mapper 保留原 ID 并刷新分数。
         MatchResult result = new MatchResult();
         result.setId(SnowflakeIdGenerator.nextId()); result.setSourceTripId(source.tripId()); result.setTargetTripId(target.tripId());
@@ -850,9 +879,8 @@ public class MatchServiceImpl implements MatchService {
                 team == null ? null : team.currentMemberCount(), team == null ? null : team.maxMemberCount(), team != null);
     }
 
-    private MatchTripCardResponse cardWithoutMatch(MatchTripDTO target) {
-        // 附近场景没有预计算推荐，使用统一中性分数并将 matchId 留空。
-        MatchTeamDTO team = teamPort.findActiveTeamByTripId(target.tripId());
+    private MatchTripCardResponse cardWithoutMatch(MatchTripDTO target, MatchTeamDTO team) {
+        // 附近场景没有预计算推荐，使用统一中性分数；车队已由列表批量读取。
         return new MatchTripCardResponse(null, String.valueOf(target.tripId()), String.valueOf(target.userId()), target.title(),
                 target.startName(), target.endName(), FORMATTER.format(target.departureTime()), target.travelDepth(), target.status(),
                 80, 80, 0, 0,
@@ -984,7 +1012,8 @@ public class MatchServiceImpl implements MatchService {
     }
 
     /** 将推荐候选转换为前端卡片。 */
-    private TripRecommendCardResponse toRecommendCard(RecommendationCandidate candidate) {
+    private TripRecommendCardResponse toRecommendCard(RecommendationCandidate candidate, String relationshipStatus,
+                                                          boolean allowApply) {
         MatchTripDTO trip = candidate.trip();
         MatchTeamDTO team = candidate.team();
         int currentVehicles = Math.max(0, trip.joinedVehicleCount() == null ? 0 : trip.joinedVehicleCount());
@@ -997,14 +1026,15 @@ public class MatchServiceImpl implements MatchService {
                 candidate.distanceMeters(), Math.round(candidate.distanceMeters() / 100D) / 10D,
                 candidate.timeGapMinutes(), Math.round(candidate.leaderRating() * 10D) / 10D,
                 String.valueOf(trip.userId()), trip.ownerNickname(), trip.ownerAvatarImageKey(),
-                candidate.relationshipStatus(), true, candidate.allowApply(), trip.status());
+                relationshipStatus, true, allowApply, trip.status());
     }
 
     /**
      * 严格按需求权重计算综合顺路率：空间 50%、时间 25%、节奏 15%、站点 10%。
      */
-    private int recommendationMatchRate(MatchTripDTO source, MatchTripDTO target) {
-        int spatial = spatialMatchScore(source, target);
+    private int recommendationMatchRate(MatchTripDTO source, MatchTripDTO target,
+                                        String sourcePolyline, String targetPolyline) {
+        int spatial = spatialMatchScore(source, target, sourcePolyline, targetPolyline);
         int time = timeMatchScore(source.departureTime(), target.departureTime());
         int pace = paceMatchScore(source, target);
         int stops = stationMatchScore(waypointNames(source.waypointsJson()), waypointNames(target.waypointsJson()));
@@ -1013,8 +1043,9 @@ public class MatchServiceImpl implements MatchService {
     }
 
     /** 空间匹配综合真实路线重合和起终点接近度，结果统一为 0~100。 */
-    private int spatialMatchScore(MatchTripDTO source, MatchTripDTO target) {
-        int routeOverlap = routeOverlapRate(source.routePolyline(), target.routePolyline());
+    private int spatialMatchScore(MatchTripDTO source, MatchTripDTO target,
+                                  String sourcePolyline, String targetPolyline) {
+        int routeOverlap = routeOverlapRate(sourcePolyline, targetPolyline);
         int start = proximityScore(distanceKm(source.startLatitude(), source.startLongitude(),
                 target.startLatitude(), target.startLongitude()), 100, 100);
         int end = proximityScore(distanceKm(source.endLatitude(), source.endLongitude(),
@@ -1089,9 +1120,11 @@ public class MatchServiceImpl implements MatchService {
     /** 推荐页内部候选，先统一过滤再排序分页。 */
     private record RecommendationCandidate(
             MatchTripDTO trip, MatchTeamDTO team, Integer matchRate, int heat, int distanceMeters,
-            long timeGapMinutes, double leaderRating, String relationshipStatus, boolean allowApply
-    ) {
-    }
+            long timeGapMinutes, double leaderRating
+    ) { }
+
+    /** 发现页轻量候选；完整路线不进入该对象。 */
+    private record DiscoverCandidate(MatchTripDTO trip, List<String> waypoints, int distance) { }
 
     /**
      * 计算发现信息流排序分。
@@ -1101,7 +1134,7 @@ public class MatchServiceImpl implements MatchService {
      */
     private int discoveryScore(MatchTripDTO trip, MatchTeamDTO team, MatchTripDTO reference, int distance) {
         if (reference != null) {
-            return routeMatchScore(reference, trip).total();
+            return routeMatchCoarseScore(reference, trip);
         }
         // 通用发现基础分 58，再按容量、活跃度、认证和距离增加。
         int current = discoverCurrentCount(trip, team);
@@ -1113,16 +1146,34 @@ public class MatchServiceImpl implements MatchService {
         return Math.max(0, Math.min(100, score));
     }
 
+    /** 不读取 polyline 的粗排分，只用于在大候选池中选择值得进行路线精算的子集。 */
+    private int routeMatchCoarseScore(MatchTripDTO source, MatchTripDTO target) {
+        int start = proximityScore(distanceKm(source.startLatitude(), source.startLongitude(),
+                target.startLatitude(), target.startLongitude()), 25, 80);
+        int end = proximityScore(distanceKm(source.endLatitude(), source.endLongitude(),
+                target.endLatitude(), target.endLongitude()), 25, 120);
+        int gap = source.departureTime() == null || target.departureTime() == null ? MAX_TIME_GAP_MINUTES
+                : (int) Math.min(Integer.MAX_VALUE,
+                Math.abs(Duration.between(source.departureTime(), target.departureTime()).toMinutes()));
+        int time = gap >= MAX_TIME_GAP_MINUTES ? 0 : 25 - gap * 25 / MAX_TIME_GAP_MINUTES;
+        int sourceDistance = source.routeDistance() == null ? 0 : source.routeDistance();
+        int targetDistance = target.routeDistance() == null ? 0 : target.routeDistance();
+        int detour = sourceDistance <= 0 ? 0 : Math.max(0, 25 - (int) Math.round(25D
+                * Math.abs(targetDistance - sourceDistance) / sourceDistance));
+        return Math.max(0, Math.min(100, start + end + time + detour));
+    }
+
     /**
      * 推荐列表与发现列表共用同一套顺路评分：起终点 40、真实路线重合 35、
      * 出发时间 15、预计绕行 10。实际路线最多等距采样 60 点，避免长折线 O(n²) 放大。
      */
-    private RouteMatchScore routeMatchScore(MatchTripDTO source, MatchTripDTO target) {
+    private RouteMatchScore routeMatchScore(MatchTripDTO source, MatchTripDTO target,
+                                            String sourcePolyline, String targetPolyline) {
         int start = proximityScore(distanceKm(source.startLatitude(), source.startLongitude(),
                 target.startLatitude(), target.startLongitude()), 20, 80);
         int end = proximityScore(distanceKm(source.endLatitude(), source.endLongitude(),
                 target.endLatitude(), target.endLongitude()), 20, 120);
-        int overlapRate = routeOverlapRate(source.routePolyline(), target.routePolyline());
+        int overlapRate = routeOverlapRate(sourcePolyline, targetPolyline);
         int overlap = Math.round(overlapRate * 35F / 100F);
         int gap = source.departureTime() == null || target.departureTime() == null ? MAX_TIME_GAP_MINUTES
                 : (int) Math.min(Integer.MAX_VALUE,
@@ -1411,6 +1462,31 @@ public class MatchServiceImpl implements MatchService {
     private double distanceKm(Double a, Double b, Double c, Double d) { if (a == null || b == null || c == null || d == null) return 999; double p1=Math.toRadians(a),p2=Math.toRadians(c),x=p2-p1,y=Math.toRadians(d-b);double h=Math.sin(x/2)*Math.sin(x/2)+Math.cos(p1)*Math.cos(p2)*Math.sin(y/2)*Math.sin(y/2);return 6371*2*Math.atan2(Math.sqrt(h),Math.sqrt(1-h)); }
     /** 把返回数量限制在 1~50，空值默认 20。 */
     private int safeLimit(Integer limit) { return limit == null ? 20 : Math.max(1, Math.min(limit, 50)); }
+    private String recommendCacheKey(Long userId, MatchTripDTO reference, String sort, Double latitude,
+                                     Double longitude, int page, int pageSize) {
+        String ref = reference == null ? "none" : String.valueOf(reference.tripId());
+        String lat = latitude == null ? "none" : String.format(Locale.ROOT, "%.3f", latitude);
+        String lng = longitude == null ? "none" : String.format(Locale.ROOT, "%.3f", longitude);
+        return "match:recommend:v2:" + userId + ':' + ref + ':' + sort + ':' + lat + ':' + lng + ':' + page + ':' + pageSize;
+    }
+
+    private TripRecommendPageResponse readRecommendCache(String key) {
+        try {
+            String json = redisTemplate.opsForValue().get(key);
+            return StringUtils.hasText(json) ? objectMapper.readValue(json, TripRecommendPageResponse.class) : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void writeRecommendCache(String key, TripRecommendPageResponse response) {
+        try {
+            redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(response), Duration.ofSeconds(15));
+        } catch (Exception ignored) {
+            // Redis 或序列化异常不能影响主推荐链路。
+        }
+    }
+
     private long millis(long start, long end) { return (end - start) / 1_000_000L; }
     /** 解析经纬度文本；空值和非数字分别返回清晰的 BAD_REQUEST。 */
     private BigDecimal parse(String value, String message) { if (!StringUtils.hasText(value)) throw new BusinessException(ResultCode.BAD_REQUEST,message); try{return new BigDecimal(value);}catch(NumberFormatException e){throw new BusinessException(ResultCode.BAD_REQUEST,"经纬度格式错误");} }

@@ -47,6 +47,22 @@ public interface TeamMapper {
             """)
     Team findActiveByTripId(@Param("tripId") Long tripId);
 
+    /** 批量查询候选行程对应的公开活跃车队。 */
+    @Select("""
+            <script>
+            select id, trip_id, owner_user_id, owner_vehicle_id, team_name, team_desc,
+                   start_name, end_name, departure_time, max_member_count, current_member_count,
+                   join_mode, recruitment_status, allow_midway_join, deviation_warning_distance_m, deviation_warning_minutes,
+                   severe_deviation_distance_m, severe_deviation_minutes, missing_location_minutes, join_radius_m, privacy_level,
+                   team_status, public_flag, chat_conversation_id, notice,
+                   created_at, updated_at, deleted
+            from team
+            where team_status='ACTIVE' and public_flag=1 and deleted=0 and trip_id in
+            <foreach collection='tripIds' item='tripId' open='(' separator=',' close=')'>#{tripId}</foreach>
+            </script>
+            """)
+    List<Team> findActiveByTripIds(@Param("tripIds") List<Long> tripIds);
+
     /** 查询指定行程对应的活跃车队，不区分是否公开。 */
     @Select("""
             select id, trip_id, owner_user_id, owner_vehicle_id, team_name, team_desc,

@@ -586,6 +586,14 @@ class TripService {
         : null;
   }
 
+  /// 正式行程完整路线仅在导航/全屏路线场景按需加载。
+  Future<TripDraftRouteModel?> tripRoute(String tripId) async {
+    final data = await api.get('/v1/trips/$tripId/route');
+    return data is Map
+        ? TripDraftRouteModel.fromJson(Map<String, dynamic>.from(data))
+        : null;
+  }
+
   Future<String> publishDraft(String draftId) async {
     final data = Map<String, dynamic>.from(
       await api.post('/v1/trip/draft/$draftId/publish') as Map,

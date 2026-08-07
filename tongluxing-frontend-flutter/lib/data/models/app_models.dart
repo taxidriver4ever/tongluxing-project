@@ -230,7 +230,7 @@ class TripDraftRouteModel {
       status: (json['status'] ?? json['planStatus'])?.toString() ?? 'STALE',
       points: points,
       routePolyline:
-          (json['polyline'] ?? json['routePolyline'])?.toString() ?? '',
+          (json['previewPolyline'] ?? json['polyline'] ?? json['routePolyline'])?.toString() ?? '',
       distanceMeters: _int(json['totalDistance'] ?? json['routeDistance']),
       durationMinutes: durationSeconds == null
           ? null

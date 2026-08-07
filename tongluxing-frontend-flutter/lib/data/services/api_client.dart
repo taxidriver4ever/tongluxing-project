@@ -34,7 +34,7 @@ class ApiClient {
   static final RegExp _tripDetailPath = RegExp(
     r'^/v1/trips/[^/]+(?:/public-detail)?$',
   );
-  static final RegExp _storedRoutePath = RegExp(r'^/v1/trip/[^/]+/route$');
+  static final RegExp _storedRoutePath = RegExp(r'^/v1/trips?/[^/]+/route$');
   static final RegExp _draftRoutePlanPath = RegExp(
     r'^/v1/trip/draft/[^/]+/route/plan$',
   );

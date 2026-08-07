@@ -3,6 +3,8 @@ package com.tongluxing.match.integration;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * 匹配模块访问车队数据的跨模块端口。
@@ -27,6 +29,12 @@ public interface MatchTeamPort {
      * @return 当前活跃车队；未建队或已关闭时返回 null
      */
     MatchTeamDTO findActiveTeamByTripId(Long tripId);
+
+    /** 批量读取候选行程对应的活跃车队，推荐候选阶段禁止逐条查询。 */
+    Map<Long, MatchTeamDTO> findActiveTeamsByTripIds(List<Long> tripIds);
+
+    /** 批量查询当前用户已加入或已有待审核申请的车队，搜索候选阶段禁止逐条查关系。 */
+    Set<Long> findBlockedTeamIds(List<Long> teamIds, Long userId);
 
     /**
      * 查询用户是否已入队或存在待审核申请。

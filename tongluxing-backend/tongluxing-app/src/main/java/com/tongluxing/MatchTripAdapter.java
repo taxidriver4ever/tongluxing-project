@@ -2,6 +2,7 @@ package com.tongluxing;
 
 import java.util.List;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.springframework.stereotype.Component;
@@ -9,6 +10,8 @@ import org.springframework.stereotype.Component;
 import com.tongluxing.match.integration.MatchTripPort;
 import com.tongluxing.trip.entity.Trip;
 import com.tongluxing.trip.mapper.TripMapper;
+import com.tongluxing.trip.mapper.TripRouteMapper;
+import com.tongluxing.trip.query.TripMatchCandidateRow;
 import com.tongluxing.user.dto.UserQueryDTO;
 import com.tongluxing.user.mapper.UserDomainMapper;
 import com.tongluxing.vehicle.entity.VehicleProfile;
@@ -30,6 +33,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class MatchTripAdapter implements MatchTripPort {
     private final TripMapper tripMapper;
+    private final TripRouteMapper routeMapper;
     private final UserDomainMapper userMapper;
     private final VehicleProfileMapper vehicleMapper;
     private final GrowthService growthService;
@@ -60,11 +64,28 @@ public class MatchTripAdapter implements MatchTripPort {
      * @return 匹配模块行程摘要列表
      */
     @Override
-    public List<MatchTripDTO> listPublicTrips(int limit) {
-        Map<Long, OwnerSnapshot> owners = new HashMap<>();
-        return tripMapper.findPublicTrips(null, limit).stream()
-                .map(trip -> toDTO(trip, owners))
+    public List<MatchTripDTO> listPublicTrips(MatchCandidateQuery query) {
+        int limit = Math.max(1, Math.min(query == null ? 1000 : query.limit(), 1000));
+        MatchCandidateQuery effective = query == null
+                ? new MatchCandidateQuery(null, null, null, null, null, null, limit)
+                : query;
+        return tripMapper.findMatchCandidates(effective.excludeUserId(), effective.ownerUserId(),
+                        effective.departureFrom(), effective.departureTo(), effective.startCity(),
+                        effective.destination(), limit).stream()
+                .map(this::toCandidateDTO)
                 .toList();
+    }
+
+    @Override
+    public Map<Long, String> getRoutePolylines(List<Long> tripIds) {
+        if (tripIds == null || tripIds.isEmpty()) return Map.of();
+        List<Long> ids = tripIds.stream().filter(java.util.Objects::nonNull).distinct().limit(1000).toList();
+        if (ids.isEmpty()) return Map.of();
+        Map<Long, String> result = new LinkedHashMap<>();
+        routeMapper.findByTripIds(ids).forEach(route -> {
+            if (route.getTripId() != null) result.put(route.getTripId(), route.getPolyline());
+        });
+        return result;
     }
 
     @Override
@@ -113,9 +134,41 @@ public class MatchTripAdapter implements MatchTripPort {
                 decimal(firstNonNull(trip.getEndLatitude(), trip.getEndLat())),
                 decimal(firstNonNull(trip.getEndLongitude(), trip.getEndLng())),
                 trip.getDepartureTime(), trip.getEstimatedDays(), trip.getRouteDistance(), trip.getRouteDuration(),
-                trip.getRoutePolyline(), trip.getWaypointsJson(), trip.getRemark(), trip.getTravelDepth(), trip.getExpectedPeople(),
+                null, trip.getWaypointsJson(), trip.getRemark(), trip.getTravelDepth(), trip.getExpectedPeople(),
                 trip.getMaxVehicleCount(), trip.getJoinedVehicleCount(), trip.getStatus(), trip.getPublicFlag(),
                 normalizeTripType(trip), normalizePublisherRole(trip), trip.getCaptainUserId());
+    }
+
+
+    /** 候选池已经由 TripMapper 一次聚合用户/成长/车辆摘要，这里只做无 SQL 的对象转换。 */
+    private MatchTripDTO toCandidateDTO(TripMatchCandidateRow row) {
+        String vehicleSummary = ((row.getVehicleBrand() == null ? "" : row.getVehicleBrand()) + " "
+                + (row.getVehicleModel() == null ? "" : row.getVehicleModel())).trim();
+        return new MatchTripDTO(row.getTripId(), row.getTripNumber(), row.getUserId(), row.getVehicleId(),
+                row.getOwnerNickname() == null || row.getOwnerNickname().isBlank() ? "同路行车友" : row.getOwnerNickname(),
+                row.getOwnerAvatarImageKey(), Boolean.TRUE.equals(row.getDriverVerified()),
+                row.getOwnerLevelCode() == null ? "LV1" : row.getOwnerLevelCode(),
+                row.getOwnerTotalTripCount() == null ? 0 : row.getOwnerTotalTripCount(),
+                row.getOwnerTotalDistanceMeters() == null ? 0L : row.getOwnerTotalDistanceMeters(),
+                row.getOwnerLastActiveAt() == null ? null : row.getOwnerLastActiveAt().toString(),
+                row.getOwnerBadgeCount() == null ? 0 : row.getOwnerBadgeCount(),
+                row.getVehicleType(), vehicleSummary.isBlank() ? "未公开车辆" : vehicleSummary,
+                row.getVehicleRequirements(), row.getBudgetDescription(), row.getTitle(), row.getDescription(),
+                row.getStartName(), row.getEndName(), decimal(row.getStartLatitude()), decimal(row.getStartLongitude()),
+                decimal(row.getEndLatitude()), decimal(row.getEndLongitude()), row.getDepartureTime(), row.getEstimatedDays(),
+                row.getRouteDistance(), row.getRouteDuration(), null, row.getWaypointsJson(), row.getRemark(),
+                row.getTravelDepth(), row.getExpectedPeople(), row.getMaxVehicleCount(), row.getJoinedVehicleCount(),
+                row.getStatus(), row.getPublicFlag(), normalizeTripType(row), normalizePublisherRole(row), row.getCaptainUserId());
+    }
+
+    private String normalizeTripType(TripMatchCandidateRow row) {
+        if (row.getTripType() != null && !row.getTripType().isBlank()) return row.getTripType();
+        return row.getVehicleId() == null ? "PASSENGER_DEMAND" : "DRIVER_TRIP";
+    }
+
+    private String normalizePublisherRole(TripMatchCandidateRow row) {
+        if (row.getPublisherRole() != null && !row.getPublisherRole().isBlank()) return row.getPublisherRole();
+        return "PASSENGER_DEMAND".equals(normalizeTripType(row)) ? "PASSENGER" : "DRIVER";
     }
 
     /** 兼容迁移前的历史数据：旧行程没有 P0 类型字段时按车辆信息推导。 */

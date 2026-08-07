@@ -2,6 +2,7 @@ package com.tongluxing.match.integration;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 匹配模块访问行程数据的跨模块端口。
@@ -28,12 +29,36 @@ public interface MatchTripPort {
     MatchTripDTO getTripByNumber(String tripNumber);
 
     /**
-     * 查询公开行程列表，作为推荐候选池。
-     *
-     * @param limit 候选池读取上限
-     * @return 公开行程候选摘要
+     * 查询公开行程轻量候选池。完整 polyline 不随候选列表读取。
      */
-    List<MatchTripDTO> listPublicTrips(int limit);
+    List<MatchTripDTO> listPublicTrips(MatchCandidateQuery query);
+
+    /** 保留旧调用方式，默认只做公开状态过滤。 */
+    default List<MatchTripDTO> listPublicTrips(int limit) {
+        return listPublicTrips(new MatchCandidateQuery(null, null, null, null, null, null, limit));
+    }
+
+    /**
+     * 顺路率精算阶段批量获取少量完整路线。
+     */
+    Map<Long, String> getRoutePolylines(List<Long> tripIds);
+
+    /** 单条详情/精算按需读取完整路线。 */
+    default String getRoutePolyline(Long tripId) {
+        if (tripId == null) return null;
+        return getRoutePolylines(List.of(tripId)).get(tripId);
+    }
+
+    /** SQL 可提前下推的候选条件。 */
+    record MatchCandidateQuery(
+            Long excludeUserId,
+            Long ownerUserId,
+            LocalDateTime departureFrom,
+            LocalDateTime departureTo,
+            String startCity,
+            String destination,
+            int limit
+    ) { }
 
     /**
      * 查询当前用户可作为推荐基准的自有行程。

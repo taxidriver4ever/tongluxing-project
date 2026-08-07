@@ -28,6 +28,7 @@ import com.tongluxing.trip.vo.MyTripDashboardResponse;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
 import com.tongluxing.trip.vo.TripResponse;
+import com.tongluxing.trip.vo.TripRouteResponse;
 import com.tongluxing.trip.vo.TripSettlementResponse;
 import com.tongluxing.trip.vo.TripTimeConflictResponse;
 
@@ -103,6 +104,12 @@ public class TripController {
     @GetMapping("/{tripId}")
     public Result<TripResponse> getTrip(@PathVariable Long tripId) {
         return Result.success(tripService.getTrip(tripId));
+    }
+
+    /** 完整 polyline 只在导航/全屏路线页按需获取。 */
+    @GetMapping("/{tripId}/route")
+    public Result<TripRouteResponse> getTripRoute(@PathVariable Long tripId) {
+        return Result.success(tripService.getRoute(tripId));
     }
 
     /**

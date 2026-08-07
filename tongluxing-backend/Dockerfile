@@ -9,7 +9,8 @@ RUN --mount=type=cache,target=/root/.m2 \
 
 FROM eclipse-temurin:21-jre-alpine AS runtime
 
-RUN addgroup -S spring \
+RUN apk add --no-cache tini \
+    && addgroup -S spring \
     && adduser -S -G spring spring
 
 WORKDIR /app
@@ -22,4 +23,4 @@ USER spring:spring
 
 EXPOSE 18080
 
-ENTRYPOINT ["java", "-jar", "/app/tongluxing-app.jar"]
+ENTRYPOINT ["/sbin/tini", "--", "java", "-jar", "/app/tongluxing-app.jar"]

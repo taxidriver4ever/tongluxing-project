@@ -10,6 +10,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import com.tongluxing.trip.entity.Trip;
+import com.tongluxing.trip.query.TripMatchCandidateRow;
 
 /**
  * 行程主表 Mapper。
@@ -24,7 +25,7 @@ public interface TripMapper {
             select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
-                   route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                   route_summary, route_polyline_key, route_distance, route_duration, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time,
@@ -40,7 +41,7 @@ public interface TripMapper {
             select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
-                   route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                   route_summary, route_polyline_key, route_distance, route_duration, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth,
                    public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark, actual_start_time, actual_end_time,
@@ -58,7 +59,7 @@ public interface TripMapper {
             select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
-                   route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                   route_summary, route_polyline_key, route_distance, route_duration, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time,
@@ -80,7 +81,7 @@ public interface TripMapper {
             select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
-                   route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                   route_summary, route_polyline_key, route_distance, route_duration, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time, created_at, updated_at, deleted
@@ -141,7 +142,7 @@ public interface TripMapper {
             select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
-                   route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                   route_summary, route_polyline_key, route_distance, route_duration, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time, created_at, updated_at, deleted
@@ -180,7 +181,7 @@ public interface TripMapper {
             select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
-                   route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                   route_summary, route_polyline_key, route_distance, route_duration, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time,
@@ -206,7 +207,7 @@ public interface TripMapper {
                    t.end_name, t.end_lat, t.end_lng,
                    t.end_location_name, t.end_location_address, t.end_latitude, t.end_longitude,
                    t.route_summary, t.route_polyline_key, t.route_distance, t.route_duration,
-                   t.route_polyline, t.waypoints_json, t.departure_time, t.estimated_days,
+                   t.waypoints_json, t.departure_time, t.estimated_days,
                    t.total_distance_meters, t.max_vehicle_count, t.joined_vehicle_count,
                    t.vehicle_requirements, t.budget_description, t.travel_depth, t.public_flag,
                    t.status, t.arrival_status, t.arrival_entered_at, t.arrival_decision_deadline,
@@ -248,7 +249,7 @@ public interface TripMapper {
             select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
-                   route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                   route_summary, route_polyline_key, route_distance, route_duration, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time,
@@ -263,6 +264,77 @@ public interface TripMapper {
     List<Trip> findPublicTrips(@Param("userId") Long userId, @Param("limit") Integer limit);
 
     /**
+     * 推荐/发现专用轻量候选查询。
+     *
+     * <p>完整 polyline 不在此 SQL 中读取；用户资料、成长摘要、徽章数和车辆展示信息
+     * 一次聚合完成，避免 MatchTripAdapter 在候选池上产生 N+1。</p>
+     */
+    @Select("""
+            <script>
+            select
+                t.id tripId, t.trip_number tripNumber, t.user_id userId, t.vehicle_id vehicleId,
+                t.trip_type tripType, t.publisher_role publisherRole, t.captain_user_id captainUserId,
+                coalesce(nullif(p.nickname,''), '同路行车友') ownerNickname,
+                p.avatar_image_key ownerAvatarImageKey,
+                case when exists (
+                    select 1 from user_driving_license_certification c
+                    where c.user_id=t.user_id and c.deleted=0 and c.certification_status='APPROVED'
+                ) then true else false end driverVerified,
+                coalesce(g.level_code, 'LV1') ownerLevelCode,
+                coalesce(us.total_trip_count,0) ownerTotalTripCount,
+                coalesce(us.total_distance_meters,0) ownerTotalDistanceMeters,
+                a.last_login_time ownerLastActiveAt,
+                coalesce(b.badge_count,0) ownerBadgeCount,
+                v.vehicle_type vehicleType, v.brand vehicleBrand, v.model vehicleModel,
+                t.vehicle_requirements vehicleRequirements, t.budget_description budgetDescription,
+                t.title, t.description, t.start_name startName, t.end_name endName,
+                coalesce(t.start_latitude,t.start_lat) startLatitude,
+                coalesce(t.start_longitude,t.start_lng) startLongitude,
+                coalesce(t.end_latitude,t.end_lat) endLatitude,
+                coalesce(t.end_longitude,t.end_lng) endLongitude,
+                t.departure_time departureTime, t.estimated_days estimatedDays,
+                t.route_distance routeDistance, t.route_duration routeDuration,
+                t.waypoints_json waypointsJson, t.remark, t.travel_depth travelDepth,
+                t.expected_people expectedPeople, t.max_vehicle_count maxVehicleCount,
+                t.joined_vehicle_count joinedVehicleCount, t.status, t.public_flag publicFlag
+            from trip t
+            left join user_profile p on p.user_id=t.user_id and p.deleted=0
+            left join user_statistics us on us.user_id=t.user_id
+            left join growth_account g on g.user_id=t.user_id and g.deleted=0
+            left join auth_account a on a.user_id=t.user_id and a.deleted=0
+            left join vehicle_profile v on v.id=t.vehicle_id and v.deleted=0
+            left join (
+                select user_id, count(*) badge_count
+                from growth_user_badge
+                where deleted=0
+                group by user_id
+            ) b on b.user_id=t.user_id
+            where t.public_flag=1 and t.deleted=0
+              and t.status in ('PUBLISHED','RECRUITING','RUNNING','ONGOING')
+            <if test='excludeUserId != null'>and t.user_id &lt;&gt; #{excludeUserId}</if>
+            <if test='ownerUserId != null'>and t.user_id = #{ownerUserId}</if>
+            <if test='departureFrom != null'>and t.departure_time &gt;= #{departureFrom}</if>
+            <if test='departureTo != null'>and t.departure_time &lt;= #{departureTo}</if>
+            <if test='startCity != null and startCity != ""'>
+              and lower(t.start_name) like concat('%', lower(#{startCity}), '%')
+            </if>
+            <if test='destination != null and destination != ""'>
+              and lower(t.end_name) like concat('%', lower(#{destination}), '%')
+            </if>
+            order by t.departure_time asc, t.id asc
+            limit #{limit}
+            </script>
+            """)
+    List<TripMatchCandidateRow> findMatchCandidates(
+            @Param("excludeUserId") Long excludeUserId,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("departureFrom") LocalDateTime departureFrom,
+            @Param("departureTo") LocalDateTime departureTo,
+            @Param("startCity") String startCity,
+            @Param("destination") String destination,
+            @Param("limit") Integer limit);
+
+    /**
      * 新增行程主表记录。
      */
     @Insert("""
@@ -271,7 +343,7 @@ public interface TripMapper {
                  title, description, expected_people, start_name, start_lat, start_lng,
                  start_location_name, start_location_address, start_latitude, start_longitude,
                  end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
-                 route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                 route_summary, route_polyline_key, route_distance, route_duration, waypoints_json,
                  departure_time, estimated_days, total_distance_meters,
                  max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth,
                  public_flag, status, auto_start_enabled, arrival_status, arrival_entered_at,
@@ -283,7 +355,7 @@ public interface TripMapper {
                  #{title}, #{description}, #{expectedPeople}, #{startName}, #{startLat}, #{startLng},
                  #{startLocationName}, #{startLocationAddress}, #{startLatitude}, #{startLongitude},
                  #{endName}, #{endLat}, #{endLng}, #{endLocationName}, #{endLocationAddress}, #{endLatitude}, #{endLongitude},
-                 #{routeSummary}, #{routePolylineKey}, #{routeDistance}, #{routeDuration}, #{routePolyline}, #{waypointsJson},
+                 #{routeSummary}, #{routePolylineKey}, #{routeDistance}, #{routeDuration}, #{waypointsJson},
                  #{departureTime}, #{estimatedDays}, #{totalDistanceMeters},
                  #{maxVehicleCount}, #{joinedVehicleCount}, #{vehicleRequirements}, #{budgetDescription}, #{travelDepth},
                  #{publicFlag}, #{status}, #{autoStartEnabled}, #{arrivalStatus}, #{arrivalEnteredAt},
@@ -324,7 +396,6 @@ public interface TripMapper {
                 route_polyline_key = #{routePolylineKey},
                 route_distance = #{routeDistance},
                 route_duration = #{routeDuration},
-                route_polyline = #{routePolyline},
                 waypoints_json = #{waypointsJson},
                 departure_time = #{departureTime},
                 estimated_days = #{estimatedDays},
@@ -506,7 +577,7 @@ public interface TripMapper {
             select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
-                   route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                   route_summary, route_polyline_key, route_distance, route_duration, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time, created_at, updated_at, deleted
@@ -532,7 +603,7 @@ public interface TripMapper {
             select id, trip_number, user_id, trip_type, publisher_role, captain_user_id, auto_start_enabled, vehicle_id, title, description, expected_people, start_name, start_lat, start_lng,
                    start_location_name, start_location_address, start_latitude, start_longitude,
                    end_name, end_lat, end_lng, end_location_name, end_location_address, end_latitude, end_longitude,
-                   route_summary, route_polyline_key, route_distance, route_duration, route_polyline, waypoints_json,
+                   route_summary, route_polyline_key, route_distance, route_duration, waypoints_json,
                    departure_time, estimated_days, total_distance_meters,
                    max_vehicle_count, joined_vehicle_count, vehicle_requirements, budget_description, travel_depth, public_flag, status, arrival_status, arrival_entered_at, arrival_decision_deadline, continue_count, remark,
                    actual_start_time, actual_end_time,

@@ -375,13 +375,25 @@ class _TripDetailPageState extends State<TripDetailPage> {
                   SliverToBoxAdapter(
                     child: _RouteHeader(
                       trip: trip!,
-                      onTap: () {
+                      onTap: () async {
                         final nodes = [
                           if (trip!.startLocation != null) trip!.startLocation!,
                           ...trip!.waypoints,
                           if (trip!.endLocation != null) trip!.endLocation!,
                         ];
-                        final route = buildSmoothOverviewRoute(nodes);
+                        List<LocationSelection> route = buildSmoothOverviewRoute(nodes);
+                        try {
+                          // 卡片/详情只持有简化预览；用户真正打开路线地图时再按需取完整道路 polyline。
+                          final full = await TripService(
+                            context.read<AppSession>().api,
+                          ).tripRoute(trip!.id);
+                          if (full != null && full.polylinePoints.length >= 2) {
+                            route = full.polylinePoints;
+                          }
+                        } catch (_) {
+                          // 完整路线读取失败时保留轻量概览，不阻断详情页操作。
+                        }
+                        if (!context.mounted) return;
                         Navigator.push(
                           context,
                           MaterialPageRoute(

@@ -13,6 +13,7 @@ import com.tongluxing.trip.vo.MyTripDashboardResponse;
 import com.tongluxing.trip.vo.TripListResponse;
 import com.tongluxing.trip.vo.TripMemberSnapshotResponse;
 import com.tongluxing.trip.vo.TripResponse;
+import com.tongluxing.trip.vo.TripRouteResponse;
 import com.tongluxing.trip.vo.TripTimeConflictResponse;
 
 /**
@@ -24,6 +25,9 @@ public interface TripService {
      * 创建并发布行程。
      */
     TripResponse createTrip(CreateTripRequest request);
+
+    /** 草稿发布专用：直接提升数据库中的 VALID trip_route，避免在 Java 层搬运完整 polyline。 */
+    TripResponse createTripFromDraft(CreateTripRequest request, Long draftId);
 
     /**
      * 查询当前用户行程列表。
@@ -43,6 +47,9 @@ public interface TripService {
      * 查询行程详情。
      */
     TripResponse getTrip(Long tripId);
+
+    /** 导航/全屏路线页按需读取完整路线。 */
+    TripRouteResponse getRoute(Long tripId);
 
     /**
      * 编辑行程。

@@ -275,6 +275,7 @@ create table if not exists user_driving_license_certification (
                                                                   deleted tinyint not null default 0 comment '逻辑删除标记：0未删除、1已删除',
                                                                   primary key (id),
                                                                   key idx_driver_cert_user_submit (user_id, submitted_at),
+                                                                  key idx_driver_cert_user_status_deleted (user_id, certification_status, deleted),
                                                                   key idx_driver_cert_status_submit (certification_status, submitted_at),
                                                                   key idx_driver_cert_reviewer (reviewer_id, reviewed_at)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci comment='用户驾驶证认证申请及审核记录表';
@@ -677,7 +678,7 @@ create table if not exists trip (
                                     route_polyline_key varchar(512) null comment '路线折线数据的对象存储Key',
                                     route_distance int null comment '路线距离',
                                     route_duration int null comment '路线时长',
-                                    route_polyline mediumtext null comment '路线折线编码数据',
+                                    route_polyline mediumtext null comment '兼容旧数据字段：应用已停止读写，完整路线统一存 trip_route.polyline',
                                     waypoints_json text null comment '途经点列表JSON数据',
                                     departure_time datetime not null comment '出发时间',
                                     estimated_days int null comment '估算，单位为天',
@@ -723,11 +724,13 @@ create table if not exists trip_route (
                                           plan_duration int null comment '规划时长',
                                           provider_type varchar(32) not null comment '外部服务提供方类型',
                                           route_status varchar(16) not null default 'VALID' comment '路线状态',
+                                          route_signature varchar(64) null comment '起终点和途经点坐标签名，用于精准判断路线是否失效',
                                           created_at datetime not null comment '记录创建时间',
                                           updated_at datetime not null comment '记录最后更新时间',
                                           deleted tinyint(1) not null default 0 comment '逻辑删除标记：0未删除、1已删除',
                                           unique key uk_trip_route_trip (trip_id, deleted),
-                                          unique key uk_trip_route_draft (draft_id, deleted)
+                                          unique key uk_trip_route_draft (draft_id, deleted),
+                                          key idx_trip_route_status_trip (route_status, trip_id, deleted)
 ) comment='行程路线表';
 
 create table if not exists trip_waypoint (

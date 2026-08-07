@@ -248,26 +248,18 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
       }
     }
     final saved = trip.routePoints;
-    if (saved.length > 2 && trip.routePolyline?.trim().isNotEmpty == true) {
-      if (mounted) setState(() => exactRoutePoints = saved);
-      return;
-    }
-    final start = trip.startLocation;
-    final end = trip.endLocation;
-    if (start == null || end == null) {
-      if (mounted) setState(() => exactRoutePoints = saved);
-      return;
-    }
     try {
-      final planned = await TripService(
+      // 导航优先读取发布时持久化的完整真实道路路线，避免每次进入地图 Tab 再调用第三方地图规划。
+      final stored = await TripService(
         context.read<AppSession>().api,
-      ).planRoadRoute(start: start, end: end, waypoints: trip.waypoints);
-      final points = planned.polylinePoints;
+      ).tripRoute(trip.id);
+      final points = stored?.polylinePoints ?? const <LocationSelection>[];
       if (!mounted) return;
       setState(() {
         exactRoutePoints = points.length >= 2 ? points : saved;
       });
     } catch (_) {
+      // 路线接口暂时不可用时退化为详情中的简化预览节点，不重新向高德发起规划请求。
       if (mounted) setState(() => exactRoutePoints = saved);
     }
   }

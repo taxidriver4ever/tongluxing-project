@@ -83,6 +83,19 @@ public interface TeamMemberMapper {
             """)
     TeamMember findByTeamAndUser(@Param("teamId") Long teamId, @Param("userId") Long userId);
 
+    /** 批量查询用户在指定候选车队中的有效成员关系，避免搜索列表 N+1。 */
+    @Select("""
+            <script>
+            select distinct team_id
+            from team_member
+            where user_id = #{userId} and member_status = 'ACTIVE' and deleted = 0
+              and team_id in
+              <foreach collection='teamIds' item='teamId' open='(' separator=',' close=')'>#{teamId}</foreach>
+            </script>
+            """)
+    List<Long> findActiveTeamIdsByUserAndTeams(@Param("userId") Long userId,
+                                                 @Param("teamIds") List<Long> teamIds);
+
     /**
      * 新增车队成员记录。
      */

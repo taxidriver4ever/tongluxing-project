@@ -2,6 +2,10 @@ package com.tongluxing;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 
 import org.springframework.stereotype.Component;
 
@@ -47,6 +51,26 @@ public class MatchTeamAdapter implements MatchTeamPort {
     public MatchTeamDTO findActiveTeamByTripId(Long tripId) {
         Team team = teamMapper.findActiveByTripId(tripId);
         return team == null ? null : toDTO(team);
+    }
+
+    @Override
+    public Map<Long, MatchTeamDTO> findActiveTeamsByTripIds(List<Long> tripIds) {
+        if (tripIds == null || tripIds.isEmpty()) return Map.of();
+        List<Long> ids = tripIds.stream().filter(java.util.Objects::nonNull).distinct().limit(1000).toList();
+        if (ids.isEmpty()) return Map.of();
+        Map<Long, MatchTeamDTO> result = new LinkedHashMap<>();
+        teamMapper.findActiveByTripIds(ids).forEach(team -> result.put(team.getTripId(), toDTO(team)));
+        return result;
+    }
+
+    @Override
+    public Set<Long> findBlockedTeamIds(List<Long> teamIds, Long userId) {
+        if (teamIds == null || teamIds.isEmpty() || userId == null) return Set.of();
+        List<Long> ids = teamIds.stream().filter(java.util.Objects::nonNull).distinct().limit(1000).toList();
+        if (ids.isEmpty()) return Set.of();
+        Set<Long> blocked = new HashSet<>(teamMemberMapper.findActiveTeamIdsByUserAndTeams(userId, ids));
+        blocked.addAll(applicationMapper.findPendingTeamIdsByUserAndTeams(userId, ids));
+        return blocked;
     }
 
     @Override
@@ -120,7 +144,7 @@ public class MatchTeamAdapter implements MatchTeamPort {
      * @return 匹配模块车队 DTO
      */
     private MatchTeamDTO toDTO(Team team) {
-        int activeMemberCount = teamMemberMapper.countActiveByTeamId(team.getId());
+        int activeMemberCount = team.getCurrentMemberCount() == null ? 0 : team.getCurrentMemberCount();
         return new MatchTeamDTO(team.getId(), team.getTripId(), team.getOwnerUserId(), team.getTeamName(),
                 team.getTeamDesc(), team.getNotice(),
                 team.getStartName(), team.getEndName(), team.getDepartureTime(), activeMemberCount,

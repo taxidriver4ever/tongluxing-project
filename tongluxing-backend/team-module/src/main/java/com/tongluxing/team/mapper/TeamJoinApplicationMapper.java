@@ -45,6 +45,19 @@ public interface TeamJoinApplicationMapper {
             """)
     TeamJoinApplication findPending(@Param("teamId") Long teamId, @Param("userId") Long userId);
 
+    /** 批量查询用户在指定候选车队中的待审核申请，避免搜索列表 N+1。 */
+    @Select("""
+            <script>
+            select distinct team_id
+            from team_join_application
+            where applicant_user_id = #{userId} and application_status = 'PENDING' and deleted = 0
+              and team_id in
+              <foreach collection='teamIds' item='teamId' open='(' separator=',' close=')'>#{teamId}</foreach>
+            </script>
+            """)
+    List<Long> findPendingTeamIdsByUserAndTeams(@Param("userId") Long userId,
+                                                 @Param("teamIds") List<Long> teamIds);
+
     @Select("""
             select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, application_type, join_role, linked_owner_user_id, linked_vehicle_id, plate_reference, current_latitude, current_longitude, owner_confirm_status, reviewer_user_id,
                    application_status, apply_message, join_question_json, review_message, reviewed_at,

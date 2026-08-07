@@ -21,6 +21,8 @@ public class TripRoute {
     private Integer planDuration;
     private String providerType;
     private String routeStatus;
+    /** 起点/终点/途经点顺序的 SHA-256 指纹，用于判断路线是否真的失效。 */
+    private String routeSignature;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Integer deleted;

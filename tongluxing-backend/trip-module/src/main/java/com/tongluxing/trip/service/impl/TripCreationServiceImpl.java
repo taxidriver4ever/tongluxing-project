@@ -7,6 +7,7 @@ import java.time.format.DateTimeParseException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Objects;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +39,9 @@ import com.tongluxing.trip.mapper.TripRouteMapper;
 import com.tongluxing.trip.mapper.TripWaypointMapper;
 import com.tongluxing.trip.service.TripCreationService;
 import com.tongluxing.trip.service.TripService;
+import com.tongluxing.trip.support.RoutePolylineUtils;
+import com.tongluxing.trip.support.RouteSignatureUtils;
+import com.tongluxing.trip.support.RouteSignatureUtils.Node;
 import com.tongluxing.trip.vo.LocationResponse;
 import com.tongluxing.trip.vo.TripCreationWaypointResponse;
 import com.tongluxing.trip.vo.TripDraftDetailResponse;
@@ -93,13 +97,8 @@ public class TripCreationServiceImpl implements TripCreationService {
     @Transactional
     public TripDraftDetailResponse updateDraft(Long draftId, TripDraftSaveRequest request) {
         TripCreationDraft draft = requireEditableDraft(draftId);
-        String oldStart = draft.getStartLocationJson();
-        String oldEnd = draft.getEndLocationJson();
         updateDraftEntity(draft, request);
-        if (!java.util.Objects.equals(oldStart, draft.getStartLocationJson())
-                || !java.util.Objects.equals(oldEnd, draft.getEndLocationJson())) {
-            routeMapper.markDraftRouteStale(draftId, LocalDateTime.now());
-        }
+        markRouteStaleIfSignatureChanged(draftId);
         return detail(requireDraft(draftId, draft.getUserId(), false));
     }
 
@@ -154,7 +153,7 @@ public class TripCreationServiceImpl implements TripCreationService {
                 request.sort() == null ? values.size() + 1 : request.sort());
         waypointMapper.insert(waypoint);
         normalizeSequence(draftId);
-        routeMapper.markDraftRouteStale(draftId, LocalDateTime.now());
+        markRouteStaleIfSignatureChanged(draftId);
         return response(waypointMapper.findDraftWaypoint(draftId, waypoint.getId()));
     }
 
@@ -170,7 +169,7 @@ public class TripCreationServiceImpl implements TripCreationService {
         waypoint.setCreatedAt(current.getCreatedAt());
         if (waypointMapper.updateDraftWaypoint(waypoint) == 0) throw notFound("经停点不存在");
         normalizeSequence(draftId);
-        routeMapper.markDraftRouteStale(draftId, LocalDateTime.now());
+        markRouteStaleIfSignatureChanged(draftId);
         return response(waypointMapper.findDraftWaypoint(draftId, waypointId));
     }
 
@@ -182,7 +181,7 @@ public class TripCreationServiceImpl implements TripCreationService {
             throw notFound("经停点不存在");
         }
         normalizeSequence(draftId);
-        routeMapper.markDraftRouteStale(draftId, LocalDateTime.now());
+        markRouteStaleIfSignatureChanged(draftId);
     }
 
     @Override
@@ -199,7 +198,7 @@ public class TripCreationServiceImpl implements TripCreationService {
         for (int i = 0; i < request.waypointIds().size(); i++) {
             waypointMapper.updateDraftSequence(draftId, request.waypointIds().get(i), i + 1, now);
         }
-        routeMapper.markDraftRouteStale(draftId, now);
+        markRouteStaleIfSignatureChanged(draftId);
         return waypointResponses(draftId);
     }
 
@@ -231,6 +230,7 @@ public class TripCreationServiceImpl implements TripCreationService {
         route.setPlanDuration(plan.routeDuration());
         route.setProviderType(plan.providerType());
         route.setRouteStatus("VALID");
+        route.setRouteSignature(routeSignature(start, end, waypoints));
         route.setCreatedAt(now);
         route.setUpdatedAt(now);
         route.setDeleted(0);
@@ -262,29 +262,34 @@ public class TripCreationServiceImpl implements TripCreationService {
         }
         List<TripWaypoint> waypoints = waypointMapper.findByDraftId(draftId);
         validatePublish(draft, waypoints);
-        TripRoute route = routeMapper.findByDraftId(draftId);
-        if (route == null || !"VALID".equals(route.getRouteStatus())) {
-            log.warn("trip_publish_route_repair draftId={} oldStatus={} reason=missing_or_stale",
-                    draftId, route == null ? "MISSING" : route.getRouteStatus());
-            // 兼容旧版本客户端和历史草稿：发布前自动重新规划一次，避免用户已经填写完
-            // 全部信息后仍被失效路线阻断。
+        LocationRequest start = location(draft.getStartLocationJson());
+        LocationRequest end = location(draft.getEndLocationJson());
+        String currentSignature = routeSignature(start, end, waypoints);
+        TripRoute route = routeMapper.findMetaByDraftId(draftId);
+        boolean routeInvalid = route == null || !"VALID".equals(route.getRouteStatus())
+                || !Objects.equals(currentSignature, route.getRouteSignature());
+        if (routeInvalid) {
+            log.warn("trip_publish_route_repair draftId={} oldStatus={} reason={}",
+                    draftId, route == null ? "MISSING" : route.getRouteStatus(),
+                    route == null ? "missing" : (!Objects.equals(currentSignature, route.getRouteSignature())
+                            ? "route_signature_changed" : "stale"));
+            // 兼容旧草稿/旧版本路线：只有节点签名确实变化或路线失效时才重新调用地图服务。
             planRoute(draftId);
-            route = routeMapper.findByDraftId(draftId);
+            route = routeMapper.findMetaByDraftId(draftId);
         }
-        if (route == null || !"VALID".equals(route.getRouteStatus())) {
+        if (route == null || !"VALID".equals(route.getRouteStatus())
+                || !Objects.equals(currentSignature, route.getRouteSignature())) {
             throw bad("路线自动生成失败，请返回第一步检查起点、终点和途经点");
         }
         // P0：车辆认证不再是发布前置条件。存在默认认证车辆时发布车主行程，
         // 否则由 TripService 自动识别为乘客出行需求，不创建队长、车队和群聊。
         TripVehicleDTO vehicle = vehiclePort.getDefaultCertifiedVehicle(userId);
-        LocationRequest start = location(draft.getStartLocationJson());
-        LocationRequest end = location(draft.getEndLocationJson());
-        TripResponse trip = tripService.createTrip(new CreateTripRequest(vehicle == null ? null : vehicle.vehicleId(), draft.getTitle(),
+        TripResponse trip = tripService.createTripFromDraft(new CreateTripRequest(vehicle == null ? null : vehicle.vehicleId(), draft.getTitle(),
                 draft.getDescription(), draft.getPeopleCount(), start, end,
                 start.name() + " - " + end.name(), formatTime(draft.getDepartureTime()), draft.getDurationDays(),
-                route.getPlanDistance(), route.getPlanDuration(), route.getPolyline(), draft.getPeopleCount(),
+                route.getPlanDistance(), route.getPlanDuration(), null, draft.getPeopleCount(),
                 "MIDDLE", true, vehicleRequirementsList(draft.getVehicleRequirements()),
-                draft.getBudgetDescription(), draft.getNotes(), waypoints.stream().map(this::waypointLocation).toList()));
+                draft.getBudgetDescription(), draft.getNotes(), waypoints.stream().map(this::waypointLocation).toList()), draftId);
         long tripId = Long.parseLong(trip.tripId());
         LocalDateTime now = LocalDateTime.now();
         for (TripWaypoint value : waypoints) {
@@ -418,7 +423,8 @@ public class TripCreationServiceImpl implements TripCreationService {
     private TripDraftRouteResponse routeResponse(TripRoute route, LocationRequest start, LocationRequest end,
                                                    List<TripWaypoint> waypoints) {
         return new TripDraftRouteResponse(String.valueOf(route.getDraftId()), String.valueOf(route.getRoutePlanId()),
-                response(start), response(end), waypoints.stream().map(this::response).toList(), route.getPolyline(),
+                response(start), response(end), waypoints.stream().map(this::response).toList(),
+                RoutePolylineUtils.simplify(objectMapper, route.getPolyline(), 600),
                 route.getPlanDistance(), route.getPlanDuration(), route.getProviderType(), route.getRouteStatus());
     }
 
@@ -471,6 +477,36 @@ public class TripCreationServiceImpl implements TripCreationService {
         if (!StringUtils.hasText(value)) return "";
         String normalized = value.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "").trim();
         return normalized.length() <= 255 ? normalized : normalized.substring(0, 255);
+    }
+
+    /**
+     * 草稿路线是否失效只由真正影响几何路线的节点签名决定。
+     * 标题、备注、停留时长等非路线字段变化不会触发重新规划。
+     */
+    private void markRouteStaleIfSignatureChanged(Long draftId) {
+        TripRoute route = routeMapper.findMetaByDraftId(draftId);
+        if (route == null || !"VALID".equals(route.getRouteStatus())) return;
+        TripCreationDraft draft = requireDraft(draftId, currentUserContext.requireUserId(), false);
+        LocationRequest start = location(draft.getStartLocationJson());
+        LocationRequest end = location(draft.getEndLocationJson());
+        if (start == null || end == null) {
+            routeMapper.markDraftRouteStale(draftId, LocalDateTime.now());
+            return;
+        }
+        String current = routeSignature(start, end, waypointMapper.findByDraftId(draftId));
+        if (!Objects.equals(current, route.getRouteSignature())) {
+            routeMapper.markDraftRouteStale(draftId, LocalDateTime.now());
+        }
+    }
+
+    private String routeSignature(LocationRequest start, LocationRequest end, List<TripWaypoint> waypoints) {
+        List<Node> nodes = waypoints.stream()
+                .sorted(java.util.Comparator.comparing(TripWaypoint::getSeqNo,
+                        java.util.Comparator.nullsLast(Integer::compareTo)))
+                .map(value -> new Node(value.getLat(), value.getLng()))
+                .toList();
+        return RouteSignatureUtils.signature(new Node(start.latitude(), start.longitude()),
+                new Node(end.latitude(), end.longitude()), nodes);
     }
 
     private void normalizeSequence(Long draftId) {

@@ -54,6 +54,8 @@ create table if not exists user_driving_license_certification (
     primary key (id),
     -- 支持按用户快速查询最近一次提交。
     key idx_driver_cert_user_submit (user_id, submitted_at),
+    -- 推荐轻量候选查询按用户 + 认证状态快速判断驾驶认证。
+    key idx_driver_cert_user_status_deleted (user_id, certification_status, deleted),
     -- 支持后台按状态、提交时间分页审核。
     key idx_driver_cert_status_submit (certification_status, submitted_at),
     -- 支持后台按审核员和审核时间审计。

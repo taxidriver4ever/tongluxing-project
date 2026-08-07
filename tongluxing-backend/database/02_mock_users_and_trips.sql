@@ -461,6 +461,11 @@ ON DUPLICATE KEY UPDATE
     updated_at = NOW(),
     deleted = 0;
 
+-- 应用已统一从 trip_route 读取完整路线；Mock 主表兼容字段在路线快照写入后立即清空，避免重复 MEDIUMTEXT。
+UPDATE trip
+SET route_polyline = NULL
+WHERE id BETWEEN 920000000000010201 AND 920000000000010206;
+
 -- 详情页途经点表数据。
 DELETE FROM trip_waypoint
 WHERE trip_id BETWEEN 920000000000010201 AND 920000000000010206;

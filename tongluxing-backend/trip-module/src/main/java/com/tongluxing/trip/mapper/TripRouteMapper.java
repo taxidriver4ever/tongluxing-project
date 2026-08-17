@@ -17,7 +17,7 @@ import com.tongluxing.trip.entity.TripRoute;
 public interface TripRouteMapper {
 
     @Select("""
-            select id, trip_id, draft_id, route_plan_id, origin, destination, waypoints, polyline,
+            select id, trip_id, draft_id, route_plan_id, origin, destination, waypoints, polyline, match_polyline,
                    plan_distance, plan_duration, provider_type, route_status, route_signature,
                    created_at, updated_at, deleted
             from trip_route
@@ -27,7 +27,7 @@ public interface TripRouteMapper {
     TripRoute findByTripId(@Param("tripId") Long tripId);
 
     @Select("""
-            select id, trip_id, draft_id, route_plan_id, origin, destination, waypoints, polyline,
+            select id, trip_id, draft_id, route_plan_id, origin, destination, waypoints, polyline, match_polyline,
                    plan_distance, plan_duration, provider_type, route_status, route_signature,
                    created_at, updated_at, deleted
             from trip_route where draft_id = #{draftId} and deleted = 0 limit 1
@@ -52,26 +52,44 @@ public interface TripRouteMapper {
             """)
     TripRoute findMetaByDraftId(@Param("draftId") Long draftId);
 
-    /** 匹配精算阶段一次批量读取少量完整路线，避免候选池逐条 SELECT MEDIUMTEXT。 */
+    /** 匹配精算只读取 RDP 简化路线，正常链路不触碰完整 MEDIUMTEXT polyline。 */
     @Select("""
             <script>
-            select id, trip_id, draft_id, route_plan_id, origin, destination, waypoints, polyline,
-                   plan_distance, plan_duration, provider_type, route_status, route_signature,
-                   created_at, updated_at, deleted
+            select id, trip_id, match_polyline, updated_at
             from trip_route
             where deleted = 0 and trip_id in
             <foreach collection='tripIds' item='tripId' open='(' separator=',' close=')'>#{tripId}</foreach>
             </script>
             """)
-    List<TripRoute> findByTripIds(@Param("tripIds") List<Long> tripIds);
+    List<TripRoute> findMatchPolylinesByTripIds(@Param("tripIds") List<Long> tripIds);
+
+    /** 仅用于历史数据懒回填：match_polyline 为空的行程才读取一次完整 polyline。 */
+    @Select("""
+            <script>
+            select id, trip_id, polyline, updated_at
+            from trip_route
+            where deleted = 0
+              and (match_polyline is null or char_length(match_polyline) = 0)
+              and trip_id in
+            <foreach collection='tripIds' item='tripId' open='(' separator=',' close=')'>#{tripId}</foreach>
+            </script>
+            """)
+    List<TripRoute> findFullPolylinesForMatchBackfill(@Param("tripIds") List<Long> tripIds);
+
+    @Update("""
+            update trip_route
+            set match_polyline=#{matchPolyline}
+            where id=#{id} and deleted=0
+            """)
+    int updateMatchPolyline(TripRoute route);
 
     @Insert("""
             insert into trip_route
-                (id, trip_id, draft_id, route_plan_id, origin, destination, waypoints, polyline,
+                (id, trip_id, draft_id, route_plan_id, origin, destination, waypoints, polyline, match_polyline,
                  plan_distance, plan_duration, provider_type, route_status, route_signature,
                  created_at, updated_at, deleted)
             values
-                (#{id}, #{tripId}, #{draftId}, #{routePlanId}, #{origin}, #{destination}, #{waypoints}, #{polyline},
+                (#{id}, #{tripId}, #{draftId}, #{routePlanId}, #{origin}, #{destination}, #{waypoints}, #{polyline}, #{matchPolyline},
                  #{planDistance}, #{planDuration}, #{providerType}, #{routeStatus}, #{routeSignature},
                  #{createdAt}, #{updatedAt}, 0)
             """)
@@ -83,6 +101,7 @@ public interface TripRouteMapper {
                 destination = #{destination},
                 waypoints = #{waypoints},
                 polyline = #{polyline},
+                match_polyline = #{matchPolyline},
                 plan_distance = #{planDistance},
                 plan_duration = #{planDuration},
                 route_plan_id = #{routePlanId},
@@ -96,7 +115,7 @@ public interface TripRouteMapper {
 
     @Update("""
             update trip_route set route_plan_id=#{routePlanId}, origin=#{origin}, destination=#{destination},
-                waypoints=#{waypoints}, polyline=#{polyline}, plan_distance=#{planDistance}, plan_duration=#{planDuration},
+                waypoints=#{waypoints}, polyline=#{polyline}, match_polyline=#{matchPolyline}, plan_distance=#{planDistance}, plan_duration=#{planDuration},
                 provider_type=#{providerType}, route_status=#{routeStatus}, route_signature=#{routeSignature}, updated_at=#{updatedAt}
             where draft_id=#{draftId} and deleted=0
             """)

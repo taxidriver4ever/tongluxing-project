@@ -17,6 +17,8 @@ public class TripRoute {
     private String destination;
     private String waypoints;
     private String polyline;
+    /** RDP 简化后的匹配专用路线，推荐算法只读取该字段。 */
+    private String matchPolyline;
     private Integer planDistance;
     private Integer planDuration;
     private String providerType;

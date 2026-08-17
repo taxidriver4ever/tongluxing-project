@@ -9,8 +9,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -55,6 +55,7 @@ public class TencentImCallbackService {
     private final MessageRiskMapper riskMapper;
     private final UserFollowMapper userFollowMapper;
     private final StorageService storageService;
+    private final TencentImCallbackAsyncProcessor asyncProcessor;
 
     /** 校验腾讯 IM 回调 URL 中的 SDKAppID、时间戳和 SHA-256 签名。 */
     public void verify(Long sdkAppId, Long requestTime, String sign) {
@@ -76,44 +77,52 @@ public class TencentImCallbackService {
         }
     }
 
-    /**
-     * 按 CallbackCommand 分发回调并返回腾讯 IM 规定的响应结构。
-     *
-     * <p>发送前回调必须同步返回允许或拒绝；发送后及成员事件只做幂等同步并返回允许。</p>
-     */
-    @Transactional
-    public Map<String, Object> handle(String command, Map<String, Object> body) {
+    /** 只有需要实时决定 allow/reject 的发送前回调属于阻断型。 */
+    public boolean isBlockingCallback(String command) {
+        return "Group.CallbackBeforeSendMsg".equals(command)
+                || "C2C.CallbackBeforeSendMsg".equals(command);
+    }
+
+    /** 同步处理阻断型回调并返回腾讯 IM 规定的 allow/reject 结构。 */
+    public Map<String, Object> handleBlocking(String command, Map<String, Object> body) {
         if (!StringUtils.hasText(command)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "腾讯 IM 回调命令不能为空");
         }
         return switch (command) {
             case "Group.CallbackBeforeSendMsg" -> beforeGroupMessage(body);
             case "C2C.CallbackBeforeSendMsg" -> beforeC2CMessage(body);
+            default -> throw new BusinessException(ResultCode.BAD_REQUEST, "非阻断型回调不能同步处理");
+        };
+    }
+
+    /** 把通知型回调提交给独立异步 Bean，避免 Spring 同类调用导致 @Async 失效。 */
+    public void submitAsync(String command, Map<String, Object> body) {
+        if (!StringUtils.hasText(command)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "腾讯 IM 回调命令不能为空");
+        }
+        asyncProcessor.process(command, body == null ? Map.of() : new LinkedHashMap<>(body));
+    }
+
+    /** 由异步 Worker 在自己的事务中调用，执行原有 After/Event 业务。 */
+    void handleAsync(String command, Map<String, Object> body) {
+        switch (command) {
             case "Group.CallbackAfterSendMsg" -> {
                 saveGroupMessage(command, body);
-                yield allow();
             }
             case "C2C.CallbackAfterSendMsg" -> {
                 saveC2CMessage(command, body);
-                yield allow();
             }
             case "Group.CallbackAfterNewMemberJoin" -> {
                 syncMemberJoin(body);
-                yield allow();
             }
             case "Group.CallbackAfterMemberExit" -> {
                 syncMemberExit(body);
-                yield allow();
             }
             case "Group.CallbackAfterGroupDestroyed" -> {
                 syncGroupDestroyed(body);
-                yield allow();
             }
-            default -> {
-                log.debug("忽略暂未处理的腾讯 IM 回调：{}", command);
-                yield allow();
-            }
-        };
+            default -> log.debug("忽略暂未处理的腾讯 IM 通知型回调：{}", command);
+        }
     }
 
     /**
@@ -236,7 +245,7 @@ public class TencentImCallbackService {
         return allow();
     }
 
-    private Map<String, Object> allow() {
+    public Map<String, Object> allow() {
         return Map.of("ActionStatus", "OK", "ErrorCode", 0, "ErrorInfo", "");
     }
 
@@ -318,7 +327,13 @@ public class TencentImCallbackService {
         message.setSentAt(sentAt);
         message.setCreatedAt(LocalDateTime.now());
         message.setUpdatedAt(LocalDateTime.now());
-        messageMapper.insert(message);
+        try {
+            messageMapper.insert(message);
+        } catch (DuplicateKeyException exception) {
+            // 应用层查重用于快速过滤；数据库唯一键负责并发竞争的最终幂等兜底。
+            log.info("Duplicate Tencent IM callback ignored, providerKey={}", providerKey);
+            return;
+        }
         if (risk != null) persistRisk(message.getId(), risk);
         conversationMapper.updateLastMessage(conversation.getId(), message.getId(), preview, sentAt);
     }
@@ -440,7 +455,7 @@ public class TencentImCallbackService {
         return StringUtils.hasText(random) ? "tencent-" + random : null;
     }
 
-    private String providerMessageKey(String command, Map<String, Object> body) {
+    String providerMessageKey(String command, Map<String, Object> body) {
         String scope = StringUtils.hasText(string(body.get("GroupId")))
                 ? string(body.get("GroupId"))
                 : string(body.get("From_Account")) + "->" + string(body.get("To_Account"));

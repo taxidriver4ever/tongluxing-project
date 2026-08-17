@@ -21,6 +21,8 @@ public interface AdminTripTrackReviewMapper {
                    s.raw_distance_meters, s.filtered_distance_meters, s.approved_distance_meters,
                    s.total_point_count, s.valid_point_count, s.invalid_point_count,
                    s.location_gap_count, s.warning_count, s.hard_anomaly_count,
+                   s.track_quality, s.raw_point_count, s.uploaded_point_count,
+                   s.compressed_point_count, s.client_degraded_segment_count,
                    s.risk_score, s.risk_level, s.settlement_status, s.review_reason,
                    s.reviewer_id, s.reviewed_at, s.updated_at
             from trip_track_summary s
@@ -55,6 +57,8 @@ public interface AdminTripTrackReviewMapper {
                    s.raw_distance_meters, s.filtered_distance_meters, s.approved_distance_meters,
                    s.total_point_count, s.valid_point_count, s.invalid_point_count,
                    s.location_gap_count, s.warning_count, s.hard_anomaly_count,
+                   s.track_quality, s.raw_point_count, s.uploaded_point_count,
+                   s.compressed_point_count, s.client_degraded_segment_count,
                    s.risk_score, s.risk_level, s.settlement_status, s.review_reason,
                    s.reviewer_id, s.reviewed_at, s.updated_at
             from trip_track_summary s

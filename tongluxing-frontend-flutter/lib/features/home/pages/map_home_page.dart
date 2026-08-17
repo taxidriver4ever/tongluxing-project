@@ -164,7 +164,8 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
     }
     try {
       final supported =
-          await _permissionChannel.invokeMethod<bool>('isAmapSupported') ?? false;
+          await _permissionChannel.invokeMethod<bool>('isAmapSupported') ??
+          false;
       if (!mounted) return;
       setState(() {
         amapRuntimeSupported = supported;
@@ -235,10 +236,9 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
     if (_isCompleted(trip.status)) {
       try {
         final session = context.read<AppSession>();
-        final actualTrack = await TripService(session.api).trackPoints(
-          trip.id,
-          driverId: session.userId,
-        );
+        final actualTrack = await TripService(
+          session.api,
+        ).trackPoints(trip.id, driverId: session.userId);
         if (actualTrack.length >= 2) {
           if (mounted) setState(() => exactRoutePoints = actualTrack);
           return;
@@ -269,23 +269,23 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
     if (mounted) setState(() => loadingHotTrips = true);
     try {
       final location = LocationSnapshot.current;
-      final result = await TripDiscoveryService(
-        context.read<AppSession>().api,
-      ).recommend(
-        sortBy: 'match_rate',
-        userHasTrip: false,
-        latitude: location?.latitude,
-        longitude: location?.longitude,
-        pageSize: 3,
-      );
+      final result = await TripDiscoveryService(context.read<AppSession>().api)
+          .recommend(
+            sortBy: 'match_rate',
+            userHasTrip: false,
+            latitude: location?.latitude,
+            longitude: location?.longitude,
+            pageSize: 3,
+          );
       final rows = (result['list'] ?? result['records']) as List? ?? const [];
       if (!mounted) return;
       setState(() {
         hotTrips = rows
             .whereType<Map>()
-            .map((item) => TripRecommendModel.fromJson(
-                  Map<String, dynamic>.from(item),
-                ))
+            .map(
+              (item) =>
+                  TripRecommendModel.fromJson(Map<String, dynamic>.from(item)),
+            )
             .toList();
       });
     } catch (_) {
@@ -299,7 +299,8 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
     if (!MapHomePage.nativeAmap || !amapRuntimeSupported) return;
     try {
       final granted =
-          await _permissionChannel.invokeMethod<bool>('requestLocation') ?? false;
+          await _permissionChannel.invokeMethod<bool>('requestLocation') ??
+          false;
       if (!mounted || !granted) return;
       setState(() {
         locationEnabled = true;
@@ -348,9 +349,7 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
       _ => 13.0,
     };
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      mapController?.moveCamera(
-        CameraUpdate.newLatLngZoom(center, zoom),
-      );
+      mapController?.moveCamera(CameraUpdate.newLatLngZoom(center, zoom));
     });
   }
 
@@ -359,12 +358,13 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
     _stopTracking(clearRuntimeState: trackingTripId != trip.id);
     try {
       final granted =
-          await _permissionChannel.invokeMethod<bool>('requestLocation') ?? false;
+          await _permissionChannel.invokeMethod<bool>('requestLocation') ??
+          false;
       if (!granted || !mounted) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('请开启定位权限，否则无法记录本次行程轨迹')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('请开启定位权限，否则无法记录本次行程轨迹')));
         }
         return;
       }
@@ -381,9 +381,9 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
       );
     } on PlatformException {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('定位服务暂不可用，地图仍可查看完整路线')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('定位服务暂不可用，地图仍可查看完整路线')));
       }
     } on MissingPluginException {
       // 非 Android 原生环境只展示路线，不启动轨迹采集。
@@ -504,10 +504,12 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
       var pending = await trackQueue.pending(trip.id, userId);
       while (pending.isNotEmpty) {
         // 后端单批上限 200；断网很久后的历史轨迹按采集时间分批补传。
-        final chunk = pending.take(200).toList(growable: false);
+        final batch = await trackQueue.prepareBatch(trip.id, userId);
+        final chunk = batch.points;
+        if (chunk.isEmpty) break;
         Map<String, dynamic> response;
         try {
-          response = await service.uploadTrackBatchPayload(chunk);
+          response = await service.uploadTrackBatchPayload(batch.toJson());
         } on ApiException {
           if (showError && mounted) {
             final count = await trackQueue.count(trip.id, userId);
@@ -520,10 +522,22 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
           break;
         }
 
-        final confirmed = (response['confirmedSequenceNos'] as List? ?? const [])
+        final accepted = (response['acceptedSequenceNos'] as List? ?? const [])
             .whereType<num>()
-            .map((value) => value.toInt())
-            .toSet();
+            .map((value) => value.toInt());
+        final duplicates =
+            (response['duplicateSequenceNos'] as List? ?? const [])
+                .whereType<num>()
+                .map((value) => value.toInt());
+        final confirmed = <int>{...accepted, ...duplicates};
+        // 兼容升级期间的旧后端；新协议只清理 ACCEPTED + DUPLICATE。
+        if (confirmed.isEmpty) {
+          confirmed.addAll(
+            (response['confirmedSequenceNos'] as List? ?? const [])
+                .whereType<num>()
+                .map((value) => value.toInt()),
+          );
+        }
         if (confirmed.isEmpty) {
           // 没有得到服务端明确确认时绝不能清理本地队列。
           break;
@@ -554,13 +568,7 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
           );
         }
 
-        pending = pending
-            .where(
-              (point) => !confirmed.contains(
-                (point['sequenceNo'] as num?)?.toInt(),
-              ),
-            )
-            .toList(growable: false);
+        pending = await trackQueue.pending(trip.id, userId);
         if (confirmed.length < chunk.length) {
           // 部分确认时保留未确认数据，下一次重传，不继续越过它上传更晚的点。
           break;
@@ -649,7 +657,9 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
   Future<void> _openAmapNavigation() async {
     final trip = currentTrip;
     if (trip == null) return;
-    final route = exactRoutePoints.isNotEmpty ? exactRoutePoints : trip.routePoints;
+    final route = exactRoutePoints.isNotEmpty
+        ? exactRoutePoints
+        : trip.routePoints;
     final end = trip.endLocation ?? (route.isEmpty ? null : route.last);
     if (end == null) return;
     final current = lastLocation;
@@ -678,8 +688,7 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
       'dev': '0',
       't': '0',
       'm': '4',
-      if (remainingWaypoints.isNotEmpty)
-        'vian': '${remainingWaypoints.length}',
+      if (remainingWaypoints.isNotEmpty) 'vian': '${remainingWaypoints.length}',
       if (remainingWaypoints.isNotEmpty)
         'vialons': remainingWaypoints.map((point) => point.longitude).join('|'),
       if (remainingWaypoints.isNotEmpty)
@@ -701,7 +710,8 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
         'from': '${start.longitude},${start.latitude},${start.name}',
         'to': '${end.longitude},${end.latitude},${end.name}',
         if (remainingWaypoints.isNotEmpty)
-          'via': '${remainingWaypoints.first.longitude},${remainingWaypoints.first.latitude},${remainingWaypoints.first.name}',
+          'via':
+              '${remainingWaypoints.first.longitude},${remainingWaypoints.first.latitude},${remainingWaypoints.first.name}',
         'mode': 'car',
         'policy': '1',
         'src': 'tongluxing',
@@ -717,9 +727,9 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
       // 下方统一提示。
     }
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('无法打开高德地图，请确认已经安装高德地图')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('无法打开高德地图，请确认已经安装高德地图')));
     }
   }
 
@@ -804,9 +814,9 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
           const Duration(seconds: 10),
           (_) => unawaited(_uploadCurrentPoint()),
         );
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(caught.toString())),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(caught.toString())));
       }
     }
   }
@@ -868,9 +878,9 @@ class MapHomePageState extends State<MapHomePage> with WidgetsBindingObserver {
   Future<void> _openSos() async {
     final location = lastLocation;
     if (location == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('正在获取当前位置，请稍后再试')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('正在获取当前位置，请稍后再试')));
       unawaited(_locateSilently());
       return;
     }
@@ -1039,9 +1049,7 @@ class _MapTopOverlay extends StatelessWidget {
                         borderRadius: BorderRadius.all(Radius.circular(8)),
                       ),
                       child: Text(
-                        unreadMessageCount > 99
-                            ? '99+'
-                            : '$unreadMessageCount',
+                        unreadMessageCount > 99 ? '99+' : '$unreadMessageCount',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 8,
@@ -1105,65 +1113,67 @@ class _NearbyTeamsOverlay extends StatelessWidget {
             const LinearProgressIndicator(minHeight: 2),
           ] else if (trips.isNotEmpty) ...[
             const SizedBox(height: 9),
-            ...trips.take(2).map(
-              (trip) => InkWell(
-                onTap: () => onOpen(trip),
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 28,
-                        height: 28,
-                        decoration: const BoxDecoration(
-                          color: AppColors.primarySoft,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          LucideIcons.carFront,
-                          size: 14,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+            ...trips
+                .take(2)
+                .map(
+                  (trip) => InkWell(
+                    onTap: () => onOpen(trip),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 28,
+                            height: 28,
+                            decoration: const BoxDecoration(
+                              color: AppColors.primarySoft,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              LucideIcons.carFront,
+                              size: 14,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  trip.tripName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                Text(
+                                  '${trip.currentVehicleCount}/${trip.vehicleLimit}车 · ${_distanceLabel(trip.distanceMeters)}',
+                                  style: const TextStyle(
+                                    color: AppColors.muted,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (trip.heat != null)
                             Text(
-                              trip.tripName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                              '热度 ${trip.heat}',
                               style: const TextStyle(
-                                fontSize: 12,
+                                color: AppColors.warning,
+                                fontSize: 10,
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
-                            Text(
-                              '${trip.currentVehicleCount}/${trip.vehicleLimit}车 · ${_distanceLabel(trip.distanceMeters)}',
-                              style: const TextStyle(
-                                color: AppColors.muted,
-                                fontSize: 10,
-                              ),
-                            ),
-                          ],
-                        ),
+                        ],
                       ),
-                      if (trip.heat != null)
-                        Text(
-                          '热度 ${trip.heat}',
-                          style: const TextStyle(
-                            color: AppColors.warning,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ),
           ] else if (error != null) ...[
             const SizedBox(height: 8),
             const Text(
@@ -1211,7 +1221,10 @@ class _TripStatusOverlay extends StatelessWidget {
                   ended ? '行程已完成' : '${trip?.title ?? '当前行程'} · 行进中',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ],
             ),
@@ -1340,7 +1353,11 @@ class _NormalPanel extends StatelessWidget {
           CircleAvatar(
             radius: 20,
             backgroundColor: AppColors.primarySoft,
-            child: Icon(LucideIcons.mapPinned, color: AppColors.primary, size: 20),
+            child: Icon(
+              LucideIcons.mapPinned,
+              color: AppColors.primary,
+              size: 20,
+            ),
           ),
           SizedBox(width: 11),
           Expanded(
@@ -1451,7 +1468,10 @@ class _TrackingPanel extends StatelessWidget {
                     trip?.title ?? '当前行程',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -1478,13 +1498,17 @@ class _TrackingPanel extends StatelessWidget {
                   Icon(
                     sharingLocation ? LucideIcons.radio : LucideIcons.wifiOff,
                     size: 13,
-                    color: sharingLocation ? AppColors.success : AppColors.muted,
+                    color: sharingLocation
+                        ? AppColors.success
+                        : AppColors.muted,
                   ),
                   const SizedBox(width: 5),
                   Text(
                     sharingLocation ? '位置共享中' : '位置共享已关闭',
                     style: TextStyle(
-                      color: sharingLocation ? AppColors.success : AppColors.muted,
+                      color: sharingLocation
+                          ? AppColors.success
+                          : AppColors.muted,
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                     ),
@@ -1711,14 +1735,20 @@ class _PanelAction extends StatelessWidget {
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.muted, fontSize: 9.5),
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 9.5,
+                    ),
                   ),
                 ],
               ),
@@ -1868,7 +1898,9 @@ class _MapSurface extends StatelessWidget {
         markers.add(
           Marker(
             position: LatLng(waypoint.latitude, waypoint.longitude),
-            infoWindow: InfoWindow(title: waypoint.name.isEmpty ? '途经点' : waypoint.name),
+            infoWindow: InfoWindow(
+              title: waypoint.name.isEmpty ? '途经点' : waypoint.name,
+            ),
           ),
         );
       }
@@ -1919,10 +1951,7 @@ class _MapSurface extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         CustomPaint(
-          painter: _RoadPainter(
-            route: route,
-            ended: mode == _MapMode.ended,
-          ),
+          painter: _RoadPainter(route: route, ended: mode == _MapMode.ended),
           child: const ColoredBox(color: Color(0xFFF2F6FC)),
         ),
         const Positioned(left: 36, top: 150, child: _MapLabel('天河')),
@@ -2024,7 +2053,8 @@ class _RoadPainter extends CustomPainter {
               math.max(1, size.height - padding * 2),
     );
 
-    final path = Path()..moveTo(project(route.first).dx, project(route.first).dy);
+    final path = Path()
+      ..moveTo(project(route.first).dx, project(route.first).dy);
     for (final point in route.skip(1)) {
       final offset = project(point);
       path.lineTo(offset.dx, offset.dy);
@@ -2038,7 +2068,11 @@ class _RoadPainter extends CustomPainter {
         ..strokeJoin = StrokeJoin.round
         ..strokeCap = StrokeCap.round,
     );
-    canvas.drawCircle(project(route.first), 9, Paint()..color = AppColors.success);
+    canvas.drawCircle(
+      project(route.first),
+      9,
+      Paint()..color = AppColors.success,
+    );
     canvas.drawCircle(
       project(route.last),
       9,

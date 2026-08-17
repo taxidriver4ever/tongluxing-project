@@ -400,14 +400,10 @@ class TripService {
   }
 
   Future<Map<String, dynamic>> uploadTrackBatchPayload(
-    List<Map<String, dynamic>> points,
+    Map<String, dynamic> batch,
   ) async {
     return Map<String, dynamic>.from(
-      await api.post(
-            '/v1/driver-tracks/points/batch',
-            body: {'points': points},
-          )
-          as Map,
+      await api.post('/v1/driver-tracks/points/batch', body: batch) as Map,
     );
   }
 
@@ -1291,11 +1287,7 @@ class ChatService {
 
   Future<Map<String, dynamic>> renameGroup(String id, String name) async =>
       Map<String, dynamic>.from(
-        await api.patch(
-              '/v1/chats/groups/$id',
-              body: {'name': name},
-            )
-            as Map,
+        await api.patch('/v1/chats/groups/$id', body: {'name': name}) as Map,
       );
 
   Future<void> closeGroup(String id) =>
@@ -1304,7 +1296,6 @@ class ChatService {
   Future<void> exitGroup(String id) =>
       api.delete('/v1/chats/groups/$id/members/me');
 }
-
 
 /// P0 车队管理接口封装。页面只处理展示状态，所有成员权限仍由后端校验。
 class TeamP0Service {
@@ -1429,8 +1420,7 @@ class ChatAttachmentService {
 
   Future<String> downloadUrl(Object fileId) async {
     final data = Map<String, dynamic>.from(
-      await api.get('/v1/chats/media/${fileId.toString()}/access-url')
-          as Map,
+      await api.get('/v1/chats/media/${fileId.toString()}/access-url') as Map,
     );
     return data['downloadUrl'].toString();
   }

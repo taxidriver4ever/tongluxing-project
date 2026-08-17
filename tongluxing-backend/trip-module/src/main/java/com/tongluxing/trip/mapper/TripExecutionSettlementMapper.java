@@ -302,6 +302,8 @@ public interface TripExecutionSettlementMapper {
             select trip_id, primary_user_id, raw_distance_meters, filtered_distance_meters,
                    approved_distance_meters, total_point_count, valid_point_count, invalid_point_count,
                    location_gap_count, warning_count, hard_anomaly_count, risk_score, risk_level,
+                   track_quality, raw_point_count, uploaded_point_count, compressed_point_count,
+                   client_degraded_segment_count,
                    settlement_status, review_reason, reviewer_id, reviewed_at
             from trip_track_summary
             where trip_id=#{tripId} and deleted=0

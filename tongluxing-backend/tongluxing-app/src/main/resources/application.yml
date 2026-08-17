@@ -87,6 +87,13 @@ observability:
   http:
     slow-request-threshold-ms: ${HTTP_SLOW_REQUEST_THRESHOLD_MS:2000}
 
+# 匹配只使用临时简化路线；trip_route.polyline 始终保存地图服务返回的完整路线。
+recommendation:
+  route:
+    # 单位：米。50 仅为初始基线，应根据真实路线 A/B 结果继续调优。
+    rdp-epsilon: ${RECOMMENDATION_ROUTE_RDP_EPSILON:50}
+    max-points: ${RECOMMENDATION_ROUTE_MAX_POINTS:60}
+
 # MVP 轨迹风控阈值：后台首轮内测只读，统一配置，禁止业务代码散落硬编码。
 trajectory:
   moving-sample-seconds: ${TRAJECTORY_MOVING_SAMPLE_SECONDS:10}

@@ -93,6 +93,8 @@ public class TripSettlementServiceImpl implements TripSettlementService {
         String riskLevel;
         int riskScore;
         int locationGapCount;
+        String trackQuality;
+        int hardAnomalyCount;
         if (trackSummary != null) {
             Integer approvedDistance = trackSummary.getApprovedDistanceMeters();
             Integer filteredDistance = trackSummary.getFilteredDistanceMeters();
@@ -103,6 +105,8 @@ public class TripSettlementServiceImpl implements TripSettlementService {
             riskLevel = trackSummary.getRiskLevel() == null ? "LOW" : trackSummary.getRiskLevel();
             riskScore = java.util.Optional.ofNullable(trackSummary.getRiskScore()).orElse(0);
             locationGapCount = java.util.Optional.ofNullable(trackSummary.getLocationGapCount()).orElse(0);
+            trackQuality = java.util.Optional.ofNullable(trackSummary.getTrackQuality()).orElse("NORMAL");
+            hardAnomalyCount = java.util.Optional.ofNullable(trackSummary.getHardAnomalyCount()).orElse(0);
         } else {
             // 兼容升级前已经存在轨迹、但还没有 trip_track_summary 的历史数据。
             actualDistance = executionSettlementMapper.actualDistance(tripId, captainUserId);
@@ -112,6 +116,8 @@ public class TripSettlementServiceImpl implements TripSettlementService {
             riskScore = java.util.Optional.ofNullable(executionSettlementMapper.riskScore(tripId)).orElse(0);
             locationGapCount = java.util.Optional.ofNullable(
                     executionSettlementMapper.locationGapCount(tripId)).orElse(0);
+            trackQuality = "NORMAL";
+            hardAnomalyCount = 0;
         }
         int coverageRate = totalTrackPoints == 0 ? 0
                 : (int) Math.round(validTrackPoints * 100.0d / totalTrackPoints);
@@ -130,7 +136,9 @@ public class TripSettlementServiceImpl implements TripSettlementService {
         boolean automaticSettlement = totalTrackPoints > 0
                 && destinationArrived
                 && locationGapCount == 0
-                && "LOW".equalsIgnoreCase(riskLevel);
+                && "LOW".equalsIgnoreCase(riskLevel)
+                && hardAnomalyCount == 0
+                && java.util.Set.of("NORMAL", "DEGRADED_L1").contains(trackQuality);
         int pointsPerMember = automaticSettlement
                 ? TripGrowthCalculator.points(actualDistance)
                 : 0;
@@ -140,6 +148,10 @@ public class TripSettlementServiceImpl implements TripSettlementService {
                 ? "队长没有进入终点1公里范围，需要人工审核"
                 : locationGapCount > 0
                 ? "队长轨迹存在中断，需要管理员酌情审核认可里程"
+                : java.util.Set.of("DEGRADED_L2", "DEGRADED_L3").contains(trackQuality)
+                ? "客户端弱网轨迹达到" + trackQuality + "，需要人工审核"
+                : hardAnomalyCount > 0
+                ? "队长轨迹存在严重异常，需要人工审核"
                 : !"LOW".equalsIgnoreCase(riskLevel)
                 ? "队长轨迹存在瞬移、模拟定位或极端速度等异常，需要人工审核"
                 : "队长轨迹需要人工审核";

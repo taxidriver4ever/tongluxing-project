@@ -21,6 +21,7 @@ import com.tongluxing.common.result.ResultCode;
 import com.tongluxing.common.utils.SnowflakeIdGenerator;
 import com.tongluxing.drivertrack.config.TrajectoryProperties;
 import com.tongluxing.drivertrack.dto.DriverTrackBatchRequest;
+import com.tongluxing.drivertrack.dto.DriverTrackCompressedSegmentRequest;
 import com.tongluxing.drivertrack.dto.DriverTrackPointRequest;
 import com.tongluxing.drivertrack.dto.MockDeviationRequest;
 import com.tongluxing.drivertrack.entity.DriverDeviationRecord;
@@ -90,6 +91,12 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     @Override
     @Transactional
     public DriverTrackUploadResponse uploadPoint(DriverTrackPointRequest request) {
+        return uploadPoint(request, null);
+    }
+
+    private DriverTrackUploadResponse uploadPoint(
+            DriverTrackPointRequest request,
+            DriverTrackCompressedSegmentRequest compressedSegment) {
         Long driverId = currentUserContext.requireUserId();
         Trip trip = requireOngoingParticipantTrip(request.tripId(), driverId);
         Long captainUserId = captainUserId(trip);
@@ -98,7 +105,7 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         }
         DriverTrackRecord previousRaw = trackMapper.findLast(request.tripId(), driverId);
         DriverTrackRecord previousValid = trackMapper.findLastValid(request.tripId(), driverId);
-        FilterResult filter = filterPoint(previousRaw, previousValid, request);
+        FilterResult filter = filterPoint(previousRaw, previousValid, request, compressedSegment);
 
         LocalDateTime now = LocalDateTime.now();
         DriverTrackRecord record = new DriverTrackRecord();
@@ -306,29 +313,58 @@ public class DriverTrackServiceImpl implements DriverTrackService {
                 .sorted(Comparator.comparing(DriverTrackPointRequest::recordTime)
                         .thenComparing(DriverTrackPointRequest::sequenceNo))
                 .toList();
-        java.util.ArrayList<Long> confirmed = new java.util.ArrayList<>(ordered.size());
-        DriverTrackUploadResponse lastResponse = null;
+        java.util.Map<Long, DriverTrackCompressedSegmentRequest> segmentsByEnd =
+                request.compressedSegments() == null ? java.util.Map.of()
+                : request.compressedSegments().stream().collect(java.util.stream.Collectors.toMap(
+                DriverTrackCompressedSegmentRequest::toSequenceNo,
+                java.util.function.Function.identity(),
+                (left, right) -> left));
+        if (segmentsByEnd.values().stream().anyMatch(segment ->
+                segment.fromSequenceNo() >= segment.toSequenceNo()
+                        || ordered.stream().noneMatch(point ->
+                        point.sequenceNo().equals(segment.toSequenceNo())))) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "压缩段sequence范围无效");
+        }
+        java.util.ArrayList<Long> accepted = new java.util.ArrayList<>(ordered.size());
+        java.util.ArrayList<Long> duplicates = new java.util.ArrayList<>();
+        java.util.ArrayList<Long> rejected = new java.util.ArrayList<>();
         for (DriverTrackPointRequest point : ordered) {
             try {
-                lastResponse = uploadPoint(point);
-                confirmed.add(point.sequenceNo());
+                DriverTrackUploadResponse pointResponse =
+                        uploadPoint(point, segmentsByEnd.get(point.sequenceNo()));
+                if (Boolean.TRUE.equals(pointResponse.accepted())) {
+                    accepted.add(point.sequenceNo());
+                } else {
+                    rejected.add(point.sequenceNo());
+                }
             } catch (BusinessException exception) {
                 if (Integer.valueOf(409).equals(exception.getCode())) {
-                    // 补传时服务端已存在同 sequenceNo，视为“已确认”，客户端可以清除缓存。
-                    confirmed.add(point.sequenceNo());
+                    duplicates.add(point.sequenceNo());
                     continue;
                 }
                 throw exception;
             }
         }
 
-        if (lastResponse != null) {
-            return new DriverTrackBatchUploadResponse(
-                    List.copyOf(confirmed),
-                    lastResponse.totalDistance(),
-                    lastResponse.riskLevel(),
-                    lastResponse.settlementReviewRequired());
+        if (!accepted.isEmpty()) {
+            int rawAccepted = accepted.size();
+            int degradedSegments = 0;
+            for (Long sequenceNo : accepted) {
+                DriverTrackCompressedSegmentRequest segment = segmentsByEnd.get(sequenceNo);
+                if (segment != null) {
+                    rawAccepted += Math.max(0, segment.originalPointCount() - 2);
+                    degradedSegments++;
+                }
+            }
+            riskMapper.recordClientCompression(
+                    tripId, request.compression() == null ? "NORMAL"
+                            : normalizeTrackQuality(request.compression().quality()),
+                    rawAccepted, accepted.size(), Math.max(0, rawAccepted - accepted.size()),
+                    degradedSegments, LocalDateTime.now());
         }
+        java.util.ArrayList<Long> confirmed = new java.util.ArrayList<>(accepted);
+        confirmed.addAll(duplicates);
+
         Trip trip = requireReadableTrip(tripId);
         Long captainUserId = captainUserId(trip);
         java.util.Map<String, Object> summary = riskMapper.findSummary(tripId);
@@ -336,8 +372,13 @@ public class DriverTrackServiceImpl implements DriverTrackService {
                 ? distance.intValue() : trackMapper.sumDistance(tripId, captainUserId);
         String riskLevel = summary == null || summary.get("riskLevel") == null
                 ? "LOW" : String.valueOf(summary.get("riskLevel"));
+        boolean reviewRequired = summary != null
+                && ("MANUAL_REVIEW".equalsIgnoreCase(
+                String.valueOf(summary.get("settlementStatus")))
+                || !"LOW".equalsIgnoreCase(riskLevel));
         return new DriverTrackBatchUploadResponse(
-                List.copyOf(confirmed), totalDistance, riskLevel, !"LOW".equalsIgnoreCase(riskLevel));
+                List.copyOf(accepted), List.copyOf(duplicates), List.copyOf(rejected),
+                List.copyOf(confirmed), totalDistance, riskLevel, reviewRequired);
     }
 
     @Override
@@ -431,7 +472,8 @@ public class DriverTrackServiceImpl implements DriverTrackService {
     private FilterResult filterPoint(
             DriverTrackRecord previousRaw,
             DriverTrackRecord previousValid,
-            DriverTrackPointRequest request) {
+            DriverTrackPointRequest request,
+            DriverTrackCompressedSegmentRequest compressedSegment) {
         LocalDateTime validationNow = LocalDateTime.now();
         if (request.recordTime().isAfter(
                 validationNow.plusSeconds(trajectoryProperties.getMaxFutureLocationSeconds()))
@@ -476,7 +518,9 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         int rawDistance = haversineMeters(
                 previousValid.getLatitude(), previousValid.getLongitude(),
                 request.latitude(), request.longitude());
-        if (deltaSeconds > trajectoryProperties.getGapSegmentMaxSeconds()) {
+        boolean clientDegraded = isClientDegradedSegment(
+                previousValid, request, compressedSegment);
+        if (deltaSeconds > trajectoryProperties.getGapSegmentMaxSeconds() && !clientDegraded) {
             int risk = 1 + (Boolean.TRUE.equals(request.mockLocation()) ? 5 : 0);
             return new FilterResult(0, rawDistance, "LOCATION_GAP", true, risk,
                     joinFlags("LOCATION_GAP", Boolean.TRUE.equals(request.mockLocation()) ? "MOCK_LOCATION" : null),
@@ -511,7 +555,7 @@ public class DriverTrackServiceImpl implements DriverTrackService {
             flags.add("LOW_CONFIDENCE");
             status = "LOW_CONFIDENCE";
         }
-        if (deltaSeconds > trajectoryProperties.getNormalSegmentMaxSeconds()) {
+        if (deltaSeconds > trajectoryProperties.getNormalSegmentMaxSeconds() && !clientDegraded) {
             boolean bearingConflict = previousValid.getDirection() != null
                     && request.direction() != null
                     && TrajectoryRuleEngine.angularDifferenceDegrees(
@@ -527,6 +571,11 @@ public class DriverTrackServiceImpl implements DriverTrackService {
             }
             flags.add("LONG_INTERVAL");
             status = "LOW_CONFIDENCE";
+        }
+        if (clientDegraded) {
+            flags.add("CLIENT_DEGRADED_SEGMENT");
+            flags.add(compressedSegment.quality());
+            status = "CLIENT_DEGRADED_SEGMENT";
         }
 
 
@@ -668,6 +717,26 @@ public class DriverTrackServiceImpl implements DriverTrackService {
         if (filter.fatal()) return "FATAL_IMPOSSIBLE_SPEED";
         if (StringUtils.hasText(filter.riskFlags())) return filter.riskFlags().split(",")[0];
         return filter.status();
+    }
+
+    private boolean isClientDegradedSegment(
+            DriverTrackRecord previousValid,
+            DriverTrackPointRequest current,
+            DriverTrackCompressedSegmentRequest segment) {
+        if (segment == null || previousValid == null
+                || previousValid.getSequenceNo() == null || current.sequenceNo() == null) {
+            return false;
+        }
+        return segment.toSequenceNo().equals(current.sequenceNo())
+                && segment.fromSequenceNo() <= previousValid.getSequenceNo()
+                && previousValid.getSequenceNo() < segment.toSequenceNo();
+    }
+
+    private String normalizeTrackQuality(String quality) {
+        if (quality == null) return "DEGRADED_L1";
+        String normalized = quality.trim().toUpperCase(java.util.Locale.ROOT);
+        return java.util.Set.of("DEGRADED_L1", "DEGRADED_L2", "DEGRADED_L3")
+                .contains(normalized) ? normalized : "DEGRADED_L1";
     }
 
     private String joinFlags(String... values) {

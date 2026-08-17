@@ -38,6 +38,7 @@ import com.tongluxing.trip.dto.LocationRequest;
 import com.tongluxing.trip.dto.UpdateTripRequest;
 import com.tongluxing.trip.dto.TripTimeConflictRequest;
 import com.tongluxing.trip.dto.WaypointLocationRequest;
+import com.tongluxing.trip.config.RecommendationRouteProperties;
 import com.tongluxing.trip.entity.Trip;
 import com.tongluxing.trip.entity.TripRoute;
 import com.tongluxing.trip.entity.TripMemberSnapshot;
@@ -124,6 +125,7 @@ public class TripServiceImpl implements TripService {
     private final TripUserProfilePort userProfilePort;
     private final MapService mapService;
     private final ApplicationEventPublisher eventPublisher;
+    private final RecommendationRouteProperties recommendationRouteProperties;
 
     /**
      * 创建行程：校验发布频率、路线参数、车辆认证后写入行程和车主成员快照。
@@ -830,6 +832,8 @@ public class TripServiceImpl implements TripService {
         route.setDestination(toJson(endLocation));
         route.setWaypoints(toJson(sortWaypoints(waypoints)));
         route.setPolyline(plan.routePolyline());
+        route.setMatchPolyline(RoutePolylineUtils.simplifyForMatching(objectMapper, plan.routePolyline(),
+                recommendationRouteProperties.getRdpEpsilon(), recommendationRouteProperties.getMaxPoints()));
         route.setPlanDistance(plan.routeDistance());
         route.setPlanDuration(plan.routeDuration());
         route.setProviderType(plan.providerType());
@@ -880,6 +884,8 @@ public class TripServiceImpl implements TripService {
         route.setDestination(toJson(endLocation));
         route.setWaypoints(toJson(sortWaypoints(waypoints)));
         route.setPolyline(polyline);
+        route.setMatchPolyline(RoutePolylineUtils.simplifyForMatching(objectMapper, polyline,
+                recommendationRouteProperties.getRdpEpsilon(), recommendationRouteProperties.getMaxPoints()));
         route.setPlanDistance(distance);
         route.setPlanDuration(duration);
         route.setProviderType("AMAP_WEB_V5");

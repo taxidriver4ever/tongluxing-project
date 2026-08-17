@@ -9,6 +9,9 @@ import java.util.List;
  * 可靠队列删除这些 sequenceNo；失败且未确认的点必须继续保留等待下次补传。</p>
  */
 public record DriverTrackBatchUploadResponse(
+        List<Long> acceptedSequenceNos,
+        List<Long> duplicateSequenceNos,
+        List<Long> rejectedSequenceNos,
         List<Long> confirmedSequenceNos,
         Integer totalDistance,
         String riskLevel,

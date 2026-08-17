@@ -17,10 +17,13 @@ public interface TripTrackRiskMapper {
             insert ignore into trip_track_summary(
               id, trip_id, primary_user_id, raw_distance_meters, filtered_distance_meters,
               approved_distance_meters, total_point_count, valid_point_count, invalid_point_count,
-              location_gap_count, warning_count, hard_anomaly_count, risk_score, risk_level,
+              location_gap_count, warning_count, hard_anomaly_count,
+              track_quality, raw_point_count, uploaded_point_count, compressed_point_count,
+              client_degraded_segment_count, risk_score, risk_level,
               settlement_status, review_reason, created_at, updated_at, deleted
             ) values (
-              #{id}, #{tripId}, #{primaryUserId}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'LOW',
+              #{id}, #{tripId}, #{primaryUserId}, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+              'NORMAL', 0, 0, 0, 0, 0, 'LOW',
               'PENDING', null, #{now}, #{now}, 0
             )
             """)
@@ -73,6 +76,33 @@ public interface TripTrackRiskMapper {
                          @Param("mediumRiskScore") int mediumRiskScore,
                          @Param("highRiskScore") int highRiskScore,
                          @Param("now") LocalDateTime now);
+
+    @Update("""
+            update trip_track_summary
+            set track_quality = case
+                    when #{quality}='DEGRADED_L3' then 'DEGRADED_L3'
+                    when #{quality}='DEGRADED_L2' and track_quality not in ('DEGRADED_L3') then 'DEGRADED_L2'
+                    when #{quality}='DEGRADED_L1' and track_quality='NORMAL' then 'DEGRADED_L1'
+                    else track_quality end,
+                raw_point_count = raw_point_count + #{rawCount},
+                uploaded_point_count = uploaded_point_count + #{uploadedCount},
+                compressed_point_count = compressed_point_count + #{compressedCount},
+                client_degraded_segment_count = client_degraded_segment_count + #{segmentCount},
+                settlement_status = case when #{quality} in ('DEGRADED_L2','DEGRADED_L3')
+                    then 'MANUAL_REVIEW' else settlement_status end,
+                review_reason = case when #{quality} in ('DEGRADED_L2','DEGRADED_L3')
+                    then concat('客户端弱网轨迹达到', #{quality}, '，需要人工审核')
+                    else review_reason end,
+                updated_at=#{now}
+            where trip_id=#{tripId} and deleted=0
+            """)
+    int recordClientCompression(@Param("tripId") Long tripId,
+                                @Param("quality") String quality,
+                                @Param("rawCount") int rawCount,
+                                @Param("uploadedCount") int uploadedCount,
+                                @Param("compressedCount") int compressedCount,
+                                @Param("segmentCount") int segmentCount,
+                                @Param("now") LocalDateTime now);
 
     @Insert("""
             insert into trip_track_anomaly(
@@ -134,7 +164,11 @@ public interface TripTrackRiskMapper {
                    approved_distance_meters approvedDistanceMeters,
                    total_point_count totalPointCount, valid_point_count validPointCount,
                    invalid_point_count invalidPointCount, location_gap_count locationGapCount,
-                   warning_count warningCount, hard_anomaly_count hardAnomalyCount
+                   warning_count warningCount, hard_anomaly_count hardAnomalyCount,
+                   track_quality trackQuality, raw_point_count rawPointCount,
+                   uploaded_point_count uploadedPointCount,
+                   compressed_point_count compressedPointCount,
+                   client_degraded_segment_count clientDegradedSegmentCount
             from trip_track_summary where trip_id=#{tripId} and deleted=0 limit 1
             """)
     Map<String, Object> findSummary(Long tripId);

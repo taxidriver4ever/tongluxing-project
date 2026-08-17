@@ -28,6 +28,7 @@ import com.tongluxing.trip.dto.TripDraftSaveRequest;
 import com.tongluxing.trip.dto.TripWaypointCommand;
 import com.tongluxing.trip.dto.TripWaypointOrderRequest;
 import com.tongluxing.trip.dto.WaypointLocationRequest;
+import com.tongluxing.trip.config.RecommendationRouteProperties;
 import com.tongluxing.trip.entity.TripCreationDraft;
 import com.tongluxing.trip.entity.TripRoute;
 import com.tongluxing.trip.entity.TripWaypoint;
@@ -68,6 +69,7 @@ public class TripCreationServiceImpl implements TripCreationService {
     private final MapService mapService;
     private final TripVehiclePort vehiclePort;
     private final TripService tripService;
+    private final RecommendationRouteProperties recommendationRouteProperties;
 
     @Override
     @Transactional
@@ -226,6 +228,8 @@ public class TripCreationServiceImpl implements TripCreationService {
         route.setDestination(json(end));
         route.setWaypoints(json(waypoints.stream().map(this::waypointLocation).toList()));
         route.setPolyline(plan.routePolyline());
+        route.setMatchPolyline(RoutePolylineUtils.simplifyForMatching(objectMapper, plan.routePolyline(),
+                recommendationRouteProperties.getRdpEpsilon(), recommendationRouteProperties.getMaxPoints()));
         route.setPlanDistance(plan.routeDistance());
         route.setPlanDuration(plan.routeDuration());
         route.setProviderType(plan.providerType());

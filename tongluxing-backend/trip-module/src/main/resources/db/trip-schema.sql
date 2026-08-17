@@ -69,6 +69,7 @@ create table if not exists trip_route (
     destination json not null comment '路线终点信息',
     waypoints json null comment '途经点',
     polyline mediumtext null comment '路线折线编码数据',
+    match_polyline text null comment 'RDP简化后的匹配专用路线，默认最多60个关键点',
     plan_distance int null comment '规划距离',
     plan_duration int null comment '规划时长',
     provider_type varchar(32) not null comment '外部服务提供方类型',

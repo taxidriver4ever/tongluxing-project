@@ -13,6 +13,8 @@ public record DriverTrackBatchRequest(
         @Valid
         @NotEmpty
         @Size(max = 200)
-        List<DriverTrackPointRequest> points
+        List<DriverTrackPointRequest> points,
+        @Valid DriverTrackCompressionRequest compression,
+        @Valid @Size(max = 200) List<DriverTrackCompressedSegmentRequest> compressedSegments
 ) {
 }

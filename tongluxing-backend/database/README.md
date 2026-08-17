@@ -7,6 +7,7 @@
 - `03_mock_recommended_trips.sql`：为推荐行程页创建 6 条带途经点的公开招募行程，并为 13888888888 的最新活跃行程生成推荐结果。
 - `07_mock_50_password_login_users.sql`：创建 50 个可直接密码登录的回归测试用户（13910000001~13910000050，统一密码 12345678），并补齐角色、资料、隐私、统计与成长账户。
 - `19_performance_indexes.sql`：已有数据库不重建时单独补充轨迹、结算和成员查询联合索引；可重复执行。
+- `23_track_queue_degradation.sql`：已有数据库增加弱网轨迹质量与压缩点数统计字段。
 
 ## 执行顺序
 
@@ -27,7 +28,7 @@ SELECT DATABASE();
 ```
 
 5. 如需要 50 个额外回归账号，再执行 `07_mock_50_password_login_users.sql`。
-6. 如果是已有数据库且不执行 01 重建脚本，执行一次 `19_performance_indexes.sql`。
+6. 如果是已有数据库且不执行 01 重建脚本，依次执行 `19_performance_indexes.sql` 和 `23_track_queue_degradation.sql`。
 7. 覆盖补丁中的后端文件并重新启动 Spring Boot。
 
 > `01_reset_and_create_all_tables.sql` 会永久删除当前数据库中的全部同路行业务数据，不得在生产库执行。

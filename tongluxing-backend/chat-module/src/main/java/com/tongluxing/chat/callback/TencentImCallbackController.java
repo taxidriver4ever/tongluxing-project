@@ -32,7 +32,11 @@ public class TencentImCallbackController {
             @RequestBody Map<String, Object> body) {
         // 先完成来源鉴权，再进行任何数据库写入。
         callbackService.verify(sdkAppId, requestTime, sign);
-        // 发送前回调会返回允许/拒绝；发送后和成员事件会按 providerMessageKey 幂等处理。
-        return callbackService.handle(callbackCommand, body);
+        if (callbackService.isBlockingCallback(callbackCommand)) {
+            return callbackService.handleBlocking(callbackCommand, body);
+        }
+        // After/Event 回调不影响腾讯 IM 当前操作，提交独立线程池后立即 ACK。
+        callbackService.submitAsync(callbackCommand, body);
+        return callbackService.allow();
     }
 }

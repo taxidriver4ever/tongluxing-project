@@ -18,6 +18,11 @@ public class TripTrackReviewSnapshot {
     private Integer locationGapCount;
     private Integer warningCount;
     private Integer hardAnomalyCount;
+    private String trackQuality;
+    private Integer rawPointCount;
+    private Integer uploadedPointCount;
+    private Integer compressedPointCount;
+    private Integer clientDegradedSegmentCount;
     private Integer riskScore;
     private String riskLevel;
     private String settlementStatus;

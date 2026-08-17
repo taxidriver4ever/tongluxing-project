@@ -115,11 +115,11 @@ public class MatchServiceImpl implements MatchService {
         List<Long> routeIds = new ArrayList<>();
         routeIds.add(source.tripId());
         routeIds.addAll(targets.stream().map(MatchTripDTO::tripId).toList());
-        Map<Long, String> routePolylines = tripPort.getRoutePolylines(routeIds);
-        String sourcePolyline = routePolylines.get(source.tripId());
+        Map<Long, String> matchPolylines = tripPort.getMatchPolylines(routeIds);
+        String sourcePolyline = matchPolylines.get(source.tripId());
         targets.stream()
-                // calculate 只对轻量候选过滤后的集合使用一次批量读取的完整路线。
-                .map(target -> calculate(source, target, now, sourcePolyline, routePolylines.get(target.tripId())))
+                // calculate 只对轻量候选过滤后的集合使用一次批量读取的 RDP 匹配路线。
+                .map(target -> calculate(source, target, now, sourcePolyline, matchPolylines.get(target.tripId())))
                 .filter(result -> result.getDepartureGapMinutes() <= MAX_TIME_GAP_MINUTES && result.getMatchScore() >= 50)
                 .forEach(resultMapper::upsert);
     }
@@ -524,19 +524,19 @@ public class MatchServiceImpl implements MatchService {
                     timeGapMinutes, leaderRating));
         }
 
-        // 只有通过状态、容量、100km 和 3 天硬过滤的候选才批量读取完整路线。
+        // 只有通过状态、容量、100km 和 3 天硬过滤的候选才批量读取 RDP 匹配路线。
         List<RecommendationCandidate> accepted = coarseAccepted;
         long routeDatabaseFinished = lightweightDatabaseFinished;
         if (userHasTrip && !coarseAccepted.isEmpty()) {
             List<Long> routeIds = new ArrayList<>();
             routeIds.add(reference.tripId());
             routeIds.addAll(coarseAccepted.stream().map(value -> value.trip().tripId()).toList());
-            Map<Long, String> routePolylines = tripPort.getRoutePolylines(routeIds);
+            Map<Long, String> matchPolylines = tripPort.getMatchPolylines(routeIds);
             routeDatabaseFinished = System.nanoTime();
-            String referencePolyline = routePolylines.get(reference.tripId());
+            String referencePolyline = matchPolylines.get(reference.tripId());
             accepted = coarseAccepted.stream().map(candidate -> {
                 int matchRate = recommendationMatchRate(reference, candidate.trip(), referencePolyline,
-                        routePolylines.get(candidate.trip().tripId()));
+                        matchPolylines.get(candidate.trip().tripId()));
                 return new RecommendationCandidate(candidate.trip(), candidate.team(), matchRate, candidate.heat(),
                         candidate.distanceMeters(), candidate.timeGapMinutes(), candidate.leaderRating());
             }).filter(candidate -> candidate.matchRate() >= RECOMMEND_MIN_MATCH_RATE).toList();
@@ -626,7 +626,7 @@ public class MatchServiceImpl implements MatchService {
 
         String normalizedSort = StringUtils.hasText(sort) ? sort.trim().toUpperCase(Locale.ROOT) : "RECOMMENDED";
         long routeDatabaseFinished = lightweightDatabaseFinished;
-        // 有基准行程时先用轻量端点/时间/里程粗分缩小集合，再批量加载最多 200 条完整路线精算。
+        // 有基准行程时先用轻量端点/时间/里程粗分缩小集合，再批量加载最多 200 条 RDP 匹配路线精算。
         if (reference != null && !filtered.isEmpty()) {
             List<DiscoverCandidate> coarseOrder = new ArrayList<>(filtered);
             coarseOrder.sort(Comparator.comparingInt((DiscoverCandidate value) ->
@@ -637,12 +637,12 @@ public class MatchServiceImpl implements MatchService {
             List<Long> routeIds = new ArrayList<>();
             routeIds.add(reference.tripId());
             routeIds.addAll(fineCandidates.stream().map(value -> value.trip().tripId()).toList());
-            Map<Long, String> routePolylines = tripPort.getRoutePolylines(routeIds);
+            Map<Long, String> matchPolylines = tripPort.getMatchPolylines(routeIds);
             routeDatabaseFinished = System.nanoTime();
-            String referencePolyline = routePolylines.get(reference.tripId());
+            String referencePolyline = matchPolylines.get(reference.tripId());
             for (DiscoverCandidate candidate : fineCandidates) {
                 int score = routeMatchScore(reference, candidate.trip(), referencePolyline,
-                        routePolylines.get(candidate.trip().tripId())).total();
+                        matchPolylines.get(candidate.trip().tripId())).total();
                 scoreByTripId.put(candidate.trip().tripId(), score);
             }
         }
@@ -1165,7 +1165,7 @@ public class MatchServiceImpl implements MatchService {
 
     /**
      * 推荐列表与发现列表共用同一套顺路评分：起终点 40、真实路线重合 35、
-     * 出发时间 15、预计绕行 10。实际路线最多等距采样 60 点，避免长折线 O(n²) 放大。
+     * 出发时间 15、预计绕行 10。输入是按配置完成 RDP 与点数上限处理的关键点。
      */
     private RouteMatchScore routeMatchScore(MatchTripDTO source, MatchTripDTO target,
                                             String sourcePolyline, String targetPolyline) {
@@ -1192,11 +1192,10 @@ public class MatchServiceImpl implements MatchService {
         List<double[]> source = routePoints(sourcePolyline);
         List<double[]> target = routePoints(targetPolyline);
         if (source.size() < 2 || target.size() < 2) return 0;
+
         int matched = 0;
         for (double[] point : source) {
-            boolean close = target.stream().anyMatch(candidate ->
-                    distanceKm(point[0], point[1], candidate[0], candidate[1]) <= 5D);
-            if (close) matched++;
+            if (distanceToPolylineKm(point, target) <= 5D) matched++;
         }
         return (int) Math.round(matched * 100D / source.size());
     }
@@ -1206,13 +1205,11 @@ public class MatchServiceImpl implements MatchService {
         try {
             var root = objectMapper.readTree(json);
             if (!root.isArray() || root.isEmpty()) return List.of();
-            int step = Math.max(1, (int) Math.ceil(root.size() / 60D));
-            List<double[]> points = new ArrayList<>();
-            for (int i = 0; i < root.size(); i += step) {
-                var node = root.get(i);
-                double latitude = node.has("latitude") ? node.path("latitude").asDouble()
+            List<double[]> points = new ArrayList<>(root.size());
+            for (var node : root) {
+                double latitude = node.has("latitude") ? node.path("latitude").asDouble(Double.NaN)
                         : node.path("lat").asDouble(Double.NaN);
-                double longitude = node.has("longitude") ? node.path("longitude").asDouble()
+                double longitude = node.has("longitude") ? node.path("longitude").asDouble(Double.NaN)
                         : node.path("lng").asDouble(Double.NaN);
                 if (Double.isFinite(latitude) && Double.isFinite(longitude)) {
                     points.add(new double[]{latitude, longitude});
@@ -1222,6 +1219,34 @@ public class MatchServiceImpl implements MatchService {
         } catch (JsonProcessingException ignored) {
             return List.of();
         }
+    }
+
+    private double distanceToPolylineKm(double[] point, List<double[]> polyline) {
+        double min = Double.POSITIVE_INFINITY;
+        for (int i = 1; i < polyline.size(); i++) {
+            min = Math.min(min, distanceToSegmentKm(point, polyline.get(i - 1), polyline.get(i)));
+        }
+        return min;
+    }
+
+    /** 局部等距投影计算点到折线段距离，匹配阈值为公里级时精度足够。 */
+    private double distanceToSegmentKm(double[] point, double[] start, double[] end) {
+        double referenceLatitude = Math.toRadians((point[0] + start[0] + end[0]) / 3D);
+        double longitudeScale = 111.320D * Math.cos(referenceLatitude);
+        double latitudeScale = 110.540D;
+        double sx = start[1] * longitudeScale;
+        double sy = start[0] * latitudeScale;
+        double ex = end[1] * longitudeScale;
+        double ey = end[0] * latitudeScale;
+        double px = point[1] * longitudeScale;
+        double py = point[0] * latitudeScale;
+        double dx = ex - sx;
+        double dy = ey - sy;
+        double lengthSquared = dx * dx + dy * dy;
+        if (lengthSquared <= 1e-12D) return Math.hypot(px - sx, py - sy);
+        double ratio = ((px - sx) * dx + (py - sy) * dy) / lengthSquared;
+        ratio = Math.max(0D, Math.min(1D, ratio));
+        return Math.hypot(px - (sx + ratio * dx), py - (sy + ratio * dy));
     }
 
     /** 获取并校验基准行程归当前用户所有，防止使用他人行程作为推荐上下文。 */

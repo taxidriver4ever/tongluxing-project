@@ -39,14 +39,14 @@ public interface MatchTripPort {
     }
 
     /**
-     * 顺路率精算阶段批量获取少量完整路线。
+     * 顺路率精算阶段批量获取 RDP 简化后的匹配路线，不读取完整导航 polyline。
      */
-    Map<Long, String> getRoutePolylines(List<Long> tripIds);
+    Map<Long, String> getMatchPolylines(List<Long> tripIds);
 
-    /** 单条详情/精算按需读取完整路线。 */
-    default String getRoutePolyline(Long tripId) {
+    /** 单条精算按需读取匹配路线。 */
+    default String getMatchPolyline(Long tripId) {
         if (tripId == null) return null;
-        return getRoutePolylines(List.of(tripId)).get(tripId);
+        return getMatchPolylines(List.of(tripId)).get(tripId);
     }
 
     /** SQL 可提前下推的候选条件。 */

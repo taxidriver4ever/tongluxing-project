@@ -96,6 +96,23 @@ public interface TeamMemberMapper {
     List<Long> findActiveTeamIdsByUserAndTeams(@Param("userId") Long userId,
                                                  @Param("teamIds") List<Long> teamIds);
 
+    /** 推荐最终页一次查询当前/历史成员状态。 */
+    @Select("""
+            <script>
+            select team_id, member_status
+            from (
+                select team_id, member_status,
+                       row_number() over(partition by team_id order by updated_at desc, id desc) row_num
+                from team_member
+                where user_id=#{userId} and deleted=0 and team_id in
+                <foreach collection='teamIds' item='teamId' open='(' separator=',' close=')'>#{teamId}</foreach>
+            ) latest
+            where row_num=1
+            </script>
+            """)
+    List<TeamMember> findStatusesByUserAndTeams(@Param("userId") Long userId,
+                                                 @Param("teamIds") List<Long> teamIds);
+
     /**
      * 新增车队成员记录。
      */

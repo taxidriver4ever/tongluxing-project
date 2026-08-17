@@ -89,6 +89,13 @@ observability:
 
 # 匹配只使用临时简化路线；trip_route.polyline 始终保存地图服务返回的完整路线。
 recommendation:
+  cache:
+    ttl-seconds: ${RECOMMENDATION_CACHE_TTL_SECONDS:60}
+    ttl-jitter-seconds: ${RECOMMENDATION_CACHE_TTL_JITTER_SECONDS:30}
+    lock-ttl-seconds: ${RECOMMENDATION_CACHE_LOCK_TTL_SECONDS:20}
+    wait-timeout-millis: ${RECOMMENDATION_CACHE_WAIT_TIMEOUT_MILLIS:5000}
+    wait-interval-millis: ${RECOMMENDATION_CACHE_WAIT_INTERVAL_MILLIS:50}
+    stale-ttl-seconds: ${RECOMMENDATION_CACHE_STALE_TTL_SECONDS:300}
   route:
     # 单位：米。50 仅为初始基线，应根据真实路线 A/B 结果继续调优。
     rdp-epsilon: ${RECOMMENDATION_ROUTE_RDP_EPSILON:50}

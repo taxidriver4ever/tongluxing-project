@@ -1,0 +1,143 @@
+{
+    "metrics": {
+        "http_req_waiting": {
+            "p(95)": 29.8917,
+            "avg": 18.817948258706465,
+            "min": 10.3193,
+            "med": 17.2831,
+            "max": 44.3073,
+            "p(90)": 27.2321
+        },
+        "data_sent": {
+            "count": 111153,
+            "rate": 5551.7982381030915
+        },
+        "iterations": {
+            "count": 201,
+            "rate": 10.039418152085156
+        },
+        "http_req_duration{expected_response:true}": {
+            "med": 17.5262,
+            "max": 44.6026,
+            "p(90)": 27.3051,
+            "p(95)": 30.0965,
+            "avg": 18.914422388059698,
+            "min": 10.5262
+        },
+        "vus_max": {
+            "value": 20,
+            "min": 20,
+            "max": 20
+        },
+        "http_req_duration": {
+            "avg": 18.914422388059698,
+            "min": 10.5262,
+            "med": 17.5262,
+            "max": 44.6026,
+            "p(90)": 27.3051,
+            "p(95)": 30.0965,
+            "thresholds": {
+                "p(95)<1000": false
+            }
+        },
+        "http_req_sending": {
+            "avg": 0.00817363184079602,
+            "min": 0,
+            "med": 0,
+            "max": 0.6049,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_receiving": {
+            "p(95)": 0.556,
+            "avg": 0.0883004975124378,
+            "min": 0,
+            "med": 0,
+            "max": 8.4921,
+            "p(90)": 0
+        },
+        "http_req_connecting": {
+            "min": 0,
+            "med": 0,
+            "max": 12.8992,
+            "p(90)": 0,
+            "p(95)": 9.2151,
+            "avg": 0.9520960199004977
+        },
+        "iteration_duration": {
+            "p(90)": 31.1942,
+            "p(95)": 39.1295,
+            "avg": 19.960413930348256,
+            "min": 10.5421,
+            "med": 17.5426,
+            "max": 53.9487
+        },
+        "http_reqs": {
+            "count": 201,
+            "rate": 10.039418152085156
+        },
+        "data_received": {
+            "count": 101505,
+            "rate": 5069.906166803004
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 201,
+            "thresholds": {
+                "rate<0.02": false
+            },
+            "value": 0
+        },
+        "http_req_blocked": {
+            "med": 0,
+            "max": 12.8992,
+            "p(90)": 0,
+            "p(95)": 9.2151,
+            "avg": 0.9547547263681593,
+            "min": 0
+        },
+        "checks": {
+            "passes": 201,
+            "fails": 201,
+            "thresholds": {
+                "rate>0.98": true
+            },
+            "value": 0.5
+        },
+        "vus": {
+            "value": 0,
+            "min": 0,
+            "max": 0
+        },
+        "http_req_tls_handshaking": {
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0
+        }
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "IM ACK HTTP 200": {
+                    "fails": 0,
+                    "name": "IM ACK HTTP 200",
+                    "path": "::IM ACK HTTP 200",
+                    "id": "f746e221cd2e153c399f1ce4d3032692",
+                    "passes": 201
+                },
+                "IM ACK ErrorCode 0": {
+                    "id": "bab5593c9c76a826b36260b6558cc518",
+                    "passes": 0,
+                    "fails": 201,
+                    "name": "IM ACK ErrorCode 0",
+                    "path": "::IM ACK ErrorCode 0"
+                }
+            }
+    }
+}

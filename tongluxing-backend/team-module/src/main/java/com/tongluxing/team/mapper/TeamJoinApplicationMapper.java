@@ -58,6 +58,23 @@ public interface TeamJoinApplicationMapper {
     List<Long> findPendingTeamIdsByUserAndTeams(@Param("userId") Long userId,
                                                  @Param("teamIds") List<Long> teamIds);
 
+    /** 推荐最终页一次查询每个车队的最新申请状态。 */
+    @Select("""
+            <script>
+            select team_id, application_status
+            from (
+                select team_id, application_status,
+                       row_number() over(partition by team_id order by created_at desc, id desc) row_num
+                from team_join_application
+                where applicant_user_id=#{userId} and deleted=0 and team_id in
+                <foreach collection='teamIds' item='teamId' open='(' separator=',' close=')'>#{teamId}</foreach>
+            ) latest
+            where row_num=1
+            </script>
+            """)
+    List<TeamJoinApplication> findLatestStatusesByUserAndTeams(@Param("userId") Long userId,
+                                                                @Param("teamIds") List<Long> teamIds);
+
     @Select("""
             select id, team_id, trip_id, applicant_user_id, applicant_vehicle_id, application_type, join_role, linked_owner_user_id, linked_vehicle_id, plate_reference, current_latitude, current_longitude, owner_confirm_status, reviewer_user_id,
                    application_status, apply_message, join_question_json, review_message, reviewed_at,
@@ -163,4 +180,3 @@ public interface TeamJoinApplicationMapper {
                           @Param("applicantUserId") Long applicantUserId,
                           @Param("now") LocalDateTime now);
 }
-

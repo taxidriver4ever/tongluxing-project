@@ -15,6 +15,7 @@ import com.tongluxing.trip.config.RecommendationRouteProperties;
 import com.tongluxing.trip.mapper.TripMapper;
 import com.tongluxing.trip.mapper.TripRouteMapper;
 import com.tongluxing.trip.query.TripMatchCandidateRow;
+import com.tongluxing.trip.query.TripRecommendationCandidateRow;
 import com.tongluxing.trip.support.RoutePolylineUtils;
 import com.tongluxing.user.dto.UserQueryDTO;
 import com.tongluxing.user.mapper.UserDomainMapper;
@@ -80,6 +81,26 @@ public class MatchTripAdapter implements MatchTripPort {
                         effective.destination(), limit).stream()
                 .map(this::toCandidateDTO)
                 .toList();
+    }
+
+    @Override
+    public List<MatchRecommendationCandidateDTO> listRecommendationCandidates(MatchCandidateQuery query) {
+        int limit = Math.max(1, Math.min(query == null ? 1000 : query.limit(), 1000));
+        MatchCandidateQuery effective = query == null
+                ? new MatchCandidateQuery(null, null, null, null, null, null, limit) : query;
+        return tripMapper.findRecommendationCandidates(effective.excludeUserId(), effective.departureFrom(),
+                        effective.departureTo(), limit).stream()
+                .map(this::toRecommendationCandidateDTO).toList();
+    }
+
+    @Override
+    public Map<Long, MatchTripDTO> getTripDetails(List<Long> tripIds) {
+        if (tripIds == null || tripIds.isEmpty()) return Map.of();
+        List<Long> ids = tripIds.stream().filter(java.util.Objects::nonNull).distinct().limit(30).toList();
+        if (ids.isEmpty()) return Map.of();
+        Map<Long, MatchTripDTO> result = new LinkedHashMap<>();
+        tripMapper.findMatchCandidateDetailsByIds(ids).forEach(row -> result.put(row.getTripId(), toCandidateDTO(row)));
+        return result;
     }
 
     @Override
@@ -190,6 +211,14 @@ public class MatchTripAdapter implements MatchTripPort {
                 row.getRouteDistance(), row.getRouteDuration(), null, row.getWaypointsJson(), row.getRemark(),
                 row.getTravelDepth(), row.getExpectedPeople(), row.getMaxVehicleCount(), row.getJoinedVehicleCount(),
                 row.getStatus(), row.getPublicFlag(), normalizeTripType(row), normalizePublisherRole(row), row.getCaptainUserId());
+    }
+
+    private MatchRecommendationCandidateDTO toRecommendationCandidateDTO(TripRecommendationCandidateRow row) {
+        return new MatchRecommendationCandidateDTO(row.getTripId(), row.getUserId(),
+                decimal(row.getStartLatitude()), decimal(row.getStartLongitude()),
+                decimal(row.getEndLatitude()), decimal(row.getEndLongitude()), row.getDepartureTime(),
+                row.getEstimatedDays(), row.getRouteDistance(), row.getWaypointsJson(), row.getTravelDepth(),
+                row.getMaxVehicleCount(), row.getJoinedVehicleCount(), row.getStatus());
     }
 
     private String normalizeTripType(TripMatchCandidateRow row) {

@@ -111,6 +111,46 @@ public class MatchTeamAdapter implements MatchTeamPort {
     }
 
     @Override
+    public Map<Long, String> relationshipStatuses(List<MatchTeamDTO> teams, Long userId) {
+        if (teams == null || teams.isEmpty() || userId == null) return Map.of();
+        Map<Long, String> result = new LinkedHashMap<>();
+        List<Long> queryIds = teams.stream().filter(java.util.Objects::nonNull)
+                .filter(team -> {
+                    if (userId.equals(team.ownerUserId())) {
+                        result.put(team.teamId(), "OWNER");
+                        return false;
+                    }
+                    return true;
+                }).map(MatchTeamDTO::teamId).filter(java.util.Objects::nonNull).distinct().toList();
+        if (queryIds.isEmpty()) return result;
+
+        Map<Long, String> memberStatuses = teamMemberMapper.findStatusesByUserAndTeams(userId, queryIds).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        com.tongluxing.team.entity.TeamMember::getTeamId,
+                        com.tongluxing.team.entity.TeamMember::getMemberStatus,
+                        (left, right) -> left));
+        Map<Long, String> applicationStatuses = applicationMapper
+                .findLatestStatusesByUserAndTeams(userId, queryIds).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        com.tongluxing.team.entity.TeamJoinApplication::getTeamId,
+                        com.tongluxing.team.entity.TeamJoinApplication::getApplicationStatus,
+                        (left, right) -> left));
+
+        queryIds.forEach(teamId -> result.put(teamId,
+                aggregateRelationship(memberStatuses.get(teamId), applicationStatuses.get(teamId))));
+        return result;
+    }
+
+    private String aggregateRelationship(String memberStatus, String applicationStatus) {
+        if ("ACTIVE".equals(memberStatus)) return "JOINED";
+        if ("PENDING".equals(applicationStatus)) return "PENDING";
+        if (List.of("EXITED", "REMOVED").contains(memberStatus)) return memberStatus;
+        if (applicationStatus == null || applicationStatus.isBlank()) return "NONE";
+        String normalized = applicationStatus.toUpperCase(java.util.Locale.ROOT);
+        return List.of("CANCELLED", "CANCELED").contains(normalized) ? "NONE" : normalized;
+    }
+
+    @Override
     public List<MatchMemberDTO> listPublicMembers(Long teamId, int limit) {
         return teamMemberMapper.findActiveByTeamId(teamId).stream().limit(Math.max(1, Math.min(limit, 50)))
                 .map(member -> {

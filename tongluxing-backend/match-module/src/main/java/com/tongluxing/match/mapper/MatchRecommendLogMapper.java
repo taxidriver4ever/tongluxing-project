@@ -1,5 +1,7 @@
 package com.tongluxing.match.mapper;
 
+import java.util.List;
+
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -12,6 +14,21 @@ import org.apache.ibatis.annotations.Param;
  */
 @Mapper
 public interface MatchRecommendLogMapper {
+
+    /** 一批曝光使用一条 INSERT 语句，避免推荐页逐卡同步写库。 */
+    @Insert("""
+            <script>
+            insert into match_recommend_log
+                (id, user_id, trip_id, target_trip_id, target_team_id, scene, action_type,
+                 request_id, extra_json, created_at, updated_at, deleted)
+            values
+            <foreach collection='rows' item='row' separator=','>
+                (#{row.id}, #{row.userId}, #{row.tripId}, #{row.targetTripId}, #{row.targetTeamId},
+                 #{row.scene}, #{row.actionType}, #{row.requestId}, #{row.extraJson}, now(), now(), 0)
+            </foreach>
+            </script>
+            """)
+    void batchInsert(@Param("rows") List<RecommendLogRow> rows);
 
     /**
      * 写入一次推荐场景下的用户行为日志。
@@ -43,4 +60,7 @@ public interface MatchRecommendLogMapper {
                 @Param("actionType") String actionType,
                 @Param("requestId") String requestId,
                 @Param("extraJson") String extraJson);
+
+    record RecommendLogRow(Long id, Long userId, Long tripId, Long targetTripId, Long targetTeamId,
+                           String scene, String actionType, String requestId, String extraJson) { }
 }

@@ -33,6 +33,12 @@ public interface MatchTripPort {
      */
     List<MatchTripDTO> listPublicTrips(MatchCandidateQuery query);
 
+    /** 推荐第一阶段轻量候选，不包含任何用户/车辆展示字段。 */
+    List<MatchRecommendationCandidateDTO> listRecommendationCandidates(MatchCandidateQuery query);
+
+    /** 推荐完成排序分页后，批量加载最终卡片的完整展示数据。 */
+    Map<Long, MatchTripDTO> getTripDetails(List<Long> tripIds);
+
     /** 保留旧调用方式，默认只做公开状态过滤。 */
     default List<MatchTripDTO> listPublicTrips(int limit) {
         return listPublicTrips(new MatchCandidateQuery(null, null, null, null, null, null, limit));
@@ -58,6 +64,14 @@ public interface MatchTripPort {
             String startCity,
             String destination,
             int limit
+    ) { }
+
+    record MatchRecommendationCandidateDTO(
+            Long tripId, Long userId,
+            Double startLatitude, Double startLongitude, Double endLatitude, Double endLongitude,
+            LocalDateTime departureTime, Integer estimatedDays, Integer routeDistance,
+            String waypointsJson, String travelDepth, Integer maxVehicleCount,
+            Integer joinedVehicleCount, String status
     ) { }
 
     /**

@@ -54,6 +54,9 @@ public interface MatchTeamPort {
      */
     String relationshipStatus(Long teamId, Long userId);
 
+    /** 推荐最终页批量聚合 OWNER、成员关系和最新申请状态。 */
+    Map<Long, String> relationshipStatuses(List<MatchTeamDTO> teams, Long userId);
+
     /**
      * 查询公开详情允许展示的成员摘要。
      *

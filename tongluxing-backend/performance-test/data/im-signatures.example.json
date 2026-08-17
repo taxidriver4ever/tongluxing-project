@@ -1,0 +1,4 @@
+{
+  "<unix-second>": "<sha256(callbackToken + unix-second)>"
+}
+

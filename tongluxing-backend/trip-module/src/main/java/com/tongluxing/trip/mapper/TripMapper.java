@@ -11,6 +11,7 @@ import org.apache.ibatis.annotations.Update;
 
 import com.tongluxing.trip.entity.Trip;
 import com.tongluxing.trip.query.TripMatchCandidateRow;
+import com.tongluxing.trip.query.TripRecommendationCandidateRow;
 
 /**
  * 行程主表 Mapper。
@@ -333,6 +334,77 @@ public interface TripMapper {
             @Param("startCity") String startCity,
             @Param("destination") String destination,
             @Param("limit") Integer limit);
+
+    /** 推荐粗筛专用：禁止 JOIN 用户、成长、徽章和车辆展示数据。 */
+    @Select("""
+            <script>
+            select t.id tripId, t.user_id userId,
+                   coalesce(t.start_latitude,t.start_lat) startLatitude,
+                   coalesce(t.start_longitude,t.start_lng) startLongitude,
+                   coalesce(t.end_latitude,t.end_lat) endLatitude,
+                   coalesce(t.end_longitude,t.end_lng) endLongitude,
+                   t.departure_time departureTime, t.estimated_days estimatedDays,
+                   t.route_distance routeDistance, t.waypoints_json waypointsJson,
+                   t.travel_depth travelDepth, t.max_vehicle_count maxVehicleCount,
+                   t.joined_vehicle_count joinedVehicleCount, t.status
+            from trip t
+            where t.public_flag=1 and t.deleted=0
+              and t.status in ('PUBLISHED','RECRUITING','RUNNING','ONGOING')
+            <if test='excludeUserId != null'>and t.user_id &lt;&gt; #{excludeUserId}</if>
+            <if test='departureFrom != null'>and t.departure_time &gt;= #{departureFrom}</if>
+            <if test='departureTo != null'>and t.departure_time &lt;= #{departureTo}</if>
+            order by t.departure_time asc, t.id asc
+            limit #{limit}
+            </script>
+            """)
+    List<TripRecommendationCandidateRow> findRecommendationCandidates(
+            @Param("excludeUserId") Long excludeUserId,
+            @Param("departureFrom") LocalDateTime departureFrom,
+            @Param("departureTo") LocalDateTime departureTo,
+            @Param("limit") Integer limit);
+
+    /** 推荐最终页一次批量加载展示数据，SQL 结构与原接口候选投影保持一致。 */
+    @Select("""
+            <script>
+            select
+                t.id tripId, t.trip_number tripNumber, t.user_id userId, t.vehicle_id vehicleId,
+                t.trip_type tripType, t.publisher_role publisherRole, t.captain_user_id captainUserId,
+                coalesce(nullif(p.nickname,''), '同路行车友') ownerNickname,
+                p.avatar_image_key ownerAvatarImageKey,
+                case when exists (
+                    select 1 from user_driving_license_certification c
+                    where c.user_id=t.user_id and c.deleted=0 and c.certification_status='APPROVED'
+                ) then true else false end driverVerified,
+                coalesce(g.level_code, 'LV1') ownerLevelCode,
+                coalesce(us.total_trip_count,0) ownerTotalTripCount,
+                coalesce(us.total_distance_meters,0) ownerTotalDistanceMeters,
+                a.last_login_time ownerLastActiveAt, coalesce(b.badge_count,0) ownerBadgeCount,
+                v.vehicle_type vehicleType, v.brand vehicleBrand, v.model vehicleModel,
+                t.vehicle_requirements vehicleRequirements, t.budget_description budgetDescription,
+                t.title, t.description, t.start_name startName, t.end_name endName,
+                coalesce(t.start_latitude,t.start_lat) startLatitude,
+                coalesce(t.start_longitude,t.start_lng) startLongitude,
+                coalesce(t.end_latitude,t.end_lat) endLatitude,
+                coalesce(t.end_longitude,t.end_lng) endLongitude,
+                t.departure_time departureTime, t.estimated_days estimatedDays,
+                t.route_distance routeDistance, t.route_duration routeDuration,
+                t.waypoints_json waypointsJson, t.remark, t.travel_depth travelDepth,
+                t.expected_people expectedPeople, t.max_vehicle_count maxVehicleCount,
+                t.joined_vehicle_count joinedVehicleCount, t.status, t.public_flag publicFlag
+            from trip t
+            left join user_profile p on p.user_id=t.user_id and p.deleted=0
+            left join user_statistics us on us.user_id=t.user_id
+            left join growth_account g on g.user_id=t.user_id and g.deleted=0
+            left join auth_account a on a.user_id=t.user_id and a.deleted=0
+            left join vehicle_profile v on v.id=t.vehicle_id and v.deleted=0
+            left join (
+                select user_id, count(*) badge_count from growth_user_badge where deleted=0 group by user_id
+            ) b on b.user_id=t.user_id
+            where t.public_flag=1 and t.deleted=0 and t.id in
+            <foreach collection='tripIds' item='tripId' open='(' separator=',' close=')'>#{tripId}</foreach>
+            </script>
+            """)
+    List<TripMatchCandidateRow> findMatchCandidateDetailsByIds(@Param("tripIds") List<Long> tripIds);
 
     /**
      * 新增行程主表记录。

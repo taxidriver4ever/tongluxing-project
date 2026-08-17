@@ -39,8 +39,12 @@ import com.tongluxing.match.mapper.TripRecommendationMetricsMapper.TripRecommend
 import com.tongluxing.match.service.MatchService;
 import com.tongluxing.match.service.RecommendImpressionService;
 import com.tongluxing.match.service.RecommendImpressionService.ImpressionCommand;
-import com.tongluxing.match.service.RecommendationCacheService;
-import com.tongluxing.match.service.RecommendationCacheService.CacheResult;
+import com.tongluxing.match.service.RecommendationPool;
+import com.tongluxing.match.service.RecommendationPool.RecommendationPoolItem;
+import com.tongluxing.match.service.RecommendationPoolService;
+import com.tongluxing.match.service.RecommendationPoolService.PoolLoadResult;
+import com.tongluxing.match.service.RecommendationPoolService.PoolSlice;
+import com.tongluxing.match.config.RecommendationPoolProperties;
 import com.tongluxing.match.vo.*;
 import com.tongluxing.user.support.CurrentUserContext;
 import com.tongluxing.user.service.UserService;
@@ -95,8 +99,9 @@ public class MatchServiceImpl implements MatchService {
     private final TripRecommendationMetricsMapper recommendationMetricsMapper;
     /** 行程搜索历史数据访问。 */
     private final TripSearchHistoryMapper tripSearchHistoryMapper;
-    /** 推荐缓存、防击穿锁和 stale 兜底。 */
-    private final RecommendationCacheService recommendationCacheService;
+    /** 轻量推荐池、原子游标、防击穿锁、stale 和最近曝光。 */
+    private final RecommendationPoolService recommendationPoolService;
+    private final RecommendationPoolProperties recommendationPoolProperties;
     /** 曝光日志异步批量提交器。 */
     private final RecommendImpressionService recommendImpressionService;
 
@@ -463,28 +468,56 @@ public class MatchServiceImpl implements MatchService {
         if (timeBase == null) {
             TripRecommendPageResponse empty = new TripRecommendPageResponse(0L, List.of(), userHasTrip, effectiveSort,
                     reference == null ? null : String.valueOf(reference.tripId()));
-            logRecommendTiming(reference, true, new RecommendPerformanceMetrics(), empty, 0, 0, 0, totalStarted);
+            logRecommendTiming(reference, true, false, false, 0, new RecommendPerformanceMetrics(),
+                    empty, 0, 0, 0, totalStarted);
             return empty;
         }
-        String recommendCacheKey = recommendCacheKey(userId, reference, effectiveSort, latitude, longitude,
-                safePage, safePageSize);
+        String poolKey = recommendationPoolKey(userId, reference, effectiveSort, latitude, longitude);
         RecommendPerformanceMetrics metrics = new RecommendPerformanceMetrics();
-        CacheResult cacheResult = recommendationCacheService.getOrCompute(recommendCacheKey,
-                () -> calculateRecommendations(userId, reference, userHasTrip, effectiveSort, latitude, longitude,
-                        safePage, safePageSize, timeBase, now, metrics));
+        PoolLoadResult load = null;
+        PoolSlice slice = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            load = recommendationPoolService.getOrBuild(poolKey,
+                    () -> buildRecommendationPool(userId, reference, userHasTrip, effectiveSort,
+                            latitude, longitude, timeBase, now, metrics));
+            if (load.pool() == null) break;
+            if (load.pool().items().isEmpty()) {
+                slice = new PoolSlice(List.of(), 0, false);
+                break;
+            }
+            slice = recommendationPoolService.claim(poolKey, load.sourceKey(), load.pool(), safePageSize);
+            if (!slice.exhausted()) break;
+            // stale 已经消费完时等待正在构建的新池，当前请求快速返回空批次，不反复旧池。
+            if (load.stale()) break;
+            recommendationPoolService.invalidateIfCurrent(poolKey, load.pool());
+        }
+
+        if (load == null || load.pool() == null || slice == null || slice.exhausted()) {
+            TripRecommendPageResponse empty = new TripRecommendPageResponse(0L, List.of(), userHasTrip,
+                    effectiveSort, reference == null ? null : String.valueOf(reference.tripId()));
+            logRecommendTiming(reference, true, load != null && load.stale(), false, 0, metrics, empty,
+                    load == null ? 0 : load.cacheReadMs(), load == null ? 0 : load.cacheWriteMs(),
+                    0, totalStarted);
+            return empty;
+        }
+
+        TripRecommendPageResponse response = hydrateRecommendationBatch(
+                userId, load.pool(), slice, safePage, safePageSize, metrics);
+        recommendationPoolService.markSeen(userId,
+                response.list().stream().map(card -> Long.valueOf(card.tripId())).toList());
 
         long impressionStarted = System.nanoTime();
-        submitRecommendImpressions(cacheResult.value(), userId, reference,
-                (cacheResult.cacheHit() ? "RECOMMEND_CACHE:" : "RECOMMEND:") + effectiveSort);
+        submitRecommendImpressions(response, userId, reference,
+                "RECOMMEND_POOL:" + load.pool().generationId() + ':' + effectiveSort);
         long impressionSubmitMs = millis(impressionStarted, System.nanoTime());
-        logRecommendTiming(reference, cacheResult.cacheHit(), metrics, cacheResult.value(),
-                cacheResult.cacheReadMs(), cacheResult.cacheWriteMs(), impressionSubmitMs, totalStarted);
-        return cacheResult.value();
+        logRecommendTiming(reference, load.cacheHit(), load.stale(), load.built(), slice.start(), metrics,
+                response, load.cacheReadMs(), load.cacheWriteMs(), impressionSubmitMs, totalStarted);
+        return response;
     }
 
-    private TripRecommendPageResponse calculateRecommendations(
+    private RecommendationPool buildRecommendationPool(
             Long userId, MatchTripDTO reference, boolean userHasTrip, String effectiveSort,
-            Double latitude, Double longitude, int safePage, int safePageSize,
+            Double latitude, Double longitude,
             LocalDateTime timeBase, LocalDateTime now, RecommendPerformanceMetrics timing) {
         LocalDateTime departureFrom = timeBase.minusMinutes(RECOMMEND_MAX_TIME_GAP_MINUTES);
         if (departureFrom.isBefore(now)) departureFrom = now;
@@ -496,8 +529,7 @@ public class MatchServiceImpl implements MatchService {
         timing.candidateDatabaseMs = millis(phaseStarted, System.nanoTime());
         timing.candidateCount = candidates.size();
         if (candidates.isEmpty()) {
-            return new TripRecommendPageResponse(0L, List.of(), userHasTrip, effectiveSort,
-                    reference == null ? null : String.valueOf(reference.tripId()));
+            return emptyPool(userHasTrip, effectiveSort, reference);
         }
 
         List<Long> candidateIds = candidates.stream().map(MatchRecommendationCandidateDTO::tripId).toList();
@@ -572,26 +604,51 @@ public class MatchServiceImpl implements MatchService {
         timing.matchCalculationMs = millis(phaseStarted, System.nanoTime()) - timing.routeDatabaseMs;
         timing.acceptedCount = sorted.size();
 
-        int fromIndex = Math.min(sorted.size(), (safePage - 1) * safePageSize);
-        int toIndex = Math.min(sorted.size(), fromIndex + safePageSize);
-        List<RecommendationCandidate> pageCandidates = sorted.subList(fromIndex, toIndex);
-        List<MatchTeamDTO> pageTeams = pageCandidates.stream().map(RecommendationCandidate::team).toList();
-        phaseStarted = System.nanoTime();
+        Set<Long> seen = recommendationPoolService.seenTripIds(userId);
+        List<RecommendationCandidate> prioritized = new ArrayList<>(sorted.size());
+        sorted.stream().filter(candidate -> !seen.contains(candidate.trip().tripId())).forEach(prioritized::add);
+        // 候选不足时允许把近期看过的候选补在末尾，避免推荐结果被过滤为空。
+        sorted.stream().filter(candidate -> seen.contains(candidate.trip().tripId())).forEach(prioritized::add);
+        List<RecommendationPoolItem> items = prioritized.stream()
+                .limit(recommendationPoolProperties.getMaxSize())
+                .map(candidate -> new RecommendationPoolItem(candidate.trip().tripId(), candidate.matchRate(),
+                        candidate.heat(), candidate.distanceMeters(), candidate.timeGapMinutes(),
+                        candidate.leaderRating()))
+                .toList();
+        return new RecommendationPool(java.util.UUID.randomUUID().toString(), userHasTrip, effectiveSort,
+                reference == null ? null : String.valueOf(reference.tripId()), items);
+    }
+
+    private TripRecommendPageResponse hydrateRecommendationBatch(
+            Long userId, RecommendationPool pool, PoolSlice slice, int page, int pageSize,
+            RecommendPerformanceMetrics timing) {
+        List<Long> tripIds = slice.items().stream().map(RecommendationPoolItem::tripId).toList();
+        long phaseStarted = System.nanoTime();
+        Map<Long, MatchTeamDTO> teamByTripId = teamPort.findActiveTeamsByTripIds(tripIds);
+        List<MatchTeamDTO> pageTeams = tripIds.stream().map(teamByTripId::get)
+                .filter(java.util.Objects::nonNull).toList();
         Map<Long, String> relationships = teamPort.relationshipStatuses(pageTeams, userId);
         timing.relationshipDatabaseMs = millis(phaseStarted, System.nanoTime());
 
         phaseStarted = System.nanoTime();
-        Map<Long, MatchTripDTO> details = tripPort.getTripDetails(
-                pageCandidates.stream().map(value -> value.trip().tripId()).toList());
+        Map<Long, MatchTripDTO> details = tripPort.getTripDetails(tripIds);
         timing.detailDatabaseMs = millis(phaseStarted, System.nanoTime());
-        List<TripRecommendCardResponse> list = pageCandidates.stream().map(candidate -> {
-            MatchTripDTO detail = details.get(candidate.trip().tripId());
-            if (detail == null) return null;
-            String relationship = relationships.getOrDefault(candidate.team().teamId(), "NONE");
-            return toRecommendCard(candidate, detail, relationship, canSubmitApplication(relationship));
+        List<TripRecommendCardResponse> list = slice.items().stream().map(item -> {
+            MatchTripDTO detail = details.get(item.tripId());
+            MatchTeamDTO team = teamByTripId.get(item.tripId());
+            if (detail == null || team == null) return null;
+            String relationship = relationships.getOrDefault(team.teamId(), "NONE");
+            return toRecommendCard(item, team, detail, relationship, canSubmitApplication(relationship));
         }).filter(java.util.Objects::nonNull).toList();
-        return new TripRecommendPageResponse((long) sorted.size(), list, userHasTrip, effectiveSort,
-                reference == null ? null : String.valueOf(reference.tripId()));
+        int sessionStart = Math.max(0, slice.start() - (Math.max(1, page) - 1) * pageSize);
+        long sessionTotal = Math.max(0, pool.items().size() - sessionStart);
+        return new TripRecommendPageResponse(sessionTotal, list, pool.userHasTrip(), pool.effectiveSort(),
+                pool.referenceTripId());
+    }
+
+    private RecommendationPool emptyPool(boolean userHasTrip, String effectiveSort, MatchTripDTO reference) {
+        return new RecommendationPool(java.util.UUID.randomUUID().toString(), userHasTrip, effectiveSort,
+                reference == null ? null : String.valueOf(reference.tripId()), List.of());
     }
 
     private void submitRecommendImpressions(TripRecommendPageResponse response, Long userId,
@@ -602,15 +659,18 @@ public class MatchServiceImpl implements MatchService {
                 Long.valueOf(card.tripId()), value(card.teamId()), requestId)).toList());
     }
 
-    private void logRecommendTiming(MatchTripDTO reference, boolean cacheHit,
-                                    RecommendPerformanceMetrics timing, TripRecommendPageResponse response,
+    private void logRecommendTiming(MatchTripDTO reference, boolean cacheHit, boolean stalePool,
+                                    boolean poolBuilt, int cursorStart, RecommendPerformanceMetrics timing,
+                                    TripRecommendPageResponse response,
                                     long cacheReadMs, long cacheWriteMs, long impressionSubmitMs,
                                     long totalStarted) {
-        log.info("trip_recommend_timing cacheHit={} referenceTripId={} candidateCount={} finalResultCount={} "
+        log.info("trip_recommend_timing cacheHit={} stalePool={} poolBuilt={} cursorStart={} "
+                        + "referenceTripId={} candidateCount={} finalResultCount={} "
                         + "cacheReadMs={} candidateDatabaseMs={} teamAndMetricsMs={} routeDatabaseMs={} "
                         + "matchCalculationMs={} relationshipDatabaseMs={} detailDatabaseMs={} "
                         + "impressionSubmitMs={} cacheWriteMs={} totalMs={}",
-                cacheHit, reference == null ? null : reference.tripId(), timing.candidateCount,
+                cacheHit, stalePool, poolBuilt, cursorStart,
+                reference == null ? null : reference.tripId(), timing.candidateCount,
                 response == null || response.list() == null ? 0 : response.list().size(),
                 cacheReadMs, timing.candidateDatabaseMs, timing.teamAndMetricsMs, timing.routeDatabaseMs,
                 timing.matchCalculationMs, timing.relationshipDatabaseMs, timing.detailDatabaseMs,
@@ -1055,18 +1115,18 @@ public class MatchServiceImpl implements MatchService {
     }
 
     /** 将推荐候选转换为前端卡片。 */
-    private TripRecommendCardResponse toRecommendCard(RecommendationCandidate candidate, MatchTripDTO trip,
+    private TripRecommendCardResponse toRecommendCard(RecommendationPoolItem item, MatchTeamDTO team,
+                                                      MatchTripDTO trip,
                                                       String relationshipStatus, boolean allowApply) {
-        MatchTeamDTO team = candidate.team();
         int currentVehicles = Math.max(0, trip.joinedVehicleCount() == null ? 0 : trip.joinedVehicleCount());
         int vehicleLimit = Math.max(currentVehicles, trip.maxVehicleCount() == null ? currentVehicles : trip.maxVehicleCount());
         return new TripRecommendCardResponse(
                 String.valueOf(trip.tripId()), String.valueOf(team.teamId()),
                 StringUtils.hasText(team.teamName()) ? team.teamName() : trip.title(),
                 trip.startName(), trip.endName(), format(trip.departureTime()),
-                currentVehicles, vehicleLimit, candidate.matchRate(), candidate.heat(),
-                candidate.distanceMeters(), Math.round(candidate.distanceMeters() / 100D) / 10D,
-                candidate.timeGapMinutes(), Math.round(candidate.leaderRating() * 10D) / 10D,
+                currentVehicles, vehicleLimit, item.matchRate(), item.heat(),
+                item.distanceMeters(), Math.round(item.distanceMeters() / 100D) / 10D,
+                item.timeGapMinutes(), Math.round(item.leaderRating() * 10D) / 10D,
                 String.valueOf(trip.userId()), trip.ownerNickname(), trip.ownerAvatarImageKey(),
                 relationshipStatus, true, allowApply, trip.status());
     }
@@ -1544,15 +1604,15 @@ public class MatchServiceImpl implements MatchService {
     private double distanceKm(Double a, Double b, Double c, Double d) { if (a == null || b == null || c == null || d == null) return 999; double p1=Math.toRadians(a),p2=Math.toRadians(c),x=p2-p1,y=Math.toRadians(d-b);double h=Math.sin(x/2)*Math.sin(x/2)+Math.cos(p1)*Math.cos(p2)*Math.sin(y/2)*Math.sin(y/2);return 6371*2*Math.atan2(Math.sqrt(h),Math.sqrt(1-h)); }
     /** 把返回数量限制在 1~50，空值默认 20。 */
     private int safeLimit(Integer limit) { return limit == null ? 20 : Math.max(1, Math.min(limit, 50)); }
-    private String recommendCacheKey(Long userId, MatchTripDTO reference, String sort, Double latitude,
-                                     Double longitude, int page, int pageSize) {
+    private String recommendationPoolKey(Long userId, MatchTripDTO reference, String sort, Double latitude,
+                                         Double longitude) {
         String ref = reference == null ? "none" : String.valueOf(reference.tripId());
         // 有基准行程时距离计算只使用基准行程坐标，客户端当前位置不会影响结果，不进入 key。
         String lat = reference != null ? "reference"
                 : latitude == null ? "none" : String.format(Locale.ROOT, "%.3f", latitude);
         String lng = reference != null ? "reference"
                 : longitude == null ? "none" : String.format(Locale.ROOT, "%.3f", longitude);
-        return "match:recommend:v2:" + userId + ':' + ref + ':' + sort + ':' + lat + ':' + lng + ':' + page + ':' + pageSize;
+        return recommendationPoolService.poolKey(userId, ref, sort, lat + ':' + lng);
     }
 
     private long millis(long start, long end) { return (end - start) / 1_000_000L; }

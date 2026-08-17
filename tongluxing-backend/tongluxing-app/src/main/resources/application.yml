@@ -89,13 +89,16 @@ observability:
 
 # 匹配只使用临时简化路线；trip_route.polyline 始终保存地图服务返回的完整路线。
 recommendation:
-  cache:
-    ttl-seconds: ${RECOMMENDATION_CACHE_TTL_SECONDS:60}
-    ttl-jitter-seconds: ${RECOMMENDATION_CACHE_TTL_JITTER_SECONDS:30}
-    lock-ttl-seconds: ${RECOMMENDATION_CACHE_LOCK_TTL_SECONDS:20}
-    wait-timeout-millis: ${RECOMMENDATION_CACHE_WAIT_TIMEOUT_MILLIS:5000}
-    wait-interval-millis: ${RECOMMENDATION_CACHE_WAIT_INTERVAL_MILLIS:50}
-    stale-ttl-seconds: ${RECOMMENDATION_CACHE_STALE_TTL_SECONDS:300}
+  pool:
+    max-size: ${RECOMMENDATION_POOL_MAX_SIZE:100}
+    ttl-seconds: ${RECOMMENDATION_POOL_TTL_SECONDS:180}
+    ttl-jitter-seconds: ${RECOMMENDATION_POOL_TTL_JITTER_SECONDS:60}
+    stale-ttl-seconds: ${RECOMMENDATION_POOL_STALE_TTL_SECONDS:600}
+    lock-ttl-seconds: ${RECOMMENDATION_POOL_LOCK_TTL_SECONDS:30}
+    wait-timeout-millis: ${RECOMMENDATION_POOL_WAIT_TIMEOUT_MILLIS:500}
+    wait-interval-millis: ${RECOMMENDATION_POOL_WAIT_INTERVAL_MILLIS:40}
+    seen-max-size: ${RECOMMENDATION_POOL_SEEN_MAX_SIZE:200}
+    seen-ttl-seconds: ${RECOMMENDATION_POOL_SEEN_TTL_SECONDS:1200}
   route:
     # 单位：米。50 仅为初始基线，应根据真实路线 A/B 结果继续调优。
     rdp-epsilon: ${RECOMMENDATION_ROUTE_RDP_EPSILON:50}

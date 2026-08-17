@@ -57,6 +57,7 @@ import com.tongluxing.trip.service.TripService;
 import com.tongluxing.trip.service.TripFinishedEvent;
 import com.tongluxing.trip.service.TripPublishedEvent;
 import com.tongluxing.trip.service.TripStartedEvent;
+import com.tongluxing.trip.service.TripRecommendationChangedEvent;
 import com.tongluxing.trip.support.RoutePolylineUtils;
 import com.tongluxing.trip.support.RouteSignatureUtils;
 import com.tongluxing.trip.support.RouteSignatureUtils.Node;
@@ -201,6 +202,7 @@ public class TripServiceImpl implements TripService {
                 userId, trip.getVehicleId(), trip.getMaxVehicleCount(),
                 trip.getPublicFlag() != null && trip.getPublicFlag() == 1, List.of(userId),
                 trip.getTripType(), trip.getCaptainUserId()));
+        eventPublisher.publishEvent(new TripRecommendationChangedEvent(trip.getId(), userId, "PUBLISH"));
         return toResponse(trip);
     }
 
@@ -382,6 +384,8 @@ public class TripServiceImpl implements TripService {
         insertAuditLog(tripId, userId, "UPDATE", before, trip, "编辑行程");
         clearTripCaches(userId, tripId);
         eventPublisher.publishEvent(new TripUpdatedEvent(tripId, userId));
+        eventPublisher.publishEvent(new TripRecommendationChangedEvent(tripId, userId,
+                routeChanged ? "ROUTE_UPDATE" : "TRIP_UPDATE"));
         return buildResponse(tripId);
     }
 
@@ -605,6 +609,7 @@ public class TripServiceImpl implements TripService {
         insertAuditLog(tripId, userId, "CONTINUE", before, after, "到达后继续行程并更新终点");
         clearTripCaches(userId, tripId);
         eventPublisher.publishEvent(new TripUpdatedEvent(tripId, userId));
+        eventPublisher.publishEvent(new TripRecommendationChangedEvent(tripId, userId, "ROUTE_CONTINUE"));
         return buildResponse(tripId);
     }
 
@@ -739,6 +744,7 @@ public class TripServiceImpl implements TripService {
         Trip after = tripMapper.findById(tripId);
         insertAuditLog(tripId, userId, operation, before, after, remark);
         clearTripCaches(userId, tripId);
+        eventPublisher.publishEvent(new TripRecommendationChangedEvent(tripId, userId, operation));
         return toResponse(after);
     }
 

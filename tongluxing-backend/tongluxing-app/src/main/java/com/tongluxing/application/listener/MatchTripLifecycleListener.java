@@ -5,9 +5,11 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.stereotype.Component;
 import com.tongluxing.match.service.MatchService;
+import com.tongluxing.match.service.RecommendationPoolService;
 import com.tongluxing.trip.service.TripFinishedEvent;
 import com.tongluxing.trip.service.TripPublishedEvent;
 import com.tongluxing.trip.service.TripStartedEvent;
+import com.tongluxing.trip.service.TripRecommendationChangedEvent;
 import com.tongluxing.team.service.TeamApplicationReviewedEvent;
 import lombok.RequiredArgsConstructor;
 
@@ -15,6 +17,13 @@ import lombok.RequiredArgsConstructor;
 @Component @RequiredArgsConstructor
 public class MatchTripLifecycleListener {
     private final MatchService matchService;
+    private final RecommendationPoolService recommendationPoolService;
+
+    @Async("tripEventExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void onRecommendationChanged(TripRecommendationChangedEvent event) {
+        recommendationPoolService.invalidateAllPools();
+    }
 
     @Async("tripEventExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)

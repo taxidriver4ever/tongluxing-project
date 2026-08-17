@@ -6,13 +6,19 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -23,6 +29,7 @@ import com.tongluxing.match.integration.MatchTeamPort.MatchTeamDTO;
 import com.tongluxing.match.integration.MatchTripPort;
 import com.tongluxing.match.integration.MatchTripPort.MatchRecommendationCandidateDTO;
 import com.tongluxing.match.integration.MatchTripPort.MatchTripDTO;
+import com.tongluxing.match.config.RecommendationPoolProperties;
 import com.tongluxing.match.mapper.MatchRecommendLogMapper;
 import com.tongluxing.match.mapper.MatchResultMapper;
 import com.tongluxing.match.mapper.TripConsultationMapper;
@@ -31,8 +38,10 @@ import com.tongluxing.match.mapper.TripRecommendationMetricsMapper;
 import com.tongluxing.match.mapper.TripRecommendationMetricsMapper.TripRecommendationMetricRow;
 import com.tongluxing.match.mapper.TripSearchHistoryMapper;
 import com.tongluxing.match.service.RecommendImpressionService;
-import com.tongluxing.match.service.RecommendationCacheService;
-import com.tongluxing.match.service.RecommendationCacheService.CacheResult;
+import com.tongluxing.match.service.RecommendationPool;
+import com.tongluxing.match.service.RecommendationPoolService;
+import com.tongluxing.match.service.RecommendationPoolService.PoolLoadResult;
+import com.tongluxing.match.service.RecommendationPoolService.PoolSlice;
 import com.tongluxing.match.vo.TripRecommendPageResponse;
 import com.tongluxing.user.service.UserService;
 import com.tongluxing.user.support.CurrentUserContext;
@@ -40,52 +49,95 @@ import com.tongluxing.user.support.CurrentUserContext;
 class MatchServiceImplRecommendationTest {
 
     @Test
-    void keepsHeatSortAndPaginationWhileLoadingOnlyFinalPageDetails() {
+    void poolRefreshesReturnNextBatchWithoutRecalculatingUntilExhausted() {
         MatchTripPort tripPort = mock(MatchTripPort.class);
         MatchTeamPort teamPort = mock(MatchTeamPort.class);
         CurrentUserContext currentUser = mock(CurrentUserContext.class);
         TripRecommendationMetricsMapper metricsMapper = mock(TripRecommendationMetricsMapper.class);
-        RecommendationCacheService cache = mock(RecommendationCacheService.class);
+        RecommendationPoolService poolService = mock(RecommendationPoolService.class);
+        RecommendationPoolProperties poolProperties = new RecommendationPoolProperties();
+        poolProperties.setMaxSize(100);
         RecommendImpressionService impressions = mock(RecommendImpressionService.class);
         MatchServiceImpl service = new MatchServiceImpl(tripPort, teamPort, mock(MatchResultMapper.class),
                 mock(MatchRecommendLogMapper.class), currentUser, new ObjectMapper(), mock(UserService.class),
                 mock(TripFavoriteMapper.class), mock(TripConsultationMapper.class), metricsMapper,
-                mock(TripSearchHistoryMapper.class), cache, impressions);
+                mock(TripSearchHistoryMapper.class), poolService, poolProperties, impressions);
 
         LocalDateTime departure = LocalDateTime.now().plusHours(3);
-        List<MatchRecommendationCandidateDTO> candidates = List.of(
-                candidate(1L, departure), candidate(2L, departure), candidate(3L, departure));
-        Map<Long, MatchTeamDTO> teams = Map.of(1L, team(1L), 2L, team(2L), 3L, team(3L));
+        List<MatchRecommendationCandidateDTO> candidates = IntStream.rangeClosed(1, 20)
+                .mapToObj(id -> candidate((long) id, departure)).toList();
+        List<Long> candidateIds = candidates.stream().map(MatchRecommendationCandidateDTO::tripId).toList();
         when(currentUser.requireUserId()).thenReturn(7L);
         when(tripPort.findRecommendationReferenceTrip(7L)).thenReturn(null);
         when(tripPort.listRecommendationCandidates(any())).thenReturn(candidates);
-        when(teamPort.findActiveTeamsByTripIds(List.of(1L, 2L, 3L))).thenReturn(teams);
-        when(metricsMapper.findByTripIds(List.of(1L, 2L, 3L))).thenReturn(List.of(
-                metric(1L, 1, 0), metric(2L, 0, 2), metric(3L, 2, 0)));
-        when(teamPort.relationshipStatuses(anyList(), any())).thenReturn(Map.of(103L, "NONE", 102L, "PENDING"));
-        MatchTripDTO detail3 = detail(3L);
-        MatchTripDTO detail2 = detail(2L);
-        when(tripPort.getTripDetails(List.of(3L, 2L))).thenReturn(Map.of(3L, detail3, 2L, detail2));
-        when(cache.getOrCompute(any(), any())).thenAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            Supplier<TripRecommendPageResponse> supplier = invocation.getArgument(1);
-            return new CacheResult(supplier.get(), false, 1L, 1L, true);
+        when(teamPort.findActiveTeamsByTripIds(anyList())).thenAnswer(invocation ->
+                ((List<Long>) invocation.getArgument(0)).stream().collect(Collectors.toMap(id -> id, this::team)));
+        when(metricsMapper.findByTripIds(candidateIds)).thenReturn(candidateIds.stream()
+                .map(id -> metric(id, id.intValue(), 0)).toList());
+        when(teamPort.relationshipStatuses(anyList(), any())).thenAnswer(invocation ->
+                ((List<MatchTeamDTO>) invocation.getArgument(0)).stream()
+                        .collect(Collectors.toMap(MatchTeamDTO::teamId, team -> "NONE")));
+        when(tripPort.getTripDetails(anyList())).thenAnswer(invocation ->
+                ((List<Long>) invocation.getArgument(0)).stream().collect(Collectors.toMap(id -> id, this::detail)));
+        when(poolService.poolKey(any(), any(), any(), any())).thenReturn("recommend:pool:test");
+        when(poolService.seenTripIds(7L)).thenReturn(Set.of());
+        AtomicReference<RecommendationPool> currentPool = new AtomicReference<>();
+        AtomicInteger cursor = new AtomicInteger();
+        AtomicInteger builds = new AtomicInteger();
+        when(poolService.getOrBuild(any(), any())).thenAnswer(invocation -> {
+            boolean hit = currentPool.get() != null;
+            if (!hit) {
+                @SuppressWarnings("unchecked")
+                Supplier<RecommendationPool> supplier = invocation.getArgument(1);
+                currentPool.set(supplier.get());
+                builds.incrementAndGet();
+            }
+            return new PoolLoadResult(currentPool.get(), "recommend:pool:test", hit, false,
+                    !hit, 1L, hit ? 0L : 1L);
+        });
+        when(poolService.claim(any(), any(), any(), any(Integer.class))).thenAnswer(invocation -> {
+            RecommendationPool pool = invocation.getArgument(2);
+            int batchSize = invocation.getArgument(3);
+            int start = cursor.getAndAdd(batchSize);
+            if (start >= pool.items().size()) return new PoolSlice(List.of(), start, true);
+            return new PoolSlice(pool.items().subList(start, Math.min(start + batchSize, pool.items().size())),
+                    start, false);
+        });
+        when(poolService.invalidateIfCurrent(any(), any())).thenAnswer(invocation -> {
+            currentPool.set(null);
+            cursor.set(0);
+            return true;
         });
 
-        TripRecommendPageResponse response = service.recommendTrips("heat", false, 23D, 113D, 1, 2);
+        TripRecommendPageResponse first = service.recommendTrips("heat", false, 23D, 113D, 1, 10);
+        TripRecommendPageResponse second = service.recommendTrips("heat", false, 23D, 113D, 2, 10);
 
-        assertEquals(3L, response.total());
-        assertEquals("HEAT", response.effectiveSort());
-        assertFalse(response.userHasTrip());
-        assertEquals(List.of("3", "2"), response.list().stream().map(card -> card.tripId()).toList());
-        assertEquals(List.of(80, 60), response.list().stream().map(card -> card.heat()).toList());
-        verify(tripPort).getTripDetails(List.of(3L, 2L));
-        verify(teamPort).relationshipStatuses(anyList(), any());
+        assertEquals(20L, first.total());
+        assertEquals("HEAT", first.effectiveSort());
+        assertFalse(first.userHasTrip());
+        assertEquals(IntStream.iterate(20, value -> value - 1).limit(10).mapToObj(String::valueOf).toList(),
+                first.list().stream().map(card -> card.tripId()).toList());
+        assertEquals(IntStream.iterate(10, value -> value - 1).limit(10).mapToObj(String::valueOf).toList(),
+                second.list().stream().map(card -> card.tripId()).toList());
+        assertEquals(1, builds.get());
+        verify(tripPort, times(1)).listRecommendationCandidates(any());
+
+        TripRecommendPageResponse afterExhaustion = service.recommendTrips("heat", false, 23D, 113D, 3, 10);
+        assertEquals(10, afterExhaustion.list().size());
+        assertEquals(2, builds.get());
+        verify(tripPort, times(2)).listRecommendationCandidates(any());
+
         verify(teamPort, never()).relationshipStatus(any(), any());
         verify(tripPort, never()).listPublicTrips(any(MatchTripPort.MatchCandidateQuery.class));
         ArgumentCaptor<List<RecommendImpressionService.ImpressionCommand>> captor = ArgumentCaptor.forClass(List.class);
-        verify(impressions).submit(captor.capture());
-        assertEquals(2, captor.getValue().size());
+        verify(impressions, times(3)).submit(captor.capture());
+        assertEquals(List.of(10, 10, 10), captor.getAllValues().stream().map(List::size).toList());
+    }
+
+    @Test
+    void keepsHeatScoreSemantics() {
+        assertEquals(80, metric(1L, 2, 0).applicationCount() * 40);
+        assertEquals(60, metric(2L, 0, 2).favoriteCount() * 30);
     }
 
     private MatchRecommendationCandidateDTO candidate(Long id, LocalDateTime departure) {

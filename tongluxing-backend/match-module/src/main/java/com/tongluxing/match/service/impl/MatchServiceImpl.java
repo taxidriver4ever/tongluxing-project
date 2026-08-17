@@ -269,7 +269,7 @@ public class MatchServiceImpl implements MatchService {
 
     /** 记录行程开始/结束漏斗事件；未知动作静默忽略，避免污染统计枚举。 */
     @Override public void recordTripLifecycle(Long tripId, String actionType) {
-        if (!List.of("START", "FINISH").contains(actionType)) return;
+        if (!"START".equals(actionType) && !"FINISH".equals(actionType)) return;
         MatchTripDTO trip = tripPort.getTrip(tripId);
         if (trip != null) log(trip.userId(), tripId, tripId, null, actionType, null);
     }
@@ -1431,7 +1431,8 @@ public class MatchServiceImpl implements MatchService {
 
     private boolean isPubliclyVisible(MatchTripDTO trip) {
         return Integer.valueOf(1).equals(trip.publicFlag())
-                && List.of("PUBLISHED", "RECRUITING", "RUNNING", "ONGOING").contains(trip.status());
+                && ("PUBLISHED".equals(trip.status()) || "RECRUITING".equals(trip.status())
+                || "RUNNING".equals(trip.status()) || "ONGOING".equals(trip.status()));
     }
 
     private boolean isJoinable(MatchTripDTO trip) {
@@ -1589,12 +1590,13 @@ public class MatchServiceImpl implements MatchService {
     private void requireMatchable(MatchTripDTO trip) { if (!isMatchable(trip)) throw new BusinessException(ResultCode.BAD_REQUEST, "只有公开且处于招募中或进行中的行程可以发现同行"); }
     /** 判断行程是否公开且处于可参与预计算推荐的状态。 */
     private boolean isMatchable(MatchTripDTO trip) {
-        return List.of("PUBLISHED", "RUNNING", "ONGOING").contains(trip.status())
+        return ("PUBLISHED".equals(trip.status()) || "RUNNING".equals(trip.status())
+                || "ONGOING".equals(trip.status()))
                 && Integer.valueOf(1).equals(trip.publicFlag());
     }
     /** 判断行程是否仍接受新成员；兼容 PUBLISHED 与 RECRUITING 两种上游状态。 */
     private boolean isRecruiting(String status) {
-        return List.of("PUBLISHED", "RECRUITING").contains(status);
+        return "PUBLISHED".equals(status) || "RECRUITING".equals(status);
     }
     /** 查询仍为 VALID 的推荐结果。 */
     private MatchResult requireResult(Long id) { MatchResult r = resultMapper.findById(id); if (r == null || !"VALID".equals(r.getResultStatus())) throw new BusinessException(ResultCode.NOT_FOUND, "推荐结果不存在"); return r; }

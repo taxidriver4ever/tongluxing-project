@@ -95,7 +95,8 @@ public class MatchTeamAdapter implements MatchTeamPort {
             return "PENDING";
         }
         // 退出或被移除的历史成员需要显示“申请归队”，不能被旧 APPROVED 申请覆盖。
-        if (member != null && List.of("EXITED", "REMOVED").contains(member.getMemberStatus())) {
+        if (member != null && ("EXITED".equals(member.getMemberStatus())
+                || "REMOVED".equals(member.getMemberStatus()))) {
             return member.getMemberStatus();
         }
         if (application == null || application.getApplicationStatus() == null) {
@@ -144,10 +145,10 @@ public class MatchTeamAdapter implements MatchTeamPort {
     private String aggregateRelationship(String memberStatus, String applicationStatus) {
         if ("ACTIVE".equals(memberStatus)) return "JOINED";
         if ("PENDING".equals(applicationStatus)) return "PENDING";
-        if (List.of("EXITED", "REMOVED").contains(memberStatus)) return memberStatus;
+        if ("EXITED".equals(memberStatus) || "REMOVED".equals(memberStatus)) return memberStatus;
         if (applicationStatus == null || applicationStatus.isBlank()) return "NONE";
         String normalized = applicationStatus.toUpperCase(java.util.Locale.ROOT);
-        return List.of("CANCELLED", "CANCELED").contains(normalized) ? "NONE" : normalized;
+        return "CANCELLED".equals(normalized) || "CANCELED".equals(normalized) ? "NONE" : normalized;
     }
 
     @Override

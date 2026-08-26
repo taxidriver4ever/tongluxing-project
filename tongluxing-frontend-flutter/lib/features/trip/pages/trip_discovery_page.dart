@@ -102,24 +102,22 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
     }
 
     try {
-      final result = await TripDiscoveryService(
-        context.read<AppSession>().api,
-      ).recommend(
-        sortBy: _recommendSort,
-        userHasTrip: _userHasTrip,
-        latitude: location?.latitude,
-        longitude: location?.longitude,
-        page: targetPage,
-        pageSize: _pageSize,
-      );
+      final result = await TripDiscoveryService(context.read<AppSession>().api)
+          .recommend(
+            sortBy: _recommendSort,
+            userHasTrip: _userHasTrip,
+            latitude: location?.latitude,
+            longitude: location?.longitude,
+            page: targetPage,
+            pageSize: _pageSize,
+          );
       if (!mounted || serial != _requestSerial) return;
 
       final values = (result['list'] as List? ?? const [])
           .whereType<Map>()
           .map(
-            (value) => TripRecommendModel.fromJson(
-              Map<String, dynamic>.from(value),
-            ),
+            (value) =>
+                TripRecommendModel.fromJson(Map<String, dynamic>.from(value)),
           )
           .toList();
       final actualUserHasTrip = result['userHasTrip'] == true;
@@ -165,13 +163,18 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
     if (mounted) await _load(reset: true);
   }
 
-  Future<void> _openDetail(TripRecommendModel trip) async {
+  Future<void> _openDetail(
+    TripRecommendModel trip, {
+    bool openApply = false,
+  }) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => TripDiscoveryDetailPage(
           tripId: trip.tripId,
           initial: trip.toDiscoverModel(),
+          openApplyOnLoad: openApply,
+          onApplicationSubmitted: widget.onApplicationSubmitted,
         ),
       ),
     );
@@ -182,9 +185,9 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
     if (_busyTripIds.contains(trip.tripId)) return;
     setState(() => _busyTripIds.add(trip.tripId));
     try {
-      await TripDiscoveryService(context.read<AppSession>().api).greet(
-        trip.tripId,
-      );
+      await TripDiscoveryService(
+        context.read<AppSession>().api,
+      ).greet(trip.tripId);
       if (!mounted) return;
       final index = _trips.indexWhere((value) => value.tripId == trip.tripId);
       if (index >= 0) {
@@ -193,34 +196,6 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
         setState(() => _trips = next);
       }
       _showMessage('已向队长打招呼');
-    } catch (error) {
-      if (mounted) _showMessage(error.toString(), error: true);
-    } finally {
-      if (mounted) setState(() => _busyTripIds.remove(trip.tripId));
-    }
-  }
-
-  Future<void> _apply(TripRecommendModel trip) async {
-    if (_busyTripIds.contains(trip.tripId) || !trip.allowApply) return;
-    setState(() => _busyTripIds.add(trip.tripId));
-    try {
-      await TripDiscoveryService(context.read<AppSession>().api).apply(
-        trip.tripId,
-        message: '通过推荐行程申请加入队伍',
-        selfDrive: false,
-      );
-      if (!mounted) return;
-      final index = _trips.indexWhere((value) => value.tripId == trip.tripId);
-      if (index >= 0) {
-        final next = [..._trips];
-        next[index] = next[index].copyWith(
-          relationshipStatus: 'PENDING',
-          allowApply: false,
-        );
-        setState(() => _trips = next);
-      }
-      _showMessage('申请已提交，可在“我的行程-待出发”查看待审批状态');
-      await widget.onApplicationSubmitted?.call();
     } catch (error) {
       if (mounted) _showMessage(error.toString(), error: true);
     } finally {
@@ -245,8 +220,7 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
         selected: _recommendSort,
         onSelected: _changeSort,
       ),
-      if (!_userHasTrip)
-        _NoTripGuide(onPublish: _openCreateTrip),
+      if (!_userHasTrip) _NoTripGuide(onPublish: _openCreateTrip),
       Expanded(child: _buildBody()),
     ],
   );
@@ -272,9 +246,7 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
             ? '系统已过滤顺路率低于20%、距离超过100km、时间差超过3天或已满员队伍'
             : '系统已过滤距离超过100km、时间差超过3天或已满员队伍',
         actionText: _userHasTrip ? '刷新推荐' : '立即发布',
-        onAction: _userHasTrip
-            ? () => _load(reset: true)
-            : _openCreateTrip,
+        onAction: _userHasTrip ? () => _load(reset: true) : _openCreateTrip,
       );
     }
 
@@ -304,7 +276,17 @@ class _TripDiscoveryPageState extends State<TripDiscoveryPage> {
             busy: _busyTripIds.contains(trip.tripId),
             onTap: () => _openDetail(trip),
             onGreeting: trip.allowGreeting ? () => _greet(trip) : null,
-            onApply: trip.allowApply ? () => _apply(trip) : null,
+            // 推荐列表可能命中旧缓存，申请资格以进入详情后的实时结果为准。
+            // 非终态关系允许点击进入申请表单，服务端仍负责最终业务校验。
+            onApply:
+                const {
+                  'OWNER',
+                  'JOINED',
+                  'ACTIVE',
+                  'PENDING',
+                }.contains(trip.relationshipStatus)
+                ? null
+                : () => _openDetail(trip, openApply: true),
           );
         },
       ),
@@ -791,10 +773,7 @@ class _RecommendState extends StatelessWidget {
           Text(
             subtitle,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: AppColors.secondaryText,
-              height: 1.5,
-            ),
+            style: const TextStyle(color: AppColors.secondaryText, height: 1.5),
           ),
           const SizedBox(height: 18),
           FilledButton(onPressed: onAction, child: Text(actionText)),

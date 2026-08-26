@@ -17,16 +17,19 @@ import 'trip_detail_page.dart';
 import 'trip_discovery_widgets.dart';
 import '../widgets/trip_discovery_theme.dart';
 import '../widgets/route_map_view.dart';
-import '../widgets/trip_route_preview.dart';
 
 class TripDiscoveryDetailPage extends StatefulWidget {
   const TripDiscoveryDetailPage({
     required this.tripId,
     this.initial,
+    this.openApplyOnLoad = false,
+    this.onApplicationSubmitted,
     super.key,
   });
   final String tripId;
   final TripDiscoverModel? initial;
+  final bool openApplyOnLoad;
+  final Future<void> Function()? onApplicationSubmitted;
   @override
   State<TripDiscoveryDetailPage> createState() =>
       _TripDiscoveryDetailPageState();
@@ -40,6 +43,7 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
   bool saved = false;
   List<LocationSelection> roadRoute = const [];
   String? error;
+  bool _openApplyHandled = false;
 
   @override
   void initState() {
@@ -54,19 +58,55 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
     });
     try {
       final api = context.read<AppSession>().api;
-      final loaded = await TripDiscoveryService(
+      final detailFuture = TripDiscoveryService(
         api,
       ).publicDetail(widget.tripId);
+      // 完整路线与公开详情并行读取。发现页地图使用 trip_route.polyline，
+      // 不使用推荐匹配专用的 RDP 路线，也不再用起终点拟合道路形状。
+      final routeFuture = TripService(api)
+          .tripRoute(widget.tripId)
+          .then<TripDraftRouteModel?>(
+            (route) => route,
+            onError: (Object _, StackTrace _) => null,
+          );
+      final loaded = await detailFuture;
+      final fullRoute = await routeFuture;
       detail = loaded;
       followed = loaded.owner.followed;
       saved = loaded.favorited;
-      // 发现详情只使用起终点节点绘制概览曲线，不下载、不解析实际道路折线。
-      // 真实 routePolyline 仍保留在后端，继续供导航和顺路率计算使用。
-      roadRoute = loaded.mapPoints;
+      final fullPoints =
+          fullRoute?.polylinePoints ?? const <LocationSelection>[];
+      roadRoute = fullPoints.length >= 2 ? fullPoints : loaded.mapPoints;
     } catch (e) {
       error = e.toString();
     }
-    if (mounted) setState(() => loading = false);
+    if (!mounted) return;
+    setState(() => loading = false);
+    if (widget.openApplyOnLoad && !_openApplyHandled) {
+      _openApplyHandled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openRequestedApplication();
+      });
+    }
+  }
+
+  Future<void> _openRequestedApplication() async {
+    final value = detail;
+    if (value == null) return;
+    if (value.allowApply && value.joinable) {
+      await apply();
+      return;
+    }
+    final message = switch (value.trip.relationshipStatus) {
+      'PENDING' => '申请正在审核中，请勿重复提交',
+      'JOINED' || 'ACTIVE' => '你已经加入该行程',
+      'OWNER' => '这是你发起的行程',
+      _ when value.trip.remainingSeats <= 0 => '行程名额已满',
+      _ => '该行程当前不接受加入申请',
+    };
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> toggleFavorite() async {
@@ -158,6 +198,7 @@ class _TripDiscoveryDetailPageState extends State<TripDiscoveryDetailPage> {
           content: Text(returning ? '归队申请已提交，请等待队长审核' : '申请已提交，请等待队长审核'),
         ),
       );
+      await widget.onApplicationSubmitted?.call();
       await load();
     } catch (e) {
       if (mounted) {
@@ -893,7 +934,7 @@ class _TripRouteMapCard extends StatelessWidget {
                   clipBehavior: Clip.hardEdge,
                   children: [
                     RouteMapView(
-                      polylinePoints: buildSmoothOverviewRoute(routePoints),
+                      polylinePoints: routePoints,
                       performanceLabel:
                           'trip_discovery_detail:${detail.trip.tripId}',
                       stops: [

@@ -535,9 +535,12 @@ public class MatchServiceImpl implements MatchService {
         List<Long> candidateIds = candidates.stream().map(MatchRecommendationCandidateDTO::tripId).toList();
         phaseStarted = System.nanoTime();
         Map<Long, MatchTeamDTO> teamByTripId = teamPort.findActiveTeamsByTripIds(candidateIds);
+        timing.teamQueryMs = millis(phaseStarted, System.nanoTime());
+        phaseStarted = System.nanoTime();
         Map<Long, TripRecommendationMetricRow> metrics = recommendationMetricsMapper.findByTripIds(candidateIds).stream()
                 .collect(java.util.stream.Collectors.toMap(TripRecommendationMetricRow::tripId, row -> row));
-        timing.teamAndMetricsMs = millis(phaseStarted, System.nanoTime());
+        timing.metricQueryMs = millis(phaseStarted, System.nanoTime());
+        timing.teamAndMetricsMs = timing.teamQueryMs + timing.metricQueryMs;
 
         phaseStarted = System.nanoTime();
         List<RecommendationCandidate> coarseAccepted = new ArrayList<>();
@@ -664,17 +667,22 @@ public class MatchServiceImpl implements MatchService {
                                     TripRecommendPageResponse response,
                                     long cacheReadMs, long cacheWriteMs, long impressionSubmitMs,
                                     long totalStarted) {
-        log.info("trip_recommend_timing cacheHit={} stalePool={} poolBuilt={} cursorStart={} "
+        long businessTotalMs = millis(totalStarted, System.nanoTime());
+        log.info("trip_recommend_timing requestId={} cacheHit={} stalePool={} poolBuilt={} cursorStart={} "
                         + "referenceTripId={} candidateCount={} finalResultCount={} "
                         + "cacheReadMs={} candidateDatabaseMs={} teamAndMetricsMs={} routeDatabaseMs={} "
                         + "matchCalculationMs={} relationshipDatabaseMs={} detailDatabaseMs={} "
-                        + "impressionSubmitMs={} cacheWriteMs={} totalMs={}",
-                cacheHit, stalePool, poolBuilt, cursorStart,
+                        + "impressionSubmitMs={} cacheWriteMs={} totalMs={} "
+                        + "candidateQueryMs={} teamQueryMs={} metricQueryMs={} routeQueryMs={} "
+                        + "matchCalculateMs={} relationshipQueryMs={} detailQueryMs={} businessTotalMs={}",
+                org.slf4j.MDC.get("requestId"), cacheHit, stalePool, poolBuilt, cursorStart,
                 reference == null ? null : reference.tripId(), timing.candidateCount,
                 response == null || response.list() == null ? 0 : response.list().size(),
                 cacheReadMs, timing.candidateDatabaseMs, timing.teamAndMetricsMs, timing.routeDatabaseMs,
                 timing.matchCalculationMs, timing.relationshipDatabaseMs, timing.detailDatabaseMs,
-                impressionSubmitMs, cacheWriteMs, millis(totalStarted, System.nanoTime()));
+                impressionSubmitMs, cacheWriteMs, businessTotalMs,
+                timing.candidateDatabaseMs, timing.teamQueryMs, timing.metricQueryMs, timing.routeDatabaseMs,
+                timing.matchCalculationMs, timing.relationshipDatabaseMs, timing.detailDatabaseMs, businessTotalMs);
     }
 
     @Override
@@ -1233,6 +1241,8 @@ public class MatchServiceImpl implements MatchService {
         private int candidateCount = -1;
         private int acceptedCount;
         private long candidateDatabaseMs;
+        private long teamQueryMs;
+        private long metricQueryMs;
         private long teamAndMetricsMs;
         private long routeDatabaseMs;
         private long matchCalculationMs;
